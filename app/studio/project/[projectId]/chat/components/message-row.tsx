@@ -17,6 +17,11 @@ import type { ConversationMessageActions } from "./conversation-types";
 import { AttachmentCard } from "./attachment-card";
 import { RpgTurnCard } from "./rpg-turn-card";
 import { ToolProgressCard } from "./tool-progress-card";
+import { ConversationExecutionTrace } from "./execution-trace";
+import {
+  friendlyConversationExecutionError,
+  friendlyFailedAssistantContent,
+} from "./execution-trace-model";
 import { closedRegenerationProofStatus } from "./conversation-regeneration-proof";
 import {
   selectClosedAgentFailureEvidenceInvocation,
@@ -68,6 +73,12 @@ export const MessageRow = memo(function MessageRow({
   );
   const failureInvocation = persistedFailure?.invocation ?? null;
   const failureEvidence = persistedFailure?.evidence ?? null;
+  const visibleFailure = failureInvocation && failureEvidence
+    ? friendlyConversationExecutionError(
+        failureInvocation.safeErrorCode ?? failureEvidence.safeCode,
+        failureInvocation.safeProgress?.message,
+      )
+    : null;
   const retryParent = message.parentMessageId
     ? allMessages.find((candidate) => candidate.id === message.parentMessageId) ?? null
     : null;
@@ -129,8 +140,14 @@ export const MessageRow = memo(function MessageRow({
           }}
         />
       ) : message.content ? (
-        <div className={styles.messageBody}>{message.content}</div>
+        <div className={styles.messageBody}>{message.role === "assistant" && ["failed", "cancelled"].includes(message.status)
+          ? friendlyFailedAssistantContent(
+              message.content,
+              failureInvocation?.safeErrorCode ?? invocation?.safeErrorCode,
+            )
+          : message.content}</div>
       ) : null}
+      {message.role === "assistant" ? <ConversationExecutionTrace invocations={messageInvocations} /> : null}
       {message.attachmentIds.map((attachmentId) => {
         const attachment = attachmentsById.get(attachmentId);
         return attachment ? <AttachmentCard key={attachment.id} attachment={attachment} /> : null;
@@ -138,7 +155,7 @@ export const MessageRow = memo(function MessageRow({
       {invocation && ["pending", "running"].includes(invocation.status) ? (
         <ToolProgressCard progress={invocation.safeProgress?.message ?? progress} canStop={canStop} onStop={actions.stopGeneration} />
       ) : null}
-      {failureInvocation && failureEvidence ? (
+      {failureInvocation && failureEvidence && visibleFailure ? (
         <section
           className={styles.resultCard}
           role="alert"
@@ -148,8 +165,8 @@ export const MessageRow = memo(function MessageRow({
           data-invocation-id={failureInvocation.id}
           data-task-id={failureInvocation.taskId}
         >
-          <strong>{failureEvidence.safeCode}</strong>
-          <p>本機閉端 AI 已安全停止；未完成內容與 Canon 均未修改。</p>
+          <strong>{visibleFailure.title}</strong>
+          <p>{visibleFailure.message} 未完成內容與 Canon 均未修改。</p>
         </section>
       ) : null}
       {messageArtifacts.map((artifact) => (

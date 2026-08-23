@@ -64,6 +64,15 @@ for (const leakedStory of [
     (error) => error?.message === "RPG_AI_INTERNAL_STORY_MECHANICS_LEAK",
   );
 }
+for (const visibleEngineStory of [
+  "核准規則：先鎖定狀態更新；本回合目標是守住資金。",
+  "關係張力來自團隊分歧，結算結果會限制下一輪可用人力。",
+]) {
+  assert.throws(
+    () => validateRpgStoryTurnContract(visibleEngineStory, "zh-TW"),
+    (error) => error?.message === "RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE",
+  );
+}
 const closureLedger = (snapshot) => Object.fromEntries([
   "story.arc.resolvedThread",
   "story.arc.resolvedTurn",
@@ -289,8 +298,11 @@ for (const playMode of scenarios) {
       );
     } else {
       closureStory = candidate.story;
-      assert.match(candidate.story, /結案/u);
-      assert.match(candidate.story, /尾聲/u);
+      assert.match(candidate.story, /真正的終點|抵達.{0,8}終點|故事真正安靜/u);
+      assert.doesNotMatch(
+        candidate.story,
+        /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
+      );
       assert.doesNotMatch(candidate.story, /等待下一步選擇|下一回合能追查/u);
     }
     await approveRpgChatTurn({ repository, snapshot, candidate });
@@ -359,7 +371,11 @@ for (const playMode of scenarios) {
     failureReason: "ARC_EPILOGUE_CONTRACT_TEST",
   });
   fallbackTimes.push(epilogueCandidate.executionReceipt.fallbackGenerationMs);
-  assert.match(epilogueCandidate.story, /尾聲/u);
+  assert.match(epilogueCandidate.story, /沒有新的危機|完整的去向|旅程就停在此處/u);
+  assert.doesNotMatch(
+    epilogueCandidate.story,
+    /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
+  );
   assert.doesNotMatch(epilogueCandidate.story, /下一回合能追查|新的三條|等待下一步選擇/u);
   await approveRpgChatTurn({ repository, snapshot: closed, candidate: epilogueCandidate });
 
@@ -411,7 +427,7 @@ for (const playMode of scenarios) {
     failureReason: "ARC_SEQUEL_CONTRACT_TEST",
   });
   assert.ok(continuationCandidate.executionReceipt.fallbackGenerationMs < 1_000);
-  assert.match(continuationCandidate.story, /續篇|下一卷/u);
+  assert.match(continuationCandidate.story, /另一段故事由此開始|走向新地點/u);
   await approveRpgChatTurn({ repository, snapshot: afterEpilogue, candidate: continuationCandidate });
   const sequel = await loadRpgChatSnapshot(repository, bundle.project.id);
   assert.equal(sequel.progression.turn, 10);
@@ -456,7 +472,11 @@ for (const playMode of scenarios) {
     failureReason: "ARC_ARCHIVE_CONTRACT_TEST",
   });
   fallbackTimes.push(archiveCandidate.executionReceipt.fallbackGenerationMs);
-  assert.match(archiveCandidate.story, /封存|完整終點/u);
+  assert.match(archiveCandidate.story, /故事真正安靜|已結束的衝突|關上門/u);
+  assert.doesNotMatch(
+    archiveCandidate.story,
+    /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
+  );
   assert.doesNotMatch(archiveCandidate.story, /下一回合能追查|新的三條|等待下一步選擇/u);
   await approveRpgChatTurn({
     repository: archiveRepository,

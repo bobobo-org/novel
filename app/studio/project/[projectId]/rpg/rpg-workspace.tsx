@@ -35,6 +35,13 @@ import {
   initialProceduralPillResources,
 } from "@/lib/novel-ai/game/procedural-pill-engine";
 import {
+  PROCEDURAL_CHARACTER_CAPACITY,
+  PROCEDURAL_TREASURE_CAPACITY,
+  proceduralCharacterAt,
+  proceduralTreasureAt,
+  type ProceduralCharacterCandidate,
+} from "@/lib/novel-ai/game/procedural-story-library";
+import {
   DEFAULT_RPG_RULE_SETTINGS,
   RPG_FREE_WORLD_ACTIVITIES,
   RPG_FORMULA_VERSION,
@@ -259,7 +266,30 @@ function errorMessage(error: unknown) {
     CLOSED_AGENT_EVALUATION_BLOCKED: "本回合沒有通過閉端 AI 品質檢查，因此沒有寫入故事。",
     RPG_CLOSED_AI_RESOLUTION_FAILED: "閉端 AI 沒有完成本回合，故事與能力值均未變更。",
   };
-  return labels[code] ?? (error instanceof Error ? error.message : "操作未完成，請再試一次。");
+  const fallback = error instanceof Error ? error.message.trim() : "";
+  const looksLikeInternalCode = /(?:^|\s)[A-Z][A-Z0-9_]{3,}(?:$|\s)/u.test(fallback);
+  return labels[code] ?? (fallback && !looksLikeInternalCode
+    ? fallback
+    : "操作尚未完成，故事與數值都沒有改變，請稍後再試。");
+}
+
+function proceduralCharacterTemplate(candidate: ProceduralCharacterCandidate): RpgCharacterTemplate {
+  return {
+    ...createRpgCharacterTemplate({
+      name: candidate.name,
+      archetype: candidate.role,
+      identity: `${candidate.storyAffinity}故事中的${candidate.role}`,
+      personality: candidate.personality,
+      goal: candidate.goal,
+    }),
+    templateId: candidate.id,
+    rpgArchetype: candidate.rpgArchetype,
+    values: [candidate.stance],
+    capabilities: [candidate.proactiveAction],
+    limitations: [candidate.refusalCondition],
+    relationshipHooks: [candidate.directDialogue],
+    builtin: true,
+  };
 }
 
 function formatNumber(value: number) {
@@ -474,6 +504,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const [pendingTurnCandidate, setPendingTurnCandidate] = useState<RpgChatTurnCandidate | null>(null);
   const [turnElapsedSeconds, setTurnElapsedSeconds] = useState(0);
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
+  const [proceduralLibraryVariant, setProceduralLibraryVariant] = useState(0);
   const [presetPreviewOpen, setPresetPreviewOpen] = useState(false);
   const aiChoiceControllerRef = useRef<AbortController | null>(null);
   const aiChoiceCandidateRef = useRef<string | null>(null);
@@ -759,7 +790,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       .catch((error) => {
         if (controller.signal.aborted) return;
         console.warn("RPG_CHOICE_PLANNING_FAILED", error);
-        setAiChoiceStatus(`本回合選項尚未完成（${String((error as { code?: string })?.code ?? "RPG_CHOICE_PLAN_FAILED")}）；正式故事與數值維持原狀。`);
+        setAiChoiceStatus(`${errorMessage(error)} 正式故事與數值維持原狀。`);
       })
       .finally(() => {
         if (enhancementTimeout !== null) window.clearTimeout(enhancementTimeout);
@@ -773,6 +804,42 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     };
   }, [activated, aiChoiceRetry, aiContextKey, data, learningRepository, pendingTurnCandidate, progression, projectId, rpgFoundationReady, rules]);
   const library = useMemo(() => mergeCharacterLibrary(customLibrary), [customLibrary]);
+  const proceduralLibrary = useMemo(() => {
+    if (!data || !progression) return { characters: [], treasures: [] };
+    const context = {
+      genre: [data.project.genrePackId, data.project.genreId, data.project.subgenreId]
+        .filter(Boolean)
+        .join(" "),
+      playMode: storyPlayMode,
+      storyTags: data.lore.slice(0, 6).map((entry) => `${entry.kind}:${entry.title}`),
+      protagonist: protagonist?.name ?? undefined,
+      location: data.storyState.locationState ?? undefined,
+      conflict,
+    };
+    const characterBase = (
+      progression.turn * 7_919
+      + proceduralLibraryVariant * 10_007
+      + data.characters.length * 101
+    ) % PROCEDURAL_CHARACTER_CAPACITY;
+    const treasureBase = (
+      progression.turn * 6_997
+      + proceduralLibraryVariant * 9_973
+      + progression.inventory.length * 211
+    ) % PROCEDURAL_TREASURE_CAPACITY;
+    const seed = `${projectId}|${data.chapter.id}|${storyPlayMode}`;
+    return {
+      characters: Array.from({ length: 3 }, (_, index) => proceduralCharacterAt({
+        seed: `${seed}|characters`,
+        ordinal: (characterBase + index * 33_331) % PROCEDURAL_CHARACTER_CAPACITY,
+        context,
+      })),
+      treasures: Array.from({ length: 3 }, (_, index) => proceduralTreasureAt({
+        seed: `${seed}|treasures`,
+        ordinal: (treasureBase + index * 33_331) % PROCEDURAL_TREASURE_CAPACITY,
+        context,
+      })),
+    };
+  }, [conflict, data, proceduralLibraryVariant, progression, projectId, protagonist?.name, storyPlayMode]);
   const xianxiaRuleCandidate = useMemo<XianxiaRuleCandidate | null>(() => {
     if (!data || !progression) return null;
     const recentRuleIds = data.storyState.worldFlags?.["xianxia.recentRuleIds"];
@@ -1184,6 +1251,15 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
+  async function addProceduralCharacterToProject(candidate: ProceduralCharacterCandidate) {
+    if (!data || busy) return;
+    if (data.characters.some((character) => character.name === candidate.name)) {
+      setStatus(`「${candidate.name}」已經在目前作品中，不需要重複加入。`);
+      return;
+    }
+    await addCharacterToProject(proceduralCharacterTemplate(candidate));
+  }
+
   function removeTemplate(template: RpgCharacterTemplate) {
     if (template.builtin) return;
     persistCustomLibrary(customLibrary.filter((item) => item.templateId !== template.templateId));
@@ -1340,7 +1416,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         <a href={`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`}>複製故事種子，建立其他玩法</a>
       </section> : null}
 
-      {dashboardExpanded ? <details className={styles.stateDrawer}>
+      {dashboardExpanded ? <details className={styles.stateDrawer} data-testid="rpg-core-state-drawer">
         <summary>
           <span>目前狀態</span>
           <strong>LV.{progression.level} · {mode.primaryCurrency} {primaryCurrencyValue} · EXP {formatNumber(progression.xp)}</strong>
@@ -1399,11 +1475,11 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             <strong>故事正文優先</strong>
             <span>每回合先讀完整續文與三個選擇；能力、背包、任務和世界數值需要時再展開。</span>
           </div>
-          <button type="button" aria-expanded={dashboardExpanded} onClick={() => setDashboardExpanded((value) => !value)}>
+          <button data-testid="rpg-dashboard-toggle" type="button" aria-controls="rpg-detailed-dashboard" aria-expanded={dashboardExpanded} onClick={() => setDashboardExpanded((value) => !value)}>
             {dashboardExpanded ? "收合完整儀表板" : "查看完整儀表板"}
           </button>
         </section>
-        <section className={styles.dashboard} data-dashboard-expanded={dashboardExpanded ? "true" : "false"}>
+        <section id="rpg-detailed-dashboard" className={styles.dashboard} data-testid="rpg-detailed-dashboard" data-dashboard-expanded={dashboardExpanded ? "true" : "false"}>
           <aside className={styles.leftRail}>
             <article className={styles.characterCard}>
               <div className={styles.avatar}>{protagonist?.portrait ? <CharacterPortraitImage portrait={protagonist.portrait} className={styles.avatarPortrait} decorative /> : (protagonist?.name ?? "主").slice(0, 1)}</div>
@@ -1628,6 +1704,13 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
             {activeMode === "management" ? (
               <section className={styles.managementCard}>
                 <header><div><small>TODAY FORECAST</small><h3>經營預估</h3></div><span data-alert={progression.management.risk >= 60}>{progression.management.risk >= 80 ? "高風險" : progression.management.risk >= 60 ? "警戒" : "穩定"}</span></header>
+                <div className={styles.managementCoreMetrics} data-testid="management-core-metrics">
+                  <span>資金 <b>{formatNumber(progression.management.cash)}</b></span>
+                  <span>人力 <b>{progression.management.staff} 人</b></span>
+                  <span>品質 <b>{Math.round(data.storyState.resources["management.quality"] ?? 70)}／100</b></span>
+                  <span>聲望 <b>{formatNumber(progression.management.reputation)}／100</b></span>
+                  <span>風險 <b>{formatNumber(progression.management.risk)}／100</b></span>
+                </div>
                 <div className={styles.metricGrid}>
                   <span>員工 <b>{progression.management.staff} 人</b></span><span>效率 <b>{progression.management.employeeEfficiency}%</b></span><span>需求 <b>{formatNumber(progression.management.expectedDemand)}</b></span><span>銷量 <b>{formatNumber(progression.management.expectedSales)}</b></span><span>營收 <b>{formatNumber(progression.management.expectedRevenue)}</b></span><span>淨利 <b data-negative={progression.management.expectedNetProfit < 0}>{signed(progression.management.expectedNetProfit)}</b></span>
                 </div>
@@ -1682,7 +1765,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       )}
 
       {activated && dashboardExpanded ? (
-        <section className={styles.detailDock}>
+        <section className={styles.detailDock} data-testid="rpg-dashboard-details">
           <nav aria-label="RPG 詳細功能">
             {detailPanels.map((panel) => (
               <button key={panel} type="button" className={visiblePanel === panel ? styles.activePanel : ""} onClick={() => setActivePanel(panel)}>{DETAIL_PANEL_LABELS[panel]}</button>
@@ -1703,6 +1786,27 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                   </article>
                 ))}
               </div>
+              <section className={styles.proceduralLibrary} data-testid="procedural-treasure-library">
+                <header>
+                  <div><small>STORY-MATCHED TREASURE VAULT</small><h3>原創寶物庫 {PROCEDURAL_TREASURE_CAPACITY.toLocaleString("zh-TW")} 件</h3></div>
+                  <button type="button" onClick={() => setProceduralLibraryVariant((value) => value + 1)}>換一組故事匹配寶物</button>
+                </header>
+                <p>只即時挑出三件適合目前故事的候選，不會一次載入整座寶物庫，也不會把候選假裝成已取得物品。</p>
+                <div className={styles.proceduralCandidateGrid}>
+                  {proceduralLibrary.treasures.map((treasure) => (
+                    <article key={treasure.id} data-status="candidate-not-owned">
+                      <header><span>{treasure.storyAffinity} · {treasure.category}</span><b>尚未取得</b></header>
+                      <h4>{treasure.name}</h4>
+                      <p>{treasure.function}</p>
+                      <dl>
+                        <div><dt>限制</dt><dd>{treasure.limitation}</dd></div>
+                        <div><dt>代價</dt><dd>{treasure.cost}</dd></div>
+                      </dl>
+                      <small>需要在故事中出現，並由你核准相應選擇後，才會正式進入背包。</small>
+                    </article>
+                  ))}
+                </div>
+              </section>
             </div>
           ) : null}
 
@@ -1758,6 +1862,35 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           {visiblePanel === "characters" ? (
             <div className={styles.librarySection}>
               <header><div><small>CHARACTER VAULT</small><h2>我喜歡的人物庫</h2></div><p>內建角色可直接加入作品；自創角色保存在這台裝置，加入作品後才進入專案資料。</p></header>
+              <section className={styles.proceduralLibrary} data-testid="procedural-character-library">
+                <header>
+                  <div><small>STORY-MATCHED CAST</small><h3>原創人物庫 {PROCEDURAL_CHARACTER_CAPACITY.toLocaleString("zh-TW")} 人</h3></div>
+                  <button type="button" onClick={() => setProceduralLibraryVariant((value) => value + 1)}>換一組故事匹配人物</button>
+                </header>
+                <p>依目前類型、地點與衝突即時挑出三名原創人物；人物庫按需計算，不會一次載入十萬筆。</p>
+                <div className={styles.proceduralCandidateGrid}>
+                  {proceduralLibrary.characters.map((candidate) => {
+                    const alreadyAdded = data.characters.some((character) => character.name === candidate.name);
+                    return (
+                      <article key={candidate.id}>
+                        <header><span>{candidate.storyAffinity}</span><b>{candidate.role}</b></header>
+                        <h4>{candidate.name}</h4>
+                        <p>{candidate.personality}</p>
+                        <dl>
+                          <div><dt>自己的目標</dt><dd>{candidate.goal}</dd></div>
+                          <div><dt>合作界線</dt><dd>{candidate.refusalCondition}</dd></div>
+                        </dl>
+                        <footer>
+                          <small>{candidate.stance}</small>
+                          <button type="button" disabled={busy || alreadyAdded} onClick={() => void addProceduralCharacterToProject(candidate)}>
+                            {alreadyAdded ? "已在目前作品" : "加入目前作品"}
+                          </button>
+                        </footer>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
               <div className={styles.libraryLayout}>
                 <form onSubmit={(event) => { event.preventDefault(); saveTemplate(); }}><h3>創造自己的角色</h3><label>姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label><label>角色原型<input value={archetype} onChange={(event) => setArchetype(event.target.value)} placeholder="例：被放逐的星艦領航員" /></label><label>身分<input value={identity} onChange={(event) => setIdentity(event.target.value)} /></label><label>性格<textarea rows={3} value={personality} onChange={(event) => setPersonality(event.target.value)} /></label><label>目標<textarea rows={3} value={goal} onChange={(event) => setGoal(event.target.value)} /></label><button type="submit">加入我的人物庫</button></form>
                 <div className={styles.characterGrid}>{library.map((template) => (

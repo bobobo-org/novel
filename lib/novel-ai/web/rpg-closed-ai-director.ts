@@ -383,6 +383,12 @@ export function validateRpgStoryTurnContract(
   language: StoryOutputLanguage = "zh-TW",
 ) {
   assertRpgReaderSafeOutput(value);
+  const visibleEngineLanguage = language === "en"
+    ? /\b(?:approved rule|rule calibration|this turn(?:'s)? goal|relationship tension|state update|settlement result|next-turn available|game loop|causal framework|system (?:stores?|will|does not))\b/iu
+    : /核准規則|規則校準|本回合(?:目標|結算)|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|規則判定|因果框架|故事弧編號|作品\s*Canon|系統(?:保存|會|不會)/u;
+  if (visibleEngineLanguage.test(value)) {
+    throw new Error("RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE");
+  }
   const narrativeLength = value.replace(/\s+/gu, "").length;
   const paragraphCount = value
     .split(/\n+/u)
@@ -435,23 +441,23 @@ export function buildRpgResolutionDirectorPrompt(input: {
 }) {
   return JSON.stringify({
     instruction: [
-      "你是閉端小說故事導演。依照已鎖定的玩家選擇與規則判定，寫出一個完整、沉浸、可直接接到目前章節末尾的小說回合。",
+      "你是閉端小說故事導演。依照已鎖定的讀者選擇與既定結果，寫出一段完整、沉浸、可直接接到目前章節末尾的小說正文。",
       input.language === "en"
-        ? `The first line must be "Round ${input.turnNumber ?? "N"} | <a concrete event title>".`
-        : `第一行必須是「第 ${input.turnNumber ?? "N"} 回合｜具體事件標題」；標題要指出本回合真正發生的事，不可使用「新的冒險」等空話。`,
+        ? "The first line must be a concrete literary title enclosed in angle quotation marks, with no round number or game label."
+        : "第一行必須是「〈具體場景或事件標題〉」；不可顯示回合數、遊戲標籤，也不可使用「新的冒險」等空話。",
       "開頭要自然承認玩家剛選擇的行動，接著承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；完整寫出一場有場景、行動、對話、感官、直接後果與新局勢的戲。",
-      "回合標題後使用 8 到 16 個完整小說段落；本回合不要另加分節標題、編號或小標，避免把同一段拆成只有一句的碎片。",
+      "小說標題後使用 8 到 16 個完整小說段落；不要另加分節標題、編號或小標，避免把同一段拆成只有一句的碎片。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
       "故事要推進到下一次需要玩家決定的自然停頓點，但不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
       input.language === "en"
-        ? "Write 1,100 to 2,200 characters. After the round title, write exactly 10 complete story paragraphs with no extra headings; keep each paragraph substantial and continue until the scene reaches a genuine decision point."
-        : "正文需有 900 至 1,600 個中文字。回合標題後恰好寫 10 個完整小說段落，不加分節標題；每段約 130 至 155 個中文字，正文總長以 1,050 至 1,450 字為安全目標，未達最低篇幅時不得提早總結。",
+        ? "Write 1,100 to 2,200 characters. After the literary title, write exactly 10 complete story paragraphs with no extra headings; keep each paragraph substantial and continue until the scene reaches a genuine decision point."
+        : "正文需有 900 至 1,600 個中文字。小說標題後恰好寫 10 個完整小說段落，不加分節標題；每段約 130 至 155 個中文字，正文總長以 1,050 至 1,450 字為安全目標，未達最低篇幅時不得提早總結。",
       input.language === "en"
         ? "Use the ten paragraphs in order for: immediate action, resistance, opposing reaction, sensory escalation, irreversible cost, result taking effect, relationship reaction, changed environment, new danger, and a genuine decision point. Do not print this plan."
         : "十段依序完成：行動落地、阻力出現、對手反應、感官升壓、不可逆代價、判定結果生效、人物關係反應、環境改變、新危險逼近、自然決策點。不要把這份段落計畫印出來。",
       "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
       "不得透露或猜測任何預設回合總數、回合上限、內部故事弧階段、結局條件、門檻或判定機制。若 readerSafeCausalContract 提供 currentDirections，只能呈現當下方向，不得說明系統為何在此時允許收束。",
-      "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出回合標題與小說正文；不要分節標題、行動結果、狀態面板、JSON、程式碼、規則解釋或下一組選項，這些會由規則引擎在正文後另行顯示。",
+      "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出小說標題與小說正文；不得寫出核准規則、規則校準、本回合目標、關係張力、狀態更新、結算結果、下一輪可用資源、因果框架或任何系統術語。不要分節標題、行動結果、狀態面板、JSON、程式碼、規則解釋或下一組選項，這些會由介面在正文後另行顯示。",
       outputLanguageInstruction(input.language),
     ].join("\n"),
     context: toRpgReaderSafePromptPayload(input.context),

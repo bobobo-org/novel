@@ -12,10 +12,16 @@ import {
   proceduralEncounterSignatureAt,
 } from "../lib/novel-ai/game/procedural-world-director.ts";
 import {
+  buildDeterministicRpgChatTurnCandidate,
   buildDeterministicRpgTurnStory,
+  buildRpgTurnCausalContract,
   buildRpgOutcomeLines,
   validateRpgOutcomeNarrative,
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
+import {
+  PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
+  proceduralCharacterTreasureScenarioAt,
+} from "../lib/novel-ai/game/procedural-story-library.ts";
 import { validateRpgStoryTurnContract } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 
 const modes = ["adventure", "cultivation", "management"];
@@ -165,7 +171,16 @@ const story = buildDeterministicRpgTurnStory({
     chapter: { id: "chapter-1", title: "雨夜期限" },
     storyState: { locationState: "雨夜藥鋪", worldFlags: {} },
     storyBible: { protagonistIds: ["hero"], unresolvedThreads: ["青楓派巡察將封鎖通路"] },
-    characters: [{ id: "hero", name: "林澄" }, { id: "ally", name: "蘇錦魚" }],
+    characters: [
+      { id: "hero", name: "林澄" },
+      {
+        id: "ally",
+        name: `蘇錦魚${"長名".repeat(38)}`,
+        goal: { value: `${"守住證人與逃生路線".repeat(20)}。` },
+        personality: { value: "審慎而不失勇氣。" },
+        limitations: [`${"不接受強迫與隱瞞".repeat(20)}。`],
+      },
+    ],
     progression: { turn: 3, inventory: [{ name: "帳冊與備用藥材", quantity: 1 }] },
     language: "zh-TW",
     playMode: "management",
@@ -180,27 +195,35 @@ const story = buildDeterministicRpgTurnStory({
   },
   resolution: { outcome: "failure" },
 });
+const storyScenario = proceduralCharacterTreasureScenarioAt({
+  seed: "project-1|chapter-1|management",
+  ordinal: (Math.floor(3 / 3) * 7_919 + 101) % PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
+  context: {
+    playMode: "management",
+    protagonist: "林澄",
+    location: "雨夜藥鋪",
+    conflict: "天亮前保住最後一批客戶",
+  },
+});
 for (const value of [
   "林澄",
   "蘇錦魚",
   "雨夜藥鋪",
   "青楓派巡察",
   "帳冊與備用藥材",
-  encounter.catalyst,
-  encounter.goal,
-  encounter.pressure,
-  encounter.leverage,
-  encounter.resourceProp,
-  encounter.relationshipTension,
-  encounter.cost,
-  encounter.deadline,
-  encounter.reversal,
-  encounter.aftermath,
+  storyScenario.cast.counterforce.name,
+  storyScenario.cast.witness.name,
+  storyScenario.treasure.name,
 ]) {
-  assert.ok(value && story.includes(value), `rules fallback prose did not render ${value}`);
+  assert.ok(value && story.includes(value), `novel fallback prose did not render ${value}`);
 }
-assert.ok(story.includes(frame.hopeGuard.progressBeat), "rules fallback prose must render hope-guard progress");
-assert.match(story, /恢復|喘息|回報/u, "consecutive setbacks must visibly raise recovery/payoff weighting");
+assert.match(story, /「.+」/u, "supporting characters must speak in the novel scene");
+assert.doesNotMatch(
+  story,
+  /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
+  "reader-facing prose leaked internal engine or governance wording",
+);
+validateRpgStoryTurnContract(story, "zh-TW");
 
 // Browser reproduction guard: the closed-AI story may be rejected as too long,
 // so its deterministic replacement must remain valid even when every causal
@@ -268,7 +291,16 @@ for (const [playMode, encounterMode] of [
     chapter: { id: `chapter-rich-${playMode}`, title: "雨夜期限" },
     storyState: { locationState: "雨夜藥鋪", worldFlags: {} },
     storyBible: { protagonistIds: ["hero"], unresolvedThreads: ["封鎖通路背後的責任"] },
-    characters: [{ id: "hero", name: "林澄" }, { id: "ally", name: "蘇錦魚" }],
+    characters: [
+      { id: "hero", name: "林澄" },
+      {
+        id: "ally",
+        name: "蘇錦魚",
+        goal: { value: `${"守住證人與逃生路線".repeat(20)}。` },
+        personality: { value: "審慎而不失勇氣。" },
+        limitations: [`${"不接受強迫與隱瞞".repeat(20)}。`],
+      },
+    ],
     progression: { turn: 8, inventory: [{ name: "帳冊與舊地圖", quantity: 1 }] },
     language: "zh-TW",
     playMode,
@@ -317,7 +349,28 @@ for (const [playMode, encounterMode] of [
       });
       const contract = validateRpgStoryTurnContract(richStory, "zh-TW");
       validateRpgOutcomeNarrative(richStory, richResolution, "zh-TW", richChoice);
-      assert.ok(richStory.includes("核准規則"), `${playMode}/${closureKind ?? "active"}/${outcome} lost shared learning`);
+      const richFrame = buildRpgTurnCausalContract({
+        snapshot: richSnapshot,
+        choice: richChoice,
+        outcome,
+      });
+      assert.equal(
+        richFrame.causalKnowledge?.appliedRuleIds.length,
+        richCausalSignals.length,
+        `${playMode}/${closureKind ?? "active"}/${outcome} did not apply shared learning internally`,
+      );
+      assert.doesNotMatch(
+        richStory,
+        /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
+        `${playMode}/${closureKind ?? "active"}/${outcome} leaked internal engine wording`,
+      );
+      assert.doesNotMatch(richStory, /。。|。；|；。|！！|？？/u, "canonical punctuation was duplicated");
+      assert.doesNotMatch(richStory, /從這些已發生的後果開。/u, "paragraph truncation left an incomplete phrase");
+      assert.equal(
+        richStory.match(/「/gu)?.length ?? 0,
+        richStory.match(/」/gu)?.length ?? 0,
+        "canonical text truncation left an unclosed dialogue quote",
+      );
       for (const continuityFact of ["林澄", "蘇錦魚", "雨夜藥鋪", "帳冊與舊地圖", "封鎖通路背後的責任"]) {
         assert.ok(richStory.includes(continuityFact), `${playMode}/${closureKind ?? "active"}/${outcome} lost ${continuityFact}`);
       }
@@ -329,6 +382,93 @@ assert.equal(worstCaseContracts.length, 48);
 assert.ok(worstCaseContracts.every((contract) => contract.narrativeLength >= 900 && contract.narrativeLength <= 1_600));
 assert.ok(worstCaseContracts.every((contract) => contract.paragraphCount >= 8 && contract.paragraphCount <= 16));
 assert.ok(worstCaseContracts.every((contract) => contract.sentenceCount >= 10));
+
+// A new project may contain only the protagonist. The fallback must still
+// rotate original fictional supporting characters with independent goals,
+// actions, refusal conditions and dialogue, rather than printing "同行者" or
+// keeping the protagonist alone in a static loop.
+const protagonistOnlySnapshot = {
+  project: { id: "project-protagonist-only", genrePackId: "現代懸疑" },
+  chapter: { id: "chapter-protagonist-only", title: "封存證物", revision: 1 },
+  storyState: { locationState: "停電檔案館", revision: 1, worldFlags: {} },
+  storyBible: { protagonistIds: ["hero"], unresolvedThreads: ["被剪去的證詞去了哪裡"] },
+  characters: [{ id: "hero", name: "沈星河" }],
+  progression: { turn: 0, inventory: [{ name: "破損錄音帶", quantity: 1 }], procedural: { runSeed: "solo-runtime" } },
+  language: "zh-TW",
+  playMode: "rpg",
+  conflict: "在天亮前找出證物被替換的時間",
+  rpgTurnReceipts: [],
+};
+const soloStories = [];
+const soloActors = new Set();
+for (let turn = 0; turn < 4; turn += 1) {
+  const turnSnapshot = {
+    ...protagonistOnlySnapshot,
+    progression: { ...protagonistOnlySnapshot.progression, turn },
+  };
+  const soloEncounter = buildProceduralEncounter({
+    runSeed: "solo-runtime",
+    mode: "adventure",
+    turn,
+    strategy: ["steady", "resource", "bold"][turn % 3],
+  });
+  const soloChoice = {
+    key: ["A", "B", "C"][turn % 3],
+    title: soloEncounter.title,
+    description: soloEncounter.complication,
+    encounter: soloEncounter,
+  };
+  const soloStory = buildDeterministicRpgTurnStory({
+    snapshot: turnSnapshot,
+    choice: soloChoice,
+    resolution: { outcome: turn === 2 ? "failure" : "success" },
+  });
+  const soloScenario = proceduralCharacterTreasureScenarioAt({
+    seed: "project-protagonist-only|chapter-protagonist-only|rpg",
+    ordinal: (Math.floor(turn / 3) * 7_919) % PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
+    context: {
+      genre: "現代懸疑",
+      playMode: "rpg",
+      protagonist: "沈星河",
+      location: "停電檔案館",
+      conflict: "在天亮前找出證物被替換的時間",
+    },
+  });
+  for (let index = 0; index < 3; index += 1) {
+    const member = soloScenario.cast.members[(turn + index) % 3];
+    assert.ok(soloStory.includes(member.name), `solo turn ${turn} lost ${member.narrativeRole} ${member.name}`);
+    soloActors.add(member.name);
+  }
+  assert.match(soloStory, /「.+」/u);
+  assert.doesNotMatch(soloStory, /同行者|核准規則|本回合|下一回合|回合制|關係張力|結算結果/u);
+  soloStories.push(soloStory);
+}
+assert.ok(soloActors.size >= 6, "supporting cast did not rotate across the four-turn story sample");
+assert.equal(new Set(soloStories).size, soloStories.length, "four turns repeated the same novel prose");
+
+const soloCandidate = await buildDeterministicRpgChatTurnCandidate({
+  snapshot: protagonistOnlySnapshot,
+  choice: {
+    key: "A",
+    title: encounter.title,
+    description: encounter.complication,
+    impactLabels: ["保住一條可驗證線索"],
+    costLabels: ["承擔已知代價"],
+    consequenceTeaser: "局面會沿著已發生的後果繼續",
+    encounter,
+  },
+  resolution: {
+    outcome: "success",
+    outcomeLabel: "成功",
+    roll: 50,
+    successChance: 60,
+    effect: { resourceChanges: {} },
+    settlement: { realmChange: null },
+  },
+});
+assert.equal(soloCandidate.actualExecutor, "deterministic-rule-fallback");
+assert.match(String(soloCandidate.resolution.effect.worldFlags?.["story.relationshipScenarioId"]), /^scenario-/u);
+assert.ok(String(soloCandidate.resolution.effect.worldFlags?.["story.activeSupportingCharacterName"]));
 const worstCaseFallbackContract = {
   cases: worstCaseContracts.length,
   narrativeLength: {

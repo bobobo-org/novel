@@ -593,11 +593,58 @@ const RULE_DIMENSION_TARGET: Record<string, keyof ProceduralInferenceDimensions>
   other: "leverage",
 };
 
-function compactRuleInstruction(value: string, maximum = 84) {
-  const normalized = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
-  if (normalized.length <= maximum) return normalized;
-  return `${normalized.slice(0, maximum - 1)}…`;
-}
+const LEARNED_CAUSAL_EFFECTS: Record<keyof ProceduralInferenceDimensions, readonly string[]> = {
+  catalyst: [
+    "先前不起眼的環境變化，忽然迫使在場者重新判斷。",
+    "一個早已埋下的細節在此刻顯出作用。",
+    "眼前異動與人物尚未解決的處境互相呼應。",
+  ],
+  goal: [
+    "人物此刻只能守住一項能親手完成的目標。",
+    "眼前行動必須回應人物真正想保護的事物。",
+    "決定的分量來自人物自己的願望，而不是外加命令。",
+  ],
+  pressure: [
+    "阻力逐步逼近，讓每個動作都留下清楚後果。",
+    "對手與環境同時收緊空間，卻仍留有可判斷的破口。",
+    "局勢以可追查的節奏升高，沒有憑空跳到最壞結果。",
+  ],
+  leverage: [
+    "能改變局面的，只能來自人物已經掌握的線索與關係。",
+    "先前留下的情報在這一刻成為可用的著力點。",
+    "人物必須用既有條件換取新的行動空間。",
+  ],
+  resourceProp: [
+    "一件早已出現在故事裡的事物，此刻承接了選擇的重量。",
+    "手邊物件不只是裝飾，而會改變人物能做與不能做的事。",
+    "既有資源成為衝突焦點，也讓代價有了可見形狀。",
+  ],
+  relationshipTension: [
+    "另一個人帶著自己的理由作出回應，合作因此附帶條件。",
+    "信任與保留同時存在，任何承諾都必須由行動證明。",
+    "人物立場在衝突中移動，卻不會因一句話突然翻轉。",
+  ],
+  cost: [
+    "每項收穫都會留下能被人物感受到的代價。",
+    "選擇迫使人物放棄另一種可能，損失無法被勝負抹去。",
+    "代價落在時間、關係或機會上，並會延續到後續場景。",
+  ],
+  deadline: [
+    "一個看得見的期限逼近，使拖延也成為一種選擇。",
+    "場景中的動靜不斷提醒眾人，可用時間正在縮短。",
+    "窗口關閉以前，人物必須決定願意承擔哪一種後果。",
+  ],
+  reversal: [
+    "結果揭開先前誤判的一角，讓後果反過來改變下一步。",
+    "表面的勝負之外，另一項事實改寫了眾人對局勢的理解。",
+    "行動留下的痕跡引出反作用，卻仍能沿著前因追查。",
+  ],
+  aftermath: [
+    "餘波會落在人物、地點與關係上，不會隨段落結束消失。",
+    "場景結束後，每個在場者都必須帶著自己的決定離開。",
+    "後果為下一幕保留方向，也給受挫的人留下恢復空間。",
+  ],
+};
 
 function applyApprovedCausalSignals(
   dimensions: ProceduralInferenceDimensions,
@@ -613,9 +660,9 @@ function applyApprovedCausalSignals(
       ?? (Object.keys(next) as Array<keyof ProceduralInferenceDimensions>)[
         hashText(`${signal.family}|${signal.dimension}|${signal.ruleId}`) % 10
       ];
-    const operation = compactRuleInstruction(signal.operation || signal.statement);
-    const constraint = compactRuleInstruction(signal.constraint, 56);
-    next[target] = `${next[target]} 核准規則校準：${operation}${constraint ? `；限制：${constraint}` : ""}`;
+    const effects = LEARNED_CAUSAL_EFFECTS[target];
+    const effect = effects[hashText(`${signal.ruleId}|${signal.operation}|${signal.constraint}`) % effects.length];
+    next[target] = `${next[target]} ${effect}`;
     appliedRuleIds.push(signal.ruleId);
   }
   return { dimensions: next, appliedRuleIds };
@@ -636,9 +683,11 @@ export function buildProceduralCausalFrame(input: {
   arcHorizon?: number;
   approvedEnding?: boolean;
   causalKnowledge?: ProceduralCausalKnowledgeSnapshot;
+  relationshipScenarioId?: string;
+  crossCausalDimensions?: Partial<ProceduralInferenceDimensions>;
 }) {
   const encounter = input.encounter;
-  const learned = applyApprovedCausalSignals({
+  const baseDimensions: ProceduralInferenceDimensions = {
     catalyst: encounter.catalyst ?? encounter.telegraph,
     goal: encounter.goal ?? "本回合必須完成一項可驗證、但有限的目標。",
     pressure: encounter.pressure ?? encounter.complication,
@@ -649,7 +698,14 @@ export function buildProceduralCausalFrame(input: {
     deadline: encounter.deadline ?? "本回合結束前必須作出取捨。",
     reversal: encounter.reversal ?? "結果會留下可追查、可回應的後果。",
     aftermath: encounter.aftermath ?? "既有狀態會保留這次行動留下的餘波。",
-  }, input.causalKnowledge);
+  };
+  for (const [key, signal] of Object.entries(input.crossCausalDimensions ?? {}) as Array<
+    [keyof ProceduralInferenceDimensions, string]
+  >) {
+    const normalized = signal?.normalize("NFC").replace(/\s+/gu, " ").trim();
+    if (normalized) baseDimensions[key] = `${baseDimensions[key]} ${normalized}`;
+  }
+  const learned = applyApprovedCausalSignals(baseDimensions, input.causalKnowledge);
   const {
     catalyst,
     goal,
@@ -698,6 +754,7 @@ export function buildProceduralCausalFrame(input: {
   const closureBeat = endingDisclosure.readerBeat;
   return {
     rulesOnly: true as const,
+    relationshipScenarioId: input.relationshipScenarioId ?? null,
     successFactorIds: PROCEDURAL_SUCCESS_FACTOR_IDS,
     popularityGuaranteed: false as const,
     persistentArc: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import type {
   ConversationArtifact,
   ConversationAttachment,
@@ -13,7 +13,11 @@ import {
   STORY_PLAY_MODE_LABELS,
   type StoryPlayModeId,
 } from "@/lib/novel-ai/domain/play-mode";
-import { readRpgProgression, type RpgMode } from "@/lib/novel-ai/game/progression/rpg-progression";
+import {
+  readRpgProgression,
+  RPG_STAT_DEFINITIONS,
+  type RpgMode,
+} from "@/lib/novel-ai/game/progression/rpg-progression";
 import { useConversationTimelineWindow } from "../hooks/use-conversation-timeline-window";
 import { useConversationApproval } from "../hooks/use-conversation-approval";
 import { useConversationAttachments } from "../hooks/use-conversation-attachments";
@@ -22,6 +26,7 @@ import type { ConversationMessageActions } from "./conversation-types";
 import { parseRpgChoices } from "./conversation-presentation";
 import { MessageRow } from "./message-row";
 import { ToolProgressCard } from "./tool-progress-card";
+import { friendlyConversationExecutionError } from "./execution-trace-model";
 import styles from "../conversation.module.css";
 
 function progressionMode(playMode: StoryPlayModeId): RpgMode {
@@ -96,6 +101,89 @@ function readDashboardTarget(
   return target;
 }
 
+type DashboardFact = {
+  label: string;
+  value: string;
+  tone?: "normal" | "warning";
+};
+
+const DASHBOARD_STATE_LABELS: Record<string, string> = {
+  "rpg.partyTrust": "隊伍信任",
+  "romance.affection": "關係",
+  "romance.trust": "信任",
+  "romance.eventProgress": "事件進度",
+  "romance.personalGrowth": "人物成長",
+  "management.cash": "資金",
+  "management.staff": "人力",
+  "management.morale": "士氣",
+  "management.quality": "品質",
+  "management.reputation": "聲望",
+  "management.risk": "風險",
+  "management.satisfaction": "滿意度",
+  "management.technology": "技術",
+  "management.marketShare": "市占",
+  "management.inventory": "庫存",
+  "management.capacity": "產能",
+  "management.lastRevenue": "最近收入",
+  "management.lastProfit": "最近淨利",
+  "currency.spiritStone": "靈石",
+  "currency.guildToken": "公會代幣",
+  "status.hp": "生命",
+  "status.stamina": "體力",
+  "status.spirit": "精神",
+  "status.fatigue": "疲勞",
+  "status.stress": "壓力",
+  "status.mood": "心情",
+  "status.health": "健康",
+  "status.focus": "專注",
+  "game.actionPoints": "行動點",
+  "rpg.mainArc": "世界危機主線",
+  "growth.main": "人物成長主線",
+  "management.survive90": "組織生存主線",
+};
+
+const RECENT_OUTCOME_LABELS: Record<string, string> = {
+  critical_success: "大成功",
+  success: "成功",
+  partial_success: "部分成功",
+  failure: "受挫但故事繼續",
+};
+
+function ownFiniteNumber(record: Record<string, number>, key: string): number | null {
+  if (!Object.prototype.hasOwnProperty.call(record, key)) return null;
+  const value = record[key];
+  return Number.isFinite(value) ? Math.round(value) : null;
+}
+
+function readableStateLabel(key: string, fallbackPrefix: string, index: number) {
+  if (DASHBOARD_STATE_LABELS[key]) return DASHBOARD_STATE_LABELS[key];
+  const tail = key.split(/[.]/u).at(-1)?.replace(/([a-z])([A-Z])/gu, "$1 $2").trim();
+  if (tail && /[\u3400-\u9fff]/u.test(tail)) return tail;
+  return `${fallbackPrefix} ${index + 1}`;
+}
+
+function dashboardValue(value: string | number, suffix = "") {
+  if (typeof value === "number") return `${value.toLocaleString("zh-TW")}${suffix}`;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && String(value).trim() !== ""
+    ? `${numeric.toLocaleString("zh-TW")}${suffix}`
+    : String(value);
+}
+
+function DashboardFactGrid({ facts }: { facts: DashboardFact[] }) {
+  if (!facts.length) return <p className={styles.playDashboardEmpty}>目前尚無已寫入的資料。</p>;
+  return (
+    <dl className={styles.playDashboardFactGrid}>
+      {facts.map((fact, index) => (
+        <div key={`${fact.label}:${index}`} data-tone={fact.tone ?? "normal"}>
+          <dt>{fact.label}</dt>
+          <dd>{fact.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function PlayModeDashboard({
   projectId,
   playMode,
@@ -105,6 +193,8 @@ function PlayModeDashboard({
   playMode: StoryPlayModeId;
   storyState: StoryState;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailPanelId = useId();
   const progression = useMemo(
     () => readRpgProgression(storyState, projectId, progressionMode(playMode)),
     [playMode, projectId, storyState],
@@ -141,11 +231,123 @@ function PlayModeDashboard({
           { label: "體力", value: `${progression.status.stamina} / 100`, progress: progression.status.stamina, note: `HP ${progression.status.hp}` },
           { label: "行動點", value: `${progression.status.actionPoints} / 3`, progress: progression.status.actionPoints / 3 * 100, note: "本回合可用" },
         ];
-  const detail = playMode === "management"
-    ? `第 ${progression.day} 日・士氣 ${progression.management.morale}・滿意度 ${progression.management.satisfaction}・預估淨利 ${progression.management.expectedNetProfit.toLocaleString("zh-TW")}`
+  const managementFacts: DashboardFact[] = playMode === "management"
+    ? [
+        { label: "資金", value: dashboardValue(progression.management.cash) },
+        { label: "人力", value: dashboardValue(progression.management.staff, " 人") },
+        { label: "士氣", value: dashboardValue(progression.management.morale, " / 100") },
+        { label: "品質", value: dashboardValue(resource("management.quality", 70), " / 100") },
+        { label: "聲望", value: dashboardValue(progression.management.reputation, " / 100") },
+        {
+          label: "風險",
+          value: dashboardValue(progression.management.risk, " / 100"),
+          tone: progression.management.risk >= 60 ? "warning" : "normal",
+        },
+        { label: "滿意度", value: dashboardValue(progression.management.satisfaction, " / 100") },
+        { label: "技術", value: dashboardValue(progression.management.technology, " / 100") },
+        { label: "市占", value: dashboardValue(progression.management.marketShare, " / 100") },
+        { label: "庫存", value: dashboardValue(resource("management.inventory", 100)) },
+        { label: "產能", value: dashboardValue(resource("management.capacity", 90)) },
+      ]
+    : [];
+  if (playMode === "management") {
+    const storedRevenue = ownFiniteNumber(storyState.resources, "management.lastRevenue");
+    const storedProfit = ownFiniteNumber(storyState.resources, "management.lastProfit");
+    const revenue = storedRevenue ?? progression.management.expectedRevenue;
+    const profit = storedProfit ?? progression.management.expectedNetProfit;
+    managementFacts.push(
+      { label: storedRevenue === null ? "預估收入" : "最近收入", value: dashboardValue(revenue) },
+      { label: storedRevenue === null || storedProfit === null ? "預估成本" : "最近成本", value: dashboardValue(revenue - profit) },
+      { label: storedProfit === null ? "預估淨利" : "最近淨利", value: dashboardValue(profit), tone: profit < 0 ? "warning" : "normal" },
+    );
+  }
+
+  const rpgFacts: DashboardFact[] = playMode !== "management" && playMode !== "romance"
+    ? RPG_STAT_DEFINITIONS.map((definition) => ({
+        label: definition.labels.adventure,
+        value: dashboardValue(progression.stats[definition.key], " / 100"),
+      }))
+    : [];
+  if (playMode !== "management" && playMode !== "romance") {
+    rpgFacts.push(
+      { label: "生命", value: dashboardValue(progression.status.hp, " / 100") },
+      { label: "體力", value: dashboardValue(progression.status.stamina, " / 100") },
+      { label: "精神", value: dashboardValue(progression.status.spirit, " / 100") },
+      { label: "行動點", value: dashboardValue(progression.status.actionPoints) },
+    );
+  }
+
+  const romanceFacts: DashboardFact[] = playMode === "romance"
+    ? [
+        { label: "關係", value: dashboardValue(relationship("romance.affection"), " / 100") },
+        { label: "信任", value: dashboardValue(relationship("romance.trust"), " / 100") },
+        { label: "事件進度", value: dashboardValue(resource("romance.eventProgress", 0), " / 100") },
+        { label: "人物成長", value: dashboardValue(resource("romance.personalGrowth", 0), " / 100") },
+        { label: "心情", value: dashboardValue(progression.status.mood, " / 100") },
+        { label: "壓力", value: dashboardValue(progression.status.stress, " / 100") },
+        { label: "行動點", value: dashboardValue(progression.status.actionPoints) },
+      ]
+    : [];
+
+  const relationshipFacts: DashboardFact[] = Object.entries(storyState.relationships).map(([key, value], index) => ({
+    label: readableStateLabel(key, "人物關係", index),
+    value: dashboardValue(value, " / 100"),
+  }));
+  const knownInventoryIds = new Set(progression.inventory.map((item) => item.itemId));
+  const inventoryFacts: DashboardFact[] = [
+    ...progression.inventory.map((item) => ({
+      label: item.name,
+      value: `${item.quantity.toLocaleString("zh-TW")} 件${item.equipped ? "・已裝備" : ""}`,
+    })),
+    ...storyState.inventory.filter((itemId) => !knownInventoryIds.has(itemId)).map((itemId) => ({
+      label: "自訂物品",
+      value: itemId,
+    })),
+  ];
+  if (storyState.money !== null) inventoryFacts.unshift({ label: "金錢", value: dashboardValue(Math.round(storyState.money)) });
+  for (const key of ["currency.spiritStone", "currency.guildToken"] as const) {
+    const value = ownFiniteNumber(storyState.resources, key);
+    if (value !== null) inventoryFacts.push({ label: DASHBOARD_STATE_LABELS[key], value: dashboardValue(value) });
+  }
+
+  const questFacts: DashboardFact[] = Object.entries(storyState.questStates).map(([key, value], index) => ({
+    label: readableStateLabel(key, "任務", index),
+    value: dashboardValue(value, Number.isFinite(Number(value)) ? "%" : ""),
+  }));
+  const milestoneFacts: DashboardFact[] = Object.entries(storyState.achievementStates)
+    .filter(([, value]) => String(value).trim() !== "" && String(value) !== "0")
+    .map(([key, value], index) => ({
+      label: readableStateLabel(key, "里程碑", index),
+      value: dashboardValue(value, Number.isFinite(Number(value)) ? "%" : ""),
+    }));
+
+  const contextualResourceKeys = playMode === "management"
+    ? ["management.satisfaction", "management.technology", "management.marketShare", "management.inventory", "management.capacity"]
     : playMode === "romance"
-      ? `第 ${progression.turn + 1} 回合・情緒 ${progression.status.mood}・壓力 ${progression.status.stress}・共同成長事件會在選擇後同步更新。`
-      : `第 ${progression.turn + 1} 回合・等級 ${progression.level}・HP ${progression.status.hp}・背包 ${progression.inventory.filter((item) => item.quantity > 0).length} 類。`;
+      ? ["status.mood", "status.stress", "status.health", "status.focus", "game.actionPoints"]
+      : ["status.hp", "status.spirit", "status.fatigue", "status.stress", "status.health", "status.focus"];
+  const resourceFacts: DashboardFact[] = contextualResourceKeys.flatMap((key) => {
+    const value = ownFiniteNumber(storyState.resources, key);
+    return value === null ? [] : [{ label: DASHBOARD_STATE_LABELS[key] ?? key, value: dashboardValue(value) }];
+  });
+
+  const recentFacts: DashboardFact[] = [];
+  const day = ownFiniteNumber(storyState.resources, "game.day");
+  const turn = ownFiniteNumber(storyState.resources, "game.turn");
+  if (day !== null) recentFacts.push({ label: "目前日程", value: `第 ${day} 日` });
+  if (turn !== null) recentFacts.push({ label: "已完成回合", value: `${turn} 回合` });
+  if (storyState.timeState) recentFacts.push({ label: "故事時間", value: storyState.timeState });
+  if (storyState.locationState) recentFacts.push({ label: "目前地點", value: storyState.locationState });
+  if (storyState.riskState) recentFacts.push({ label: "風險狀態", value: storyState.riskState });
+  const lastOutcome = storyState.worldFlags["rpg.lastOutcome"];
+  if (typeof lastOutcome === "string" && RECENT_OUTCOME_LABELS[lastOutcome]) {
+    recentFacts.push({ label: "最近結果", value: RECENT_OUTCOME_LABELS[lastOutcome] });
+  }
+  for (const consequence of storyState.rpgState?.pendingConsequences ?? []) {
+    if (["pending", "triggered"].includes(consequence.status) && consequence.narrativeHint) {
+      recentFacts.push({ label: consequence.status === "triggered" ? "已觸發後果" : "待回應後果", value: consequence.narrativeHint });
+    }
+  }
   return (
     <section className={styles.playDashboard} data-play-mode={playMode} aria-label={`${STORY_PLAY_MODE_LABELS[playMode]}狀態儀表板`}>
       <div className={styles.playDashboardHeading}>
@@ -166,10 +368,54 @@ function PlayModeDashboard({
           </div>
         ))}
       </div>
-      <details className={styles.playDashboardDetails}>
-        <summary>查看完整狀態與本回合脈絡</summary>
-        <p>{detail}</p>
-      </details>
+      <button
+        type="button"
+        className={styles.playDashboardToggle}
+        data-testid="chat-play-dashboard-toggle"
+        aria-expanded={detailsOpen}
+        aria-controls={detailPanelId}
+        onClick={() => setDetailsOpen((value) => !value)}
+      >
+        <span>{detailsOpen ? "收合詳細儀表板" : "查看完整儀表板"}</span>
+        <small>{detailsOpen ? "回到正文優先閱讀" : "能力、關係、資源、任務與近期歷程"}</small>
+      </button>
+      {detailsOpen ? (
+        <div
+          id={detailPanelId}
+          className={styles.playDashboardDetailPanel}
+          data-testid="chat-detailed-dashboard"
+        >
+          <section className={styles.playDashboardDetailSection} data-dashboard-section="mode">
+            <header><span>{playMode === "management" ? "營運全貌" : playMode === "romance" ? "關係與成長" : "能力與行動"}</span><small>依正式存檔與玩法起始值即時換算</small></header>
+            <DashboardFactGrid facts={playMode === "management" ? managementFacts : playMode === "romance" ? romanceFacts : rpgFacts} />
+          </section>
+          <section className={styles.playDashboardDetailSection} data-dashboard-section="mainline">
+            <header><span>主線與目前位置</span></header>
+            <DashboardFactGrid facts={[
+              { label: "目前主線", value: progression.journey.mainlineGoal },
+              ...(Object.prototype.hasOwnProperty.call(storyState.questStates, progression.journey.mainlineQuestId)
+                ? [{ label: "主線進度", value: dashboardValue(storyState.questStates[progression.journey.mainlineQuestId], "%") }]
+                : []),
+            ]} />
+          </section>
+          <section className={styles.playDashboardDetailSection} data-dashboard-section="relationships">
+            <header><span>人物關係</span></header>
+            <DashboardFactGrid facts={relationshipFacts} />
+          </section>
+          <section className={styles.playDashboardDetailSection} data-dashboard-section="inventory">
+            <header><span>背包與可用資源</span></header>
+            <DashboardFactGrid facts={[...inventoryFacts, ...resourceFacts]} />
+          </section>
+          <section className={styles.playDashboardDetailSection} data-dashboard-section="quests">
+            <header><span>任務與里程碑</span></header>
+            <DashboardFactGrid facts={[...questFacts, ...milestoneFacts]} />
+          </section>
+          <section className={styles.playDashboardDetailSection} data-dashboard-section="recent-history">
+            <header><span>本回合與近期歷程</span></header>
+            <DashboardFactGrid facts={recentFacts} />
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -320,7 +566,10 @@ export function MessageTimeline({
           />;
         })}
         {busy ? <ToolProgressCard progress={progress} canStop={canStop} onStop={actions.stopGeneration} label="停止生成" /> : null}
-        {safeError ? <section className={styles.resultCard} role="alert"><strong>{safeError.code}</strong><p>{safeError.message}</p>{retryAvailable ? <button type="button" disabled={busy} onClick={onRetry}>{retryLabel}</button> : null}</section> : null}
+        {safeError ? (() => {
+          const friendly = friendlyConversationExecutionError(safeError.code, safeError.message);
+          return <section className={styles.resultCard} role="alert"><strong>{friendly.title}</strong><p>{friendly.message}</p>{retryAvailable ? <button type="button" disabled={busy} onClick={onRetry}>{retryLabel}</button> : null}</section>;
+        })() : null}
         <div data-testid="conversation-timeline-end" />
       </div>
     </div>

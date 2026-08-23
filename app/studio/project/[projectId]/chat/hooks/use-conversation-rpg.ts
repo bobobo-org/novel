@@ -24,6 +24,7 @@ import {
 import { parseRpgChoices, serializeRpgChoices } from "../components/conversation-presentation";
 import type { DrawerPayload, RpgChoiceEnvelope } from "../components/conversation-types";
 import { toExecutionReceipt } from "./use-conversation-operation";
+import { friendlyConversationExecutionError } from "../components/execution-trace-model";
 
 function rpgErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
@@ -186,6 +187,10 @@ export function useConversationRpgController({
       });
       return { placeholder, plan, invocation };
     } catch (error) {
+      const friendlyError = friendlyConversationExecutionError(
+        rpgErrorCode(error),
+        rpgErrorMessage(error),
+      );
       const currentMessage = await repository.get<ConversationMessage>("conversationMessages", placeholder.id);
       if (currentMessage) {
         await conversation.updateMessageStatus({
@@ -194,7 +199,7 @@ export function useConversationRpgController({
           messageId: currentMessage.id,
           expectedRevision: currentMessage.revision,
           status: input.signal.aborted ? "cancelled" : "failed",
-          content: `本回合選項未完成：${rpgErrorCode(error)}`,
+          content: `${friendlyError.title}。${friendlyError.message}`,
         }).catch(() => undefined);
       }
       await conversation.updateToolInvocationStatus({
@@ -423,6 +428,10 @@ export function useConversationRpgController({
           setDrawer({ kind: "artifact", artifactId: artifact.id });
           return artifact;
         } catch (error) {
+          const friendlyError = friendlyConversationExecutionError(
+            rpgErrorCode(error),
+            rpgErrorMessage(error),
+          );
           const currentAssistant = await repository.get<ConversationMessage>("conversationMessages", assistant.id);
           if (currentAssistant) {
             await conversation.updateMessageStatus({
@@ -431,7 +440,7 @@ export function useConversationRpgController({
               messageId: currentAssistant.id,
               expectedRevision: currentAssistant.revision,
               status: input.signal.aborted ? "cancelled" : "failed",
-              content: `本回合未完成：${rpgErrorCode(error)}。故事與數值均未寫入。`,
+              content: `${friendlyError.title}。${friendlyError.message}`,
             }).catch(() => undefined);
           }
           if (!invocationCompleted) {

@@ -39,6 +39,12 @@ import {
   romanceSafeProceduralText,
 } from "../game/procedural-world-director";
 import {
+  PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
+  proceduralCharacterTreasureScenarioAt,
+  type ProceduralCharacterCandidate,
+  type ProceduralCausalDimensionId,
+} from "../game/procedural-story-library";
+import {
   bindStoryArcToChoices,
   readStoryArcRuntime,
 } from "../game/story-arc-runtime";
@@ -1019,32 +1025,104 @@ function narrativeFact(value: string | null | undefined, fallback: string, maxim
   return Array.from(compact).slice(0, maximum).join("");
 }
 
+function embeddedNarrativeFact(value: string) {
+  return value.replace(/[。！？!?；;：:]+$/u, "").trim();
+}
+
+function existingCharacterAsCandidate(
+  character: Character | null | undefined,
+  fallback: ProceduralCharacterCandidate,
+): ProceduralCharacterCandidate {
+  if (!character) return fallback;
+  const name = embeddedNarrativeFact(narrativeFact(character.name, fallback.name, 24)) || fallback.name;
+  const goal = embeddedNarrativeFact(narrativeFact(
+    character.goal?.value,
+    fallback.goal,
+    36,
+  ));
+  const personality = character.personality?.value?.trim() || fallback.personality;
+  const limitation = embeddedNarrativeFact(narrativeFact(
+    character.limitations?.find((value) => value.trim()),
+    fallback.refusalCondition,
+    40,
+  ));
+  return {
+    ...fallback,
+    id: character.id,
+    name,
+    personality,
+    goal,
+    refusalCondition: limitation,
+    proactiveAction: fallback.proactiveAction.replace(fallback.name, name),
+    directDialogue: `「我願意一起處理，但不會放棄${goal}。」${name}沒有移開視線，「我的底線是：${limitation.replace(/^若/u, "一旦")}。」`,
+    portrait: character.portrait ? {
+      baseId: character.portrait.id,
+      assetUri: character.portrait.assetUri,
+      atlasCell: character.portrait.atlas
+        ? character.portrait.atlas.row * character.portrait.atlas.columns + character.portrait.atlas.column
+        : 0,
+      visualSeed: character.portrait.assetDigest,
+      visualDescription: character.portrait.visualDescription,
+    } : fallback.portrait,
+  };
+}
+
 function deterministicTurnContext(snapshot: RpgChatSnapshot) {
   const flags = storyWorldFlags(snapshot.storyState);
   const protagonist = snapshot.characters.find((character) =>
     snapshot.storyBible.protagonistIds.includes(character.id))
     ?? snapshot.characters[0]
     ?? null;
-  const supporting = snapshot.characters.find((character) => character.id !== protagonist?.id) ?? null;
+  const existingSupporting = snapshot.characters.filter((character) => character.id !== protagonist?.id);
   const inventory = snapshot.progression.inventory.find((item) => item.quantity > 0) ?? null;
+  const location = narrativeFact(snapshot.storyState.locationState, "目前場景");
+  const conflict = narrativeFact(
+    typeof flags["story.arc.goal"] === "string"
+      ? String(flags["story.arc.goal"])
+      : snapshot.conflict,
+    `${snapshot.chapter.title}仍有必須處理的阻力`,
+  );
+  const turn = Math.max(0, Math.trunc(snapshot.progression.turn));
+  const scenario = proceduralCharacterTreasureScenarioAt({
+    seed: `${snapshot.project.id}|${snapshot.chapter.id}|${snapshot.playMode}`,
+    ordinal: (Math.floor(turn / 3) * 7_919 + existingSupporting.length * 101) % PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
+    context: {
+      genre: [snapshot.project.genrePackId, snapshot.project.genreId, snapshot.project.subgenreId]
+        .filter(Boolean).join(" "),
+      playMode: snapshot.playMode,
+      storyTags: snapshot.lore?.slice(0, 6).map((entry) => `${entry.kind}:${entry.title}`) ?? [],
+      protagonist: protagonist?.name,
+      location,
+      conflict,
+    },
+  });
+  const rotatedExisting = existingSupporting.length
+    ? existingSupporting.map((_, index) => existingSupporting[(turn + index) % existingSupporting.length])
+    : [];
+  const rotatedProcedural = scenario.cast.members.map((_, index) =>
+    scenario.cast.members[(turn + index) % scenario.cast.members.length]);
+  const supporting = existingCharacterAsCandidate(rotatedExisting[0], rotatedProcedural[0]);
+  const counterforce = existingCharacterAsCandidate(rotatedExisting[1], rotatedProcedural[1]);
+  const witness = existingCharacterAsCandidate(rotatedExisting[2], rotatedProcedural[2]);
   return {
     protagonist: protagonist?.name
       ?? (snapshot.language === "en" ? "The protagonist" : "主角"),
-    supporting: supporting?.name ?? "同行者",
-    conflict: narrativeFact(
-      typeof flags["story.arc.goal"] === "string"
-        ? String(flags["story.arc.goal"])
-        : snapshot.conflict,
-      `${snapshot.chapter.title}仍有必須處理的阻力`,
-    ),
+    supporting: supporting.name,
+    supportingCharacter: supporting,
+    counterforce,
+    witness,
+    scenario,
+    conflict,
     unresolved: narrativeFact(
       typeof flags["story.arc.thread"] === "string"
         ? String(flags["story.arc.thread"])
         : snapshot.storyBible.unresolvedThreads.at(-1),
       "先前留下的承諾仍未得到回答",
     ),
-    location: narrativeFact(snapshot.storyState.locationState, "目前場景"),
+    location,
     inventory: inventory?.name ?? "現有資源",
+    storyProp: inventory?.name ?? scenario.treasure.name,
+    treasure: scenario.treasure,
   };
 }
 
@@ -1056,6 +1134,26 @@ function countConsecutiveRpgSetbacks(receipts: readonly RpgTurnReceipt[]) {
   }
   return count;
 }
+
+type RpgCausalInferenceDimension = keyof ReturnType<
+  typeof buildProceduralCausalFrame
+>["inferenceDimensions"];
+
+const STORY_LIBRARY_CAUSAL_TARGET: Record<
+  ProceduralCausalDimensionId,
+  RpgCausalInferenceDimension
+> = {
+  trigger: "catalyst",
+  desire: "goal",
+  agency: "pressure",
+  relationship: "leverage",
+  resource: "resourceProp",
+  stance: "relationshipTension",
+  price: "cost",
+  constraint: "deadline",
+  refusal: "reversal",
+  consequence: "aftermath",
+};
 
 /** One causal contract is shared by closed-AI direction and rules fallback. */
 export function buildRpgTurnCausalContract(input: {
@@ -1081,6 +1179,12 @@ export function buildRpgTurnCausalContract(input: {
     fallbackGoal: context.conflict,
     fallbackThread: context.unresolved,
   });
+  const crossCausalDimensions = Object.fromEntries(
+    context.scenario.causalDimensions.map((dimension) => [
+      STORY_LIBRARY_CAUSAL_TARGET[dimension.id],
+      dimension.signal,
+    ]),
+  ) as Partial<ReturnType<typeof buildProceduralCausalFrame>["inferenceDimensions"]>;
   return buildProceduralCausalFrame({
     encounter: input.choice.encounter,
     protagonist: context.protagonist,
@@ -1095,6 +1199,8 @@ export function buildRpgTurnCausalContract(input: {
     turn: input.choice.encounter.arcLocalTurn ?? arc.localTurn,
     arcHorizon: input.choice.encounter.arcHorizon ?? arc.horizon,
     approvedEnding: arc.ending.isEnding,
+    relationshipScenarioId: context.scenario.id,
+    crossCausalDimensions,
     causalKnowledge: causalKnowledge.selectedRuleIds.length ? {
       snapshotVersion: causalKnowledge.snapshotVersion,
       snapshotDigest: causalKnowledge.snapshotDigest,
@@ -1167,17 +1273,6 @@ export function buildRpgOutcomeLines(choice: RpgChoice, resolution: RpgChoiceRes
 function compactDeterministicCausalDimension(value: string, maximum = 44) {
   const normalized = value.normalize("NFC").replace(/\s+/gu, " ").trim();
   if (normalized.length <= maximum) return normalized;
-  const calibrationMarker = "核准規則校準：";
-  const markerIndex = normalized.indexOf(calibrationMarker);
-  if (markerIndex >= 0) {
-    const base = sliceDeterministicText(normalized.slice(0, markerIndex).trim(), 24);
-    const learned = normalized
-      .slice(markerIndex + calibrationMarker.length)
-      .replace(/；限制：/gu, "；限：");
-    const prefix = `${base} 核准規則：`;
-    const remaining = Math.max(1, maximum - prefix.length - 1);
-    return `${prefix}${sliceDeterministicText(learned, remaining)}…`;
-  }
   return `${sliceDeterministicText(normalized, maximum - 1)}…`;
 }
 
@@ -1217,10 +1312,45 @@ function finishDeterministicParagraph(value: string, language: StoryOutputLangua
         : "眼前後果仍然有效，不能回到選擇之前。";
   }
   const hasTerminalPunctuation = language === "en"
-    ? /[.!?]$/u.test(normalized)
-    : /[。！？!?]$/u.test(normalized);
+    ? /(?:[.!?]|…)["'’”)]?$/u.test(normalized)
+    : /(?:[。！？!?]|……|…)[」』）》】"]?$/u.test(normalized);
   if (hasTerminalPunctuation) return normalized;
   return `${normalized.replace(/[，,；;：:、…—.\-\s]+$/gu, "")}${language === "en" ? "." : "。"}`;
+}
+
+function pendingQuotationClosers(value: string) {
+  const openingToClosing = new Map([
+    ["「", "」"],
+    ["『", "』"],
+    ["“", "”"],
+    ["（", "）"],
+    ["《", "》"],
+    ["【", "】"],
+  ]);
+  const closing = new Set(openingToClosing.values());
+  const stack: string[] = [];
+  for (const character of Array.from(value)) {
+    const expectedClosing = openingToClosing.get(character);
+    if (expectedClosing) {
+      stack.push(expectedClosing);
+    } else if (closing.has(character) && stack.at(-1) === character) {
+      stack.pop();
+    }
+  }
+  return stack.reverse().join("");
+}
+
+function closeDeterministicQuotation(value: string, maximum: number) {
+  let body = value;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const closers = pendingQuotationClosers(body);
+    if (!closers) return body;
+    if (Array.from(body).length + Array.from(closers).length <= maximum) {
+      return `${body}${closers}`;
+    }
+    body = sliceDeterministicText(body, maximum - Array.from(closers).length);
+  }
+  return body;
 }
 
 function truncateDeterministicParagraph(
@@ -1240,9 +1370,23 @@ function truncateDeterministicParagraph(
     prefix.lastIndexOf("."),
   );
   if (sentenceBoundary >= Math.floor(maximum * 0.78)) {
-    return finishDeterministicParagraph(prefix.slice(0, sentenceBoundary + 1), language);
+    return closeDeterministicQuotation(
+      finishDeterministicParagraph(prefix.slice(0, sentenceBoundary + 1), language),
+      maximum,
+    );
   }
-  return finishDeterministicParagraph(`${prefix}…`, language);
+  let body = prefix.replace(/[，,；;：:、…—.\-\s]+$/gu, "").trim();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const closers = pendingQuotationClosers(body);
+    const ending = `${language === "en" ? "…" : "……"}${closers}`;
+    const remaining = maximum - Array.from(ending).length;
+    const clipped = sliceDeterministicText(body, remaining)
+      .replace(/[，,；;：:、…—.\-\s]+$/gu, "")
+      .trim();
+    if (clipped === body) return `${body}${ending}`;
+    body = clipped;
+  }
+  return closeDeterministicQuotation(body, maximum);
 }
 
 function deterministicStoryLength(title: string, paragraphs: readonly string[]) {
@@ -1331,6 +1475,129 @@ function deterministicPostArcOutcome(
   return resolution.outcome === "critical_success"
     ? "這次安置取得超出預期的成功，同時完整保留已經落定的結局。"
     : "這次安置成功完成，所有留下的後果仍然歸屬於已經落定的結局。";
+}
+
+function deterministicProseHash(value: string) {
+  let hash = 0x811c9dc5;
+  for (const character of value.normalize("NFC")) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+function chooseDeterministicProse<T>(seed: string, values: readonly T[], offset = 0) {
+  return values[(deterministicProseHash(`${seed}|${offset}`) + offset) % values.length];
+}
+
+function spokenByCharacter(value: string, protagonist: string) {
+  return value.replace(/主角/gu, protagonist);
+}
+
+/**
+ * Reader-facing Traditional Chinese fallback. The causal contract, rolls,
+ * state deltas and learning-rule receipts stay outside the novel body.  This
+ * function renders only scene, character agency, dialogue, action and result.
+ */
+function buildTraditionalNovelFallback(input: {
+  snapshot: RpgChatSnapshot;
+  choice: RpgChoice;
+  resolution: RpgChoiceResolution;
+  context: ReturnType<typeof deterministicTurnContext>;
+  turn: number;
+}) {
+  const { snapshot, choice, resolution, context } = input;
+  const protagonist = context.protagonist;
+  const ally = context.supportingCharacter;
+  const counterforce = context.counterforce;
+  const witness = context.witness;
+  const treasure = context.treasure;
+  const causalFrame = buildRpgTurnCausalContract({ snapshot, choice, outcome: resolution.outcome });
+  const seed = stableStringify({
+    projectId: snapshot.project.id,
+    chapterId: snapshot.chapter.id,
+    turn: input.turn,
+    playMode: snapshot.playMode,
+    choice: choice.title,
+    outcome: resolution.outcome,
+    scenario: context.scenario.id,
+    learnedShape: causalFrame.inferenceDimensions,
+  });
+  const weather = chooseDeterministicProse(seed, [
+    "窗縫灌進來的風把紙角吹得不停顫動",
+    "遠處的鐘聲被雨幕磨得低沉而急促",
+    "屋簷落水一滴接一滴，像有人在暗處計時",
+    "燈芯爆出細小火花，牆上的影子也跟著一縮",
+    "門外忽然安靜下來，反而襯得室內每次呼吸都格外清楚",
+  ]);
+  const sensory = chooseDeterministicProse(seed, [
+    "潮濕木料、舊紙與冷茶的氣味混在一起",
+    "石地留下凌亂水痕，鞋底每移一步都發出短促摩擦聲",
+    "未散的藥香貼在衣袖上，苦味一直壓到舌根",
+    "桌面殘留一圈乾涸墨跡，幾張被反覆折過的紙壓在燈下",
+    "外頭人聲忽近忽遠，偶爾夾著車輪或金屬碰撞的聲響",
+  ], 1);
+  const visiblePressure = chooseDeterministicProse(seed, [
+    "門外傳來第三次催促，等候的人已經失去耐性",
+    "一名陌生人從窗前走過兩次，第二次停得明顯更久",
+    "原本答應保持中立的人先一步撤走，留下的位置立刻被另一方占住",
+    "通往後門的燈忽然熄滅，熟悉的退路因此變得難以判斷",
+    "遠端送來的消息少了一行關鍵內容，卻多出一枚不該出現的印記",
+  ], 2);
+  const outcomeProse = resolution.outcome === "critical_success"
+    ? `${protagonist}的安排成功得超出預期。眼前難題被推開之餘，一份原本不肯露面的證據也隨之現身；在場的人都看見，這並非幸運憑空降臨，而是先前每一步試探終於連成了線。`
+    : resolution.outcome === "success"
+      ? `${protagonist}的安排成功了。最迫切的危機終於被壓住，然而留在現場的痕跡也證明，事情只是改變了形狀，並沒有因此失去重量。`
+      : resolution.outcome === "partial_success"
+        ? `計畫只完成了一部分，卻已把局面推過無法回頭的界線。${protagonist}保住最重要的一端，另一端則在眾目睽睽下脫手，代價比預想更早落到每個人面前。`
+        : `${protagonist}原先的安排未能成功。阻力在最後一步合攏，把眾人逼回門內；但那次失敗也讓藏在暗處的人露出手勢，至少沒有人再把真正的阻礙認錯。`;
+  const allySpeech = spokenByCharacter(ally.directDialogue, protagonist);
+  const allyAction = spokenByCharacter(ally.proactiveAction, protagonist);
+  const counterSpeech = spokenByCharacter(counterforce.directDialogue, protagonist);
+  const counterAction = spokenByCharacter(counterforce.proactiveAction, protagonist);
+  const witnessAction = spokenByCharacter(witness.proactiveAction, protagonist);
+  const terminalAction = choice.encounter.arcNextAction
+    ?? (choice.encounter.arcPhase === "resolution" ? "resolution" : null);
+  const modeOpening = snapshot.playMode === "management"
+    ? `${context.location}裡還亮著最後一盞燈。${weather}。${sensory}。${protagonist}沒有再看那份被改過條件的交付單，而是把它推到桌面中央，當著所有人的面說出要做的事：「${choice.title}，現在開始。」`
+    : snapshot.playMode === "romance"
+      ? `${context.location}比平常更安靜。${weather}。${sensory}。${protagonist}原本準備好的話到了唇邊，最後只留下最誠實的一句：「我選擇${choice.title}，但答案由你自己決定。」`
+      : `${context.location}的光線被來往人影切成幾段。${weather}。${sensory}。${protagonist}確認退路仍在，才將手按上${context.storyProp}，依照「${choice.title}」邁出第一步。`;
+  const modeAction = snapshot.playMode === "management"
+    ? `${protagonist}只動用眼前已有的${context.inventory}，把人分成兩組：一組查清最早出現異常的環節，另一組守住仍能兌現的承諾。每張單據都必須找到經手者，每個承諾都得有人願意署名。`
+    : snapshot.playMode === "romance"
+      ? `${protagonist}沒有追著解釋，只把${context.inventory}和曾經隱瞞的部分放到兩人都看得見的位置。問題一個接一個說清，沒有替對方預設原諒，也沒有把沉默當成默許。`
+      : `${protagonist}只帶上${context.inventory}，壓低身形沿著既有痕跡前進，先用${context.storyProp}確認方位，再把退路留給身後的人。每個動作都能被看見，也因此無法假裝沒有做過。`;
+  const titleImage = chooseDeterministicProse(seed, [
+    `${context.location}未熄的燈`,
+    `${treasure.name}留下的影子`,
+    `${counterforce.name}推開的門`,
+    `${snapshot.chapter.title}的雨聲`,
+    `${ally.name}沒有說完的話`,
+  ], 3);
+  const embeddedConflict = embeddedNarrativeFact(context.conflict);
+
+  const paragraphs = [
+    modeOpening,
+    `${allyAction}${allySpeech}${ally.name}把條件說得很清楚。那不是替${protagonist}補位，而是為了${ally.goal}；若這件事被忽略，${ally.name}寧可獨自離開。`,
+    `${treasure.name}就在這時被帶到眾人眼前。${treasure.holderRelationship}；它可以${treasure.function}，卻也有不能繞過的缺口：${treasure.limitation}。${protagonist}只查看封口與磨損，沒有把尚未屬於自己的東西收進手中。`,
+    `${counterforce.name}沒有等人邀請便插手。${counterAction}${counterSpeech}${visiblePressure}。${counterforce.name}想守住的是${counterforce.goal}，因此即使願意合作，也不會沿著${protagonist}預先畫好的線走。`,
+    modeAction,
+    `${witness.name}原本一直站在光線以外，此刻卻主動改變了局面。${witnessAction}隨後，${witness.name}把自己看見的細節交給兩邊核對，卻扣下最關鍵的一句，要求眾人先證明誰願意承擔後果。`,
+    outcomeProse,
+    `${ally.name}沒有因結果立刻改變立場。${ally.name}先將能保住的部分交給${witness.name}看管，再把${treasure.name}推回原持有人面前。${treasure.cost}，這筆代價落在眾人之間，也讓原本模糊的信任有了明確邊界。`,
+    `直到人聲稍歇，${protagonist}才從散亂痕跡裡辨出「${context.unresolved}」的新線索。它指向${counterforce.name}先前避開的那個位置，也解釋了「${embeddedConflict}」為何會在今天忽然惡化。答案仍不完整，方向卻再也不是原地打轉。`,
+    terminalAction === "archive-ending"
+      ? `${protagonist}最後關上門，讓${titleImage}停在身後。${ally.name}、${counterforce.name}與${witness.name}各自帶走應負的責任，沒有人再把已結束的衝突喚回來；那道關門聲落下後，故事真正安靜了。`
+      : terminalAction === "epilogue"
+        ? `天色慢慢越過${context.location}，${titleImage}也不再催促任何人。三人各自安置留下的傷、承諾與工作，沒有新的危機闖入這幅畫面；即使旅程就停在此處，他們也已經擁有完整的去向。`
+        : terminalAction === "new-arc"
+          ? `${titleImage}在清晨重新顯出輪廓。舊事沒有被推翻，${ally.name}保留的證據卻指向另一個從未回答的問題；${protagonist}帶著已承擔的一切走向新地點，另一段故事由此開始。`
+          : terminalAction === "resolution"
+            ? `${titleImage}終於安定下來。${protagonist}沒有再追逐多餘的勝利，只與三人確認誰留下、誰離開，以及什麼已經不能挽回。當最後一個人走出${context.location}，這段紛爭也抵達了真正的終點。`
+            : `${titleImage}還留在原處，卻已和片刻前不同。門外有人帶著新的條件逼近，${ally.name}則握住尚未交出的證據；${protagonist}明白，下一次行動將從這些已發生的後果開始，而不是把今天重演一遍。`,
+  ];
+  return finalizeDeterministicRpgStory({ title: `〈${titleImage}〉`, paragraphs, language: "zh-TW" });
 }
 
 function buildDeterministicPostArcStory(input: {
@@ -1520,52 +1787,15 @@ export function buildDeterministicRpgTurnStory(input: {
   const context = deterministicTurnContext(input.snapshot);
   const protagonist = context.protagonist;
   const turn = input.snapshot.progression.turn + 1;
+  if (input.snapshot.language === "zh-TW") {
+    return buildTraditionalNovelFallback({ ...input, context, turn });
+  }
   const postArcStory = buildDeterministicPostArcStory({
     ...input,
     context,
     turn,
   });
   if (postArcStory) return postArcStory;
-  const closureKind = input.choice.encounter.arcPhase === "resolution"
-    ? input.choice.encounter.arcResolutionKind
-    : null;
-  if (closureKind && input.snapshot.language === "zh-TW") {
-    const causalFrame = buildRpgTurnCausalContract({
-      snapshot: input.snapshot,
-      choice: input.choice,
-      outcome: input.resolution.outcome,
-    });
-    const dimensions = compactDeterministicCausalDimensions(causalFrame.inferenceDimensions);
-    const result = input.resolution.outcome === "critical_success"
-      ? "行動取得超出預期的成功，既定目標與額外證據同時被保住。"
-      : input.resolution.outcome === "success"
-        ? "行動成功完成既定目標，代價與責任也已被清楚記下。"
-        : input.resolution.outcome === "partial_success"
-          ? "行動只完成部分目標，但眾人接受代價，仍把事件推到不可逆的結案位置。"
-          : "這次行動失敗了，未能保全原定成果；然而人物不再逃避已知後果，仍選擇讓這條因果鏈正式結束。";
-    const closureDecision = closureKind === "complete"
-      ? `${protagonist}把最後一份可驗證的證據交到該承擔責任的人手上，沒有再追逐額外利益。`
-      : closureKind === "accept-cost"
-        ? `${protagonist}公開承認無法同時保全一切，主動接下先前已預告的損失與責任。`
-        : `${protagonist}停止加碼，帶著已取得的成果與尚需承受的餘波離開現場。`;
-    const paragraphs = [
-      `${dimensions.catalyst}${dimensions.goal}${protagonist}在${context.location}選定「${input.choice.title}」時，這條一路累積的因果鏈終於抵達終點。這一次不是另開危機，而是把既有選擇與失去的退路逐一放回答案裡。`,
-      `${dimensions.leverage}${dimensions.resourceProp}最初看似分散的事件如今彼此扣合；所有證據都來自先前真正發生的行動，沒有任何線索被突然改寫，也沒有憑空出現救命道具。`,
-      `${dimensions.pressure}${dimensions.deadline}${closureDecision}他沒有假裝時間、信任與位置可以全部保全，而是說清自己願意放棄什麼、要替誰承擔什麼，讓眾人能判斷這個結局是否真實。`,
-      `${dimensions.relationshipTension}${context.supporting}沒有立刻原諒，也沒有把一次選擇誇大成永遠的承諾。兩人只把能兌現的合作、留下的信任與仍會延續的傷痕逐一說清。`,
-      `${dimensions.cost}${protagonist}最後動用的仍是${context.inventory}、既有關係與一路累積的判斷。代價沒有被勝負沖淡，失去的時間不會倒轉，耗掉的資源也不會自動補回。`,
-      `${result}${causalFrame.hopeGuard.progressBeat}${dimensions.reversal}結果與新證據都已落地；完成因此具有重量，而不是換一個標題後無限重來。`,
-      `${dimensions.aftermath}${causalFrame.hopeGuard.recoveryBeat}${input.choice.encounter.locationShift}不再是等待下一場衝突的舞台，而成為眾人記得責任如何落定的地方。`,
-      `未解線索「${context.unresolved}」在此被正式回收。它不再以換名方式重新出現，也不再要求人物回到第一步重問同一問題；Story Bible 會在核准時把它從未解清單移入結案紀錄，與本次狀態更新一起原子保存。`,
-      `${context.supporting}在離開前回望${protagonist}，沒有給出廉價保證，只留下一個足以安放餘波的動作。人物、關係、能力與資源都保留此刻的後果，讓故事即使停下，也能看見他們確實走過這段路。`,
-      `夜色或天光越過${context.location}時，本弧已經完整結束。接下來只能閱讀尾聲、從另一條仍存在的 Canon 線索建立全新故事弧，或把這個結局封存；無論選哪一條，都不會重新打開「${context.unresolved}」。`,
-    ];
-    return finalizeDeterministicRpgStory({
-      title: `第 ${turn} 回合｜結案：${input.choice.title}`,
-      paragraphs,
-      language: input.snapshot.language,
-    });
-  }
   if (input.snapshot.language === "en") {
     const result = input.resolution.outcome === "critical_success"
       ? "The action succeeded beyond its immediate aim and exposed an additional opening."
@@ -1708,6 +1938,44 @@ function assertRpgArcActionAvailable(snapshot: RpgChatSnapshot, choice: RpgChoic
   }
 }
 
+function attachProceduralSceneReceipt(
+  snapshot: RpgChatSnapshot,
+  resolution: RpgChoiceResolution,
+): RpgChoiceResolution {
+  const context = deterministicTurnContext(snapshot);
+  const previousActors = typeof snapshot.storyState.worldFlags?.["story.recentSupportingActors"] === "string"
+    ? String(snapshot.storyState.worldFlags["story.recentSupportingActors"])
+        .split("|").map((value) => value.trim()).filter(Boolean)
+    : [];
+  const recentActors = [context.supportingCharacter.id, ...previousActors]
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .slice(0, 3);
+  const effect = {
+    ...resolution.effect,
+    worldFlags: {
+      ...(resolution.effect.worldFlags ?? {}),
+      "story.activeSupportingCharacterId": context.supportingCharacter.id,
+      "story.activeSupportingCharacterName": context.supportingCharacter.name,
+      "story.activeCounterforceCharacterId": context.counterforce.id,
+      "story.activeCounterforceCharacterName": context.counterforce.name,
+      "story.activeWitnessCharacterId": context.witness.id,
+      "story.activeWitnessCharacterName": context.witness.name,
+      "story.activeTreasureId": context.treasure.id,
+      "story.activeTreasureName": context.treasure.name,
+      "story.relationshipScenarioId": context.scenario.id,
+      "story.recentSupportingActors": recentActors.join("|"),
+    },
+  };
+  return {
+    ...resolution,
+    effect,
+    settlement: {
+      ...resolution.settlement,
+      resolvedEffect: structuredClone(effect),
+    },
+  };
+}
+
 export async function buildDeterministicRpgChatTurnCandidate(input: {
   snapshot: RpgChatSnapshot;
   choice: RpgChoice;
@@ -1716,13 +1984,13 @@ export async function buildDeterministicRpgChatTurnCandidate(input: {
 }): Promise<RpgChatTurnCandidate> {
   assertRpgArcActionAvailable(input.snapshot, input.choice);
   const fallbackStartedAt = performance.now();
-  const resolution = input.resolution ?? resolveRpgChoice(input.choice, {
+  const resolution = attachProceduralSceneReceipt(input.snapshot, input.resolution ?? resolveRpgChoice(input.choice, {
     seed: `${input.snapshot.progression.procedural.runSeed}|${input.snapshot.chapter.id}|${input.snapshot.progression.turn}`,
     revision: input.snapshot.storyState.revision,
     recentEncounterSignatures: input.snapshot.progression.procedural.recentEncounterSignatures,
     turn: input.snapshot.progression.turn,
     storyState: input.snapshot.storyState,
-  });
+  }));
   const story = buildDeterministicRpgTurnStory({
     snapshot: input.snapshot,
     choice: input.choice,
@@ -1772,13 +2040,13 @@ export async function generateRpgChatTurnCandidate(input: {
   onProgress?: (event: ClosedAIProgressEvent) => void;
 }): Promise<RpgChatTurnCandidate> {
   assertRpgArcActionAvailable(input.snapshot, input.choice);
-  const resolution = resolveRpgChoice(input.choice, {
+  const resolution = attachProceduralSceneReceipt(input.snapshot, resolveRpgChoice(input.choice, {
     seed: `${input.snapshot.progression.procedural.runSeed}|${input.snapshot.chapter.id}|${input.snapshot.progression.turn}`,
     revision: input.snapshot.storyState.revision,
     recentEncounterSignatures: input.snapshot.progression.procedural.recentEncounterSignatures,
     turn: input.snapshot.progression.turn,
     storyState: input.snapshot.storyState,
-  });
+  }));
   const outcomeLines = buildRpgOutcomeLines(input.choice, resolution);
   const readerSafeCausalContract = buildRpgReaderSafeCausalPayload({
     snapshot: input.snapshot,
@@ -1869,7 +2137,7 @@ export async function generateRpgChatTurnCandidate(input: {
             lockedOutcome: resolution.outcome,
             instruction: input.snapshot.language === "en"
               ? "Discard the previous attempt. Regenerate from scratch; preserve the locked outcome, invent no numeric resource changes, and write exactly 10 substantial story paragraphs."
-              : "捨棄前次內容並從頭重寫；明確服從鎖定結果，不得自創任何資源數字；回合標題後恰好寫 10 個完整小說段落。",
+              : "捨棄前次內容並從頭重寫；明確服從鎖定結果，不得自創任何資源數字；以文學標題起首，之後恰好寫 10 個完整小說段落，正文不得出現任何規則或系統術語。",
           },
         })}`;
       }

@@ -147,7 +147,11 @@ for (const scenario of scenarios) {
   });
   const storyBlocks = candidate.story.split(/\n\s*\n/gu).filter(Boolean);
   assert.equal(storyBlocks.length, 11);
-  assert.match(candidate.story, new RegExp(`^第 1 回合｜${selected.title}`));
+  assert.match(candidate.story, /^〈[^〉]{2,40}〉/u);
+  assert.doesNotMatch(
+    candidate.story,
+    /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|因果框架|Story Bible|Canon/u,
+  );
   assert.doesNotMatch(candidate.story, /第零日|第一日/u);
   assert.ok(candidate.story.includes("林澄"));
   assert.ok(candidate.story.includes("蘇錦魚"));

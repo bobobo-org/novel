@@ -317,6 +317,9 @@ jobs:
             pnpm test:studio:conversation-branching
             pnpm test:studio:conversation-approval
             pnpm test:studio:conversation-rpg
+            pnpm test:studio:conversation-execution-trace
+            pnpm test:studio:rpg-library-dashboard-ui
+            pnpm test:studio:chat-detailed-dashboard
             pnpm test:ai:conversation-project-memory
             pnpm test:ai:conversation-tool-routing
             pnpm test:ai:conversation-security
@@ -328,6 +331,7 @@ jobs:
             pnpm test:ai:shared-learning-library
             pnpm test:ai:public-story-research-seed
             pnpm test:ai:mode-choice-curriculum
+            pnpm test:ai:procedural-story-library
             pnpm test:ai:rules-story-fallback-variety
             pnpm test:ai:rules-story-arc-closure
             pnpm test:studio:rpg-first-turn-playability
