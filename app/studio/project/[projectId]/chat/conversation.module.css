@@ -1389,6 +1389,7 @@
 }
 
 @media (max-width: 900px) {
+  .choices { grid-template-columns: 1fr; }
   .shell { overflow: visible; }
   .mobileBar {
     position: fixed;
