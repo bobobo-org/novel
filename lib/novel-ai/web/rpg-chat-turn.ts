@@ -1271,7 +1271,11 @@ export function buildRpgOutcomeLines(choice: RpgChoice, resolution: RpgChoiceRes
 }
 
 function compactDeterministicCausalDimension(value: string, maximum = 44) {
-  const normalized = value.normalize("NFC").replace(/\s+/gu, " ").trim();
+  const normalized = value
+    .normalize("NFC")
+    .replace(/核准規則校準\s*[：:]\s*/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
   if (normalized.length <= maximum) return normalized;
   return `${sliceDeterministicText(normalized, maximum - 1)}…`;
 }

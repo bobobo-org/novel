@@ -662,7 +662,10 @@ function applyApprovedCausalSignals(
       ];
     const effects = LEARNED_CAUSAL_EFFECTS[target];
     const effect = effects[hashText(`${signal.ruleId}|${signal.operation}|${signal.constraint}`) % effects.length];
-    next[target] = `${next[target]} ${effect}`;
+    // Keep an internal provenance marker so audits can prove that approved
+    // knowledge changed the causal contract. Reader-facing serializers remove
+    // the marker while preserving the learned semantic effect itself.
+    next[target] = `${next[target]} 核准規則校準：${effect}`;
     appliedRuleIds.push(signal.ruleId);
   }
   return { dimensions: next, appliedRuleIds };

@@ -126,7 +126,9 @@ function internalPromptKey(key: string) {
 }
 
 function redactInternalStoryMechanics(value: string) {
-  let next = value;
+  // This label is internal provenance, not story prose. Keep the learned
+  // instruction after the label so Closed AI still benefits from it.
+  let next = value.replace(/核准規則校準\s*[：:]\s*/gu, "");
   for (const { pattern } of INTERNAL_STORY_MECHANICS_PATTERNS) {
     const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
     next = next.replace(new RegExp(pattern.source, flags), "既有故事節奏");
