@@ -1,5 +1,7 @@
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { request as httpsRequest } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
+import { Readable } from "node:stream";
 import { sanitizeRetrievedKnowledge } from "../security/retrieval-content-sanitizer";
 import {
   createTextFingerprint,
@@ -14,7 +16,7 @@ const MAX_REDIRECTS = 3;
 const MAX_ROBOTS_BYTES = 128 * 1024;
 const MAX_SOURCE_BYTES = 1_000_000;
 const MAX_SOURCE_CHARACTERS = 60_000;
-const REQUEST_TIMEOUT_MS = 15_000;
+const TOTAL_RESEARCH_TIMEOUT_MS = 10_000;
 
 type HostAddress = { address: string; family: number };
 type ResolveHost = (hostname: string) => Promise<HostAddress[]>;
@@ -25,6 +27,8 @@ export type ControlledWebFetchDependencies = {
   resolveHost?: ResolveHost;
   now?: () => string;
   sourceProfile?: LearningWebSourceProfile;
+  deadlineMs?: number;
+  signal?: AbortSignal;
 };
 
 export type ControlledWebResearchResult = {
@@ -34,6 +38,42 @@ export type ControlledWebResearchResult = {
 
 function webResearchError(code: string, message: string, status = 400) {
   return Object.assign(new Error(message), { code, status });
+}
+
+function timeoutError() {
+  return webResearchError("WEB_RESEARCH_TIMEOUT", "來源網站回應逾時。", 504);
+}
+
+function controllerError(controller: AbortController) {
+  return controller.signal.reason === "WEB_RESEARCH_TIMEOUT"
+    ? timeoutError()
+    : webResearchError("WEB_RESEARCH_CANCELLED", "公開頁面分析已由使用者取消。", 499);
+}
+
+async function withinDeadline<T>(
+  promise: Promise<T>,
+  deadlineAt: number,
+  onTimeout?: () => void,
+): Promise<T> {
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0) {
+    onTimeout?.();
+    throw timeoutError();
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          onTimeout?.();
+          reject(timeoutError());
+        }, remaining);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function stripIpv6Brackets(value: string) {
@@ -115,20 +155,78 @@ async function defaultResolveHost(hostname: string) {
   return lookup(hostname, { all: true, verbatim: true });
 }
 
-async function assertPublicResolution(url: URL, resolveHost: ResolveHost) {
+async function assertPublicResolution(url: URL, resolveHost: ResolveHost, deadlineAt: number) {
   const hostname = stripIpv6Brackets(url.hostname);
-  const addresses = isIP(hostname)
-    ? [{ address: hostname, family: isIP(hostname) }]
-    : await resolveHost(hostname).catch(() => []);
+  let addresses: HostAddress[];
+  if (isIP(hostname)) {
+    addresses = [{ address: hostname, family: isIP(hostname) }];
+  } else {
+    try {
+      addresses = await withinDeadline(resolveHost(hostname), deadlineAt);
+    } catch (error) {
+      if ((error as { code?: string })?.code === "WEB_RESEARCH_TIMEOUT") throw error;
+      addresses = [];
+    }
+  }
   if (!addresses.length) {
     throw webResearchError("WEB_RESEARCH_DNS_FAILED", "無法驗證來源網站的公開網路位址。", 502);
   }
   if (addresses.some(({ address }) => !isPublicInternetAddress(address))) {
     throw webResearchError("WEB_RESEARCH_DNS_PRIVATE_ADDRESS_BLOCKED", "來源網站解析到私人或保留網路位址，已阻止連線。", 403);
   }
+  return addresses;
 }
 
-async function readLimitedText(response: Response, maximumBytes: number) {
+function appendNodeResponseHeaders(target: Headers, source: Record<string, string | string[] | undefined>) {
+  for (const [key, value] of Object.entries(source)) {
+    if (Array.isArray(value)) {
+      for (const item of value) target.append(key, item);
+    } else if (value !== undefined) {
+      target.set(key, value);
+    }
+  }
+}
+
+function fetchPinnedPublicHttps(url: URL, init: RequestInit, target: HostAddress) {
+  const headers = Object.fromEntries(new Headers(init.headers).entries());
+  const pinnedLookup: LookupFunction = (_hostname, options, callback) => {
+    if (options.all) {
+      callback(null, [{ address: target.address, family: target.family }]);
+      return;
+    }
+    callback(null, target.address, target.family);
+  };
+  return new Promise<Response>((resolve, reject) => {
+    const request = httpsRequest({
+      protocol: "https:",
+      hostname: url.hostname,
+      port: 443,
+      path: `${url.pathname}${url.search}`,
+      method: init.method ?? "GET",
+      headers,
+      servername: url.hostname,
+      lookup: pinnedLookup,
+      signal: init.signal ?? undefined,
+    }, (response) => {
+      const responseHeaders = new Headers();
+      appendNodeResponseHeaders(responseHeaders, response.headers);
+      resolve(new Response(Readable.toWeb(response) as ReadableStream<Uint8Array>, {
+        status: response.statusCode ?? 502,
+        statusText: response.statusMessage,
+        headers: responseHeaders,
+      }));
+    });
+    request.once("error", reject);
+    request.end();
+  });
+}
+
+async function readLimitedText(
+  response: Response,
+  maximumBytes: number,
+  deadlineAt: number,
+  controller: AbortController,
+) {
   const declared = Number(response.headers.get("content-length") || 0);
   if (declared > maximumBytes) {
     throw webResearchError("WEB_RESEARCH_RESPONSE_TOO_LARGE", "來源內容超過安全大小限制。", 413);
@@ -140,7 +238,11 @@ async function readLimitedText(response: Response, maximumBytes: number) {
   let text = "";
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await withinDeadline(
+        reader.read(),
+        deadlineAt,
+        () => controller.abort("WEB_RESEARCH_TIMEOUT"),
+      );
       if (done) break;
       total += value.byteLength;
       if (total > maximumBytes) {
@@ -150,6 +252,14 @@ async function readLimitedText(response: Response, maximumBytes: number) {
     }
     text += decoder.decode();
     return text;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw controllerError(controller);
+    }
+    if ((error as { code?: string })?.code === "WEB_RESEARCH_TIMEOUT") {
+      throw timeoutError();
+    }
+    throw error;
   } finally {
     await reader.cancel().catch(() => undefined);
   }
@@ -161,31 +271,37 @@ async function controlledFetch(input: {
   resolveHost: ResolveHost;
   maximumBytes: number;
   accept: string;
+  deadlineAt: number;
+  controller: AbortController;
+  pinResolvedAddress: boolean;
 }) {
   let current = input.initialUrl;
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-    await assertPublicResolution(current, input.resolveHost);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort("WEB_RESEARCH_TIMEOUT"), REQUEST_TIMEOUT_MS);
+    const addresses = await assertPublicResolution(current, input.resolveHost, input.deadlineAt);
     let response: Response;
     try {
-      response = await input.fetchImpl(current, {
+      const requestInit: RequestInit = {
         method: "GET",
         redirect: "manual",
         cache: "no-store",
-        signal: controller.signal,
+        signal: input.controller.signal,
         headers: {
           Accept: input.accept,
           "User-Agent": USER_AGENT,
         },
-      });
-    } catch {
-      if (controller.signal.aborted) {
-        throw webResearchError("WEB_RESEARCH_TIMEOUT", "來源網站回應逾時。", 504);
+      };
+      const request = input.pinResolvedAddress
+        ? fetchPinnedPublicHttps(current, requestInit, addresses[0])
+        : input.fetchImpl(current, requestInit);
+      response = await withinDeadline(request, input.deadlineAt, () => input.controller.abort("WEB_RESEARCH_TIMEOUT"));
+    } catch (error) {
+      if (input.controller.signal.aborted) {
+        throw controllerError(input.controller);
+      }
+      if ((error as { code?: string })?.code === "WEB_RESEARCH_TIMEOUT") {
+        throw timeoutError();
       }
       throw webResearchError("WEB_RESEARCH_NETWORK_FAILED", "無法安全讀取來源網站。", 502);
-    } finally {
-      clearTimeout(timeout);
     }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
@@ -199,7 +315,12 @@ async function controlledFetch(input: {
       response,
       finalUrl: current,
       redirects,
-      readText: () => readLimitedText(response, input.maximumBytes),
+      readText: () => readLimitedText(
+        response,
+        input.maximumBytes,
+        input.deadlineAt,
+        input.controller,
+      ),
     };
   }
   throw webResearchError("WEB_RESEARCH_REDIRECT_LIMIT", "來源網站重新導向次數過多。", 508);
@@ -242,7 +363,14 @@ export function isPathAllowedByRobots(robotsText: string, pathnameWithQuery: str
   return matches[0]?.allow ?? true;
 }
 
-async function checkRobots(url: URL, fetchImpl: FetchLike, resolveHost: ResolveHost) {
+async function checkRobots(
+  url: URL,
+  fetchImpl: FetchLike,
+  resolveHost: ResolveHost,
+  deadlineAt: number,
+  controller: AbortController,
+  pinResolvedAddress: boolean,
+) {
   const robotsUrl = new URL("/robots.txt", url.origin);
   const result = await controlledFetch({
     initialUrl: robotsUrl,
@@ -250,6 +378,9 @@ async function checkRobots(url: URL, fetchImpl: FetchLike, resolveHost: ResolveH
     resolveHost,
     maximumBytes: MAX_ROBOTS_BYTES,
     accept: "text/plain;q=1.0,*/*;q=0.1",
+    deadlineAt,
+    controller,
+    pinResolvedAddress,
   });
   if (result.response.status === 404 || result.response.status === 410) {
     await result.response.body?.cancel().catch(() => undefined);
@@ -376,17 +507,36 @@ export async function fetchControlledWebResearch(
   dependencies: ControlledWebFetchDependencies = {},
 ): Promise<ControlledWebResearchResult> {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
+  const pinResolvedAddress = dependencies.fetchImpl === undefined;
   const resolveHost = dependencies.resolveHost ?? defaultResolveHost;
   const requestedUrl = parseControlledWebUrl(rawUrl);
-  await assertPublicResolution(requestedUrl, resolveHost);
-  const robotsPolicy = await checkRobots(requestedUrl, fetchImpl, resolveHost);
-  const result = await controlledFetch({
-    initialUrl: requestedUrl,
-    fetchImpl,
-    resolveHost,
-    maximumBytes: MAX_SOURCE_BYTES,
-    accept: "text/html,application/xhtml+xml,text/plain,text/markdown,application/json;q=0.9",
-  });
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort("WEB_RESEARCH_CALLER_ABORTED");
+  if (dependencies.signal?.aborted) abortFromCaller();
+  else dependencies.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const deadlineMs = Math.max(50, Math.min(20_000, Number(dependencies.deadlineMs) || TOTAL_RESEARCH_TIMEOUT_MS));
+  const deadlineAt = Date.now() + deadlineMs;
+  const overallTimer = setTimeout(() => controller.abort("WEB_RESEARCH_TIMEOUT"), deadlineMs);
+  try {
+    await assertPublicResolution(requestedUrl, resolveHost, deadlineAt);
+    const robotsPolicy = await checkRobots(
+      requestedUrl,
+      fetchImpl,
+      resolveHost,
+      deadlineAt,
+      controller,
+      pinResolvedAddress,
+    );
+    const result = await controlledFetch({
+      initialUrl: requestedUrl,
+      fetchImpl,
+      resolveHost,
+      maximumBytes: MAX_SOURCE_BYTES,
+      accept: "text/html,application/xhtml+xml,text/plain,text/markdown,application/json;q=0.9",
+      deadlineAt,
+      controller,
+      pinResolvedAddress,
+    });
   if (!result.response.ok) {
     throw webResearchError("WEB_RESEARCH_HTTP_FAILED", `來源網站回傳 HTTP ${result.response.status}。`, 502);
   }
@@ -426,8 +576,8 @@ export async function fetchControlledWebResearch(
     throw webResearchError("WEB_RESEARCH_CONTENT_TOO_SHORT", "安全清理後的來源內容不足以蒸餾可靠規則。", 422);
   }
   const sourceDigest = await sha256Hex(sanitizedText);
-  return {
-    evidence: {
+    return {
+      evidence: {
       requestedUrl: requestedUrl.toString(),
       finalUrl: result.finalUrl.toString(),
       title: extracted.title || result.finalUrl.hostname,
@@ -435,7 +585,7 @@ export async function fetchControlledWebResearch(
       contentType,
       contentCharacters: sanitizedText.length,
       redirects: result.redirects,
-      robotsPolicy,
+        robotsPolicy,
       sourceDigest,
       sourceProfile: dependencies.sourceProfile ?? { channel: "article", engagement: null },
       fingerprint: createTextFingerprint(sanitizedText),
@@ -444,7 +594,11 @@ export async function fetchControlledWebResearch(
         `${heuristicOnly ? "HEURISTIC_REVIEW" : "UNTRUSTED_CONTENT"}_${finding.code}`)
         .concat(extracted.metadataCharacters > 0 ? ["PUBLIC_METADATA_ENRICHED"] : []))],
       rawContentRetained: false,
-    },
-    transientSanitizedText: sanitizedText,
-  };
+      },
+      transientSanitizedText: sanitizedText,
+    };
+  } finally {
+    clearTimeout(overallTimer);
+    dependencies.signal?.removeEventListener("abort", abortFromCaller);
+  }
 }

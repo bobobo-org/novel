@@ -9,6 +9,7 @@ import type {
   ConversationToolInvocation,
 } from "@/lib/novel-ai/domain";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
+import type { SovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-transaction";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
@@ -17,7 +18,7 @@ import {
   buildRpgRuleChoicePlan,
   buildRpgChatCustomAction,
   generateRpgChatTurnCandidate,
-  loadRpgChatSnapshot,
+  loadLearningAwareRpgChatSnapshot,
   type RpgChatChoicePlan,
 } from "@/lib/novel-ai/web/rpg-chat-turn";
 import { parseRpgChoices, serializeRpgChoices } from "../components/conversation-presentation";
@@ -46,6 +47,8 @@ function rpgProgressLabel(event: ClosedAIProgressEvent) {
 export function useConversationRpgController({
   projectId,
   repository,
+  learningRepository,
+  ensureSharedLearningReady,
   conversation,
   activeSession,
   busy,
@@ -66,6 +69,8 @@ export function useConversationRpgController({
 }: {
   projectId: string;
   repository: NovelRepository;
+  learningRepository: SovereignLearningRepository;
+  ensureSharedLearningReady: (signal?: AbortSignal) => Promise<unknown>;
   conversation: ConversationRepositoryService;
   activeSession: ConversationSession | null;
   busy: boolean;
@@ -85,6 +90,14 @@ export function useConversationRpgController({
   setDrawer: (value: DrawerPayload) => void;
 }) {
   const rpgTurnLocksRef = useRef(new Set<string>());
+
+  const loadSnapshot = (signal?: AbortSignal) => loadLearningAwareRpgChatSnapshot({
+    repository,
+    projectId,
+    learningRepository,
+    ensureSharedLearningReady,
+    signal,
+  });
 
   async function createRpgChoicesMessage(input: {
     sessionId: string;
@@ -116,7 +129,7 @@ export function useConversationRpgController({
       canonicalMutationCount: 0,
     });
     try {
-      const snapshot = await loadRpgChatSnapshot(repository, projectId);
+      const snapshot = await loadSnapshot(input.signal);
       // Choices are a navigation control, so they must never wait for a local
       // model queue.  The causal teacher has already selected a bounded Top-K
       // rule set while loading the snapshot; turn it into the three playable
@@ -240,7 +253,7 @@ export function useConversationRpgController({
     return withRpgTurnLock(
       `${input.sessionId}:${input.choiceSourceMessageId}:${input.choicePlanCandidateId}`,
       async () => {
-        const snapshot = await loadRpgChatSnapshot(repository, projectId);
+        const snapshot = await loadSnapshot(input.signal);
         if (
           snapshot.chapter.id !== input.expectedChapterId
           || snapshot.chapter.revision !== input.expectedChapterRevision
@@ -468,7 +481,7 @@ export function useConversationRpgController({
     setBusy(true);
     setSafeError(null);
     try {
-      const snapshot = await loadRpgChatSnapshot(repository, projectId);
+      const snapshot = await loadSnapshot(controller.signal);
       if (
         snapshot.chapter.id !== envelope.chapterId
         || snapshot.chapter.revision !== envelope.chapterRevision

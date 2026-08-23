@@ -62,6 +62,7 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
   const playMode = requestedPlayMode && isStoryPlayModeId(requestedPlayMode)
     ? requestedPlayMode
     : "general";
+  const cloneFromProjectId = draft.answers.cloneFrom?.value?.trim() || null;
   const storyState = {
     ...stateRecord,
     protagonistStats: {},
@@ -77,6 +78,9 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
       "story.setupComplete": true,
       "story.creationMode": draft.mode,
       "story.language": draft.answers.language?.value || "zh-TW",
+      ...(cloneFromProjectId && cloneFromProjectId !== projectId
+        ? { "story.cloneFromProjectId": cloneFromProjectId }
+        : {}),
     },
     questStates: {},
     achievementStates: {},

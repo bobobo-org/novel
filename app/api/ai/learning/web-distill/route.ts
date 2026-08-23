@@ -10,7 +10,7 @@ import { VERIFIED_STORY_TEACHER_VERSION } from "@/lib/novel-ai/sovereign-learnin
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 30;
 
 const WINDOW_MS = 10 * 60 * 1_000;
 const MAX_REQUESTS_PER_WINDOW = 4;
@@ -37,7 +37,7 @@ function enforceSameOrigin(request: NextRequest) {
   const fetchSite = request.headers.get("sec-fetch-site");
   if (fetchSite && !["same-origin", "same-site", "none"].includes(fetchSite)) return false;
   const origin = request.headers.get("origin");
-  if (!origin) return true;
+  if (!origin) return false;
   try {
     const allowedHosts = new Set([
       request.headers.get("host"),
@@ -141,13 +141,17 @@ export async function POST(request: NextRequest) {
         return json({ code: "WEB_RESEARCH_URL_INVALID", error: "來源網址格式無效。" }, 400);
       }
     }
-    const research = await fetchControlledWebResearch(url, { sourceProfile });
+    const research = await fetchControlledWebResearch(url, { sourceProfile, signal: request.signal });
     const bundle = await distillControlledWebKnowledge({
       research,
       providers,
       forceLocal: teacherMode === "local_only",
       allowLocalFallback: true,
+      signal: request.signal,
     });
+    if (request.signal.aborted) {
+      return json({ code: "WEB_DISTILLATION_CANCELLED", error: "公開頁面分析已由使用者取消。" }, 499);
+    }
     const sharedLibrary = await publishSharedLearningRules({
       sourceDigest: bundle.source.sourceDigest,
       sourceChannel: bundle.source.sourceProfile.channel,
@@ -156,7 +160,7 @@ export async function POST(request: NextRequest) {
         || bundle.storyResearch.evidence.grade === "content_partial"
         ? bundle.rules
         : [],
-    });
+    }, { signal: request.signal });
     return json({ ...bundle, sharedLibrary });
   } catch (error) {
     const row = error as { code?: string; status?: number; message?: string; detailCodes?: string[] };

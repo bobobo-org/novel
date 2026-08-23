@@ -294,6 +294,14 @@ function registerFileContractTests() {
     assert.match(chunks[0].nextOverlapDigest, /^[a-f0-9]{64}$/u);
     assert(chunks.every((chunk, index) => chunk.chunkIndex === index && /^[a-f0-9]{64}$/u.test(chunk.contentHash)));
   });
+
+  register("semantic chunking preserves a short final tail without exceeding bounds", async () => {
+    const source = `${"甲".repeat(500)}${"乙".repeat(50)}`;
+    const chunks = await splitManualLearningDocumentSemantically(source, 500);
+    assert.equal(chunks.length, 2);
+    assert(chunks.every((chunk) => chunk.text.length >= 120 && chunk.text.length <= 500));
+    assert.equal(chunks.map((chunk) => chunk.text).join("").replace(/\s+/gu, ""), source);
+  });
 }
 
 function registerTransactionTests() {

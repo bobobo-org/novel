@@ -326,6 +326,16 @@ jobs:
             pnpm test:ai:manual-learning-global-synthesis
             pnpm test:ai:controlled-web-distillation
             pnpm test:ai:shared-learning-library
+            pnpm test:ai:public-story-research-seed
+            pnpm test:ai:mode-choice-curriculum
+            pnpm test:ai:rules-story-fallback-variety
+            pnpm test:ai:rules-story-arc-closure
+            pnpm test:studio:rpg-first-turn-playability
+            pnpm test:studio:create-story-seed-ai
+            pnpm test:studio:project-playmode-clone
+            pnpm test:studio:project-context-navigation
+            pnpm test:ai:author-tools
+            node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-conversation-rpg-dashboard-presentation.mjs
           } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/conversation-gates.log"
 
       - name: Run required product suites

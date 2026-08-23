@@ -34,6 +34,7 @@ import {
 } from "../lib/novel-ai/repository/backup.ts";
 import { MemorySovereignLearningRepository } from "../lib/novel-ai/sovereign-learning/repository.ts";
 import {
+  buildRpgRuleChoicePlan,
   buildDeterministicRpgTurnStory,
   loadRpgChatSnapshot,
   parseRpgChoiceSelection,
@@ -269,13 +270,26 @@ register(9, "economy", "交易中途失敗時全部 rollback", async () => {
 register(10, "xianxia", "四種 outcome 都可由固定 seed 測得", async () => {
   const { snapshot } = await seedFixture();
   const choice = snapshot.baseChoices[2];
-  const found = new Map();
-  for (let index = 0; index < 10_000 && found.size < 4; index += 1) {
-    const seed = `outcome:${index}`;
-    const result = resolveChoice(snapshot, choice, seed);
-    if (!found.has(result.outcome)) found.set(result.outcome, seed);
+  for (const [label, candidate, seedFor] of [
+    ["current", choice, (index) => `outcome:${index}`],
+    ["minimum-success-band", {
+      ...choice,
+      internalSuccessChance: 5,
+      successChance: 5,
+    }, (index) => `outcome:minimum-success-band:${index}`],
+  ]) {
+    const found = new Map();
+    for (let index = 0; index < 10_000 && found.size < 4; index += 1) {
+      const seed = seedFor(index);
+      const result = resolveChoice(snapshot, candidate, seed);
+      if (!found.has(result.outcome)) found.set(result.outcome, seed);
+    }
+    assert.deepEqual(
+      new Set(found.keys()),
+      new Set(["critical_success", "success", "partial_success", "failure"]),
+      `${label} should keep all four deterministic outcome bands reachable`,
+    );
   }
-  assert.deepEqual(new Set(found.keys()), new Set(["critical_success", "success", "partial_success", "failure"]));
 });
 
 register(11, "xianxia", "部分成功同時具有收益與代價", async () => {
@@ -431,8 +445,15 @@ register(22, "xianxia", "本機模型不可用時規則後備模式誠實運作"
   assert.match(serviceSource, /actualExecutor:\s*"deterministic-rule-fallback"/u);
   assert.match(serviceSource, /model:\s*"closed-causal-teacher-rules"/u);
   assert.match(serviceSource, /RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 12_000/u);
-  assert.match(serviceSource, /choiceCount:\s*3/u);
-  assert.match(serviceSource, /exactKeys:\s*\["A", "B", "C"\]/u);
+  const fallbackPlan = await buildRpgRuleChoicePlan({
+    snapshot,
+    fallbackReason: "TEST_RULE_FALLBACK_EXACT_CHOICES",
+  });
+  assert.equal(fallbackPlan.choices.length, 3);
+  assert.deepEqual(fallbackPlan.choices.map((choice) => choice.key), ["A", "B", "C"]);
+  assert.equal(fallbackPlan.executionReceipt.choiceCount, 3);
+  assert.deepEqual(fallbackPlan.executionReceipt.exactKeys, ["A", "B", "C"]);
+  assert.equal(fallbackPlan.executionReceipt.terminalArchive, false);
 });
 
 register(23, "economy", "Reload 後能力、資源、境界與 receipt 保持一致", async () => {
@@ -566,6 +587,40 @@ register(28, "economy", "RPG canonical stats apply deltas on top of legacy alias
   );
   assert.equal(fromBaseline.protagonistStats["rpg.intellect"], 46);
   assert.equal(fromBaseline.protagonistStats["rpg.technique"], 49);
+});
+
+register(29, "economy", "legacy RPG receipts normalize omitted effect maps for history and replay", async () => {
+  const fixture = await seedFixture();
+  const pending = await persistResolvedChoice(fixture, undefined, "legacy-receipt-maps");
+  const candidate = await fixture.repository.get("candidates", pending.candidate.id);
+  const legacyEffect = structuredClone(candidate.effect);
+  for (const key of [
+    "statChanges",
+    "relationshipChanges",
+    "resourceChanges",
+    "questProgress",
+    "achievementProgress",
+    "worldFlags",
+  ]) delete legacyEffect[key];
+  const legacySettlement = structuredClone(candidate.rpgSettlement);
+  legacySettlement.resolvedEffect = structuredClone(legacyEffect);
+  await fixture.repository.put("candidates", {
+    ...candidate,
+    effect: legacyEffect,
+    rpgSettlement: legacySettlement,
+  }, candidate.revision);
+
+  const accepted = await acceptStudioChoice(
+    fixture.repository,
+    candidate.id,
+    "舊存檔效果欄位省略時仍可安全核准。",
+    pending.choice.title,
+  );
+  assert.deepEqual(accepted.rpgTurnReceipt?.appliedStatChanges, {});
+  assert.deepEqual(accepted.rpgTurnReceipt?.appliedResourceChanges, {});
+  assert.deepEqual(accepted.rpgTurnReceipt?.appliedRelationshipChanges, {});
+  const reloaded = await loadRpgChatSnapshot(fixture.repository, fixture.projectId);
+  assert.deepEqual(reloaded.rpgTurnReceipts[0]?.appliedResourceChanges ?? {}, {});
 });
 
 for (const test of tests.filter((item) => applies(item.category))) {

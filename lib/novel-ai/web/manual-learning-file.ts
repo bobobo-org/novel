@@ -590,7 +590,34 @@ function splitSemanticSections(text: string, maximumCharacters: number) {
     }
   }
   flush();
-  return output.filter((part) => part.text.length >= MANUAL_LEARNING_MIN_TEXT_CHARACTERS);
+  const compacted: typeof output = [];
+  for (const part of output) {
+    if (part.text.length >= MANUAL_LEARNING_MIN_TEXT_CHARACTERS || compacted.length === 0) {
+      compacted.push(part);
+      continue;
+    }
+    const previous = compacted.pop()!;
+    const combined = normalizeManualLearningText(`${previous.text}\n\n${part.text}`);
+    if (combined.length <= maximumCharacters) {
+      compacted.push({
+        ...previous,
+        sourceSection: previous.sourceSection === part.sourceSection
+          ? previous.sourceSection
+          : `${previous.sourceSection} → ${part.sourceSection}`,
+        text: combined,
+      });
+      continue;
+    }
+    const tailCharacters = Math.max(
+      MANUAL_LEARNING_MIN_TEXT_CHARACTERS,
+      combined.length - maximumCharacters,
+    );
+    compacted.push(
+      { ...previous, text: combined.slice(0, -tailCharacters).trimEnd() },
+      { ...part, text: combined.slice(-tailCharacters).trimStart() },
+    );
+  }
+  return compacted;
 }
 
 /** Compatibility API used by the existing Learning workspace. */

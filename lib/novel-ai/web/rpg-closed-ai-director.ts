@@ -4,6 +4,196 @@ export type RpgDirectedChoice = RpgChoice;
 
 export type StoryOutputLanguage = "zh-TW" | "zh-CN" | "en";
 
+const INTERNAL_STORY_MECHANICS_PATTERNS: ReadonlyArray<{
+  kind: string;
+  pattern: RegExp;
+}> = [
+  {
+    kind: "internal-horizon",
+    pattern: /\b(?:internal[\s_-]*)?(?:arc[\s_-]*)?horizon\b/iu,
+  },
+  {
+    kind: "internal-arc-phase",
+    pattern: /\b(?:arc[\s_-]*phase|(?:setup|escalation|reversal|climax|resolution)[\s_-]*phase)\b/iu,
+  },
+  {
+    kind: "internal-arc-phase",
+    pattern: /\b(?:arc|story|plot|narrative)\s+(?:is\s+)?(?:currently\s+)?(?:in|at|entering|enters?|has\s+entered)\s+(?:the\s+)?(?:setup|escalation|reversal|climax|resolution)(?:\s+(?:phase|stage))?\b/iu,
+  },
+  {
+    kind: "internal-arc-phase",
+    pattern: /(?:內部|系統|故事弧|劇情弧)(?:規劃)?(?:的)?(?:階段|相位)/u,
+  },
+  {
+    kind: "internal-arc-phase",
+    pattern: /(?:故事弧|劇情弧|主線|本卷)[^。！？\n]{0,16}(?:正處於|處於|進入|來到|目前是|現在是)[^。！？\n]{0,8}(?:鋪陳|升壓|升級|轉折|反轉|高潮|收束|結算|解決)(?:階段|相位)?/u,
+  },
+  {
+    kind: "ending-criteria",
+    pattern: /(?:結局|結案|完結|收束)(?:的)?(?:條件|門檻|判定|檢查|清單|觸發規則|證據要求|契約版本)/u,
+  },
+  {
+    kind: "ending-criteria",
+    pattern: /\b(?:ending|closure)[\s_-]*(?:condition|criteria|threshold|gate|checklist|trigger|evidence|contract)\b/iu,
+  },
+  {
+    kind: "ending-criteria",
+    pattern: /\b(?:conditions?|criteria|requirements?|thresholds?|gates?|checklists?|triggers?|evidence)\s+(?:required\s+)?(?:for|to\s+reach)\s+(?:the\s+)?(?:ending|closure)\b/iu,
+  },
+  {
+    kind: "ending-criteria",
+    pattern: /(?:達成|觸發|進入)(?:結局|結案|完結|收束)(?:所需|需要|必須)?(?:的)?(?:條件|門檻|證據|檢查)/u,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /(?:預設|固定|規劃|總共|總計|上限|最多|最晚|剩下|還有|再過)[^。！？\n]{0,12}(?:第\s*)?(?:\d{1,3}|[一二三四五六七八九十百兩]+)\s*(?:個)?回合/u,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /(?:故事弧|劇情弧|因果鏈|主線|本卷)[^。！？\n]{0,12}(?:\d{1,3}|[一二三四五六七八九十百兩]+)\s*(?:個)?回合/u,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /\b(?:preset|planned|fixed|maximum|total)\s+(?:of\s+)?\d{1,3}\s+rounds?\b/iu,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /\b(?:preset|planned|fixed|maximum|total|limited|scheduled|designed)[^.!?\n]{0,20}(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:rounds?|turns?)\b/iu,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /\b(?:story|arc|plot|narrative|volume)[^.!?\n]{0,20}(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:rounds?|turns?)\b/iu,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /\b\d{1,3}[\s-]*round\s+(?:arc|limit|horizon|plan)\b/iu,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /\b(?:ends?|finishes|concludes|closes)\s+(?:on|at|by)\s+round\s+\d{1,3}\b/iu,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /\b(?:ends?|finishes|concludes|closes)\s+(?:on|at|by|after)\s+(?:round|turn)\s+(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/iu,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /\b\d{1,3}\s+rounds?\s+(?:remain|remaining|left)\b/iu,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /\b(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:rounds?|turns?)\s+(?:remain|remaining|left)\b/iu,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /(?:\d{1,3}|[一二三四五六七八九十百兩]+)\s*(?:個)?回合[^。！？\n]{0,6}(?:後|內|時|就會|必須|將)[^。！？\n]{0,10}(?:結束|結案|完結|收束|進入結局)/u,
+  },
+  {
+    kind: "preset-round-count",
+    pattern: /(?:到|於|在)(?:了)?第\s*(?:\d{1,3}|[一二三四五六七八九十百兩]+)\s*回合[^。！？\n]{0,10}(?:結束|結案|完結|收束|進入結局)/u,
+  },
+];
+
+const INTERNAL_PROMPT_KEYS = new Set([
+  "arckey",
+  "arcstartturn",
+  "arclocalturn",
+  "archorizon",
+  "arcphase",
+  "arcresolved",
+  "arcresolutionkind",
+  "arcnextaction",
+  "persistentarc",
+  "readerdisclosure",
+  "endingreachable",
+  "endingoptionsrequired",
+  "mayrevealendingconditions",
+  "mayrevealpresethorizon",
+  "newsubplotbudget",
+  "causalchainaction",
+  "successfactorids",
+  "contextsignature",
+]);
+
+function internalPromptKey(key: string) {
+  const normalizedKey = key.normalize("NFKC").toLocaleLowerCase().replace(/[^a-z0-9]/gu, "");
+  return INTERNAL_PROMPT_KEYS.has(normalizedKey)
+    || normalizedKey.includes("horizon")
+    || normalizedKey === "phase"
+    || normalizedKey.startsWith("endingcondition")
+    || normalizedKey.startsWith("endingcriteria")
+    || normalizedKey.startsWith("endingthreshold");
+}
+
+function redactInternalStoryMechanics(value: string) {
+  let next = value;
+  for (const { pattern } of INTERNAL_STORY_MECHANICS_PATTERNS) {
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+    next = next.replace(new RegExp(pattern.source, flags), "既有故事節奏");
+  }
+  return next.replace(/\s{2,}/gu, " ").trim();
+}
+
+/**
+ * Defense in depth for every value serialized into a closed-AI prompt.  It
+ * removes planning-only fields and redacts planning phrases while preserving
+ * reader-visible story facts, the current turn, and the currently offered
+ * actions.
+ */
+export function toRpgReaderSafePromptPayload<T>(value: T): T {
+  const visit = (current: unknown): unknown => {
+    if (typeof current === "string") return redactInternalStoryMechanics(current);
+    if (Array.isArray(current)) return current.map(visit);
+    if (!current || typeof current !== "object") return current;
+    return Object.fromEntries(Object.entries(current as Record<string, unknown>)
+      .filter(([key]) => !internalPromptKey(key))
+      .map(([key, child]) => [key, visit(child)]));
+  };
+  return visit(value) as T;
+}
+
+export function assertRpgReaderSafeOutput(value: string) {
+  for (const { kind, pattern } of INTERNAL_STORY_MECHANICS_PATTERNS) {
+    if (!pattern.test(value)) continue;
+    throw Object.assign(new Error("RPG_AI_INTERNAL_STORY_MECHANICS_LEAK"), {
+      leakKind: kind,
+    });
+  }
+}
+
+export function buildRpgReaderSafeChoicePayload(choice: RpgChoice) {
+  return toRpgReaderSafePromptPayload({
+    key: choice.key,
+    title: choice.title,
+    description: choice.description,
+    consequenceTeaser: choice.consequenceTeaser,
+    strategy: choice.approach,
+    primaryStat: choice.primaryStat,
+    secondaryStat: choice.secondaryStat,
+    successChance: choice.successChance,
+    risk: choice.risk,
+    costs: choice.costLabels,
+    impacts: choice.impactLabels,
+    storySignals: {
+      title: choice.encounter.title,
+      telegraph: choice.encounter.telegraph,
+      complication: choice.encounter.complication,
+      locationShift: choice.encounter.locationShift,
+      worldAspect: choice.encounter.worldAspect,
+      catalyst: choice.encounter.catalyst,
+      goal: choice.encounter.goal,
+      pressure: choice.encounter.pressure,
+      leverage: choice.encounter.leverage,
+      resourceProp: choice.encounter.resourceProp,
+      relationshipTension: choice.encounter.relationshipTension,
+      cost: choice.encounter.cost,
+      deadline: choice.encounter.deadline,
+      reversal: choice.encounter.reversal,
+      aftermath: choice.encounter.aftermath,
+    },
+  });
+}
+
 function outputLanguageInstruction(language: StoryOutputLanguage) {
   if (language === "zh-CN") return "只使用简体中文，不得混入繁體字。";
   if (language === "en") return "Use English only. Do not mix Chinese into the story output.";
@@ -38,6 +228,7 @@ function parseJsonObject(raw: string) {
 }
 
 export function parseRpgChoiceDirectorOutput(raw: string): DirectedChoicePayload[] {
+  assertRpgReaderSafeOutput(raw);
   const parsed = parseJsonObject(raw);
   if (!Array.isArray(parsed.choices)) throw new Error("RPG_AI_CHOICE_ARRAY_MISSING");
   const rows = parsed.choices.map((value) => {
@@ -94,6 +285,7 @@ export function buildRpgChoiceDirectorPrompt(input: {
   context: Record<string, unknown>;
   baseChoices: RpgChoice[];
   language: StoryOutputLanguage;
+  readerSafeCausalContracts?: readonly unknown[];
 }) {
   return JSON.stringify({
     instruction: [
@@ -101,6 +293,7 @@ export function buildRpgChoiceDirectorPrompt(input: {
       "每個 key 已由規則引擎綁定策略，而且 A/B/C 的策略位置會輪替；必須逐項服從 immutableRuleChoices，不可自行假設 A、B、C 的策略。",
       "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
       "不得重述前情、不得沿用最近回合標題、不得使用空泛句型。只能重寫 title、description、consequenceTeaser；不得輸出或修改策略、需求、成功率、風險、成本、效果、判定或其他規則欄位。",
+      "不得透露或猜測任何預設回合總數、回合上限、內部故事弧階段、結局條件、門檻或判定機制。若 readerSafeCausalContracts 提供 currentDirections，只能描述當下列出的三個方向，不得解釋它們為何現在出現。",
       "三項要承接具體上下文並導向不同事件與人物反應。只輸出 JSON，不要 Markdown。",
       outputLanguageInstruction(input.language),
     ].join("\n"),
@@ -111,18 +304,9 @@ export function buildRpgChoiceDirectorPrompt(input: {
         { key: "C", title: "8-18字", description: "30-72字的具體行動與眼前阻力", consequenceTeaser: "12-40字的可預期後果提示" },
       ],
     },
-    context: input.context,
-    immutableRuleChoices: input.baseChoices.map((choice) => ({
-      key: choice.key,
-      strategy: choice.approach,
-      primaryStat: choice.primaryStat,
-      secondaryStat: choice.secondaryStat,
-      successChance: choice.successChance,
-      risk: choice.risk,
-      costs: choice.costLabels,
-      impacts: choice.impactLabels,
-      encounter: choice.encounter,
-    })),
+    context: toRpgReaderSafePromptPayload(input.context),
+    immutableRuleChoices: input.baseChoices.map(buildRpgReaderSafeChoicePayload),
+    readerSafeCausalContracts: toRpgReaderSafePromptPayload(input.readerSafeCausalContracts ?? []),
   });
 }
 
@@ -151,6 +335,7 @@ export async function cleanRpgContinuation(
     .replace(/^\s*```(?:text|markdown)?\s*/i, "")
     .replace(/\s*```\s*$/i, "")
     .trim();
+  assertRpgReaderSafeOutput(unwrapped);
   const choiceBlockIndex = unwrapped.search(
     /(?:^|\n)\s*(?:【\s*(?:下一(?:回合|步|次)[^】]{0,12}(?:選擇|選項)|本回合結算|選項)\s*】|[ABCＡＢＣ][.．、:：]\s*)/u,
   );
@@ -197,6 +382,7 @@ export function validateRpgStoryTurnContract(
   value: string,
   language: StoryOutputLanguage = "zh-TW",
 ) {
+  assertRpgReaderSafeOutput(value);
   const narrativeLength = value.replace(/\s+/gu, "").length;
   const paragraphCount = value
     .split(/\n+/u)
@@ -239,6 +425,7 @@ export function buildRpgResolutionDirectorPrompt(input: {
   choice: RpgChoice;
   language: StoryOutputLanguage;
   turnNumber?: number;
+  readerSafeCausalContract?: unknown;
   resolution: {
     outcomeLabel: string;
     roll: number;
@@ -263,17 +450,13 @@ export function buildRpgResolutionDirectorPrompt(input: {
         ? "Use the ten paragraphs in order for: immediate action, resistance, opposing reaction, sensory escalation, irreversible cost, result taking effect, relationship reaction, changed environment, new danger, and a genuine decision point. Do not print this plan."
         : "十段依序完成：行動落地、阻力出現、對手反應、感官升壓、不可逆代價、判定結果生效、人物關係反應、環境改變、新危險逼近、自然決策點。不要把這份段落計畫印出來。",
       "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
+      "不得透露或猜測任何預設回合總數、回合上限、內部故事弧階段、結局條件、門檻或判定機制。若 readerSafeCausalContract 提供 currentDirections，只能呈現當下方向，不得說明系統為何在此時允許收束。",
       "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出回合標題與小說正文；不要分節標題、行動結果、狀態面板、JSON、程式碼、規則解釋或下一組選項，這些會由規則引擎在正文後另行顯示。",
       outputLanguageInstruction(input.language),
     ].join("\n"),
-    context: input.context,
-    selectedChoice: {
-      key: input.choice.key,
-      title: input.choice.title,
-      action: input.choice.description,
-      expectedConsequence: input.choice.consequenceTeaser,
-      encounter: input.choice.encounter,
-    },
-    lockedResolution: input.resolution,
+    context: toRpgReaderSafePromptPayload(input.context),
+    selectedChoice: buildRpgReaderSafeChoicePayload(input.choice),
+    readerSafeCausalContract: toRpgReaderSafePromptPayload(input.readerSafeCausalContract ?? {}),
+    lockedResolution: toRpgReaderSafePromptPayload(input.resolution),
   });
 }

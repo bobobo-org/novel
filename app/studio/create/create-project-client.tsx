@@ -25,7 +25,6 @@ import {
   type ProjectCreationDraft,
   type ProjectSeed,
   type ReaderState,
-  type StoryState,
 } from "@/lib/novel-ai/domain";
 import {
   createNovelRepository,
@@ -34,9 +33,22 @@ import {
 } from "@/lib/novel-ai/repository";
 import { createProjectBackup } from "@/lib/novel-ai/repository/backup";
 import { mirrorProjectToLegacyStudio } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import {
+  buildProjectPlaymodeCloneDraftWithRetry,
+  isCurrentProjectPlaymodeCloneDraft,
+  type ProjectCloneSourceSummary,
+} from "@/lib/novel-ai/repository/project-playmode-clone";
+import {
+  creationStorySeedPrompt,
+  mergeCreationStorySeed,
+  parseCreationStorySeed,
+  type CreationStorySeed,
+} from "@/lib/novel-ai/web/creation-story-seed";
+import { runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
 import PersistenceRecoveryNotice from "../persistence-recovery-notice";
 
 const DRAFT_KEY = "novel_p2_creation_draft";
+const CREATION_AI_DEADLINE_MS = 24_000;
 
 function draftStorageKey(cloneFrom: string | null) {
   return `${DRAFT_KEY}:${cloneFrom ? `clone:${cloneFrom}` : "new"}`;
@@ -111,7 +123,7 @@ type CandidatePayload = {
 };
 
 function safeLoadDraft(storageKey: string, cloneFrom: string | null) {
-  if (typeof localStorage === "undefined") return createDraft();
+  if (typeof localStorage === "undefined") return null;
   const keys = [storageKey];
   for (const key of keys) {
     try {
@@ -123,7 +135,7 @@ function safeLoadDraft(storageKey: string, cloneFrom: string | null) {
       // A damaged draft must not block creation or leak into a cloned project.
     }
   }
-  return createDraft();
+  return null;
 }
 
 function randomIndex(length: number) {
@@ -138,31 +150,6 @@ function pick<T>(items: readonly T[]) {
 
 function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function optionalSuggestion(value: string | null, accepted = false) {
-  const next = optionalValue(value, value ? (accepted ? "ai_accepted" : "ai_suggested") : "deferred");
-  return value ? { ...next, source: "ai_candidate" as const } : next;
-}
-
-function seedFromPayload(draft: ProjectCreationDraft, payload: CandidatePayload, accepted = false) {
-  const current = draft.seedCandidate ?? buildSeedCandidate(draft);
-  const value = (candidate: unknown, fallback: string | null) => text(candidate) || fallback;
-  return {
-    ...current,
-    logline: optionalSuggestion(value(payload.logline, current.logline.value), accepted),
-    protagonist: optionalSuggestion(value(payload.protagonist, current.protagonist.value), accepted),
-    goal: optionalSuggestion(value(payload.goal, current.goal.value), accepted),
-    weakness: optionalSuggestion(value(payload.weakness, current.weakness.value), accepted),
-    world: optionalSuggestion(value(payload.world, current.world.value), accepted),
-    worldRule: optionalSuggestion(value(payload.worldRule, current.worldRule.value), accepted),
-    conflict: optionalSuggestion(value(payload.conflict, current.conflict.value), accepted),
-    opposition: optionalSuggestion(value(payload.opposition, current.opposition.value), accepted),
-    opening: optionalSuggestion(value(payload.opening, current.opening.value), accepted),
-    directions: Array.isArray(payload.directions)
-      ? payload.directions.map(text).filter(Boolean).slice(0, 3)
-      : current.directions,
-  } satisfies ProjectSeed;
 }
 
 function playModeOf(draft: ProjectCreationDraft) {
@@ -257,48 +244,25 @@ function proceduralPayload(draft: ProjectCreationDraft): CandidatePayload {
   };
 }
 
-async function clonedDraft(sourceProjectId: string) {
-  const repository = createNovelRepository();
-  const source = await repository.get<NovelProject>("projects", sourceProjectId);
-  if (!source) throw new Error("找不到要複製的原作品。原作品沒有被修改。");
-  const seeds = await repository.list<ProjectSeed>("projectSeeds", sourceProjectId);
-  const sourceSeed = [...seeds].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
-  const storyStates = await repository.list<StoryState>("storyStates", sourceProjectId);
-  const sourceStoryState = storyStates.find((item) => item.id === source.storyStateId) ?? storyStates[0] ?? null;
-  const storedLanguage = sourceStoryState?.worldFlags["story.language"];
-  const sourceLanguage: StoryLanguage = storedLanguage === "zh-CN" || storedLanguage === "en" ? storedLanguage : "zh-TW";
-  const next = createDraft("quick");
-  next.title = source.title;
-  next.genrePackId = source.genrePackId;
-  next.genreId = source.genreId;
-  next.subgenreId = source.subgenreId;
-  next.coreIdea = optionalValue(source.coreIdea.value, source.coreIdea.value ? "user_defined" : "deferred");
-  next.protagonist = optionalValue(sourceSeed?.protagonist.value ?? null, sourceSeed?.protagonist.value ? "user_defined" : "deferred");
-  next.style = optionalValue(source.narrativeStyle.value, source.narrativeStyle.value ? "user_defined" : "deferred");
-  next.answers = {
-    cloneFrom: optionalValue(sourceProjectId, "user_defined"),
-    story: optionalValue(sourceSeed?.logline.value ?? source.coreIdea.value, sourceSeed?.logline.value || source.coreIdea.value ? "user_defined" : "deferred"),
-    protagonist: optionalValue(sourceSeed?.protagonist.value ?? null, sourceSeed?.protagonist.value ? "user_defined" : "deferred"),
-    goal: optionalValue(sourceSeed?.goal.value ?? null, sourceSeed?.goal.value ? "user_defined" : "deferred"),
-    conflict: optionalValue(sourceSeed?.conflict.value ?? null, sourceSeed?.conflict.value ? "user_defined" : "deferred"),
-    worldRule: optionalValue(sourceSeed?.worldRule.value ?? sourceSeed?.world.value ?? null, sourceSeed?.worldRule.value || sourceSeed?.world.value ? "user_defined" : "deferred"),
-    opening: optionalValue(sourceSeed?.opening.value ?? null, sourceSeed?.opening.value ? "user_defined" : "deferred"),
-    playMode: optionalValue<string>(),
-    language: optionalValue(sourceLanguage, "user_defined"),
+function completeCreationStorySeed(payload: CandidatePayload): CreationStorySeed {
+  return {
+    logline: text(payload.logline),
+    protagonist: text(payload.protagonist),
+    goal: text(payload.goal),
+    weakness: text(payload.weakness),
+    world: text(payload.world),
+    worldRule: text(payload.worldRule),
+    conflict: text(payload.conflict),
+    opposition: text(payload.opposition),
+    opening: text(payload.opening),
   };
-  next.seedCandidate = sourceSeed ? seedFromPayload(next, {
-    logline: sourceSeed.logline.value ?? undefined,
-    protagonist: sourceSeed.protagonist.value ?? undefined,
-    goal: sourceSeed.goal.value ?? undefined,
-    weakness: sourceSeed.weakness.value ?? undefined,
-    world: sourceSeed.world.value ?? undefined,
-    worldRule: sourceSeed.worldRule.value ?? undefined,
-    conflict: sourceSeed.conflict.value ?? undefined,
-    opposition: sourceSeed.opposition.value ?? undefined,
-    opening: sourceSeed.opening.value ?? undefined,
-    directions: sourceSeed.directions,
-  }, true) : null;
-  return next;
+}
+
+function closedAISeedSource(provider: string) {
+  if (provider === "browser-ai") return "閉端 AI 自動協調器（實際執行：瀏覽器 AI）";
+  if (provider === "local-ollama") return "閉端 AI 自動協調器（實際執行：本機 Ollama）";
+  if (provider === "private-ai-hub") return "閉端 AI 自動協調器（實際執行：私有 AI Hub）";
+  return "閉端 AI 自動協調器";
 }
 
 export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: string | null }) {
@@ -310,8 +274,15 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [createdMode, setCreatedMode] = useState<StoryPlayModeId>("general");
   const [persistenceIssue, setPersistenceIssue] = useState<PersistenceFailure | null>(null);
+  const [seedAssistantBusy, setSeedAssistantBusy] = useState(false);
+  const [seedAssistantStatus, setSeedAssistantStatus] = useState("");
+  const [seedAssistantSource, setSeedAssistantSource] = useState("");
+  const [cloneSource, setCloneSource] = useState<ProjectCloneSourceSummary | null>(null);
+  const [cloneSourceError, setCloneSourceError] = useState("");
+  const [cloneReadAttempt, setCloneReadAttempt] = useState(0);
   const requestId = useRef(crypto.randomUUID());
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const seedAssistantControllerRef = useRef<AbortController | null>(null);
   const storageKey = draftStorageKey(cloneFrom);
 
   useEffect(() => {
@@ -319,17 +290,33 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     void (async () => {
       try {
         const restored = safeLoadDraft(storageKey, cloneFrom);
-        const next = cloneFrom && restored.answers.cloneFrom?.value !== cloneFrom
-          ? await clonedDraft(cloneFrom)
-          : restored;
+        let next = restored ?? createDraft();
+        if (cloneFrom) {
+          // Always re-read the canonical IndexedDB source, even when a local
+          // clone draft exists.  This prevents a deleted or changed source from
+          // silently turning a stale draft into a new project.
+          const clone = await buildProjectPlaymodeCloneDraftWithRetry(createNovelRepository(), cloneFrom);
+          if (!active) return;
+          setCloneSource(clone.source);
+          setCloneSourceError("");
+          const restoredRevision = Number(restored?.answers.cloneSourceRevision?.value ?? -1);
+          next = isCurrentProjectPlaymodeCloneDraft(restored, cloneFrom)
+            && restoredRevision === clone.source.sourceRevision
+            ? restored!
+            : clone.draft;
+        }
         if (!active) return;
         setDraft(next);
-        if (cloneFrom) setMessage("已複製原作品名稱與起始種子。請選擇新的玩法；原作品與既有章節不會被修改。");
+        if (cloneFrom) setMessage("已讀取原作品的設定與故事起點。請輸入新作品名稱並親自選擇玩法；原作品、正文、Canon 與備份都不會被修改。");
       } catch (error) {
         if (!active) return;
         setDraft(createDraft());
         const nextFailure = persistenceFailureOrNull(error);
         setPersistenceIssue(nextFailure);
+        if (!nextFailure && cloneFrom) {
+          setCloneSource(null);
+          setCloneSourceError(error instanceof Error ? error.message : "無法讀取複製來源。");
+        }
         setMessage(nextFailure
           ? "無法安全讀取原作品；系統沒有改用暫存資料，也不會把它當成全新作品繼續建立。"
           : error instanceof Error ? error.message : "無法讀取原作品；已改為建立全新作品。");
@@ -340,11 +327,24 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     return () => {
       active = false;
     };
-  }, [cloneFrom, storageKey]);
+  }, [cloneFrom, cloneReadAttempt, storageKey]);
 
   useEffect(() => {
     if (ready) localStorage.setItem(storageKey, JSON.stringify(draft));
   }, [draft, ready, storageKey]);
+
+  useEffect(() => () => {
+    seedAssistantControllerRef.current?.abort("CREATE_STORY_SEED_UNMOUNTED");
+  }, []);
+
+  function retryCloneSourceRead() {
+    setReady(false);
+    setPersistenceIssue(null);
+    setCloneSource(null);
+    setCloneSourceError("");
+    setMessage("");
+    setCloneReadAttempt((attempt) => attempt + 1);
+  }
 
   const storedPlayMode = selectedStoryPlayMode(draft.answers);
   const currentPlayMode = playModeOf(draft);
@@ -478,7 +478,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     });
   };
 
-  function applyProcedural() {
+  async function applyAssistedSeed() {
     if (!requireTitle("建立故事雛形")) return;
     if (!currentPlayMode) {
       setMessage(playStructure === "choice"
@@ -486,24 +486,86 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         : "請先選擇一般章節寫作或三選一互動。");
       return;
     }
-    const payload = proceduralPayload(draft);
-    const suggested = seedFromPayload(draft, payload, true);
-    set({
-      coreIdea: optionalValue(payload.logline ?? null, "user_defined"),
-      protagonist: optionalValue(payload.protagonist ?? null, "user_defined"),
-      style: optionalValue(payload.style ?? null, "user_defined"),
-      answers: {
-        ...draft.answers,
-        story: optionalValue(payload.logline ?? null, "user_defined"),
-        protagonist: optionalValue(payload.protagonist ?? null, "user_defined"),
-        goal: optionalValue(payload.goal ?? null, "user_defined"),
-        conflict: optionalValue(payload.conflict ?? null, "user_defined"),
-        worldRule: optionalValue(payload.worldRule ?? payload.world ?? null, "user_defined"),
-        opening: optionalValue(payload.opening ?? null, "user_defined"),
-      },
-      seedCandidate: suggested,
-    });
-    setMessage("已由裝置亂數產生一套可修改雛形（非 AI、非固定三個名字）。你可以直接修改；建立後再到唯一故事工作台交給自動協調器深化。");
+    if (seedAssistantBusy) return;
+    const controller = new AbortController();
+    let timedOut = false;
+    const deadline = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort("CREATE_STORY_SEED_TIMEOUT");
+    }, CREATION_AI_DEADLINE_MS);
+    seedAssistantControllerRef.current = controller;
+    setSeedAssistantBusy(true);
+    setSeedAssistantSource("");
+    setSeedAssistantStatus("正在由閉端 AI 自動協調器選擇可用算力；最遲 24 秒完成或改用裝置後備。");
+    setMessage("已收到操作，正在建立五組故事起點；不會自動建立作品，也不會覆蓋你已填的內容。");
+    try {
+      const result = await runStudioClosedAI({
+        projectId: draft.projectId,
+        task: "story_seed",
+        input: creationStorySeedPrompt({
+          title: draft.title.trim(),
+          language: storyLanguageOf(draft),
+          playModeLabel: STORY_PLAY_MODE_LABELS[currentPlayMode],
+          topic: topic?.name ?? null,
+          existing: draft.seedCandidate ?? buildSeedCandidate(draft),
+        }),
+        targetLength: 520,
+        qualityMode: "fast",
+        browserComputePolicy: "balanced",
+        generationOptions: {
+          maxTokens: 280,
+          temperature: 0.82,
+          topP: 0.92,
+          repetitionPenalty: 1.08,
+        },
+        signal: controller.signal,
+        onProgress: (event) => {
+          if (!controller.signal.aborted) {
+            setSeedAssistantStatus(event.label || "閉端 AI 正在整理故事因果與五組起點。");
+          }
+        },
+      });
+      const suggestion = parseCreationStorySeed(result.content);
+      if (!suggestion) {
+        throw Object.assign(new Error("模型輸出未通過五組故事起點格式檢查。"), {
+          code: "CREATE_STORY_SEED_INVALID_OUTPUT",
+        });
+      }
+      setDraft((current) => mergeCreationStorySeed(current, suggestion, "closed-ai"));
+      const source = closedAISeedSource(result.provider);
+      setSeedAssistantSource(source);
+      setSeedAssistantStatus("AI 雛形已填入空白欄位；請先閱讀、修改，再自行按下建立作品。");
+      setMessage(`${source}已產生可修改雛形；原有內容完整保留，且尚未建立作品。`);
+    } catch (error) {
+      const manuallyCancelled = controller.signal.aborted && !timedOut;
+      if (manuallyCancelled) {
+        setSeedAssistantSource("");
+        setSeedAssistantStatus("已取消 AI 雛形生成；目前欄位與正式作品都沒有被改動。");
+        setMessage("已取消這次生成。你原本填寫的內容仍在，系統沒有建立作品。");
+        return;
+      }
+      setDraft((current) => mergeCreationStorySeed(
+        current,
+        completeCreationStorySeed(proceduralPayload(current)),
+        "device-fallback",
+      ));
+      const code = timedOut
+        ? "CREATE_STORY_SEED_TIMEOUT"
+        : String((error as { code?: unknown })?.code ?? "MODEL_NOT_READY");
+      setSeedAssistantSource("裝置安全後備（非 AI）");
+      setSeedAssistantStatus(`閉端模型未能完成，已改用裝置後備填入空白欄位（${code}）。`);
+      setMessage("AI 不可用或逾時，因此改用裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。");
+    } finally {
+      window.clearTimeout(deadline);
+      if (seedAssistantControllerRef.current === controller) {
+        seedAssistantControllerRef.current = null;
+      }
+      setSeedAssistantBusy(false);
+    }
+  }
+
+  function cancelAssistedSeed() {
+    seedAssistantControllerRef.current?.abort("CREATE_STORY_SEED_CANCELLED");
   }
 
   function abandonCreation() {
@@ -520,6 +582,10 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       return;
     }
     if (saving || !currentPlayMode) return;
+    if (cloneFrom && (!cloneSource || draft.projectId === cloneFrom)) {
+      setMessage("無法確認獨立的新作品識別碼；已安全停止，原作品沒有被修改。請重新載入複製來源。");
+      return;
+    }
     setSaving(true);
     setPersistenceIssue(null);
     setMessage("正在建立獨立作品、第一章與可還原備份……");
@@ -581,6 +647,30 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           failure={persistenceIssue}
           onRetry={() => window.location.reload()}
         />
+        <p><Link href="/studio/create">改為一般建立新作品</Link></p>
+      </main>
+    );
+  }
+
+  if (cloneFrom && cloneSourceError) {
+    return (
+      <main className="p2CreateShell" data-testid="clone-source-error">
+        <section className="p2CloneSourceError" role="alert">
+          <span>無法複製為其他玩法</span>
+          <h1>沒有找到可安全讀取的原作品</h1>
+          <p>{cloneSourceError}</p>
+          <strong>系統沒有建立副本，也沒有修改任何原作品資料。</strong>
+          <div>
+            <button type="button" data-testid="clone-source-retry" onClick={retryCloneSourceRead}>重試讀取</button>
+            <Link className="primaryAction" href="/studio/create">改為一般建立新作品</Link>
+            <Link
+              className="secondaryAction"
+              href={`/professional?intent=library&projectId=${encodeURIComponent(cloneFrom)}`}
+            >
+              回作品庫確認
+            </Link>
+          </div>
+        </section>
       </main>
     );
   }
@@ -627,6 +717,26 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         <small>建立後玩法鎖定；換玩法請複製新作品</small>
       </header>
 
+      {cloneSource ? (
+        <section className="p2CloneSourceBanner" data-testid="clone-source-banner">
+          <div>
+            <span>複製來源已確認</span>
+            <h2>《{cloneSource.sourceTitle}》</h2>
+            <p>
+              原玩法：{cloneSource.sourcePlayMode ? STORY_PLAY_MODE_LABELS[cloneSource.sourcePlayMode] : "未記錄"}
+              <b> · </b>
+              來源含 {cloneSource.sourceChapterCount} 章
+            </p>
+          </div>
+          <div>
+            <strong>這會建立全新的獨立作品</strong>
+            <p>已帶入題材、故事種子、主要人物與世界摘要；不複製章節正文、回合狀態、備份或核准紀錄。</p>
+            <p>請在下方重新命名並選擇玩法。完成前不會寫入 IndexedDB，原作品永遠維持原狀。</p>
+          </div>
+          <Link href={`/professional?projectId=${encodeURIComponent(cloneSource.sourceProjectId)}`}>查看原作品</Link>
+        </section>
+      ) : null}
+
       <section className="p2TitleGate" data-valid={Boolean(draft.title.trim())}>
         <label htmlFor="p2-project-title">
           <span>作品名稱 <strong>必填</strong></span>
@@ -640,7 +750,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
               set({ title: event.target.value });
               if (event.target.value.trim()) setTitleError("");
             }}
-            placeholder="例如：星河盡頭的歸途"
+            placeholder={cloneSource ? `請為《${cloneSource.sourceTitle}》的新玩法命名` : "例如：星河盡頭的歸途"}
             autoComplete="off"
           />
         </label>
@@ -727,12 +837,29 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           <section className="p2CreationAssistant" aria-label="創作帶領精靈">
             <div>
               <span>創作帶領精靈</span>
-              <h3>五題完成即可建立，不必先選 AI</h3>
-              <p>建立頁只整理故事起點；建立完成後，續寫、改寫與 RPG 都在唯一故事工作台交給閉端 AI 自動協調器。</p>
+              <h3>由閉端 AI 自動協調器補齊故事雛形</h3>
+              <p>只有一個入口；系統會自動調度瀏覽器、本機或私有算力。AI 失敗才使用裝置後備，而且只填空白欄位。</p>
             </div>
             <div className="p2CreationAssistantActions">
-              <button type="button" onClick={applyProcedural}>立即產生裝置亂數雛形 <small>非 AI</small></button>
+              <button
+                type="button"
+                disabled={seedAssistantBusy}
+                data-testid="create-ai-story-seed"
+                onClick={() => void applyAssistedSeed()}
+              >
+                {seedAssistantBusy ? "AI 正在建立雛形……" : "由 AI 協助產生故事雛形"}
+                <small>自動協調算力 · 最長 24 秒</small>
+              </button>
+              {seedAssistantBusy ? (
+                <button type="button" data-testid="cancel-create-ai-story-seed" onClick={cancelAssistedSeed}>取消本次生成</button>
+              ) : null}
             </div>
+            {seedAssistantStatus ? (
+              <div className="p2AIStatus" role="status" aria-live="polite" data-testid="create-ai-story-seed-status">
+                <b>{seedAssistantSource || "閉端 AI 自動協調器"}</b>
+                <span>{seedAssistantStatus}</span>
+              </div>
+            ) : null}
           </section>
 
           {missing.length ? <div className="p2FoundationWarning" role="status"><b>開始前還缺：</b>{missing.join("、")}<span>補齊前不會產生第一回合 A／B／C。</span></div> : <div className="p2FoundationReady"><b>故事起點已完整</b><span>建立作品後才會依選定玩法開啟正文或第一回合。</span></div>}
@@ -764,7 +891,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
             <div><dt>主要阻力</dt><dd>{seed.conflict.value || "稍後補充"}</dd></div>
             <div><dt>第一章起點</dt><dd>{seed.opening.value || "稍後補充"}</dd></div>
           </dl>
-          <p>只有你填寫或點選裝置亂數產生的內容會進入新作品。建立後，所有 AI 續寫、改寫與 RPG 都在故事工作台由自動協調器處理。</p>
+          <p>你填寫或保留的 AI 建議，只有在你按下「建立作品」後才會進入新作品。建立前不會自動寫入正式作品。</p>
         </aside>
       </div>
     </main>

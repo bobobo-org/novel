@@ -29,6 +29,7 @@ import {
   mergeStoryEffects,
   readRpgStateV3,
 } from "./xianxia-ruleset-v3";
+import type { StoryPlayModeId } from "../../domain/play-mode";
 
 export const RPG_FORMULA_VERSION = RPG_FORMULA_V3;
 
@@ -417,6 +418,8 @@ export function initialRpgResources() {
     "item.spirit-shard": 8,
     "item.royal-pass": 0,
     "item.contract-seal": 1,
+    "romance.eventProgress": 0,
+    "romance.personalGrowth": 0,
     "management.cash": 100_000,
     "management.staff": 3,
     "management.employeeSkill": 52,
@@ -425,6 +428,7 @@ export function initialRpgResources() {
     "management.morale": 65,
     "management.reputation": 20,
     "management.satisfaction": 50,
+    "management.quality": 70,
     "management.technology": 20,
     "management.risk": 10,
     "management.marketShare": 5,
@@ -439,6 +443,69 @@ export function initialRpgResources() {
     "management.marketingFactor": 1,
     "management.facilityFactor": 1,
     "management.teamFactor": 1,
+  };
+}
+
+export const RPG_PLAY_BASELINE_VERSION = "rpg-play-baseline-v1" as const;
+
+/**
+ * Materialize the same deterministic values that the read model previously
+ * supplied only in memory.  A choice preview and the approval transaction must
+ * evaluate the exact same resources; otherwise a fresh (or legacy empty)
+ * StoryState can advertise a playable route that later fails as if every
+ * resource were zero.
+ *
+ * Existing values always win.  The function is idempotent and deliberately
+ * does not change revisions; repositories own that write boundary.
+ */
+export function materializeRpgStoryStateBaseline(
+  storyState: StoryState,
+  seed: string,
+  mode: RpgMode,
+): StoryState {
+  const existingWorldFlags = storyState.worldFlags ?? {};
+  const resourceDefaults = {
+    ...initialRpgResources(),
+    "game.actionPoints": RPG_MODE_DEFINITIONS[mode].dailyActionPoints,
+  };
+  const statDefaults = initialRpgStats(seed);
+  const protagonistStats = {
+    ...statDefaults,
+    ...storyState.protagonistStats,
+  };
+  const resources = {
+    ...resourceDefaults,
+    ...storyState.resources,
+  };
+  const relationships = {
+    "rpg.partyTrust": 10,
+    "romance.affection": 10,
+    "romance.trust": 10,
+    ...storyState.relationships,
+  };
+  const worldFlags = {
+    "rpg.initialized": true,
+    "game.initialized": true,
+    "rpg.runSeed": seed || "default-playthrough",
+    "rpg.lastMode": mode,
+    ...existingWorldFlags,
+    "rpg.baselineVersion": RPG_PLAY_BASELINE_VERSION,
+  };
+  const changed = storyState.money === null
+    || storyState.reputation === null
+    || Object.keys(statDefaults).some((key) => storyState.protagonistStats[key] === undefined)
+    || Object.keys(resourceDefaults).some((key) => storyState.resources[key] === undefined)
+    || Object.keys(relationships).some((key) => storyState.relationships[key] === undefined)
+    || existingWorldFlags["rpg.baselineVersion"] !== RPG_PLAY_BASELINE_VERSION;
+  if (!changed) return storyState;
+  return {
+    ...storyState,
+    protagonistStats,
+    resources,
+    money: storyState.money ?? 1_200,
+    relationships,
+    reputation: storyState.reputation ?? 20,
+    worldFlags,
   };
 }
 
@@ -843,6 +910,25 @@ const CHOICE_POOL: ChoiceBlueprint[] = [
   { id: "biz-crisis", mode: "management", strategy: "bold", title: "親自接管重大危機", description: "集中權限處理客訴、供應中斷或公關事件，阻止損失擴大。", consequence: "成功可挽回信任；失敗仍會開啟重整與補救路線。", primaryStat: "rpg.will", secondaryStat: "rpg.charisma", risk: 5, actionCost: 3, staminaCost: 20, fatigueDelta: 12, stressDelta: 12, statRewards: { "rpg.will": 5, "rpg.charisma": 2 }, resourceRewards: { "management.cash": -6000, "management.risk": -12, "management.reputation": 5, "management.satisfaction": 4 }, questId: "management.survive90", achievementId: "management.crisis" },
 ];
 
+/**
+ * Romance keeps the legacy `cultivation` progression mode for saved-project
+ * compatibility, but its playable actions must advance the relationship
+ * dashboard rather than silently selecting cultivation/equipment actions.
+ */
+const ROMANCE_CHOICE_POOL: ChoiceBlueprint[] = [
+  { id: "romance-boundaries", mode: "cultivation", strategy: "steady", title: "坦白彼此界線", description: "選一個不受打擾的時刻說清楚期待與不能接受的事，再確認對方真正願意承擔的範圍。", consequence: "信任會穩定增加；被迴避的分歧也會因此浮上檯面。", primaryStat: "rpg.charisma", secondaryStat: "rpg.will", risk: 1, actionCost: 1, staminaCost: 4, fatigueDelta: 1, stressDelta: -3, statRewards: { "rpg.charisma": 3, "rpg.will": 2 }, resourceRewards: { "romance.eventProgress": 4, "romance.personalGrowth": 4 }, relationshipRewards: { "romance.affection": 3, "romance.trust": 6 }, questId: "growth.main", achievementId: "romance.honesty" },
+  { id: "romance-repair", mode: "cultivation", strategy: "steady", title: "修補尚未解開的誤會", description: "先復述對方的感受，再為自己造成的傷害負責，提出一件今天就能做到的補救。", consequence: "關係重新取得安全感；必須放下立即辯解自己的衝動。", primaryStat: "rpg.will", secondaryStat: "rpg.charisma", risk: 1, actionCost: 1, staminaCost: 5, fatigueDelta: 2, stressDelta: -2, statRewards: { "rpg.will": 3, "rpg.charisma": 2 }, resourceRewards: { "romance.eventProgress": 6, "romance.personalGrowth": 4 }, relationshipRewards: { "romance.affection": 4, "romance.trust": 5 }, questId: "growth.main", achievementId: "romance.repair" },
+  { id: "romance-space", mode: "cultivation", strategy: "steady", title: "給彼此一段喘息空間", description: "暫停追問與逼迫，把選擇權交還給對方，同時用一個明確約定保留下一次對話。", consequence: "壓力降低且界線更清楚；短期內不會立刻得到答案。", primaryStat: "rpg.intellect", secondaryStat: "rpg.will", risk: 1, actionCost: 1, staminaCost: 3, fatigueDelta: -1, stressDelta: -4, statRewards: { "rpg.intellect": 2, "rpg.will": 3 }, resourceRewards: { "romance.eventProgress": 4, "romance.personalGrowth": 5 }, relationshipRewards: { "romance.affection": 3, "romance.trust": 5 }, questId: "growth.main", achievementId: "romance.respect" },
+
+  { id: "romance-shared-problem", mode: "cultivation", strategy: "resource", title: "共同處理眼前難題", description: "把兩人掌握的線索與資源攤開，分工完成一件任何一方獨自都做不到的事。", consequence: "共同經歷與默契同步累積；失敗時雙方也得一起承擔後果。", primaryStat: "rpg.intellect", secondaryStat: "rpg.charisma", risk: 2, actionCost: 1, staminaCost: 7, fatigueDelta: 4, stressDelta: 1, statRewards: { "rpg.intellect": 3, "rpg.charisma": 3 }, resourceRewards: { "romance.eventProgress": 8, "romance.personalGrowth": 5 }, relationshipRewards: { "romance.affection": 5, "romance.trust": 5 }, questId: "growth.main", achievementId: "romance.teamwork" },
+  { id: "romance-promise", mode: "cultivation", strategy: "resource", title: "交換一項可兌現的承諾", description: "各自提出一項具體承諾、期限與退出條件，讓感情不只停留在沒有代價的漂亮話。", consequence: "親密感明顯提升；未履行的承諾會成為後續關係債務。", primaryStat: "rpg.charisma", secondaryStat: "rpg.will", risk: 2, actionCost: 1, staminaCost: 6, fatigueDelta: 3, stressDelta: 2, statRewards: { "rpg.charisma": 4, "rpg.will": 2 }, resourceRewards: { "romance.eventProgress": 7, "romance.personalGrowth": 5 }, relationshipRewards: { "romance.affection": 6, "romance.trust": 4 }, questId: "growth.main", achievementId: "romance.promise" },
+  { id: "romance-ally", mode: "cultivation", strategy: "resource", title: "向可信同伴尋求協助", description: "邀請一位尊重雙方隱私的同伴提供情報或居中協調，但不把決定責任交給第三人。", consequence: "能打破僵局並補足盲點；兩人的秘密邊界必須重新確認。", primaryStat: "rpg.intellect", secondaryStat: "rpg.creativity", risk: 2, actionCost: 1, staminaCost: 5, fatigueDelta: 2, stressDelta: 1, statRewards: { "rpg.intellect": 3, "rpg.creativity": 3 }, resourceRewards: { "romance.eventProgress": 8, "romance.personalGrowth": 4 }, relationshipRewards: { "romance.affection": 4, "romance.trust": 6 }, questId: "growth.main", achievementId: "romance.support" },
+
+  { id: "romance-heartbreak", mode: "cultivation", strategy: "bold", title: "直面最深的未解心結", description: "停止繞開最痛的那件事，說出害怕失去什麼，也讓對方有拒絕、沉默或離開的權利。", consequence: "可能讓關係跨過長期門檻；也可能確認彼此暫時無法同行。", primaryStat: "rpg.will", secondaryStat: "rpg.charisma", risk: 4, actionCost: 2, staminaCost: 14, fatigueDelta: 8, stressDelta: 7, statRewards: { "rpg.will": 5, "rpg.charisma": 3 }, resourceRewards: { "romance.eventProgress": 10, "romance.personalGrowth": 6 }, relationshipRewards: { "romance.affection": 6, "romance.trust": 5 }, questId: "growth.main", achievementId: "romance.courage" },
+  { id: "romance-public-choice", mode: "cultivation", strategy: "bold", title: "在眾人面前表明立場", description: "當外界逼迫兩人互相切割時，公開承認自己的選擇，同時不替對方決定是否回應。", consequence: "關係獲得明確位置；聲望、家族或陣營壓力也會隨之逼近。", primaryStat: "rpg.charisma", secondaryStat: "rpg.will", risk: 4, actionCost: 2, staminaCost: 12, fatigueDelta: 7, stressDelta: 8, statRewards: { "rpg.charisma": 5, "rpg.will": 3 }, resourceRewards: { "romance.eventProgress": 9, "romance.personalGrowth": 6 }, relationshipRewards: { "romance.affection": 7, "romance.trust": 4 }, questId: "growth.main", achievementId: "romance.stand" },
+  { id: "romance-truth", mode: "cultivation", strategy: "bold", title: "追問改變關係的真相", description: "抓住矛盾證詞中的破綻追問到底，承諾先聽完答案，再決定原諒、合作或分開。", consequence: "能終結長期猜疑並推進事件；真相可能徹底改寫彼此的距離。", primaryStat: "rpg.intellect", secondaryStat: "rpg.will", risk: 4, actionCost: 2, staminaCost: 13, fatigueDelta: 7, stressDelta: 8, statRewards: { "rpg.intellect": 5, "rpg.will": 4 }, resourceRewards: { "romance.eventProgress": 10, "romance.personalGrowth": 7 }, relationshipRewards: { "romance.affection": 5, "romance.trust": 7 }, questId: "growth.main", achievementId: "romance.truth" },
+];
+
 const STRATEGY_LABELS: Record<RpgChoiceStrategy, string> = {
   steady: "穩健型",
   resource: "關係／資源型",
@@ -872,15 +958,38 @@ function riskAdjustment(settings: RpgRuleSettings) {
   return 0;
 }
 
+function availableResourceAmount(
+  snapshot: RpgProgressionSnapshot,
+  key: string,
+): number | null {
+  const statusKey = key.startsWith("status.")
+    ? key.slice("status.".length) as keyof RpgStatusSnapshot
+    : null;
+  if (statusKey && statusKey in snapshot.status) return snapshot.status[statusKey];
+  if (key === "game.actionPoints") return snapshot.status.actionPoints;
+  if (key === "currency.gold") return snapshot.currencies.gold;
+  if (key === "currency.spiritStone") return snapshot.currencies.spiritStone;
+  if (key === "currency.guildToken") return snapshot.currencies.guildToken;
+  const managementKey = key.startsWith("management.")
+    ? key.slice("management.".length) as keyof ManagementSnapshot
+    : null;
+  if (managementKey && managementKey in snapshot.management) {
+    return snapshot.management[managementKey];
+  }
+  if (key.startsWith("item.")) {
+    return snapshot.inventory.find((item) => `item.${item.itemId}` === key)?.quantity ?? 0;
+  }
+  return null;
+}
+
 function canAfford(blueprint: ChoiceBlueprint, snapshot: RpgProgressionSnapshot) {
   if (blueprint.actionCost > snapshot.status.actionPoints) return false;
   if (blueprint.staminaCost > snapshot.status.stamina) return false;
   if ((blueprint.moneyChange ?? 0) < 0 && snapshot.currencies.gold < Math.abs(blueprint.moneyChange ?? 0)) return false;
   for (const [key, delta] of Object.entries(blueprint.resourceRewards)) {
     if (delta >= 0) continue;
-    if (key === "management.cash" && snapshot.management.cash < Math.abs(delta)) return false;
-    if (key === "currency.spiritStone" && snapshot.currencies.spiritStone < Math.abs(delta)) return false;
-    if (key.startsWith("item.") && (snapshot.inventory.find((item) => `item.${item.itemId}` === key)?.quantity ?? 0) < Math.abs(delta)) return false;
+    const available = availableResourceAmount(snapshot, key);
+    if (available !== null && available < Math.abs(delta)) return false;
   }
   return true;
 }
@@ -969,17 +1078,7 @@ function missingRequirements(
   return requirements.filter((requirement) => {
     const actual = requirement.kind === "money"
       ? snapshot.currencies.gold
-      : requirement.key === "status.stamina"
-        ? snapshot.status.stamina
-        : requirement.key === "game.actionPoints"
-          ? snapshot.status.actionPoints
-          : requirement.key === "currency.spiritStone"
-            ? snapshot.currencies.spiritStone
-            : requirement.key === "management.cash"
-              ? snapshot.management.cash
-              : requirement.key.startsWith("item.")
-                ? snapshot.inventory.find((item) => `item.${item.itemId}` === requirement.key)?.quantity ?? 0
-                : 0;
+      : availableResourceAmount(snapshot, requirement.key) ?? 0;
     const expected = Number(requirement.value);
     return requirement.operator === "gte"
       ? actual < expected
@@ -1220,18 +1319,24 @@ export function buildRpgChoices(input: {
   chapterTitle: string;
   conflict: string;
   mode?: RpgMode;
+  playMode?: StoryPlayModeId;
   variant?: number;
   seed?: string;
   rules?: RpgRuleSettings;
   storyStateRevision?: number;
   storyState?: StoryState;
+  narrativeAnchors?: {
+    supportingCharacter?: string | null;
+    unresolvedThread?: string | null;
+  };
+  causalKnowledgeDigest?: string;
 }): RpgChoice[] {
   const mode = input.mode ?? input.progression.mode;
   const rules = normalizeRpgRuleSettings(input.rules);
   const protagonist = input.protagonist.trim() || "主角";
   const chapterTitle = input.chapterTitle.trim() || "目前章節";
   const stateRevision = input.storyStateRevision ?? 0;
-  const seed = `${input.seed ?? input.progression.procedural.runSeed}|${mode}|${input.progression.turn}|${stateRevision}|${input.variant ?? input.progression.choiceVariant}|${input.conflict}`;
+  const seed = `${input.seed ?? input.progression.procedural.runSeed}|${input.playMode ?? mode}|${input.progression.turn}|${stateRevision}|${input.variant ?? input.progression.choiceVariant}|${input.conflict}`;
   const permutations: readonly (readonly RpgChoiceStrategy[])[] = [
     ["steady", "resource", "bold"],
     ["steady", "bold", "resource"],
@@ -1262,10 +1367,41 @@ export function buildRpgChoices(input: {
         pendingConsequences: structuredClone(input.progression.rpgState.pendingConsequences),
       };
   const usedPrimaryStats = new Set<RpgStatKey>();
+  const usedEncounterSignatures = new Set(
+    input.progression.procedural.recentEncounterSignatures,
+  );
+  const conflictFocus = input.conflict.trim().replace(/\s+/g, " ").slice(0, 36)
+    || `${chapterTitle}目前的阻力`;
+  const strategyMarkers: Record<RpgChoiceStrategy, string> = {
+    steady: "穩守",
+    resource: "借勢",
+    bold: "突破",
+  };
+  const supportingCharacter = input.narrativeAnchors?.supportingCharacter?.trim();
+  const unresolvedThread = input.narrativeAnchors?.unresolvedThread?.trim();
+  const availableInventory = input.progression.inventory.find((item) => item.quantity > 0)?.name;
+  const choicePool = input.playMode === "romance" ? ROMANCE_CHOICE_POOL : CHOICE_POOL;
+  const storyProps: Record<RpgMode, Record<RpgChoiceStrategy, string>> = {
+    adventure: {
+      steady: supportingCharacter ? `${supportingCharacter}的態度與現場退路` : "現場線索與退路",
+      resource: availableInventory || "現有裝備",
+      bold: unresolvedThread ? `未解線索「${unresolvedThread}」` : "對手剛暴露的破綻",
+    },
+    cultivation: {
+      steady: supportingCharacter ? `${supportingCharacter}目前願意交付的信任` : "彼此已建立的信任",
+      resource: availableInventory || "尚未兌現的承諾",
+      bold: unresolvedThread ? `尚未說清的心結「${unresolvedThread}」` : "關係轉折的關鍵時機",
+    },
+    management: {
+      steady: supportingCharacter ? `${supportingCharacter}與現有團隊的品質標準` : "現有團隊與品質標準",
+      resource: `可調度資金 ${input.progression.management.cash.toLocaleString("zh-TW")} 與 ${input.progression.management.staff} 名人力`,
+      bold: unresolvedThread ? `尚未化解的營運危機「${unresolvedThread}」` : "市場窗口與品牌聲量",
+    },
+  };
   return strategies.map((strategy, index) => {
-    const candidates = CHOICE_POOL.filter((item) =>
+    const candidates = choicePool.filter((item) =>
       item.mode === mode && item.strategy === strategy && canAfford(item, input.progression));
-    const fallback = CHOICE_POOL.filter((item) => item.mode === mode && item.strategy === strategy);
+    const fallback = choicePool.filter((item) => item.mode === mode && item.strategy === strategy);
     const pool = candidates.length ? candidates : fallback;
     const start = (hashText(`${seed}|${strategy}`) + index) % pool.length;
     const selected = Array.from({ length: pool.length }, (_, offset) => pool[(start + offset) % pool.length])
@@ -1290,14 +1426,18 @@ export function buildRpgChoices(input: {
       turn: input.progression.turn,
       strategy,
       variant: input.variant ?? input.progression.choiceVariant,
-      recentSignatures: input.progression.procedural.recentEncounterSignatures,
+      recentSignatures: [...usedEncounterSignatures],
+      causalKnowledgeDigest: input.causalKnowledgeDigest,
     });
+    usedEncounterSignatures.add(encounter.signature);
+    const contextualTitle = `${strategyMarkers[strategy]}｜${encounter.title}：${baseChoice.title}`;
+    const contextualDescription = `針對「${conflictFocus}」，${protagonist}會先動用${storyProps[mode][strategy]}，再${baseChoice.description}；${encounter.complication}`;
     return {
       ...baseChoice,
       id: `${baseChoice.id}:turn-${input.progression.turn}:variant-${input.variant ?? input.progression.choiceVariant}:${encounter.signature.slice(0, 12)}`,
-      title: boundedText(`${encounter.title}：${baseChoice.title}`, 8, 18, "並承擔後果"),
+      title: boundedText(contextualTitle, 8, 24, "並承擔後果"),
       encounter,
-      description: boundedText(`${baseChoice.description} ${encounter.complication}`, 30, 80, "，結果將由規則引擎先行結算。"),
+      description: boundedText(contextualDescription, 30, 100, "，結果將由規則引擎先行結算。"),
       acceptedText: `${baseChoice.acceptedText}\n\n事件預兆：${encounter.telegraph}\n世界變化：${encounter.locationShift}／${encounter.worldAspect}`,
     };
   });
@@ -1311,6 +1451,7 @@ export function buildCustomRpgChoice(input: {
   conflict: string;
   rules?: RpgRuleSettings;
   storyState?: StoryState;
+  causalKnowledgeDigest?: string;
 }): RpgChoice {
   const action = input.action.trim();
   if (!action) throw Object.assign(new Error("請先輸入你想採取的行動。"), { code: "RPG_CUSTOM_ACTION_REQUIRED" });
@@ -1364,6 +1505,7 @@ export function buildCustomRpgChoice(input: {
     strategy: "resource",
     variant: input.progression.choiceVariant + hashText(action),
     recentSignatures: input.progression.procedural.recentEncounterSignatures,
+    causalKnowledgeDigest: input.causalKnowledgeDigest,
   });
   return {
     ...base,
@@ -1396,7 +1538,18 @@ export function resolveRpgChoice(
   },
 ): RpgChoiceResolution {
   const roll = hashText(`${input.seed}|${input.revision}|${choice.id}|${choice.key}`) % 100 + 1;
-  const criticalThreshold = Math.max(5, Math.round(choice.successChance * 0.12));
+  // Keep every advertised outcome reachable, including at the 5% minimum
+  // success chance.  A fixed 5-point critical floor used to consume the whole
+  // success band (`1..5`), so an otherwise valid deterministic roll could
+  // never produce ordinary success.  The roll itself is unchanged: identical
+  // seed/revision/choice inputs therefore remain reproducible.
+  const criticalThreshold = Math.max(
+    1,
+    Math.min(
+      choice.successChance - 1,
+      Math.max(5, Math.round(choice.successChance * 0.12)),
+    ),
+  );
   const outcome: RpgOutcome = roll <= criticalThreshold
     ? "critical_success"
     : roll <= choice.successChance
@@ -1410,6 +1563,7 @@ export function resolveRpgChoice(
     partial_success: "部分成功",
     failure: "失敗但故事繼續",
   }[outcome];
+  const isPostArcAction = Boolean(choice.encounter.arcNextAction);
   const outcomeEffect = outcome === "critical_success"
     ? choice.criticalSuccessEffect
     : outcome === "success"
@@ -1418,7 +1572,7 @@ export function resolveRpgChoice(
         ? choice.partialSuccessEffect
         : choice.failureEffect;
   const nextTurn = (input.turn ?? choice.sourceSnapshot.turnNumber) + 1;
-  const triggeredConsequences = input.storyState
+  const triggeredConsequences = input.storyState && !isPostArcAction
     ? evaluateDelayedConsequences({ storyState: input.storyState, nextTurn, seed: input.seed })
     : [];
   const triggeredEffects = triggeredConsequences.map((item) => item.effects.storyEffect);
@@ -1444,6 +1598,7 @@ export function resolveRpgChoice(
   const sourceRealm = choice.sourceSnapshot.realm;
   const isBreakthrough = choice.id.includes("breakthrough");
   const realmChange = (() => {
+    if (isPostArcAction) return null;
     if (!isBreakthrough || !sourceRealm) return null;
     const progressDelta = outcome === "critical_success"
       ? 90
@@ -1499,7 +1654,9 @@ export function resolveRpgChoice(
       breakthrough: nextDefinition.id !== sourceRealm.definitionId,
     };
   })();
-  const outcomeMeterChanges: Partial<Record<keyof import("../../domain").NarrativeMeterState, number>> = outcome === "critical_success"
+  const outcomeMeterChanges: Partial<Record<keyof import("../../domain").NarrativeMeterState, number>> = isPostArcAction
+    ? {}
+    : outcome === "critical_success"
     ? { daoHeart: 3, fate: 2, injury: -Math.max(1, choice.risk - 1), mindDemon: -1 }
     : outcome === "success"
       ? { daoHeart: 1, fate: 1, injury: -1 }
@@ -1514,7 +1671,7 @@ export function resolveRpgChoice(
       outcomeMeterChanges[meter] = (outcomeMeterChanges[meter] ?? 0) + (value ?? 0);
     }
   }
-  const scheduledConsequences: DelayedConsequence[] = choice.risk >= 3 ? [{
+  const scheduledConsequences: DelayedConsequence[] = !isPostArcAction && choice.risk >= 3 ? [{
     consequenceId: `consequence:${hashText(`${input.seed}|${choice.id}|${nextTurn}`).toString(16)}`,
     sourceTurnReceiptId: "pending",
     triggerType: "turn_range",

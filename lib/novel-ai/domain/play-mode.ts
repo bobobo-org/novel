@@ -31,13 +31,14 @@ export function selectedStoryPlayMode(
 }
 
 function hasGameState(state: StoryState) {
+  const flags = state.worldFlags ?? {};
   return Object.keys(state.protagonistStats).some((key) => key.startsWith("rpg."))
     || Object.keys(state.resources).some((key) =>
       key.startsWith("rpg.")
       || key.startsWith("game.")
       || key.startsWith("management."))
-    || state.worldFlags["rpg.initialized"] === true
-    || state.worldFlags["game.initialized"] === true;
+    || flags["rpg.initialized"] === true
+    || flags["game.initialized"] === true;
 }
 
 /**
@@ -46,14 +47,15 @@ function hasGameState(state: StoryState) {
  * explicit immutable flag written by buildProjectBundle.
  */
 export function resolveStoryPlayMode(state: StoryState): StoryPlayModeId {
-  const explicit = state.worldFlags["story.playMode"];
+  const flags = state.worldFlags ?? {};
+  const explicit = flags["story.playMode"];
   if (isStoryPlayModeId(explicit)) return explicit;
-  const legacyRpgMode = state.worldFlags["rpg.lastMode"];
+  const legacyRpgMode = flags["rpg.lastMode"];
   if (legacyRpgMode === "management") return "management";
   if (legacyRpgMode === "cultivation") return "romance";
   if (legacyRpgMode === "adventure") return "rpg";
   if (hasGameState(state)) {
-    return state.worldFlags["management.lastSettlement"] !== undefined
+    return flags["management.lastSettlement"] !== undefined
       || Object.keys(state.questStates).some((key) => key.startsWith("management."))
       ? "management"
       : "rpg";

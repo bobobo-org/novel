@@ -12,6 +12,7 @@ import type {
   WorldRule,
 } from "@/lib/novel-ai/domain";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
+import type { SovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import type { ClosedAgentCandidate } from "@/lib/novel-ai/closed-agent-os";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
 import { hasConversationClosedAgentLineage } from "@/lib/novel-ai/conversation/closed-agent-lineage";
@@ -187,6 +188,7 @@ function approvalApplicationMode(plan: ConversationPlan) {
 export function useConversationApprovalController({
   projectId,
   repository,
+  learningRepository,
   conversation,
   getLearningCoordinator,
   activeSession,
@@ -208,6 +210,7 @@ export function useConversationApprovalController({
 }: {
   projectId: string;
   repository: NovelRepository;
+  learningRepository: SovereignLearningRepository;
   conversation: ConversationRepositoryService;
   getLearningCoordinator: ConversationLearningCoordinatorLoader;
   activeSession: ConversationSession | null;
@@ -478,7 +481,12 @@ export function useConversationApprovalController({
       } else if (freshArtifact.artifactType === "rpg") {
         const candidate = parseRpgCandidate(freshArtifact);
         if (!candidate) throw new Error("RPG_CHAT_CANDIDATE_INVALID");
-        const snapshot = await loadRpgChatSnapshot(repository, projectId);
+        const snapshot = await loadRpgChatSnapshot(
+          repository,
+          projectId,
+          undefined,
+          learningRepository,
+        );
         const currentSession = await repository.get<ConversationSession>("conversationSessions", session.id);
         const currentMessage = await repository.get<ConversationMessage>("conversationMessages", sourceMessage.id);
         const currentArtifact = await repository.get<ConversationArtifact>("conversationArtifacts", freshArtifact.id);

@@ -15,9 +15,11 @@ import {
   getSovereignLearningDashboard,
   ingestDistilledWebKnowledge,
   ingestFirstPartyProjectKnowledge,
+  ingestLearningSource,
   MemorySovereignLearningRepository,
   runAutonomousLearningPractice,
   revokeLearningSource,
+  sha256Hex,
 } from "../lib/novel-ai/sovereign-learning/index.ts";
 
 const expectedFailures = [];
@@ -62,6 +64,40 @@ const popularSourceProfile = normalizeControlledWebSourceProfile({
 });
 
 const sourceParagraph = "一個可靠的長篇故事會讓每個場景都有清楚目標、可見阻力與不可忽略的後果。角色面臨壓力時，選擇必須改變關係、資源或資訊狀態；章末留下的問題也要能推動下一個行動，而不是只靠突然中斷。世界規則應透過代價和結果被讀者理解，重要伏筆則需要在揭露前提供可回看的線索。";
+
+const manualExternalRepository = new MemorySovereignLearningRepository();
+const manualPacket = "公開網址研究包：只做故事因果抽象。";
+const manualAnswer = [
+  "分析指出，開場的失竊帳本同時改變主角的安全、名聲與時間壓力。主角原本只想保住店舖，卻因帳本留下的印記而不得不追查供應商。",
+  "第一個轉折來自夥伴承認自己隱瞞舊關係；這份資訊差讓合作有了代價，也使前段看似普通的鑰匙成為能證明出入紀錄的關鍵道具。",
+  "中段的追查逐次失去貨源、盟友與公開辯解的機會，壓力並非重複威脅。每一步後果都改變下一步可選方法，形成前提、觸發、升壓與反轉的連續因果。",
+  "高潮用早先留下的副本完成反證，回收帳本、印記與鑰匙三條線索。真相公開後仍留下收入下降與信任受損的持續後果，結尾再以舊合夥人現身建立下一回追更問題。",
+].join("\n");
+const manualExternal = await ingestLearningSource(manualExternalRepository, {
+  projectId: "manual-external-project",
+  title: "ChatGPT 人工接力研究",
+  author: "ChatGPT（使用者人工接力）",
+  sourceReference: `manual-external-handoff:sha256:${await sha256Hex(manualPacket)}`,
+  sourceKind: "ai_output",
+  rightsBasis: "ai_output_authorized",
+  rightsEvidence: "manual-user-authorized",
+  userConfirmedRights: true,
+  content: manualAnswer,
+  manualExternalHandoff: {
+    providerLabel: "ChatGPT",
+    publicUrlDigest: await sha256Hex("https://example.com/public-story"),
+    packetDigest: await sha256Hex(manualPacket),
+    answerDigest: await sha256Hex(manualAnswer),
+    appInitiatedExternalRequest: false,
+    rawAnswerRetained: false,
+  },
+});
+assert.equal(manualExternal.source.dataLeftDevice, true);
+assert.equal(manualExternal.source.externalRequestCount, 0);
+assert.equal(manualExternal.source.localAnalysisOnly, false);
+assert.equal(manualExternal.source.manualExternalHandoff.providerLabel, "ChatGPT");
+assert.equal(manualExternal.source.warningCodes.includes("MANUAL_EXTERNAL_HANDOFF"), true);
+assert.equal(JSON.stringify(manualExternal).includes(sourceParagraph), false);
 
 const firstPartyRepository = new MemorySovereignLearningRepository();
 const firstPartyV1 = await ingestFirstPartyProjectKnowledge(firstPartyRepository, {
@@ -114,9 +150,11 @@ assert.equal(firstPartyCleared.status, "cleared");
 assert.deepEqual(firstPartyCleared.revokedSourceIds, [firstPartyV2.source.id]);
 assert.equal((await firstPartyRepository.getSource(firstPartyV2.source.id)).status, "revoked");
 
-const [learningWorkspaceSource, writeWorkspaceSource] = await Promise.all([
+const [learningWorkspaceSource, writeWorkspaceSource, webDistillRouteSource, safeWebResearchSource] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/learning/learning-workspace.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/write/write-workspace.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/api/ai/learning/web-distill/route.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/sovereign-learning/safe-web-research.server.ts", import.meta.url), "utf8"),
 ]);
 assert.match(learningWorkspaceSource, /作品內容自動成為受控知識/u);
 assert.match(learningWorkspaceSource, /ingestFirstPartyProjectKnowledge/u);
@@ -124,12 +162,17 @@ assert.match(learningWorkspaceSource, /統合閉端 AI 自動協調器/u);
 assert.match(learningWorkspaceSource, /使用者不需要選擇哪一個 AI/u);
 assert.match(learningWorkspaceSource, /私人貼文、檔案與作品內容不會因自動協調而送往外接服務/u);
 assert.match(learningWorkspaceSource, /refreshExternalProviders/u);
+assert.match(learningWorkspaceSource, /建立本機候選（核准後共享）/u);
+assert.match(learningWorkspaceSource, /manualExternalHandoff/u);
 assert.doesNotMatch(learningWorkspaceSource, /toggleTeacher/u);
 assert.doesNotMatch(learningWorkspaceSource, /checked=\{externalConsent\}/u);
 assert.doesNotMatch(learningWorkspaceSource, /type TeacherMode|manualTeacherProviders|setManualTeacherProviders/u);
 assert.doesNotMatch(learningWorkspaceSource, /<label>連線方式/u);
 assert.match(writeWorkspaceSource, /syncChapterKnowledge\(projectId, saved\)/u);
 assert.match(writeWorkspaceSource, /sourceKey: `chapter:\$\{chapter\.id\}`/u);
+assert.match(webDistillRouteSource, /if \(!origin\) return false/u);
+assert.match(safeWebResearchSource, /fetchPinnedPublicHttps[\s\S]*lookup: pinnedLookup/u);
+assert.match(safeWebResearchSource, /pinResolvedAddress: boolean/u);
 
 const sourceHtml = `<!doctype html><html><head><title>合法敘事研究</title><script>doBadThing()</script></head><body><article>${sourceParagraph.repeat(5)}</article></body></html>`;
 const publicDns = async () => [{ address: "93.184.216.34", family: 4 }];
@@ -187,6 +230,30 @@ await rejectsCode(
   }),
   "WEB_RESEARCH_PRIVATE_ADDRESS_BLOCKED",
 );
+
+const dnsDeadlineStarted = Date.now();
+await rejectsCode(
+  () => fetchControlledWebResearch("https://example.com/dns-never-finishes", {
+    resolveHost: async () => new Promise(() => undefined),
+    fetchImpl: fetchAllowed,
+    deadlineMs: 50,
+  }),
+  "WEB_RESEARCH_TIMEOUT",
+);
+assert.ok(Date.now() - dnsDeadlineStarted < 500, "DNS resolution must share the single research deadline");
+
+const bodyDeadlineStarted = Date.now();
+await rejectsCode(
+  () => fetchControlledWebResearch("https://example.com/body-never-finishes", {
+    resolveHost: publicDns,
+    deadlineMs: 80,
+    fetchImpl: async (input) => new URL(input).pathname === "/robots.txt"
+      ? new Response("", { status: 404 })
+      : new Response(new ReadableStream({ start() {} }), { status: 200, headers: { "content-type": "text/html" } }),
+  }),
+  "WEB_RESEARCH_TIMEOUT",
+);
+assert.ok(Date.now() - bodyDeadlineStarted < 500, "response body streaming must share the single research deadline");
 
 const teacherPayloads = {
   openai: {
@@ -297,6 +364,18 @@ assert.equal(automaticFallbackBundle.privacy.externalRequestCount, 1);
 assert.equal(automaticFallbackBundle.privacy.dataLeftDevice, true);
 assert.equal(automaticFallbackBundle.source.warningCodes.includes("TEACHER_WARNING_EXTERNAL_PROVIDER_AUTH_FAILED"), true);
 
+const startedIgnoringSignal = Date.now();
+const ignoringSignalFallback = await distillControlledWebKnowledge({
+  research,
+  providers: ["openai"],
+  allowLocalFallback: true,
+  teacherTimeoutMs: 50,
+  generate: async () => new Promise(() => undefined),
+});
+assert.equal(ignoringSignalFallback.analysisMode, "local_deterministic");
+assert.equal(ignoringSignalFallback.source.warningCodes.includes("TEACHER_WARNING_CONTROLLED_TEACHER_TIMEOUT"), true);
+assert.ok(Date.now() - startedIgnoringSignal < 500, "a teacher that ignores AbortSignal must not block local fallback");
+
 const localRepository = new MemorySovereignLearningRepository();
 const localIngested = await ingestDistilledWebKnowledge(localRepository, {
   projectId: "controlled-web-local-project",
@@ -361,7 +440,7 @@ assert.equal(dashboard.counts.approvedRules, 0);
 
 const report = {
   status: "PASS",
-  checks: 71,
+  checks: 73,
   expectedFailures,
   teacherCount: bundle.teachers.length,
   ruleCount: bundle.rules.length,

@@ -26,15 +26,20 @@ export function CandidateCard({
   onRegenerate: (message: ConversationMessage) => void;
 }) {
   const rpgCandidate = parseRpgCandidate(artifact);
+  const statusLabel = artifact.status === "candidate"
+    ? "等待你核准"
+    : artifact.status === "approved"
+      ? "已核准並同步"
+      : artifact.status;
   return (
-    <section className={styles.candidateCard} key={artifact.id} data-status={artifact.status} data-artifact-id={artifact.id}>
-      <h3>{artifact.artifactType === "rpg" ? "故事回合候選" : "Canon 候選"} · {artifact.status === "candidate" ? "等待採用" : artifact.status}</h3>
-      <p className={styles.candidatePreview}>{artifactStory(artifact)}</p>
+    <section className={styles.candidateCard} key={artifact.id} data-status={artifact.status} data-artifact-id={artifact.id} data-artifact-type={artifact.artifactType}>
+      <h3>{artifact.artifactType === "rpg" ? "本回合結果" : "Canon 候選"} · {statusLabel}</h3>
+      {!rpgCandidate ? <p className={styles.candidatePreview}>{artifactStory(artifact)}</p> : null}
       {rpgCandidate ? (
-        <details className={styles.outcomeDetails}>
-          <summary>行動結果與數值變化（預設收合）</summary>
+        <section className={styles.rpgOutcomeSummary} aria-label="本回合結果與數值變化">
+          <small>{artifact.status === "approved" ? "正文、狀態與回合收據已同步" : "這些變化在你核准前不會寫入正式故事"}</small>
           <ul>{rpgCandidate.outcomeLines.map((line) => <li key={line}>{line}</li>)}</ul>
-        </details>
+        </section>
       ) : null}
       <div className={styles.candidateActions}>
         <button type="button" onClick={() => onOpen(artifact, "candidate")}>查看完整候選</button>

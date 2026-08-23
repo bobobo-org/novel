@@ -1,0 +1,23 @@
+.root{max-width:1240px;margin:0 auto;padding:0 18px 48px;color:#eef4ff}
+.root>header{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-top:18px;padding:24px;border:1px solid #405878;background:linear-gradient(145deg,#111b31,#13293a)}
+.root>header span,.workbench small,.result small{color:#70e0d0;font-weight:800;letter-spacing:.08em}
+.root>header h1{margin:5px 0;font-size:30px;color:#f4d98f}
+.root>header p,.workbench p,.result>p{margin:0;color:#aebed1;line-height:1.65}
+.root>header strong{max-width:330px;color:#f4d98f;text-align:right;overflow-wrap:anywhere}
+.status{margin:14px 0;padding:12px 14px;border-left:3px solid #70e0d0;background:#0d2428;color:#c9efe7}
+.tools{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}
+.tools button{display:grid;align-content:start;gap:7px;min-height:116px;padding:15px;border:1px solid #385474;background:#0b1729;color:#eef4ff;text-align:left;cursor:pointer}
+.tools button span{color:#9eafc4;font-size:13px;line-height:1.5}
+.tools button.active{border-color:#e4bd65;background:#24324c;box-shadow:inset 3px 0 #e4bd65}
+.workbench,.result{display:grid;gap:16px;margin-top:18px;padding:20px;border:1px solid #385474;background:#0b1729}
+.workbench h2,.result h2{margin:5px 0;color:#f4d98f}
+.workbench label{display:grid;gap:7px;color:#d8c184}
+.workbench input,.workbench select,.workbench button,.result button{min-height:42px;padding:9px 13px;border:1px solid #405b7e;border-radius:4px;background:#0a1628;color:#eef4ff;font:inherit}
+.inputs{display:grid;grid-template-columns:220px minmax(0,1fr);gap:12px}
+.primary{justify-self:start;border-color:#d0a552!important;background:#684817!important;color:#fff1c6!important;font-weight:900;cursor:pointer}
+.workbench button:disabled,.result button:disabled{cursor:not-allowed;opacity:.5}
+.result>header{display:flex;justify-content:space-between;gap:16px;align-items:end}
+.resultActions{display:flex;gap:8px}
+.result pre{max-height:720px;margin:0;padding:18px;border:1px solid #294565;background:#07111f;color:#dbe8f8;white-space:pre-wrap;overflow:auto;font:15px/1.75 ui-monospace,SFMono-Regular,Consolas,monospace}
+@media(max-width:900px){.tools{grid-template-columns:1fr 1fr}.inputs{grid-template-columns:1fr}.root>header{align-items:start}.root>header strong{text-align:left}}
+@media(max-width:560px){.root{padding:0 10px 32px}.root>header,.result>header{display:grid}.tools{grid-template-columns:1fr}.resultActions{display:grid;grid-template-columns:1fr 1fr}.primary{width:100%}}

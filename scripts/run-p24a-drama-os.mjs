@@ -530,7 +530,7 @@ function registerSecurityTests() {
 function registerUiTests() {
   const source = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/drama/drama-workspace.tsx"), "utf8");
   const css = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/drama/drama.module.css"), "utf8");
-  const requiredText = ["小說轉短劇", "來源章節", "目標長度", "播放方式", "一般線性短劇", "互動短劇", "單集規劃", "情緒曲線", "主要衝突", "開場 Hook", "結尾懸念", "集尾互動選項", "一般短劇不顯示 ABC", "下載影片製作包", "風險提示", "接受並建立改編版本", "再產生一份", "放棄", "查看技術資訊"];
+  const requiredText = ["小說轉短劇", "真正影片生成尚未連接", "生成 MP4（尚未連接）", "下載 JSON 交接資料（非影片）", "來源章節", "目標長度", "播放方式", "一般線性短劇", "互動短劇", "單集規劃", "情緒曲線", "主要衝突", "開場 Hook", "結尾懸念", "集尾互動選項", "一般短劇不顯示 ABC", "風險提示", "接受並建立改編版本", "再產生一份", "放棄", "查看技術資訊"];
   for (const value of requiredText) test(`UI contains ${value}`, () => assert(source.includes(value)));
   test("technical information is collapsed", () => assert(source.includes("<details className=\"dramaTechnical\">")));
   test("UI displays canonical mutation count", () => assert(source.includes("candidate.canonicalMutation")));

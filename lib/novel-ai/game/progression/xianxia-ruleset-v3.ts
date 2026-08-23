@@ -446,6 +446,7 @@ export function unmetChoiceRequirements(
   storyState: Pick<StoryState, "resources" | "money" | "protagonistStats" | "worldFlags" | "rpgState">,
 ) {
   const rpgState = readRpgStateV3(storyState);
+  const worldFlags = storyState.worldFlags ?? {};
   return requirements.filter((requirement) => {
     const actual = requirement.kind === "resource"
       ? storyState.resources[requirement.key] ?? 0
@@ -457,7 +458,7 @@ export function unmetChoiceRequirements(
             ? rpgState.meters[requirement.key as keyof NarrativeMeterState]
             : requirement.kind === "realm"
               ? rpgState.realm?.level ?? 0
-              : storyState.worldFlags[requirement.key];
+              : worldFlags[requirement.key];
     return !compareRequirement(actual, requirement);
   });
 }
@@ -477,6 +478,7 @@ export function evaluateDelayedConsequences(input: {
   seed: string;
 }) {
   const rpgState = readRpgStateV3(input.storyState);
+  const worldFlags = input.storyState.worldFlags ?? {};
   return rpgState.pendingConsequences.filter((consequence) => {
     if (consequence.status !== "pending") return false;
     const condition = consequence.triggerCondition;
@@ -500,7 +502,7 @@ export function evaluateDelayedConsequences(input: {
       case "location_entered":
         return input.storyState.locationState === condition.locationId;
       case "faction_encountered":
-        return input.storyState.worldFlags[`faction.encountered.${String(condition.factionId)}`] === true;
+        return worldFlags[`faction.encountered.${String(condition.factionId)}`] === true;
       case "realm_breakthrough":
         return (rpgState.realm?.lastBreakthroughTurn ?? -1) === input.nextTurn - 1;
       case "quest_state":
@@ -638,6 +640,7 @@ export function buildMingtanPresetState(
     initialStats?: Record<string, number>;
   } = {},
 ) {
+  const worldFlags = storyState.worldFlags ?? {};
   const canonicalStatKeys = [
     "rpg.physique",
     "rpg.technique",
@@ -661,7 +664,7 @@ export function buildMingtanPresetState(
     options.initialRealmLevel
       ?? storyState.resources["cultivation.realmLevel"]
       ?? storyState.resources["growth.realm"]
-      ?? storyState.worldFlags["xianxia.realmLevel"],
+      ?? worldFlags["xianxia.realmLevel"],
     0,
   )));
   const definition = cultivationRealmForLevel(realmLevel);
@@ -745,7 +748,7 @@ export function buildMingtanPresetState(
       },
       worldFlags: {
         ...legacy.worldFlags,
-        "rpg.runSeed": storyState.worldFlags["rpg.runSeed"] || `mingtan:${storyState.projectId}`,
+        "rpg.runSeed": worldFlags["rpg.runSeed"] || `mingtan:${storyState.projectId}`,
         "story.playMode": "rpg",
         "story.playModeLocked": true,
         "content.consentRequired": true,

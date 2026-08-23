@@ -565,13 +565,19 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       throw new Error("作品缺少章節、故事狀態或 Story Bible，無法啟動 RPG。");
     }
     const resolvedPlayMode = resolveStoryPlayMode(storyState);
-    if (storyState.worldFlags["story.playMode"] === undefined && resolvedPlayMode !== "general") {
+    const existingWorldFlags = storyState.worldFlags ?? {};
+    if (
+      storyState.worldFlags == null
+      || (existingWorldFlags["story.playMode"] === undefined && resolvedPlayMode !== "general")
+    ) {
       storyState = await repository.put<StoryState>("storyStates", {
         ...storyState,
         worldFlags: {
-          ...storyState.worldFlags,
-          "story.playMode": resolvedPlayMode,
-          "story.playModeLocked": true,
+          ...existingWorldFlags,
+          ...(resolvedPlayMode !== "general" ? {
+            "story.playMode": resolvedPlayMode,
+            "story.playModeLocked": true,
+          } : {}),
         },
       }, storyState.revision);
     }
@@ -618,7 +624,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     data.storyBible.protagonistIds.includes(character.id)) ?? data?.characters[0] ?? null;
   const mingtanPreview = useMemo(() => describeMingtanPresetPreview(), []);
   const storyLanguage = useMemo(() => {
-    const value = data?.storyState.worldFlags["story.language"];
+    const value = data?.storyState.worldFlags?.["story.language"];
     return value === "zh-CN" || value === "en" ? value : "zh-TW";
   }, [data?.storyState.worldFlags]);
   const progression = useMemo(
@@ -769,8 +775,9 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
   const library = useMemo(() => mergeCharacterLibrary(customLibrary), [customLibrary]);
   const xianxiaRuleCandidate = useMemo<XianxiaRuleCandidate | null>(() => {
     if (!data || !progression) return null;
-    const recent = typeof data.storyState.worldFlags["xianxia.recentRuleIds"] === "string"
-      ? String(data.storyState.worldFlags["xianxia.recentRuleIds"]).split(",").filter(Boolean).slice(-8)
+    const recentRuleIds = data.storyState.worldFlags?.["xianxia.recentRuleIds"];
+    const recent = typeof recentRuleIds === "string"
+      ? recentRuleIds.split(",").filter(Boolean).slice(-8)
       : [];
     return generateXianxiaRuleCandidate({
       runSeed: progression.procedural.runSeed,
@@ -817,9 +824,9 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       const defaults = protagonist?.rpgProfile?.formulaVersion === RPG_FORMULA_VERSION
         ? { ...protagonist.rpgProfile.stats }
         : initialRpgStats(`${data.project.title}|${protagonist?.name ?? ""}`);
-      const existingSeed = data.storyState.worldFlags["rpg.runSeed"];
+      const existingSeed = data.storyState.worldFlags?.["rpg.runSeed"];
       const runSeed = typeof existingSeed === "string" && existingSeed ? existingSeed : crypto.randomUUID();
-      const cycle = Math.max(1, Number(data.storyState.worldFlags["rpg.cycle"] ?? 1));
+      const cycle = Math.max(1, Number(data.storyState.worldFlags?.["rpg.cycle"] ?? 1));
       const resources = {
         ...initialRpgResources(),
         ...initialProceduralPillResources(runSeed, cycle, 6),
@@ -1000,7 +1007,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     setStatus("已收到核准指令；正在原子寫入正文、故事狀態與唯一回合收據。");
     try {
       const repository = createNovelRepository();
-      const snapshot = await loadRpgChatSnapshot(repository, projectId, rules);
+      const snapshot = await loadRpgChatSnapshot(repository, projectId, rules, learningRepository);
       const result = await approveRpgChatTurn({
         repository,
         snapshot,
@@ -1729,7 +1736,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                       <div><dt>收據</dt><dd>{receipt.receiptId}</dd></div>
                       <div><dt>版本</dt><dd>StoryState {receipt.sourceRevision} → {receipt.resultingRevision}</dd></div>
                       <div><dt>判定</dt><dd>{receipt.roll}／成功率 {receipt.successChance}% · {receipt.selectedStrategy}</dd></div>
-                      <div><dt>資源</dt><dd>{Object.entries(receipt.appliedResourceChanges).map(([key, value]) => `${key} ${signed(value)}`).join("、") || "無"}</dd></div>
+                      <div><dt>資源</dt><dd>{Object.entries(receipt.appliedResourceChanges ?? {}).map(([key, value]) => `${key} ${signed(value)}`).join("、") || "無"}</dd></div>
                       <div><dt>敘事量表</dt><dd>{Object.entries(receipt.appliedMeterChanges).map(([key, value]) => `${key} ${signed(value ?? 0)}`).join("、") || "無"}</dd></div>
                       <div><dt>境界</dt><dd>{receipt.appliedRealmChanges?.breakthrough ? `${receipt.appliedRealmChanges.from?.definitionId ?? "mortal"} → ${receipt.appliedRealmChanges.to?.definitionId ?? "unknown"}` : "本回合未跨境"}</dd></div>
                     </dl>

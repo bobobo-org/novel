@@ -62,6 +62,23 @@ export function assertAcceptChoiceInput(input: AcceptChoiceTransactionInput, cur
   if (chapter.projectId !== input.projectId || candidate.projectId !== input.projectId || storyState.projectId !== input.projectId) throw new RepositoryOperationError("PROJECT_SCOPE_MISMATCH");
   if (candidate.chapterId !== input.chapterId) throw new RepositoryOperationError("CANDIDATE_CHAPTER_MISMATCH");
   if (candidate.status !== "pending") throw new RepositoryOperationError("CANDIDATE_ALREADY_ACCEPTED");
+  const candidateWorldFlags = candidate.effect.worldFlags ?? {};
+  const arcNextAction = candidateWorldFlags["story.arc.nextAction"];
+  if (storyState.worldFlags?.["story.arc.archived"] === true) {
+    throw new RepositoryOperationError(
+      "STORY_ARC_ARCHIVED",
+      "這個結局已封存，不能再消耗任何故事弧行動。",
+    );
+  }
+  if (
+    arcNextAction === "epilogue"
+    && storyState.worldFlags?.["story.arc.epilogueRead"] === true
+  ) {
+    throw new RepositoryOperationError(
+      "STORY_ARC_EPILOGUE_ALREADY_READ",
+      "尾聲已經保存；請開啟續篇或封存結局。",
+    );
+  }
   if (project.revision !== input.expectedProjectRevision) throw new RepositoryOperationError("PROJECT_REVISION_CONFLICT");
   if (chapter.revision !== input.expectedChapterRevision) throw new RepositoryOperationError("CHAPTER_REVISION_CONFLICT");
   if (candidate.revision !== input.expectedCandidateRevision || candidate.inputRevision !== input.expectedProjectRevision) throw new RepositoryOperationError("CANDIDATE_STALE");
@@ -105,7 +122,7 @@ export function assertAcceptChoiceInput(input: AcceptChoiceTransactionInput, cur
     const nonNegativeResourceIds = new Set(RPG_RESOURCE_CATALOG_V3
       .filter((resource) => resource.nonNegative)
       .map((resource) => resource.id));
-    for (const [key, delta] of Object.entries(candidate.effect.resourceChanges)) {
+    for (const [key, delta] of Object.entries(candidate.effect.resourceChanges ?? {})) {
       if (delta >= 0) continue;
       if (
         (nonNegativeResourceIds.has(key) || key.startsWith("currency.") || key.startsWith("item.") || key.startsWith("material.") || key.startsWith("game.") || key === "management.cash")
@@ -169,9 +186,9 @@ export function buildAcceptedChoiceRecords(input: AcceptChoiceTransactionInput, 
       roll: current.candidate.rpgSettlement.roll,
       successChance: current.candidate.rpgSettlement.successChance,
       beforeSnapshot: structuredClone(current.candidate.rpgSettlement.beforeSnapshot),
-      appliedStatChanges: structuredClone(current.candidate.effect.statChanges),
-      appliedResourceChanges: structuredClone(current.candidate.effect.resourceChanges),
-      appliedRelationshipChanges: structuredClone(current.candidate.effect.relationshipChanges),
+      appliedStatChanges: structuredClone(current.candidate.effect.statChanges ?? {}),
+      appliedResourceChanges: structuredClone(current.candidate.effect.resourceChanges ?? {}),
+      appliedRelationshipChanges: structuredClone(current.candidate.effect.relationshipChanges ?? {}),
       appliedMeterChanges: structuredClone(current.candidate.rpgSettlement.meterChanges),
       appliedRealmChanges: structuredClone(current.candidate.rpgSettlement.realmChange),
       triggeredConsequences: structuredClone(current.candidate.rpgSettlement.triggeredConsequences),
@@ -197,9 +214,33 @@ export function buildAcceptedChoiceRecords(input: AcceptChoiceTransactionInput, 
     kind: "accepted_choice", acceptedText: input.acceptedText, appliedEffect: current.candidate.effect,
     status: "committed", deltaSchemaVersion: "story-bible-delta-v1",
   };
+  const candidateWorldFlags = current.candidate.effect.worldFlags ?? {};
+  const resolvedThreadFlag = candidateWorldFlags["story.arc.resolvedThread"];
+  const resolvedThread = candidateWorldFlags["story.arc.resolved"] === true
+    && typeof resolvedThreadFlag === "string"
+    && resolvedThreadFlag.trim()
+    ? resolvedThreadFlag.trim()
+    : null;
+  const openedThreadFlag = candidateWorldFlags["story.arc.thread"];
+  const openedThread = candidateWorldFlags["story.arc.nextAction"] === "new-arc"
+    && candidateWorldFlags["story.arc.resolved"] === false
+    && typeof openedThreadFlag === "string"
+    && openedThreadFlag.trim()
+    ? openedThreadFlag.trim()
+    : null;
+  const unresolvedThreads = resolvedThread
+    ? current.storyBible.unresolvedThreads.filter((thread) => thread.trim() !== resolvedThread)
+    : current.storyBible.unresolvedThreads;
   const storyBible: StoryBible = {
     ...current.storyBible, revision: current.storyBible.revision + 1, parentRevision: current.storyBible.revision,
-    updatedAt: now, interactionDeltaIds: [...(current.storyBible.interactionDeltaIds ?? []), storyBibleDelta.id],
+    updatedAt: now,
+    unresolvedThreads: openedThread
+      ? [...new Set([...unresolvedThreads, openedThread])]
+      : unresolvedThreads,
+    resolvedThreads: resolvedThread
+      ? [...new Set([...(current.storyBible.resolvedThreads ?? []), resolvedThread])]
+      : current.storyBible.resolvedThreads,
+    interactionDeltaIds: [...(current.storyBible.interactionDeltaIds ?? []), storyBibleDelta.id],
   };
   const acceptedChoice: AcceptedChoice = {
     ...acceptedBase,

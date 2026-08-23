@@ -55,6 +55,10 @@ function consistencyReviewHref(projectId: string) {
   );
 }
 
+function authorToolHref(projectId: string, tool: "breakdown" | "relay" | "batch" | "serial") {
+  return `/studio/project/${encodeURIComponent(projectId)}/author-tools?tool=${tool}`;
+}
+
 export default function ProfessionalClient({
   initialProjectId = "",
   intent = "library",
@@ -117,7 +121,7 @@ export default function ProfessionalClient({
       const requestedProjectMissing = Boolean(preferredProjectId) && !explicitProject;
       const mustChoose = requestedProjectMissing || (!explicitProject
         && nextProjects.length > 1
-        && isStoryIntent(intent));
+        && (isStoryIntent(intent) || intent === "library"));
       const nextId = explicitProject
         ? preferredProjectId
         : mustChoose
@@ -318,18 +322,24 @@ export default function ProfessionalClient({
               <Link href={localAIHref}>本機 AI 安裝與連線</Link>
             </article>
             <article id="extended-creation">
-              <small>EXTENDED CREATION</small><h2>角色 AI 與內容延伸</h2>
+              <small>EXTENDED CREATION</small><h2>角色 AI 與短劇改編</h2>
               <p>角色模擬與短劇改編保持候選／核准邊界，不會直接覆寫原作。</p>
               <Link href={`${projectRoot}/character-ai`}>角色 AI</Link>
               <Link href={`${projectRoot}/drama`}>小說轉短劇</Link>
             </article>
+            <article id="video-production">
+              <small>VIDEO RUNTIME STATUS</small><h2>影片生成（尚未連接）</h2>
+              <p>目前沒有可執行的影片模型、工作佇列或 MP4 產物；JSON 交接資料不算影片。連接供應商、成本上限與外送同意後才會開放真正生成。</p>
+              <Link href={`${projectRoot}/drama#video-production`}>查看影片能力狀態</Link>
+              <Link href={`${projectRoot}/drama`}>先整理短劇改編</Link>
+            </article>
             <article id="research-and-legacy-tools">
               <small>RESEARCH & AUTHOR TOOLS</small><h2>研究與作者輔助</h2>
-              <p>舊版的書籍拆解、接力提示、批量規劃與連載研究已改由同一故事工作台處理，不再開啟另一套舊首頁。</p>
-              <Link href={coordinatorTaskHref(project.id, "請拆解目前作品的賣點、人物關係、核心衝突、伏筆與章節節奏，建立可核准的分析候選；不要直接修改正文。")}>書籍與作品拆解</Link>
-              <Link href={coordinatorTaskHref(project.id, "請為目前作品整理一份可複製的續寫接力提示，包含必要 Canon、上一章結果、未解伏筆與下一步限制；不要直接續寫正文。")}>續寫接力提示</Link>
-              <Link href={coordinatorTaskHref(project.id, "請規劃目前作品接下來多個章節的批量工作清單，只建立候選大綱與檢查點，不要直接修改正式章節。")}>多章批量規劃</Link>
-              <Link href={coordinatorTaskHref(project.id, "請分析目前作品的連載節奏、章尾鉤子、讀者留存、標籤定位與 IP 改編方向，提出可核准的優化候選。")}>連載、讀者與 IP 研究</Link>
+              <p>四項工具都直接讀取目前作品的正式資料、在各自頁面產生結果；不再跳回聊天或誤用最近更新的其他作品。</p>
+              <Link href={authorToolHref(project.id, "breakdown")}>書籍與作品拆解</Link>
+              <Link href={authorToolHref(project.id, "relay")}>續寫接力提示</Link>
+              <Link href={authorToolHref(project.id, "batch")}>多章批量規劃</Link>
+              <Link href={authorToolHref(project.id, "serial")}>連載、讀者與 IP 研究</Link>
             </article>
           </section>
         </>

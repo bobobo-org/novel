@@ -1,4 +1,5 @@
 import { memo } from "react";
+import type { ReactNode } from "react";
 import type {
   ConversationArtifact,
   ConversationAttachment,
@@ -36,6 +37,8 @@ export const MessageRow = memo(function MessageRow({
   branchPending,
   actions,
   lineage,
+  playDashboard,
+  playDashboardPlacement,
 }: {
   message: ConversationMessage;
   allMessages: ConversationMessage[];
@@ -50,6 +53,8 @@ export const MessageRow = memo(function MessageRow({
   branchPending: boolean;
   actions: ConversationMessageActions;
   lineage: { rootId: string; depth: number };
+  playDashboard: ReactNode;
+  playDashboardPlacement: "choices" | "afterCandidate" | null;
 }) {
   const rpg = useConversationRpg({ message, messages: allMessages, artifactsByMessage });
   const rpgChoices = rpg.parsed;
@@ -105,6 +110,7 @@ export const MessageRow = memo(function MessageRow({
       data-source-message-id={message.sourceMessageId ?? undefined}
       data-lineage-root={lineage.rootId}
       data-lineage-depth={lineage.depth}
+      data-rpg-story={messageArtifacts.some((artifact) => artifact.artifactType === "rpg") || undefined}
     >
       <div className={styles.messageMeta}>
         <strong>{conversationMessageLabel(message.role)}</strong>
@@ -117,6 +123,7 @@ export const MessageRow = memo(function MessageRow({
           messageId={message.id}
           busy={busy}
           consumed={rpgChoicesConsumed}
+          dashboard={playDashboardPlacement === "choices" ? playDashboard : null}
           onChoose={(key) => {
             if (rpgChoices.envelope) actions.chooseRpgOption(rpgChoices.envelope, message.id, key);
           }}
@@ -159,6 +166,7 @@ export const MessageRow = memo(function MessageRow({
           onRegenerate={actions.regenerateMessage}
         />
       ))}
+      {playDashboardPlacement === "afterCandidate" ? playDashboard : null}
       <div className={styles.candidateActions}>
         {message.role === "user" && message.status === "completed" ? (
           <button

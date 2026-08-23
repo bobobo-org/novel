@@ -98,18 +98,22 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
   const storyBible = (await repository.list<StoryBible>("storyBibles", input.id))[0];
   if (!storyState || !storyBible) throw new Error("CANONICAL_PROJECT_STATE_MISSING");
   const importedPlayMode = input.selectedPlayModeId;
-  const storedPlayMode = storyState.worldFlags["story.playMode"];
-  if (
+  const existingWorldFlags = storyState.worldFlags ?? {};
+  const storedPlayMode = existingWorldFlags["story.playMode"];
+  const shouldApplyImportedPlayMode = (
     project.creationMode === "legacy"
     && isStoryPlayModeId(importedPlayMode)
     && storedPlayMode !== importedPlayMode
-  ) {
+  );
+  if (storyState.worldFlags == null || shouldApplyImportedPlayMode) {
     storyState = await repository.put("storyStates", {
       ...storyState,
       worldFlags: {
-        ...storyState.worldFlags,
-        "story.playMode": importedPlayMode,
-        "story.playModeLocked": true,
+        ...existingWorldFlags,
+        ...(shouldApplyImportedPlayMode ? {
+          "story.playMode": importedPlayMode,
+          "story.playModeLocked": true,
+        } : {}),
       },
     }, storyState.revision);
   }

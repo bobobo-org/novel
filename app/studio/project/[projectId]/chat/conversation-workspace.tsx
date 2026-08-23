@@ -65,8 +65,12 @@ import {
   rejectStudioClosedAgentCandidate,
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import {
+  hasExplicitLocalComputeAuthorization,
+  resolveStudioClosedComputePolicy,
+} from "@/lib/novel-ai/web/studio-closed-compute-policy";
+import {
   buildRpgChatCustomAction,
-  loadRpgChatSnapshot,
+  loadLearningAwareRpgChatSnapshot,
   parseRpgChoiceSelection,
 } from "@/lib/novel-ai/web/rpg-chat-turn";
 import { MessageComposer } from "./components/message-composer";
@@ -85,6 +89,7 @@ import {
   useConversationOperationController,
 } from "./hooks/use-conversation-operation";
 import { useClosedAiBootstrap } from "./hooks/use-closed-ai-bootstrap";
+import { useSharedLearningSync } from "./hooks/use-shared-learning-sync";
 import {
   artifactStory,
   parseRpgChoices,
@@ -130,6 +135,7 @@ export default function ConversationWorkspace({
     repository,
     learningRepository,
   );
+  const ensureSharedLearningReady = useSharedLearningSync(projectId, learningRepository);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [cancellable, setCancellable] = useState(false);
@@ -247,6 +253,8 @@ export default function ConversationWorkspace({
   } = useConversationRpgController({
     projectId,
     repository,
+    learningRepository,
+    ensureSharedLearningReady,
     conversation,
     activeSession,
     busy,
@@ -268,6 +276,7 @@ export default function ConversationWorkspace({
   const { approveArtifact, rejectArtifact } = useConversationApprovalController({
     projectId,
     repository,
+    learningRepository,
     conversation,
     getLearningCoordinator,
     activeSession,
@@ -1105,6 +1114,12 @@ export default function ConversationWorkspace({
         canonicalTarget: resolvedCanonicalTarget,
       });
       const previousDigest = input.regeneration?.sourceCandidateDigest;
+      // Mount 時已在背景同步；首次送出若仍在同步，最多等候短期固定上限。
+      // 失敗會沿用本機規則與內建教師，不阻斷寫作。
+      await ensureSharedLearningReady(input.signal);
+      const automaticComputePolicy = input.regeneration?.preferredBackend === "local-ollama"
+        ? "quality-first"
+        : resolveStudioClosedComputePolicy();
       const result = await executeStudioClosedAgent({
         projectId,
         taskType: input.plan.taskType ?? "assistant.general",
@@ -1134,10 +1149,8 @@ export default function ConversationWorkspace({
         preferredBackend: previousDigest
           ? input.regeneration?.preferredBackend
           : undefined,
-        browserComputePolicy: input.regeneration?.preferredBackend === "local-ollama"
-          ? "quality-first"
-          : "browser-first",
-        allowPreAuthorizedClosedEscalation: false,
+        browserComputePolicy: automaticComputePolicy,
+        allowPreAuthorizedClosedEscalation: hasExplicitLocalComputeAuthorization(automaticComputePolicy),
         signal: input.signal,
         onProgress: (event) => setProgress(progressLabel(event)),
       });
@@ -1514,7 +1527,13 @@ export default function ConversationWorkspace({
             signal: controller.signal,
           });
         } else if (plan.intent === "rpg_custom_action" && latestRpgChoices) {
-          const snapshot = await loadRpgChatSnapshot(repository, projectId);
+          const snapshot = await loadLearningAwareRpgChatSnapshot({
+            repository,
+            projectId,
+            learningRepository,
+            ensureSharedLearningReady,
+            signal: controller.signal,
+          });
           await executeRpgChoice({
             sessionId: activeSession.id,
             choice: buildRpgChatCustomAction({ snapshot, action: content }),
@@ -1851,6 +1870,7 @@ export default function ConversationWorkspace({
           retryLabel={retryLabel}
           branchPendingMessageIds={branchPendingMessageIds}
           fixedPlayMode={fixedPlayMode}
+          storyState={storyState}
           actions={messageActions}
           onStarter={setDraft}
           onRetry={() => retryActionRef.current?.()}

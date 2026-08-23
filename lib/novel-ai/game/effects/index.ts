@@ -13,7 +13,11 @@ export function validateStoryChoiceEffect(effect: StoryChoiceEffect): EffectVali
     effect.achievementProgress,
   ];
   for (const map of maps) {
-    for (const [key, value] of Object.entries(map)) {
+    if (map !== undefined && (map === null || typeof map !== "object" || Array.isArray(map))) {
+      errors.push("狀態變化格式無效");
+      continue;
+    }
+    for (const [key, value] of Object.entries(map ?? {})) {
       if (!SAFE_KEY.test(key)) errors.push(`不允許的狀態名稱：${key}`);
       if (!Number.isFinite(value) || Math.abs(value) > 1_000_000) {
         errors.push(`不合理的狀態變化：${key}`);
@@ -23,7 +27,13 @@ export function validateStoryChoiceEffect(effect: StoryChoiceEffect): EffectVali
   if (!Number.isFinite(effect.moneyChange) || Math.abs(effect.moneyChange) > 1_000_000_000) {
     errors.push("金錢變化超出安全範圍");
   }
-  for (const key of Object.keys(effect.worldFlags)) {
+  if (
+    effect.worldFlags !== undefined
+    && (effect.worldFlags === null || typeof effect.worldFlags !== "object" || Array.isArray(effect.worldFlags))
+  ) {
+    errors.push("世界狀態格式無效");
+  }
+  for (const key of Object.keys(effect.worldFlags ?? {})) {
     if (!SAFE_KEY.test(key)) errors.push(`不允許的世界狀態：${key}`);
   }
   return { valid: errors.length === 0, errors };
@@ -37,9 +47,11 @@ function addNumericMap(
   changes: Record<string, number>,
   normalize?: (key: string, value: number) => number,
 ) {
+  const safeBase = base ?? {};
+  const safeChanges = changes ?? {};
   return Object.fromEntries(
-    [...new Set([...Object.keys(base), ...Object.keys(changes)])].map((key) => {
-      const next = (base[key] ?? 0) + (changes[key] ?? 0);
+    [...new Set([...Object.keys(safeBase), ...Object.keys(safeChanges)])].map((key) => {
+      const next = (safeBase[key] ?? 0) + (safeChanges[key] ?? 0);
       return [key, normalize ? normalize(key, next) : next];
     }),
   );
@@ -65,13 +77,13 @@ function addProtagonistStats(
   changes: Record<string, number>,
   baselines: Record<string, number>,
 ) {
-  const next = { ...base };
-  for (const [key, baseline] of Object.entries(baselines)) {
+  const next = { ...(base ?? {}) };
+  for (const [key, baseline] of Object.entries(baselines ?? {})) {
     if (!(key in RPG_STAT_LEGACY_ALIASES) || next[key] !== undefined) continue;
     const legacyKey = RPG_STAT_LEGACY_ALIASES[key];
     next[key] = normalizeRpgStat(key, next[legacyKey] ?? baseline);
   }
-  for (const [key, change] of Object.entries(changes)) {
+  for (const [key, change] of Object.entries(changes ?? {})) {
     const legacyKey = RPG_STAT_LEGACY_ALIASES[key];
     const current = next[key]
       ?? (legacyKey ? next[legacyKey] : undefined)
@@ -85,6 +97,8 @@ function addProtagonistStats(
 function normalizeResource(key: string, value: number) {
   if (
     key.startsWith("status.")
+    || key === "romance.eventProgress"
+    || key === "romance.personalGrowth"
     || [
       "management.morale",
       "management.reputation",
@@ -114,10 +128,12 @@ function addProgress(
   base: Record<string, string>,
   changes: Record<string, number>,
 ) {
-  const keys = [...new Set([...Object.keys(base), ...Object.keys(changes)])];
+  const safeBase = base ?? {};
+  const safeChanges = changes ?? {};
+  const keys = [...new Set([...Object.keys(safeBase), ...Object.keys(safeChanges)])];
   return Object.fromEntries(keys.map((key) => {
-    const current = Number(base[key]) || 0;
-    return [key, String(clamp(Math.round(current + (changes[key] ?? 0)), 0, 100))];
+    const current = Number(safeBase[key]) || 0;
+    return [key, String(clamp(Math.round(current + (safeChanges[key] ?? 0)), 0, 100))];
   }));
 }
 
@@ -134,26 +150,26 @@ export function applyStoryChoiceEffect(
     parentRevision: state.revision,
     updatedAt: new Date().toISOString(),
     protagonistStats: addProtagonistStats(
-      state.protagonistStats,
-      effect.statChanges,
+      state.protagonistStats ?? {},
+      effect.statChanges ?? {},
       statBaselines,
     ),
     relationships: addNumericMap(
-      state.relationships,
-      effect.relationshipChanges,
+      state.relationships ?? {},
+      effect.relationshipChanges ?? {},
       (_key, value) => clamp(Math.round(value), -100, 100),
     ),
     resources: addNumericMap(
-      state.resources,
-      effect.resourceChanges,
+      state.resources ?? {},
+      effect.resourceChanges ?? {},
       normalizeResource,
     ),
     money: (state.money ?? 0) + effect.moneyChange,
     worldFlags: { ...state.worldFlags, ...effect.worldFlags },
-    questStates: addProgress(state.questStates, effect.questProgress),
+    questStates: addProgress(state.questStates ?? {}, effect.questProgress ?? {}),
     achievementStates: addProgress(
-      state.achievementStates,
-      effect.achievementProgress,
+      state.achievementStates ?? {},
+      effect.achievementProgress ?? {},
     ),
   };
 }

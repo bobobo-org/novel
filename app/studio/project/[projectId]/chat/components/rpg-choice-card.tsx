@@ -32,16 +32,24 @@ export function RpgChoiceCard({
         data-choice-key={choice.key}
         data-testid={`rpg-choice-${choice.key}`}
       >
-        <span className={styles.choiceKey}>{choice.key} · {choice.strategyLabel}</span>
+        <div className={styles.choiceHeading}>
+          <span className={styles.choiceKey}>{choice.key}</span>
+          <div><small>策略</small><strong>{choice.strategyLabel}</strong></div>
+        </div>
         <h3>{choice.title}</h3>
         <p>{choice.description}</p>
+        <div className={styles.choiceOutcome}>
+          <span data-kind="benefit"><b>可能收益</b>{choice.consequenceTeaser}</span>
+          <span data-kind="cost"><b>已知代價</b>{choice.knownCosts.map((cost) => cost.label).join("、") || "無立即資源代價"}</span>
+          <span data-kind="risk"><b>風險</b><i aria-label={`${choice.risk} / 5`}>{"◆".repeat(choice.risk)}{"◇".repeat(5 - choice.risk)}</i><em>{choice.displayedChanceBand}</em></span>
+        </div>
         {choice.disabledReason ? <span role="status">目前不可選：{choice.disabledReason}</span> : null}
       </button>
       <details
         className={styles.evidenceDetails}
         onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
       >
-        <summary>風險、成本與進階狀態</summary>
+        <summary>查看不可逆警告與進階狀態</summary>
         {advancedOpen ? <RpgAdvancedStatus choice={choice} /> : null}
       </details>
     </div>

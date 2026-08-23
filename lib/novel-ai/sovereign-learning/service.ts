@@ -51,6 +51,7 @@ import {
   type LearningFeedbackRecord,
   type LearningPreferenceProfile,
   type LearningRightsBasis,
+  type ManualExternalHandoffEvidence,
   type LearningRuleDraft,
   type LearningSourceKind,
   type LearningSourceRecord,
@@ -59,6 +60,12 @@ import {
 
 const MAX_SOURCE_CHARACTERS = 300_000;
 const MIN_SOURCE_CHARACTERS = 120;
+const SHARED_RULE_SIMILARITY_LIMIT_PER_STATUS = 32;
+const SHARED_RULE_SIMILARITY_STATUSES: LearnedNarrativeRule["status"][] = [
+  "candidate",
+  "approved",
+  "quarantined",
+];
 const VERIFIED_STORY_TEACHER_WARNING = `VERIFIED_STORY_TEACHER_${VERIFIED_STORY_TEACHER_VERSION.toUpperCase().replace(/[^A-Z0-9]+/gu, "_")}`;
 
 const CREDENTIAL_PATTERNS: Array<{ code: string; pattern: RegExp }> = [
@@ -214,7 +221,9 @@ export type IngestLearningSourceInput = {
   rightsEvidence?: string;
   userConfirmedRights: boolean;
   content: string;
+  manualExternalHandoff?: ManualExternalHandoffEvidence;
   deepExtractor?: DeepRuleExtractor;
+  maxDeepExtractionChunks?: number;
   onProgress?: (status: {
     phase: "validating" | "deterministic" | "deep_extraction" | "persisting";
     current: number;
@@ -229,6 +238,21 @@ export async function ingestLearningSource(
   input.onProgress?.({ phase: "validating", current: 0, total: 1 });
   if (!input.projectId.trim() || !input.title.trim()) {
     throw learningError("LEARNING_SOURCE_IDENTITY_REQUIRED", "作品與來源標題不可空白。");
+  }
+  if (input.manualExternalHandoff) {
+    const evidence = input.manualExternalHandoff;
+    const validDigest = (value: string) => /^[a-f0-9]{64}$/u.test(value);
+    if (
+      input.sourceKind !== "ai_output"
+      || ![evidence.publicUrlDigest, evidence.packetDigest, evidence.answerDigest].every(validDigest)
+      || evidence.appInitiatedExternalRequest !== false
+      || evidence.rawAnswerRetained !== false
+    ) {
+      throw learningError(
+        "LEARNING_MANUAL_EXTERNAL_HANDOFF_INVALID",
+        "人工外接教師的來源血緣無效，已阻止匯入。",
+      );
+    }
   }
   validateRights(input);
   const normalizedInput = normalizeForLearning(input.content);
@@ -272,10 +296,22 @@ export async function ingestLearningSource(
     sha256Hex(analysisText),
     sha256Hex(input.rightsEvidence?.trim() || `${input.rightsBasis}:user-confirmed`),
   ]);
-  const existingSources = await repository.listSources(input.projectId);
   const normalizedSourceReference = input.sourceReference?.trim() || null;
-  const duplicate = existingSources.find((source) =>
-    source.contentHash === contentHash
+  const legacySourceId = shortStableId(
+    "learning-source",
+    `${input.projectId}|${contentHash}|${input.sourceKind}`,
+  );
+  const sourceId = input.sourceKind === "project_creation" && normalizedSourceReference
+    ? shortStableId(
+      "learning-source",
+      `${input.projectId}|${contentHash}|${input.sourceKind}|${normalizedSourceReference}`,
+    )
+    : legacySourceId;
+  const sourceCandidates = await Promise.all(
+    [...new Set([sourceId, legacySourceId])].map((id) => repository.getSource(id)),
+  );
+  const duplicate = sourceCandidates.find((source) => source
+    && source.contentHash === contentHash
     && source.status !== "revoked"
     && source.warningCodes.includes(VERIFIED_STORY_TEACHER_WARNING)
     && (
@@ -286,8 +322,7 @@ export async function ingestLearningSource(
       )
     ));
   if (duplicate) {
-    const existingRules = (await repository.listRules(input.projectId))
-      .filter((rule) => rule.sourceId === duplicate.id);
+    const existingRules = await repository.listRulesBySource(duplicate.id);
     await repository.commit({
       audit: [auditRecord({
         projectId: input.projectId,
@@ -303,8 +338,8 @@ export async function ingestLearningSource(
       warnings: ["LEARNING_DUPLICATE_SOURCE_REUSED"],
       deepExtractionFailures: 0,
       rawContentRetained: false,
-      externalRequestCount: 0,
-      dataLeftDevice: false,
+      externalRequestCount: duplicate.externalRequestCount ?? 0,
+      dataLeftDevice: duplicate.dataLeftDevice ?? false,
     };
   }
 
@@ -317,6 +352,12 @@ export async function ingestLearningSource(
     ...boundary.findings.map((finding) => `UNTRUSTED_CONTENT_${finding.code}`),
     VERIFIED_STORY_TEACHER_WARNING,
     ...verifiedStoryResearch.warnings,
+    ...(input.manualExternalHandoff ? [
+      "MANUAL_EXTERNAL_HANDOFF",
+      `MANUAL_EXTERNAL_PROVIDER_${input.manualExternalHandoff.providerLabel.toUpperCase().replace(/[^A-Z0-9]+/gu, "_")}`,
+      "APP_INITIATED_EXTERNAL_REQUEST_FALSE",
+      "RAW_EXTERNAL_ANSWER_RETAINED_FALSE",
+    ] : []),
   ];
   const quarantined = boundary.sanitizationStatus === "quarantined";
   const deepDrafts: LearningRuleDraft[] = [];
@@ -324,7 +365,10 @@ export async function ingestLearningSource(
   let deepExtractionModel: string | null = VERIFIED_STORY_TEACHER_VERSION;
   let deepExtractionFailures = 0;
   if (input.deepExtractor && !quarantined) {
-    const chunks = splitForDeepExtraction(analysisText);
+    const chunks = splitForDeepExtraction(
+      analysisText,
+      Math.max(1, Math.min(8, Math.floor(input.maxDeepExtractionChunks ?? 8))),
+    );
     for (const [index, chunk] of chunks.entries()) {
       input.onProgress?.({
         phase: "deep_extraction",
@@ -380,10 +424,6 @@ export async function ingestLearningSource(
     ...deterministicDrafts.slice(6),
     ...deepDrafts.slice(6),
   ]).slice(0, 24);
-  const sourceId = shortStableId(
-    "learning-source",
-    `${input.projectId}|${contentHash}|${input.sourceKind}`,
-  );
   const createdAt = now();
   const source: LearningSourceRecord = {
     schemaVersion: SOVEREIGN_LEARNING_SCHEMA_VERSION,
@@ -396,7 +436,7 @@ export async function ingestLearningSource(
     rightsBasis: input.rightsBasis,
     rightsEvidenceHash,
     userConfirmedRights: true,
-    localAnalysisOnly: true,
+    localAnalysisOnly: !input.manualExternalHandoff,
     rawContentRetained: false,
     contentHash,
     fingerprint,
@@ -414,15 +454,34 @@ export async function ingestLearningSource(
     deepExtractionAttempted: true,
     deepExtractionProvider,
     deepExtractionModel,
-    dataLeftDevice: false,
+    dataLeftDevice: Boolean(input.manualExternalHandoff),
     externalRequestCount: 0,
+    manualExternalHandoff: input.manualExternalHandoff ?? null,
     webProvenance: null,
     teacherEvidence: [],
     createdAt,
     updatedAt: createdAt,
     revision: 1,
   };
-  const existingRules = await repository.listRules(input.projectId);
+  const priorSourceRules = await repository.listRulesBySource(sourceId);
+  const conflictScopes = [...new Map(
+    drafts
+      .filter((draft) => Boolean(draft.conflictKey))
+      .map((draft) => [`${draft.family}|${draft.dimension}`, draft]),
+  ).values()];
+  const conflictCandidates = await Promise.all(
+    conflictScopes
+      .map((draft) => repository.queryRuleSimilarityCandidates(
+        input.projectId,
+        draft.family,
+        draft.dimension,
+        ["candidate", "approved", "quarantined"],
+        32,
+      )),
+  );
+  const existingRules = [...new Map(
+    [...priorSourceRules, ...conflictCandidates.flat()].map((rule) => [rule.id, rule]),
+  ).values()];
   const rules = toLearnedRules({
     projectId: input.projectId,
     sourceId,
@@ -459,7 +518,7 @@ export async function ingestLearningSource(
     deepExtractionFailures,
     rawContentRetained: false,
     externalRequestCount: 0,
-    dataLeftDevice: false,
+    dataLeftDevice: Boolean(input.manualExternalHandoff),
   };
 }
 
@@ -743,13 +802,19 @@ export async function ingestDistilledWebKnowledge(
   if (finalUrl.protocol !== "https:") throw learningError("WEB_DISTILLATION_SOURCE_URL_INVALID");
   validateDistilledWebRules(bundle);
 
-  const existingSources = await repository.listSources(input.projectId);
-  const duplicate = existingSources.find((source) =>
-    source.contentHash === bundle.source.sourceDigest
-    && source.status !== "revoked"
-    && source.warningCodes.includes(VERIFIED_STORY_TEACHER_WARNING));
+  const sourceId = shortStableId(
+    "learning-source",
+    `${input.projectId}|${bundle.source.sourceDigest}|web_research`,
+  );
+  const existingSource = await repository.getSource(sourceId);
+  const duplicate = existingSource
+    && existingSource.contentHash === bundle.source.sourceDigest
+    && existingSource.status !== "revoked"
+    && existingSource.warningCodes.includes(VERIFIED_STORY_TEACHER_WARNING)
+    ? existingSource
+    : null;
   if (duplicate) {
-    const rules = (await repository.listRules(input.projectId)).filter((rule) => rule.sourceId === duplicate.id);
+    const rules = await repository.listRulesBySource(duplicate.id);
     await repository.commit({
       audit: [auditRecord({
         projectId: input.projectId,
@@ -770,10 +835,6 @@ export async function ingestDistilledWebKnowledge(
   const [rightsEvidenceHash] = await Promise.all([
     sha256Hex(input.rightsEvidence.trim()),
   ]);
-  const sourceId = shortStableId(
-    "learning-source",
-    `${input.projectId}|${bundle.source.sourceDigest}|web_research`,
-  );
   const createdAt = now();
   const providers = [...new Set(bundle.teachers.map((teacher) => teacher.provider))];
   const models = [...new Set(bundle.teachers.map((teacher) => teacher.model))];
@@ -843,7 +904,25 @@ export async function ingestDistilledWebKnowledge(
     updatedAt: createdAt,
     revision: 1,
   };
-  const existingRules = await repository.listRules(input.projectId);
+  const priorSourceRules = await repository.listRulesBySource(sourceId);
+  const conflictScopes = [...new Map(
+    bundle.rules
+      .filter((draft) => Boolean(draft.conflictKey))
+      .map((draft) => [`${draft.family}|${draft.dimension}`, draft]),
+  ).values()];
+  const conflictCandidates = await Promise.all(
+    conflictScopes
+      .map((draft) => repository.queryRuleSimilarityCandidates(
+        input.projectId,
+        draft.family,
+        draft.dimension,
+        ["candidate", "approved", "quarantined"],
+        32,
+      )),
+  );
+  const existingRules = [...new Map(
+    [...priorSourceRules, ...conflictCandidates.flat()].map((rule) => [rule.id, rule]),
+  ).values()];
   const rules = toLearnedRules({
     projectId: input.projectId,
     sourceId,
@@ -920,20 +999,42 @@ export async function ingestSharedLearningSnapshot(
     }
   }
   const sourceId = shortStableId("learning-source", `${projectId}|shared-abstract-learning-v1`);
-  const [sources, allRules] = await Promise.all([
-    repository.listSources(projectId),
-    repository.listRules(projectId),
+  const similarityScopes = [...new Map(snapshot.rules.map((rule) => [
+    JSON.stringify([rule.family, rule.dimension]),
+    { family: rule.family, dimension: rule.dimension },
+  ])).values()];
+  const [previousSource, previousRules, similarityCandidateGroups] = await Promise.all([
+    repository.getSource(sourceId),
+    repository.listRulesBySource(sourceId),
+    Promise.all(similarityScopes.map((scope) => repository.queryRuleSimilarityCandidates(
+      projectId,
+      scope.family,
+      scope.dimension,
+      SHARED_RULE_SIMILARITY_STATUSES,
+      SHARED_RULE_SIMILARITY_LIMIT_PER_STATUS,
+    ))),
   ]);
-  const previousSource = sources.find((source) => source.id === sourceId) ?? null;
-  const previousRules = allRules.filter((rule) => rule.sourceId === sourceId);
-  if (previousSource?.contentHash === snapshot.libraryDigest && previousSource.status === "active") {
-    return { status: "unchanged" as const, source: previousSource, rules: previousRules, removedRuleCount: 0 };
-  }
-  const nonSharedRules = allRules.filter((rule) => rule.sourceId !== sourceId && !["rejected", "revoked"].includes(rule.status));
+  const nonSharedRules = similarityCandidateGroups.flat().filter((rule) => rule.sourceId !== sourceId);
   const selected = snapshot.rules.filter((rule) => !nonSharedRules.some((candidate) =>
     candidate.family === rule.family
     && candidate.dimension === rule.dimension
     && ruleSimilarity(candidate.statement, rule.statement) >= 0.82));
+  const selectedRuleHashes = selected.map((rule) => rule.ruleHash).sort();
+  const previousRuleHashes = previousRules
+    .filter((rule) => rule.status === "approved")
+    .map((rule) => rule.parameters.sharedRuleHash)
+    .filter((ruleHash): ruleHash is string => typeof ruleHash === "string")
+    .sort();
+  const selectedRulesUnchanged = previousRules.length === selectedRuleHashes.length
+    && previousRuleHashes.length === selectedRuleHashes.length
+    && selectedRuleHashes.every((ruleHash, index) => previousRuleHashes[index] === ruleHash);
+  if (
+    previousSource?.contentHash === snapshot.libraryDigest
+    && previousSource.status === "active"
+    && selectedRulesUnchanged
+  ) {
+    return { status: "unchanged" as const, source: previousSource, rules: previousRules, removedRuleCount: 0 };
+  }
   const updatedAt = now();
   const source: LearningSourceRecord = {
     schemaVersion: SOVEREIGN_LEARNING_SCHEMA_VERSION,

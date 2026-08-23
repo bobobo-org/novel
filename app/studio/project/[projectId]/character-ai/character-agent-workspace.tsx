@@ -46,6 +46,7 @@ import type {
 import type { KnowledgeScope } from "@/lib/novel-ai/drama-os/knowledge-scope";
 import CharacterPortraitImage from "../character-portrait";
 import ProjectNavigation from "../project-navigation";
+import { ProjectContextTabs } from "../project-context-tabs";
 import styles from "./character-ai.module.css";
 
 type WorkspaceData = {
@@ -680,8 +681,9 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
 
   return (
     <main className="p2ProjectShell">
-      <header><Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}`}>← 作品管理中心</Link><div><small>{data.project.title}</small><h1>角色 AI</h1></div><span>私人思考，核准後才套用</span></header>
+      <header><Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}`}>← 作品管理中心</Link><div><small>{data.project.title}</small><h1>人物與世界</h1></div><span>私人思考，核准後才套用</span></header>
       <ProjectNavigation projectId={projectId} active="character-ai" />
+      <ProjectContextTabs projectId={projectId} context="people-world" active="character-ai" />
       <section className={`${styles.root} characterAgentWorkspace`} data-testid="character-agent-workspace">
         <header className="characterAgentIntro">
           <div><span>角色正在思考</span><h2>從角色自己的視角探索下一步</h2><p>角色只能使用他知道的資訊。模擬與候選不會直接修改正式故事。</p></div>

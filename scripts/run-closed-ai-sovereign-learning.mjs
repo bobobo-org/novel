@@ -174,6 +174,25 @@ test("duplicate source reuses the existing source and rules", async () => {
   assert.equal(second.rules.length, first.rules.length);
 });
 
+test("ingestion and duplicate lookup stay bounded as the learning library grows", async () => {
+  class BoundedRepository extends MemorySovereignLearningRepository {
+    listSources() {
+      throw new Error("UNBOUNDED_SOURCE_SCAN_FORBIDDEN");
+    }
+
+    listRules() {
+      throw new Error("UNBOUNDED_RULE_SCAN_FORBIDDEN");
+    }
+  }
+  const repository = new BoundedRepository();
+  const first = await ingestBase(repository, { seed: "bounded-index" });
+  const second = await ingestBase(repository, { seed: "bounded-index" });
+  assert.equal(first.duplicate, false);
+  assert.equal(second.duplicate, true);
+  assert.equal(second.source.id, first.source.id);
+  assert.equal((await repository.listRulesBySource(first.source.id)).length, first.rules.length);
+});
+
 test("closed-AI boundary violation fails closed and persists nothing", async () => {
   const repository = new MemorySovereignLearningRepository();
   await assert.rejects(
@@ -522,7 +541,9 @@ test("product wiring exposes learning review, originality, feedback, and legacy 
   assert.match(aiWorkspace, /buildApprovedLearningContext/);
   assert.match(aiWorkspace, /evaluateLearningOriginality/);
   assert.match(aiWorkspace, /recordSovereignLearningFeedback/);
-  assert.match(navigation, /\["learning","閉端 AI 學習"\]/);
+  assert.match(navigation, /\["ai-hub","AI 協調與學習"\]/);
+  assert.match(navigation, /"ai-hub": \["ai-hub", "closed-ai", "learning"\]/);
+  assert.match(navigation, /\["closed-ai", "learning"\]\.includes\(active\)/);
   assert.match(legacyHtml, /sovereign-learning-entry\.js/);
 });
 

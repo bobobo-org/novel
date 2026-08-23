@@ -570,6 +570,7 @@ harness.test("browser", "route and component source expose the complete conversa
     "message-row.tsx",
     "message-composer.tsx",
     "candidate-card.tsx",
+    "rpg-choice-card.tsx",
     "rpg-turn-card.tsx",
     "artifact-drawer.tsx",
   ].map((file) => readFileSync(`app/studio/project/[projectId]/chat/components/${file}`, "utf8")).join("\n");
@@ -611,7 +612,8 @@ harness.test("browser", "route and component source expose the complete conversa
     "conversation-agent-tool:",
     "toolInvocations:",
     "rpg-inline-choices",
-    "outcomeDetails",
+    "choiceOutcome",
+    "rpgOutcomeSummary",
     "修改後採用",
     "查看 Diff",
     "比較候選",
@@ -826,6 +828,74 @@ harness.test("browser", "natural-language dashboard query, branching, and reload
   assert.equal(await composer.inputValue(), "從這裡繼續故事。");
   assert.equal(await composer.evaluate((element) => element === document.activeElement), true);
   assert.equal(await page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" }).count(), 1);
+  assert.deepEqual(pageErrors, []);
+});
+
+harness.test("browser", "project tools preserve the selected project and active subview", async () => {
+  const { page, projectId, pageErrors } = await getDesktopFixture();
+  const projectPrefix = `/studio/project/${projectId}`;
+
+  await page.goto(`${baseUrl}${projectPrefix}/author-tools`, {
+    waitUntil: "domcontentloaded",
+    timeout: 90_000,
+  });
+  await page.getByRole("heading", { name: "研究與作者輔助", level: 1 }).waitFor();
+  await page.getByRole("status").filter({ hasText: /已載入/u }).waitFor({ timeout: 90_000 });
+  await page.getByRole("button", { name: /續寫接力提示/u }).click();
+  await page.waitForURL((url) => (
+    url.pathname === `${projectPrefix}/author-tools`
+    && url.searchParams.get("tool") === "relay"
+  ));
+  assert.equal(await page.getByRole("heading", { name: "續寫接力提示", level: 2 }).isVisible(), true);
+
+  const projectTools = page.locator("details.p2ProjectTools");
+  if (!await projectTools.evaluate((element) => element.open)) {
+    await projectTools.locator("summary").click();
+  }
+  const activeAuthorToolsLink = page.getByRole("link", { name: /研究與作者工具/u });
+  assert.match(await activeAuthorToolsLink.getAttribute("href") ?? "", /\?tool=relay$/u);
+  await activeAuthorToolsLink.click();
+  await page.waitForURL((url) => (
+    url.pathname === `${projectPrefix}/author-tools`
+    && url.searchParams.get("tool") === "relay"
+  ));
+  assert.equal(await page.getByRole("heading", { name: "續寫接力提示", level: 2 }).isVisible(), true);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "研究與作者輔助", level: 1 }).waitFor();
+  await page.getByRole("status").filter({ hasText: /已載入/u }).waitFor({ timeout: 90_000 });
+  await page.waitForURL((url) => (
+    url.pathname === `${projectPrefix}/author-tools`
+    && url.searchParams.get("tool") === "relay"
+  ));
+  assert.equal(await page.getByRole("heading", { name: "續寫接力提示", level: 2 }).isVisible(), true);
+  assert.equal(
+    await page.getByRole("button", { name: /續寫接力提示/u }).getAttribute("aria-pressed"),
+    "true",
+  );
+  if (!await projectTools.evaluate((element) => element.open)) {
+    await projectTools.locator("summary").click();
+  }
+  assert.match(await activeAuthorToolsLink.getAttribute("href") ?? "", /\?tool=relay$/u);
+
+  if (!await projectTools.evaluate((element) => element.open)) {
+    await projectTools.locator("summary").click();
+  }
+  await page.getByRole("link", { name: /人物與世界/u }).click();
+  await page.waitForURL((url) => (
+    url.pathname === `${projectPrefix}/people-world`
+    && url.searchParams.get("view") === "characters"
+  ));
+  const contextTabs = page.getByTestId("people-world-context-tabs");
+  await contextTabs.waitFor({ state: "visible" });
+  assert.equal(await contextTabs.getAttribute("data-active-view"), "characters");
+  await contextTabs.getByRole("link", { name: /角色視角 AI/u }).click();
+  await page.waitForURL((url) => (
+    url.pathname === `${projectPrefix}/people-world`
+    && url.searchParams.get("view") === "character-ai"
+  ));
+  assert.equal(await contextTabs.getAttribute("data-active-view"), "character-ai");
+  assert.equal(new URL(page.url()).pathname.startsWith(projectPrefix), true);
   assert.deepEqual(pageErrors, []);
 });
 

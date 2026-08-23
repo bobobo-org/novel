@@ -166,7 +166,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
       requestId: crypto.randomUUID(),
       projectId: data.project.id,
       projectRevision: String(data.project.revision),
-      task: "video_generation",
+      task: "scene_to_video_prompt",
       sourceRefs: data.chapters.map((chapter) => ({
         sourceType: "chapter" as const,
         sourceId: chapter.id,
@@ -190,7 +190,10 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
       exportedAt: new Date().toISOString(),
       playbackMode: mode,
       providerExecution: "not_connected",
-      providerTargets: ["OpenAI Sora Videos API", "Google Veo on Vertex AI"],
+      installedAdapters: [],
+      suggestedProviderFamilies: ["Seedance", "Runway", "Sora", "Veo"],
+      generatedVideo: false,
+      artifactMimeType: null,
       mediaCandidate,
       approvedDrama: {
         project: candidate.project,
@@ -208,7 +211,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
     anchor.download = `${safeTitle}-video-production-handoff.json`;
     anchor.click();
     URL.revokeObjectURL(href);
-    setMessage("影片製作包已下載；它不含 API 密鑰，也尚未把內容送到外部服務。");
+    setMessage("JSON 交接資料已下載；這不是影片，也沒有產生或下載 MP4。");
   }
 
   const evaluation = candidate?.evaluations[0];
@@ -225,7 +228,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
       <ProjectNavigation projectId={projectId} active="drama" />
       <section className={`${styles.root} dramaWorkspace`}>
         <header>
-          <div><span>DRAMA OS</span><h2>把正式章節整理成可核准的戲劇候選</h2><p>系統會讀取章節、角色、世界規則與時間線。建立候選不會直接改動小說正史。</p></div>
+          <div><span>DRAMA OS</span><h2>把正式章節整理成可核准的短劇分鏡</h2><p>系統會讀取章節、角色、世界規則與時間線。建立候選不會直接改動小說正史。</p></div>
           <label>目標長度<select value={format} onChange={(event) => setFormat(event.target.value as DramaFormatProfileId)}>{listDramaFormatProfiles().map((item) => <option key={item.id} value={item.id}>{FORMAT_LABELS[item.id]}</option>)}</select></label>
           <button className="gold" disabled={busy || data.chapters.length === 0} onClick={() => void generate()}>{busy ? "正在規劃……" : candidate ? "重新生成" : "建立改編候選"}</button>
           <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai?task=drama.episodePlan&objective=${encodeURIComponent(`把目前作品強化為${FORMAT_LABELS[format]}，檢查開場 Hook、衝突、轉折、角色動機、連續性與代價。`)}`}>
@@ -285,12 +288,6 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
               ? <section className="dramaBranches"><h2>集尾互動選項</h2><p>這不是邊選邊拍；製作時先生成各分支片段，播放時觀眾在集尾選 ABC，再銜接對應下一段。</p><div>{candidate.branchCandidates[0]?.choices.map((choice) => <article key={choice.key}><b>{choice.key}</b><h3>{choice.label}</h3><p>{choice.action}</p><small>{choice.consequence}</small></article>)}</div></section>
               : <section className="dramaLinearNotice"><h2>一般短劇不顯示 ABC</h2><p>目前集數與場景就是固定播放路線。若要比較不同走向，請在製作前重新生成候選，不會讓觀眾在成片中途作答。</p></section>}
             {evaluation?.issues.length ? <section className="dramaRisks"><h2>風險提示</h2><ul>{evaluation.issues.map((issue, index) => <li key={`${issue.code}:${index}`}>{issue.message}</li>)}</ul></section> : null}
-            <section className="dramaVideoPipeline">
-              <div><small>外接影片製作</small><h2>核准改編後再送往影片生成器</h2><p>流程為：分鏡與角色一致性資料 → 外接影片服務 → 預覽候選 → 人工核准 → 剪輯成片。API 密鑰只應放在伺服器，不能寫進瀏覽器或製作包。</p></div>
-              <ol><li>目前可下載不含憑證的標準製作包。</li><li>製作包可交給 Sora／Veo 或後續剪輯工作流。</li><li>直接 API 送出需另設供應商帳號、成本上限與明確同意。</li></ol>
-              <button type="button" disabled={busy || candidate.project.status !== "approved"} onClick={downloadVideoProductionPackage}>下載影片製作包</button>
-              <small>{candidate.project.status === "approved" ? "改編已核准，可以安全交接。" : "先按下「接受並建立改編版本」後才能下載。"}</small>
-            </section>
             <footer className="dramaActions">
               <button className="gold" disabled={busy || candidate.project.status === "approved" || Boolean(evaluation?.blockingIssueCount)} onClick={() => void approve()}>{candidate.project.status === "approved" ? "已核准改編" : "接受並建立改編版本"}</button>
               <button disabled={busy} onClick={() => void generate()}>再產生一份</button>
@@ -299,6 +296,13 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
             <details className="dramaTechnical"><summary>查看技術資訊</summary><dl><div><dt>執行方式</dt><dd>本機規則式戲劇規劃</dd></div><div><dt>正式小說寫入</dt><dd>{candidate.canonicalMutation}</dd></div><div><dt>來源版本</dt><dd>{candidate.project.sourceStoryRevision}</dd></div><div><dt>目標秒數</dt><dd>{candidateProfile?.targetDurationSeconds}</dd></div><div><dt>Hook 時限</dt><dd>{candidateProfile?.openingHookDeadlineSeconds}</dd></div><div><dt>衝突間隔</dt><dd>{candidateProfile?.conflictIntervalSeconds}</dd></div><div><dt>轉折間隔</dt><dd>{candidateProfile?.reversalIntervalSeconds}</dd></div><div><dt>最低 Payoff</dt><dd>{candidateProfile?.minimumPayoffCount}</dd></div><div><dt>搜尋前文紀錄</dt><dd>{candidate.project.projectionTrace.retrievalTraceId}</dd></div><div><dt>內容指紋</dt><dd>{candidate.project.projectionTrace.outputHash}</dd></div></dl></details>
           </>
         )}
+        <section id="video-production" className="dramaVideoPipeline">
+          <div><small>VIDEO RUNTIME STATUS</small><h2>真正影片生成尚未連接</h2><p>目前不會送出影片工作，也不會產生 MP4。真正流程需要伺服器端影片供應商、成本確認、進度輪詢、失敗重試、受控儲存與 MP4 驗證；API 密鑰不能放在瀏覽器。</p></div>
+          <ol><li>目前只有本系統 JSON 交接資料，不能當成影片成品。</li><li>沒有已安裝或已授權的 Seedance、Runway、Sora 或 Veo 執行介面。</li><li>選定供應商並完成伺服器設定後，才會開放真正的「生成 MP4」。</li></ol>
+          <button type="button" disabled>生成 MP4（尚未連接）</button>
+          <button type="button" disabled={busy || candidate?.project.status !== "approved"} onClick={downloadVideoProductionPackage}>下載 JSON 交接資料（非影片）</button>
+          <small>{candidate?.project.status === "approved" ? "改編已核准；目前仍只能下載 JSON，不會產生影片。" : "先建立並核准短劇候選，才可下載非影片的交接資料。"}</small>
+        </section>
       </section>
     </main>
   );

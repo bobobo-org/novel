@@ -228,7 +228,7 @@ export type OperationJournal = DomainRecord & {
   completedAt: string;
   rpgTurnReceiptId?: string | null;
 };
-export type StoryBible = DomainRecord & { theme: OptionalValue<string>; style: OptionalValue<string>; protagonistIds: string[]; characterIds: string[]; relationshipIds: string[]; worldId: string | null; worldRuleIds: string[]; loreIds: string[]; timelineEventIds: string[]; foreshadowing: string[]; unresolvedThreads: string[]; forbiddenContradictions: string[]; authorPreferences: string[]; interactionDeltaIds?: string[] };
+export type StoryBible = DomainRecord & { theme: OptionalValue<string>; style: OptionalValue<string>; protagonistIds: string[]; characterIds: string[]; relationshipIds: string[]; worldId: string | null; worldRuleIds: string[]; loreIds: string[]; timelineEventIds: string[]; foreshadowing: string[]; unresolvedThreads: string[]; resolvedThreads?: string[]; forbiddenContradictions: string[]; authorPreferences: string[]; interactionDeltaIds?: string[] };
 export type StoryBibleDelta = DomainRecord & {
   deltaId: string;
   transactionId: string;

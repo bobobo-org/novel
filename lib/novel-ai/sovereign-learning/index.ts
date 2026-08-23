@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./hashing";
+export * from "./public-research-url";
 export * from "./rule-extractor";
 export * from "./repository";
 export * from "./backup";
@@ -9,6 +10,8 @@ export * from "./service";
 export * from "./web-knowledge-contract";
 export * from "./shared-learning-contract";
 export * from "./verified-story-teacher";
+export * from "./mode-choice-causal-curriculum";
 export * from "./unified-closed-ai-coordinator";
 export * from "./capability-evaluator";
 export * from "./autonomous-practice";
+export * from "./public-story-research";

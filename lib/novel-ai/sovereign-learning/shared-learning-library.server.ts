@@ -14,6 +14,14 @@ import {
   type SharedLearningSourceChannel,
 } from "./shared-learning-contract";
 import type { LearningRuleDimension, LearningRuleDraft, LearningRuleFamily } from "./types";
+import {
+  getAllModeChoiceCurriculumDrafts,
+  MODE_CHOICE_CAUSAL_TEACHER_VERSION,
+} from "./mode-choice-causal-curriculum";
+import {
+  getPublicStoryResearchLearningRuleDrafts,
+  PUBLIC_STORY_RESEARCH_TEACHER_VERSION,
+} from "./public-story-research";
 import { getBaselineViralDramaCurriculum, VERIFIED_STORY_TEACHER_VERSION } from "./verified-story-teacher";
 
 type FetchLike = typeof fetch;
@@ -46,6 +54,40 @@ type DatabaseRuleRow = {
 
 type CacheEntry = { expiresAt: number; snapshot: SharedLearningSnapshot };
 const cache = new Map<string, CacheEntry>();
+const SHARED_LEARNING_FETCH_TIMEOUT_MS = 3_000;
+
+function boundedFetchTimeoutMs(value: unknown) {
+  const requested = Number(value);
+  if (!Number.isFinite(requested) || requested <= 0) return SHARED_LEARNING_FETCH_TIMEOUT_MS;
+  return Math.max(25, Math.min(SHARED_LEARNING_FETCH_TIMEOUT_MS, Math.floor(requested)));
+}
+
+async function withinSharedLearningDeadline<T>(
+  promise: Promise<T>,
+  deadlineAt: number,
+  controller: AbortController,
+  timeoutCode: "SHARED_LEARNING_PUBLISH_TIMEOUT" | "SHARED_LEARNING_QUERY_TIMEOUT",
+) {
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0) {
+    controller.abort(timeoutCode);
+    throw new Error(timeoutCode);
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort(timeoutCode);
+          reject(new Error(timeoutCode));
+        }, remaining);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function supabaseConfig() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "").replace(/\/$/u, "");
@@ -83,11 +125,24 @@ function rankingScore(rule: SharedLearningRule, input: ReturnType<typeof bounded
 
 async function baselineRules() {
   const drafts = await getBaselineViralDramaCurriculum();
-  return (await normalizeSharedLearningRules({
-    rules: drafts,
-    teacherVersion: VERIFIED_STORY_TEACHER_VERSION,
-    observationCount: 1,
-  })).rules;
+  const [storyRules, modeChoiceRules, publicResearchRules] = await Promise.all([
+    normalizeSharedLearningRules({
+      rules: drafts,
+      teacherVersion: VERIFIED_STORY_TEACHER_VERSION,
+      observationCount: 1,
+    }),
+    normalizeSharedLearningRules({
+      rules: getAllModeChoiceCurriculumDrafts(),
+      teacherVersion: MODE_CHOICE_CAUSAL_TEACHER_VERSION,
+      observationCount: 1,
+    }),
+    normalizeSharedLearningRules({
+      rules: getPublicStoryResearchLearningRuleDrafts(),
+      teacherVersion: PUBLIC_STORY_RESEARCH_TEACHER_VERSION,
+      observationCount: 1,
+    }),
+  ]);
+  return [...storyRules.rules, ...modeChoiceRules.rules, ...publicResearchRules.rules];
 }
 
 function databaseQuery(input: ReturnType<typeof boundedInput>) {
@@ -136,7 +191,7 @@ export async function publishSharedLearningRules(input: {
   sourceChannel: SharedLearningSourceChannel;
   teacherVersion: string;
   rules: unknown[];
-}, dependencies: { fetchImpl?: FetchLike } = {}): Promise<SharedLearningPublishReceipt> {
+}, dependencies: { fetchImpl?: FetchLike; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<SharedLearningPublishReceipt> {
   const normalized = await normalizeSharedLearningRules({
     rules: input.rules,
     teacherVersion: input.teacherVersion,
@@ -163,10 +218,18 @@ export async function publishSharedLearningRules(input: {
     };
   }
   const fetchImpl = dependencies.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(dependencies.signal?.reason ?? "SHARED_LEARNING_CALLER_ABORTED");
+  if (dependencies.signal?.aborted) abortFromCaller();
+  else dependencies.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeoutMs = boundedFetchTimeoutMs(dependencies.timeoutMs);
+  const deadlineAt = Date.now() + timeoutMs;
   try {
-    const response = await fetchImpl(`${config.url}/rest/v1/rpc/novel_shared_learning_publish`, {
+    if (controller.signal.aborted) throw new Error("SHARED_LEARNING_CALLER_ABORTED");
+    const response = await withinSharedLearningDeadline(fetchImpl(`${config.url}/rest/v1/rpc/novel_shared_learning_publish`, {
       method: "POST",
       cache: "no-store",
+      signal: controller.signal,
       headers: serviceRoleHeaders(config.key),
       body: JSON.stringify({
         p_source_digest: input.sourceDigest,
@@ -191,12 +254,17 @@ export async function publishSharedLearningRules(input: {
           extractorModel: rule.extractorModel,
         })),
       }),
-    });
+    }), deadlineAt, controller, "SHARED_LEARNING_PUBLISH_TIMEOUT");
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
       throw new Error(`SHARED_LEARNING_PUBLISH_HTTP_${response.status}`);
     }
-    const payload = await response.json() as Array<{
+    const payload = await withinSharedLearningDeadline(
+      response.json(),
+      deadlineAt,
+      controller,
+      "SHARED_LEARNING_PUBLISH_TIMEOUT",
+    ) as Array<{
       result_status?: string;
       result_published_count?: number;
       result_new_observation_count?: number;
@@ -220,12 +288,14 @@ export async function publishSharedLearningRules(input: {
       rawStoryReceived: false,
       abstractRulesOnly: true,
     };
+  } finally {
+    dependencies.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
 export async function querySharedLearningLibrary(
   rawInput: QueryInput = {},
-  dependencies: { fetchImpl?: FetchLike; now?: () => number } = {},
+  dependencies: { fetchImpl?: FetchLike; now?: () => number; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<SharedLearningSnapshot> {
   const input = boundedInput(rawInput);
   const now = dependencies.now?.() ?? Date.now();
@@ -237,18 +307,37 @@ export async function querySharedLearningLibrary(
   let databaseRules: SharedLearningRule[] = [];
   let persistenceStatus: SharedLearningSnapshot["persistenceStatus"] = config.url && config.key ? "ready" : "baseline_only";
   if (config.url && config.key) {
+    const controller = new AbortController();
+    const abortFromCaller = () => controller.abort(dependencies.signal?.reason ?? "SHARED_LEARNING_CALLER_ABORTED");
+    if (dependencies.signal?.aborted) abortFromCaller();
+    else dependencies.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    const deadlineAt = Date.now() + boundedFetchTimeoutMs(dependencies.timeoutMs);
     try {
-      const response = await (dependencies.fetchImpl ?? fetch)(
-        `${config.url}/rest/v1/shared_abstract_learning_rules?${databaseQuery(input)}`,
-        { cache: "no-store", headers: serviceRoleHeaders(config.key) },
+      if (controller.signal.aborted) throw new Error("SHARED_LEARNING_CALLER_ABORTED");
+      const response = await withinSharedLearningDeadline(
+        (dependencies.fetchImpl ?? fetch)(
+          `${config.url}/rest/v1/shared_abstract_learning_rules?${databaseQuery(input)}`,
+          { cache: "no-store", signal: controller.signal, headers: serviceRoleHeaders(config.key) },
+        ),
+        deadlineAt,
+        controller,
+        "SHARED_LEARNING_QUERY_TIMEOUT",
       );
       if (!response.ok) {
         await response.body?.cancel().catch(() => undefined);
         throw new Error(`SHARED_LEARNING_QUERY_HTTP_${response.status}`);
       }
-      databaseRules = await normalizeDatabaseRows(await response.json() as DatabaseRuleRow[]);
+      const rows = await withinSharedLearningDeadline(
+        response.json(),
+        deadlineAt,
+        controller,
+        "SHARED_LEARNING_QUERY_TIMEOUT",
+      ) as DatabaseRuleRow[];
+      databaseRules = await normalizeDatabaseRows(rows);
     } catch {
       persistenceStatus = "degraded";
+    } finally {
+      dependencies.signal?.removeEventListener("abort", abortFromCaller);
     }
   }
   const unique = new Map<string, SharedLearningRule>();

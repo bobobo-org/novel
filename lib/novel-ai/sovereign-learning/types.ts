@@ -40,6 +40,15 @@ export type LearningWebSourceProfile = {
   engagement: LearningEngagementEvidence | null;
 };
 
+export type ManualExternalHandoffEvidence = {
+  providerLabel: "ChatGPT" | "Grok" | "Gemini" | "其他外部 AI";
+  publicUrlDigest: string;
+  packetDigest: string;
+  answerDigest: string;
+  appInitiatedExternalRequest: false;
+  rawAnswerRetained: false;
+};
+
 export type LearningRightsBasis =
   | "owned_by_user"
   | "public_domain"
@@ -116,6 +125,7 @@ export type LearningSourceRecord = {
   deepExtractionModel: string | null;
   dataLeftDevice?: boolean;
   externalRequestCount?: number;
+  manualExternalHandoff?: ManualExternalHandoffEvidence | null;
   webProvenance?: {
     requestedUrl: string;
     finalUrl: string;

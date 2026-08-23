@@ -159,8 +159,11 @@ async function frontdoorProjectRouting() {
     "data-and-safety",
     "ai-and-learning",
     "extended-creation",
+    "video-production",
     "research-and-legacy-tools",
   ]) assert.ok(professional.includes(`id="${section}"`), `missing management section: ${section}`);
+  assert.match(professional, /<h2>影片生成（尚未連接）<\/h2>/u);
+  assert.match(professional, /\/drama#video-production/);
   assert.match(studioPage, /\^\[A-Za-z0-9_-\]\{1,128\}\$/);
   assert.doesNotMatch(studioPage, /StudioClient/);
   assert.match(studioPage, /requestedScreen === "create"/);
@@ -219,7 +222,7 @@ async function interactiveStoryOutputAcceptance() {
     /ensureStudioCanonicalProject\([\s\S]*sourceChapterId:\s*canonical\.chapter\.id[\s\S]*sourceRevision:\s*canonical\.chapter\.revision/u
       .test(branchChoiceRuntime);
   const modernRuntimeIsRevisionBound =
-    /loadRpgChatSnapshot\(repository, projectId, rules\)/u
+    /loadRpgChatSnapshot\(repository, projectId, rules, learningRepository\)/u
       .test(rpgWorkspace)
     && /snapshot\.chapter\.id\s*!==\s*data\.chapter\.id[\s\S]*snapshot\.chapter\.revision\s*!==\s*data\.chapter\.revision/u
       .test(rpgWorkspace)

@@ -1001,7 +1001,10 @@ function registerUiTests() {
     "發現角色設定衝突", "這個秘密角色目前不知道", "版本已更新，請重新產生",
   ];
   for (const value of requiredText) test("ui", `UI contains ${value}`, () => assert(source.includes(value)));
-  test("ui", "project navigation includes Character AI", () => assert(navigation.includes('["character-ai","角色 AI"]')));
+  test("ui", "project navigation groups Character AI under people and world", () => {
+    assert(navigation.includes('["people-world","人物與世界"]'));
+    assert(navigation.includes('"people-world": ["people-world", "characters", "character-ai", "world"]'));
+  });
   test("ui", "technical details are collapsed", () => assert(source.includes("<details className=\"characterTechnical\">")));
   test("ui", "relationship visual has accessible role", () => assert(source.includes('role="img" aria-label="有方向的角色關係圖"')));
   test("ui", "relationship text list is separately accessible", () => assert(source.includes('aria-label="角色關係文字列表"')));

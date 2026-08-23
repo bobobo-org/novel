@@ -10,8 +10,11 @@ export default async function CreateProjectPage({
 }) {
   const params = await searchParams;
   const rawCloneFrom = Array.isArray(params.cloneFrom) ? params.cloneFrom[0] : params.cloneFrom;
-  const cloneFrom = rawCloneFrom && /^[A-Za-z0-9_-]{1,128}$/u.test(rawCloneFrom)
-    ? rawCloneFrom
+  // Keep an invalid, bounded value long enough for the client to render a
+  // truthful source error. Silently converting it to a normal create flow made
+  // a broken "複製為其他玩法" link look as if it had done nothing.
+  const cloneFrom = typeof rawCloneFrom === "string" && rawCloneFrom.length > 0
+    ? rawCloneFrom.slice(0, 512)
     : null;
   return <CreateProjectClient cloneFrom={cloneFrom} />;
 }

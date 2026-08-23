@@ -57,6 +57,7 @@ import {
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import CharacterPortraitImage from "./character-portrait";
 import ProjectNavigation from "./project-navigation";
+import { ProjectContextSummary, ProjectContextTabs } from "./project-context-tabs";
 import PersistenceRecoveryNotice from "../../persistence-recovery-notice";
 
 type Section =
@@ -82,10 +83,10 @@ type Data = {
 };
 
 const titles: Record<Section, [string, string]> = {
-  characters: ["角色", "建立、編輯與管理作品人物；私人秘密只留在本機作品資料。"],
-  world: ["世界設定", "管理世界背景與不可違反的正式規則。"],
-  timeline: ["時間線", "建立、編輯並連結章節中的重要事件。"],
-  "story-bible": ["Story Bible", "管理正式故事記憶；空白欄位不會阻礙創作。"],
+  characters: ["人物與世界", "在角色資料、角色視角 AI 與世界設定之間切換。"],
+  world: ["人物與世界", "在角色資料、角色視角 AI 與世界設定之間切換。"],
+  timeline: ["故事脈絡", "用時間線與故事記憶兩個視角整理同一部作品。"],
+  "story-bible": ["故事脈絡", "用時間線與故事記憶兩個視角整理同一部作品。"],
   tasks: ["任務", "建立與追蹤作品的創作目標。"],
   achievements: ["成就", "管理創作里程碑與解鎖進度。"],
   backups: ["備份與還原", "建立、下載、匯入、還原與刪除作品備份。"],
@@ -435,49 +436,50 @@ function SectionBody({
 }) {
   const project = data.project!;
   if (section === "characters") {
-    return <CharacterEditor projectId={project.id} characters={data.characters} storyBibles={data.bibles} onChanged={onChanged} />;
+    return (
+      <>
+        <ProjectContextTabs projectId={project.id} context="people-world" active="characters" />
+        <CharacterEditor projectId={project.id} characters={data.characters} storyBibles={data.bibles} onChanged={onChanged} />
+      </>
+    );
   }
   if (section === "world") {
     return (
-      <WorldEditor
-        projectId={project.id}
-        worlds={data.worlds}
-        rules={data.rules}
-        onChanged={onChanged}
-      />
+      <>
+        <ProjectContextTabs projectId={project.id} context="people-world" active="world" />
+        <WorldEditor
+          projectId={project.id}
+          worlds={data.worlds}
+          rules={data.rules}
+          onChanged={onChanged}
+        />
+      </>
     );
   }
   if (section === "timeline") {
-    return (
-      <TimelineEditor
-        projectId={project.id}
-        chapters={data.chapters}
-        events={data.timeline}
-        onChanged={onChanged}
-      />
-    );
+    return <StoryContextWorkspace activeView="timeline" data={data} onChanged={onChanged} />;
   }
   if (section === "story-bible") {
-    const storyBible = data.bibles.find((item) => item.id === project.storyBibleId) ?? data.bibles[0] ?? null;
-    return (
-      <StoryBibleEditor
-        key={`${project.id}:${storyBible?.id ?? project.storyBibleId}`}
-        project={project}
-        storyBible={storyBible}
-        onChanged={onChanged}
-      />
-    );
+    return <StoryContextWorkspace activeView="story-bible" data={data} onChanged={onChanged} />;
   }
   if (section === "tasks") {
-    return <TaskEditor projectId={project.id} tasks={data.tasks} onChanged={onChanged} />;
+    return (
+      <>
+        <ProjectContextTabs projectId={project.id} context="progress" active="tasks" />
+        <TaskEditor projectId={project.id} tasks={data.tasks} onChanged={onChanged} />
+      </>
+    );
   }
   if (section === "achievements") {
     return (
-      <AchievementEditor
-        projectId={project.id}
-        achievements={data.achievements}
-        onChanged={onChanged}
-      />
+      <>
+        <ProjectContextTabs projectId={project.id} context="progress" active="achievements" />
+        <AchievementEditor
+          projectId={project.id}
+          achievements={data.achievements}
+          onChanged={onChanged}
+        />
+      </>
     );
   }
   return (
@@ -487,6 +489,69 @@ function SectionBody({
       backups={data.backups}
       onChanged={onChanged}
     />
+  );
+}
+
+function StoryContextWorkspace({
+  activeView,
+  data,
+  onChanged,
+}: {
+  activeView: "timeline" | "story-bible";
+  data: Data;
+  onChanged: () => Promise<void>;
+}) {
+  const project = data.project!;
+  const storyBible = data.bibles.find((item) => item.id === project.storyBibleId) ?? data.bibles[0] ?? null;
+  const linkedChapterCount = new Set(
+    data.timeline.map((event) => event.chapterId).filter((chapterId): chapterId is string => Boolean(chapterId)),
+  ).size;
+  const memoryItemCount = storyBible
+    ? storyBible.foreshadowing.length
+      + storyBible.unresolvedThreads.length
+      + storyBible.forbiddenContradictions.length
+      + storyBible.authorPreferences.length
+    : 0;
+
+  return (
+    <div data-testid="story-context-workspace" data-active-view={activeView}>
+      <ProjectContextTabs projectId={project.id} context="story" active={activeView} />
+      <ProjectContextSummary
+        items={[
+          {
+            label: "時間線事件",
+            value: data.timeline.length,
+            detail: linkedChapterCount ? `已連結 ${linkedChapterCount} 個章節` : "尚未連結章節",
+          },
+          {
+            label: "正式故事記憶",
+            value: storyBible ? `版本 ${storyBible.revision}` : "尚未建立",
+            detail: `${memoryItemCount} 項伏筆、線索與規則`,
+          },
+          {
+            label: "待收束線索",
+            value: storyBible?.unresolvedThreads.length ?? 0,
+            detail: `${storyBible?.foreshadowing.length ?? 0} 項伏筆正在追蹤`,
+          },
+        ]}
+        notice="AI 檢查與整理只會建立候選；只有你按下儲存或完成核准，才會更新正式 Canon。本區不會冒充已完成未經核准的時間線與故事記憶自動雙寫。"
+      />
+      {activeView === "timeline" ? (
+        <TimelineEditor
+          projectId={project.id}
+          chapters={data.chapters}
+          events={data.timeline}
+          onChanged={onChanged}
+        />
+      ) : (
+        <StoryBibleEditor
+          key={`${project.id}:${storyBible?.id ?? project.storyBibleId}`}
+          project={project}
+          storyBible={storyBible}
+          onChanged={onChanged}
+        />
+      )}
+    </div>
   );
 }
 

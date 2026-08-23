@@ -3074,6 +3074,33 @@ harness.test("rpg", "Memory RPG acceptance atomically approves its Conversation 
   );
 });
 
+harness.test("rpg", "legacy RPG candidates may omit optional effect maps without a raw TypeError", async () => {
+  const repository = new MemoryNovelRepository();
+  const state = await setupRpgConversationApproval({
+    repository,
+    label: `legacy-rpg-effect-maps:${crypto.randomUUID()}`,
+  });
+  const legacyEffect = { ...state.candidate.effect };
+  delete legacyEffect.statChanges;
+  delete legacyEffect.relationshipChanges;
+  delete legacyEffect.resourceChanges;
+  delete legacyEffect.questProgress;
+  delete legacyEffect.achievementProgress;
+  const legacyCandidate = await repository.put("candidates", {
+    ...state.candidate,
+    effect: legacyEffect,
+  }, state.candidate.revision);
+
+  const result = await repository.acceptChoiceTransaction({
+    ...state.input,
+    expectedCandidateRevision: legacyCandidate.revision,
+  });
+  assert.equal(result.replayed, false);
+  assert.equal(result.conversationArtifact?.status, "approved");
+  assert.match(result.chapter.content, /opens the gate/u);
+  assert.equal(result.storyState.revision, state.storyState.revision + 1);
+});
+
 harness.test("rpg", "fake-indexeddb RPG acceptance atomically approves its Conversation artifact and exact-replays", async () => {
   await assertRpgConversationApprovalCommit(
     new IndexedDbNovelRepository(),

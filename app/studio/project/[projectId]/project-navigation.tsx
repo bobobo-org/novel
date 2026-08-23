@@ -13,47 +13,78 @@ import {
   projectManagementHref,
   stageStudioTaskHandoff,
 } from "@/lib/novel-ai/web/studio-task-session";
+import { ProjectContextTabs } from "./project-context-tabs";
 
 const PROJECT_LINKS = [
-  ["write","章節全文校訂"],
-  ["closed-ai","閉端 AI 中心"],
-  ["learning","閉端 AI 學習"],
-  ["character-ai","角色 AI"],
-  ["drama","小說轉短劇"],
-  ["characters","角色"],
-  ["world","世界"],
-  ["timeline","時間線"],
-  ["story-bible","故事記憶"],
-  ["tasks","任務"],
-  ["achievements","成就"],
-  ["backups","備份"],
+  ["people-world","人物與世界"],
+  ["story-context","故事脈絡"],
+  ["progress-hub","進度與目標"],
+  ["ai-hub","AI 協調與學習"],
+  ["drama","短劇改編"],
+  ["author-tools","研究與作者工具"],
+  ["data-safety","作品與安全"],
 ] as const;
 
 const PROJECT_LINK_PRESENTATION: Record<(typeof PROJECT_LINKS)[number][0], {
   short: string;
   icon: string;
 }> = {
-  write: { short: "全文", icon: "文" },
-  "closed-ai": { short: "AI 中心", icon: "◉" },
-  learning: { short: "AI 學習", icon: "↟" },
-  "character-ai": { short: "角色 AI", icon: "♟" },
+  "people-world": { short: "人物世界", icon: "人" },
+  "story-context": { short: "脈絡", icon: "⌁" },
+  "progress-hub": { short: "任務成就", icon: "✓" },
+  "ai-hub": { short: "AI 協調學習", icon: "◉" },
   drama: { short: "短劇", icon: "▶" },
-  characters: { short: "角色", icon: "人" },
-  world: { short: "世界", icon: "◎" },
-  timeline: { short: "時間", icon: "⌁" },
-  "story-bible": { short: "記憶", icon: "▤" },
-  tasks: { short: "任務", icon: "✓" },
-  achievements: { short: "成就", icon: "★" },
-  backups: { short: "備份", icon: "↺" },
+  "author-tools": { short: "研究", icon: "⌕" },
+  "data-safety": { short: "備份還原", icon: "↺" },
 };
+
+type ProjectLinkPath = (typeof PROJECT_LINKS)[number][0];
+
+const PROJECT_LINK_ACTIVE_PATHS: Partial<Record<ProjectLinkPath, readonly string[]>> = {
+  "ai-hub": ["ai-hub", "closed-ai", "learning"],
+  "people-world": ["people-world", "characters", "character-ai", "world"],
+  "story-context": ["story-context", "timeline", "story-bible"],
+  "progress-hub": ["progress-hub", "tasks", "achievements"],
+  "data-safety": ["data-safety", "backups"],
+};
+
+function projectLinkIsActive(path: ProjectLinkPath, active: string) {
+  return path === active || PROJECT_LINK_ACTIVE_PATHS[path]?.includes(active) === true;
+}
+
+function projectLinkHref(projectId: string, path: ProjectLinkPath, active: string) {
+  const encodedProjectId = encodeURIComponent(projectId);
+  if (path === "ai-hub") {
+    const view = ["closed-ai", "learning"].includes(active) ? active : "closed-ai";
+    return `/studio/project/${encodedProjectId}/${view}`;
+  }
+  if (path === "people-world") {
+    const view = ["characters", "character-ai", "world"].includes(active) ? active : "characters";
+    return `/studio/project/${encodedProjectId}/people-world?view=${view}`;
+  }
+  if (path === "story-context") {
+    const view = ["timeline", "story-bible"].includes(active) ? active : "timeline";
+    return `/studio/project/${encodedProjectId}/story-context?view=${view}`;
+  }
+  if (path === "progress-hub") {
+    const view = ["tasks", "achievements"].includes(active) ? active : "tasks";
+    return `/studio/project/${encodedProjectId}/progress?view=${view}`;
+  }
+  if (path === "data-safety") {
+    return `/studio/project/${encodedProjectId}/backups`;
+  }
+  return `/studio/project/${encodedProjectId}/${path}`;
+}
 
 export default function ProjectNavigation({
   projectId,
   active,
+  activeHref,
   onNavigate,
 }: {
   projectId: string;
   active: string;
+  activeHref?: string;
   onNavigate?: (href: string, label: string) => void | Promise<void>;
 }) {
   const [playMode, setPlayMode] = useState<StoryPlayModeId | null>(null);
@@ -80,21 +111,28 @@ export default function ProjectNavigation({
         void onNavigate(href, label);
         return;
       }
-      stageStudioTaskHandoff({
-        projectId,
-        sourceLabel: PROJECT_LINKS.find(([path]) => path === active)?.[1] ?? "作品功能",
-        destinationLabel: label,
-        destinationHref: href,
-      });
-      // Project sections already share the same canonical repository. A
-      // completed handoff can therefore go straight to the selected section;
-      // forcing an extra home-page stop only made the interface feel like a
-      // different application and invited accidental second clicks.
-      window.location.assign(href);
+      try {
+        stageStudioTaskHandoff({
+          projectId,
+          sourceLabel: PROJECT_LINKS.find(([path]) => projectLinkIsActive(path, active))?.[1] ?? "作品功能",
+          destinationLabel: label,
+          destinationHref: href,
+        });
+      } catch {
+        // A privacy mode may block sessionStorage. The optional handoff receipt
+        // must never turn a real feature link into a button that appears dead.
+      } finally {
+        // Project sections already share the same canonical repository. A
+        // completed handoff can therefore go straight to the selected section;
+        // forcing an extra home-page stop only made the interface feel like a
+        // different application and invited accidental second clicks.
+        window.location.assign(href);
+      }
     } };
   }
 
   return (
+    <>
     <nav className="p2ProjectNav p2UnifiedProjectNav" aria-label="作品導覽">
       {playMode ? (
         <span className="p2LockedPlayMode" title="此作品的玩法已固定；要改用其他玩法，請複製為新作品。">
@@ -119,7 +157,7 @@ export default function ProjectNavigation({
         <span className="p2NavLabel">故事工作台</span>
         <span className="p2NavShort">故事</span>
       </Link>
-      <details className="p2ProjectTools" open={PROJECT_LINKS.some(([path]) => path === active)}>
+      <details className="p2ProjectTools">
         <summary>
           <span className="p2NavIcon" aria-hidden="true">⌘</span>
           <span className="p2NavLabel">全部作品功能</span>
@@ -129,14 +167,17 @@ export default function ProjectNavigation({
         <div className="p2ProjectToolGrid">
           {PROJECT_LINKS.map(([path, label]) => {
             const { icon, short } = PROJECT_LINK_PRESENTATION[path];
-            const href = `/studio/project/${projectId}/${path}`;
+            const linkActive = projectLinkIsActive(path, active);
+            const href = linkActive && activeHref
+              ? activeHref
+              : projectLinkHref(projectId, path, active);
             return (
               <Link
                 key={path}
-                className={active === path ? "active" : ""}
+                className={linkActive ? "active" : ""}
                 href={href}
-                aria-current={active === path ? "page" : undefined}
-                {...(active === path ? {} : guardedLink(href, label))}
+                aria-current={linkActive ? "page" : undefined}
+                {...(linkActive ? {} : guardedLink(href, label))}
               >
                 <span className="p2NavIcon" aria-hidden="true">{icon}</span>
                 <span className="p2NavLabel">{label}</span>
@@ -167,5 +208,13 @@ export default function ProjectNavigation({
         </div>
       </details>
     </nav>
+    {["closed-ai", "learning"].includes(active) ? (
+      <ProjectContextTabs
+        projectId={projectId}
+        context="ai"
+        active={active as "closed-ai" | "learning"}
+      />
+    ) : null}
+    </>
   );
 }

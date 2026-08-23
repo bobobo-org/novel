@@ -310,14 +310,34 @@ export async function executeStudioClosedAgent(
   // regeneration) authorizes this reconnect; browser-first routing remains
   // fail-closed and never escalates silently.
   if (shouldRestoreStudioLocalRuntime(input)) {
-    await runtime.connectLocalAutomatically(input.signal);
+    try {
+      await runtime.connectLocalAutomatically(input.signal);
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      // Connection discovery is not execution. Preserve the failure in the
+      // runtime snapshot and let the router choose another verified closed
+      // backend instead of blocking Browser AI before routing starts.
+    }
   }
   const complexity = taskComplexity(input.taskType);
+  if (complexity === "heavy") {
+    // Heavy work may use only the verified private Hub. Connection failure is
+    // deliberately swallowed here so the router can return its truthful
+    // setup-required result; it must never fall through to an external AI.
+    try {
+      await runtime.connectPrivateHubAutomatically(input.signal);
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      // The router will return a truthful setup-required result when Hub is
+      // unavailable. Never turn a discovery failure into external fallback.
+    }
+  }
   if (
     typeof window !== "undefined"
     && complexity !== "heavy"
     && !input.preferredBackend
-    && (input.browserComputePolicy ?? "browser-first") !== "quality-first"
+    && (input.browserComputePolicy ?? "browser-first") === "browser-first"
+    && input.allowPreAuthorizedClosedEscalation !== true
   ) {
     const bootstrap = await getStudioClosedAIBootstrapCoordinator().bootstrap({
       projectId: input.projectId,

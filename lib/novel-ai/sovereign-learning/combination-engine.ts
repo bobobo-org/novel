@@ -1,9 +1,23 @@
 import type { SovereignLearningRepository } from "./repository";
+import { sha256Hex, stableStringify } from "./hashing";
 import type {
   LearnedNarrativeRule,
   LearningPreferenceProfile,
   LearningRuleFamily,
+  LearningSourceRecord,
 } from "./types";
+
+export const APPROVED_LEARNING_CONTEXT_SNAPSHOT_VERSION = "approved-learning-context-snapshot-v1" as const;
+
+export type ApprovedLearningCausalSignal = {
+  ruleId: string;
+  family: LearningRuleFamily;
+  dimension: LearnedNarrativeRule["dimension"];
+  statement: string;
+  operation: string;
+  constraint: string;
+  evaluate: string;
+};
 
 const TASK_FAMILIES: Record<string, LearningRuleFamily[]> = {
   continue_writing: ["structure", "pacing", "character", "relationship", "dialogue", "style", "foreshadowing", "worldbuilding"],
@@ -85,17 +99,29 @@ export async function buildApprovedLearningContext(input: {
   taskType: string;
   maximumRules?: number;
 }) {
-  const [sources, rules, profile] = await Promise.all([
-    input.repository.listSources(input.projectId),
-    input.repository.listRules(input.projectId),
+  const maximumRules = Math.max(1, Math.min(16, input.maximumRules ?? 8));
+  const families = taskFamilies(input.taskType);
+  // Every story dimension contributes a fixed tiny candidate set. Retrieval
+  // stays bounded after years of learning, while a high-volume dimension can
+  // no longer crowd every other mechanism out before final scoring.
+  const candidateLimitPerDimension = 2;
+  const [rules, profile] = await Promise.all([
+    input.repository.queryApprovedRulesByDimension(
+      input.projectId,
+      families,
+      candidateLimitPerDimension,
+    ),
     input.repository.getProfile(input.projectId),
   ]);
+  const sources = (await Promise.all(
+    [...new Set(rules.map((rule) => rule.sourceId))]
+      .map((sourceId) => input.repository.getSource(sourceId)),
+  )).filter((source): source is LearningSourceRecord => source !== null);
   const activeSourceTrust = new Map(
     sources
       .filter((source) => source.status === "active")
       .map((source) => [source.id, source.trustScore]),
   );
-  const families = taskFamilies(input.taskType);
   const ranked = rules
     .filter((rule) =>
       rule.status === "approved"
@@ -111,7 +137,6 @@ export async function buildApprovedLearningContext(input: {
       ),
     }))
     .sort((left, right) => right.score - left.score || left.rule.id.localeCompare(right.rule.id));
-  const maximumRules = Math.max(1, Math.min(16, input.maximumRules ?? 8));
   const selected: typeof ranked = [];
   const usedDimensions = new Set<string>();
   for (const candidate of ranked) {
@@ -135,9 +160,44 @@ export async function buildApprovedLearningContext(input: {
     `限制：${rule.recipe.constraint}`,
     `檢查：${rule.recipe.evaluate}`,
   ].join("；"));
+  const causalSignals: ApprovedLearningCausalSignal[] = selected.map(({ rule }) => ({
+    ruleId: rule.id,
+    family: rule.family,
+    dimension: rule.dimension,
+    statement: rule.statement,
+    operation: rule.recipe.operation,
+    constraint: rule.recipe.constraint,
+    evaluate: rule.recipe.evaluate,
+  }));
+  const sourceDigestById = new Map(
+    sources.map((source) => [source.id, source.contentHash]),
+  );
+  const snapshotDigest = await sha256Hex(stableStringify({
+    snapshotVersion: APPROVED_LEARNING_CONTEXT_SNAPSHOT_VERSION,
+    projectId: input.projectId,
+    taskType: input.taskType,
+    maximumRules,
+    preferenceProfileVersion: profile?.version ?? 0,
+    rules: selected.map(({ rule }) => ({
+      id: rule.id,
+      revision: rule.revision,
+      sourceDigest: sourceDigestById.get(rule.sourceId) ?? "missing-source-digest",
+      family: rule.family,
+      dimension: rule.dimension,
+      statement: rule.statement,
+      operation: rule.recipe.operation,
+      constraint: rule.recipe.constraint,
+      evaluate: rule.recipe.evaluate,
+      confidence: rule.confidence,
+      abstractionScore: rule.abstractionScore,
+    })),
+  }));
   return {
+    snapshotVersion: APPROVED_LEARNING_CONTEXT_SNAPSHOT_VERSION,
+    snapshotDigest,
     selectedRuleIds: selected.map(({ rule }) => rule.id),
     instructions,
+    causalSignals,
     rules: selected.map(({ rule }) => rule),
     preferenceProfileVersion: profile?.version ?? 0,
     combinationSpace: estimateRuleCombinationSpace(
