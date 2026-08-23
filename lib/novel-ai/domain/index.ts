@@ -20,6 +20,8 @@ export type ProjectSeed = DomainRecord & {
 
 export type NovelProject = DomainRecord & {
   title: string;
+  /** Immutable root for all on-demand people/world/treasure indexes. */
+  proceduralRootSeed?: string | null;
   creationMode: "quick" | "guided" | "blank" | "legacy";
   genrePackId: string | null;
   genreId: string | null;
@@ -59,7 +61,7 @@ export type CharacterPortraitAtlasCrop = {
 };
 export type CharacterPortraitAsset = {
   id: string;
-  source: "catalog" | "upload";
+  source: "catalog" | "upload" | "procedural";
   assetUri: string;
   assetDigest: string;
   atlas?: CharacterPortraitAtlasCrop;
@@ -68,7 +70,7 @@ export type CharacterPortraitAsset = {
   role: string;
   visualDescription: string;
   traits: string[];
-  generatedBy: "openai-image-generation" | "user-upload";
+  generatedBy: "openai-image-generation" | "user-upload" | "procedural-story-engine";
 };
 export type CharacterPortrait = CharacterPortraitAsset & {
   approvedAt: string;
@@ -119,6 +121,18 @@ export type CharacterDynamicsProfile = {
   approvedAt: string;
   approvedBy: "user";
 };
+export type CharacterSocialMatrixProfile = {
+  schemaVersion: "novel-social-matrix-v1";
+  sourceCharacterId: string;
+  populationIndex: number;
+  institutionId: string;
+  familyId: string;
+  relationshipIds: string[];
+  treasureIds: string[];
+  candidateFingerprint: string;
+  approvedAt: string;
+  approvedBy: "user";
+};
 export type Character = DomainRecord & {
   name: string;
   aliases: string[];
@@ -138,6 +152,7 @@ export type Character = DomainRecord & {
   portrait?: CharacterPortrait | null;
   rpgProfile?: CharacterRpgProfile | null;
   dynamicsProfile?: CharacterDynamicsProfile | null;
+  socialMatrixProfile?: CharacterSocialMatrixProfile | null;
   voiceStyle?: {
     formality: number;
     directness: number;
@@ -147,9 +162,42 @@ export type Character = DomainRecord & {
   };
 };
 export type CharacterRelationship = DomainRecord & { fromCharacterId: string; toCharacterId: string; kind: string; summary: string; trust: number | null };
-export type World = DomainRecord & { name: OptionalValue<string>; era: OptionalValue<string>; summary: OptionalValue<string> };
+export type ProceduralWorldProfile = {
+  schemaVersion: "procedural-world-profile-v1";
+  sourceWorldId: string;
+  topicId: string;
+  topicOrdinal: number;
+  worldOrdinal: number;
+  relationshipScenarioId: string;
+  characterIds: string[];
+  treasureIds: string[];
+  causalDimensionIds: string[];
+  approvedAt: string;
+  approvedBy: "user";
+};
+export type World = DomainRecord & {
+  name: OptionalValue<string>;
+  era: OptionalValue<string>;
+  summary: OptionalValue<string>;
+  proceduralWorldProfile?: ProceduralWorldProfile | null;
+};
 export type WorldRule = DomainRecord & { title: string; description: string; immutable: boolean };
-export type LoreEntry = DomainRecord & { kind: "location" | "faction" | "item" | "secret" | "custom"; title: string; content: string };
+export type ProceduralTreasureLoreProfile = {
+  schemaVersion: "procedural-treasure-lore-v1";
+  ordinal: number;
+  holderCharacterId: string;
+  stakeholderCharacterIds: string[];
+  relationshipScenarioId: string;
+  causalDimensionIds: string[];
+  approvedAt: string;
+  approvedBy: "user";
+};
+export type LoreEntry = DomainRecord & {
+  kind: "location" | "faction" | "item" | "secret" | "custom";
+  title: string;
+  content: string;
+  proceduralTreasureProfile?: ProceduralTreasureLoreProfile | null;
+};
 export type TimelineEvent = DomainRecord & { chapterId: string | null; storyTime: string | null; title: string; summary: string };
 
 export type StoryState = DomainRecord & {

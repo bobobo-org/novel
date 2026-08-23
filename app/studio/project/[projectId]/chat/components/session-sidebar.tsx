@@ -15,6 +15,7 @@ export function SessionSidebar({
   busy,
   branchPending,
   open,
+  onClose,
   onSearchChange,
   onToggleArchived,
   onNewSession,
@@ -35,6 +36,7 @@ export function SessionSidebar({
   busy: boolean;
   branchPending: boolean;
   open: boolean;
+  onClose: () => void;
   onSearchChange: (value: string) => void;
   onToggleArchived: () => void;
   onNewSession: () => void;
@@ -45,10 +47,25 @@ export function SessionSidebar({
   onExportSummary: () => void;
 }) {
   return (
-    <aside className={styles.sidebar} data-open={open} aria-label="小說專案欄" data-testid="conversation-session-sidebar">
+    <aside
+      id="conversation-session-sidebar"
+      className={styles.sidebar}
+      data-open={open}
+      aria-label="小說專案欄"
+      data-testid="conversation-session-sidebar"
+    >
       <div className={styles.brandRow}>
         <span className={styles.brandMark}>文</span>
         <div><strong>{project?.title ?? "載入中"}</strong><span>獨立作品記憶</span></div>
+        <button
+          className={styles.sidebarClose}
+          type="button"
+          data-testid="conversation-sidebar-close"
+          aria-label="收合專案與對話側欄"
+          onClick={onClose}
+        >
+          收合
+        </button>
       </div>
       <button className={styles.newSession} type="button" onClick={onNewSession} disabled={busy}>＋ 新對話</button>
       {branchPending ? (

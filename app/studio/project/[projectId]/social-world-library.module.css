@@ -1,0 +1,116 @@
+.library {
+  --matrix-gold: #f2c15c;
+  --matrix-aqua: #66e4d0;
+  margin: 1rem auto 1.4rem;
+  max-width: 1480px;
+  border: 1px solid rgba(95, 226, 207, 0.28);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(24, 151, 145, 0.15), transparent 32%),
+    linear-gradient(145deg, rgba(14, 32, 57, 0.98), rgba(6, 21, 38, 0.98));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
+  color: #eaf4ff;
+  overflow: hidden;
+}
+
+.hero { display: flex; align-items: center; justify-content: space-between; gap: 2rem; padding: 2rem 2.2rem 1.4rem; border-bottom: 1px solid rgba(126, 176, 210, 0.2); }
+.hero h3 { margin: .3rem 0 .55rem; color: #ffe3a3; font-family: var(--font-serif, serif); font-size: clamp(1.75rem, 3vw, 2.65rem); font-weight: 560; }
+.hero p { margin: 0; max-width: 850px; color: #b8cadb; font-size: 1rem; line-height: 1.85; }
+.eyebrow { color: var(--matrix-aqua); font-size: .73rem; font-weight: 800; letter-spacing: .14em; }
+.seedBadge { min-width: 150px; padding: 1rem 1.2rem; border: 1px solid rgba(242, 193, 92, .42); border-radius: 18px; background: rgba(242, 193, 92, .08); text-align: center; }
+.seedBadge span { display: block; color: #8fa9be; font-size: .72rem; }
+.seedBadge strong { color: #ffdc88; font-size: 1.25rem; letter-spacing: .08em; }
+
+.capacityGrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .7rem; padding: 1.25rem 2.2rem .75rem; }
+.capacityGrid div { padding: 1rem 1.15rem; border: 1px solid rgba(84, 152, 196, .32); border-radius: 16px; background: rgba(11, 39, 65, .76); }
+.capacityGrid strong { display: block; color: #ffd36d; font-size: clamp(1.45rem, 2.5vw, 2.15rem); }
+.capacityGrid span { color: #a9bfd1; font-size: .82rem; }
+.materializationNote { margin: .1rem 2.2rem 1.2rem; padding: .85rem 1rem; border-left: 3px solid var(--matrix-aqua); background: rgba(43, 151, 143, .09); color: #b9d8d5; font-size: .86rem; line-height: 1.65; }
+
+.viewTabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; padding: 0 2.2rem 1.3rem; }
+.viewTabs button { padding: 1rem 1.2rem; border: 1px solid rgba(87, 139, 178, .4); border-radius: 15px; background: rgba(8, 25, 45, .85); color: #d9e8f5; text-align: left; font-size: 1rem; font-weight: 700; cursor: pointer; }
+.viewTabs button[aria-selected="true"] { border-color: var(--matrix-aqua); background: linear-gradient(135deg, rgba(25, 102, 104, .52), rgba(19, 55, 86, .75)); box-shadow: inset 0 -3px 0 var(--matrix-aqua); }
+.viewTabs small { display: block; margin-top: .35rem; color: #91a9bd; font-size: .75rem; font-weight: 500; }
+.message { margin: 0 2.2rem 1.1rem; padding: .9rem 1rem; border: 1px solid rgba(100, 225, 206, .35); border-radius: 12px; background: rgba(15, 77, 74, .35); color: #cafff5; line-height: 1.5; }
+
+.sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1rem 2.2rem; border-top: 1px solid rgba(126, 176, 210, .17); }
+.sectionHeading span { color: var(--matrix-aqua); font-size: .68rem; font-weight: 800; letter-spacing: .13em; }
+.sectionHeading h4 { margin: .22rem 0 0; color: #f7ddb0; font-size: 1.35rem; }
+.pageControls { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; justify-content: flex-end; }
+.pageControls button { padding: .55rem .75rem; border: 1px solid rgba(111, 164, 203, .45); border-radius: 9px; background: #102b47; color: #e5f3ff; cursor: pointer; }
+.pageControls button:disabled { opacity: .4; cursor: default; }
+.pageControls span { min-width: 130px; color: #a9bfd1; text-align: center; font-size: .78rem; letter-spacing: 0; }
+
+.characterGrid, .treasureGrid, .worldGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; padding: 0 2.2rem 2.2rem; }
+.characterCard, .treasureCard { min-width: 0; padding: 1.15rem; border: 1px solid rgba(85, 144, 186, .34); border-radius: 18px; background: linear-gradient(155deg, rgba(19, 49, 78, .95), rgba(8, 28, 49, .96)); box-shadow: 0 12px 28px rgba(0, 0, 0, .2); }
+.characterCard > header { display: flex; gap: .9rem; align-items: center; }
+.characterCard img { width: 82px; height: 82px; flex: 0 0 auto; border: 2px solid rgba(242, 193, 92, .65); border-radius: 22px; object-fit: cover; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+.characterCard header span, .treasureCard header span { color: var(--matrix-aqua); font-size: .72rem; font-weight: 700; }
+.characterCard h5, .treasureCard h5 { margin: .18rem 0; color: #ffe1a0; font-size: 1.3rem; }
+.characterCard header p, .treasureCard header p { margin: 0; color: #9fb6c9; font-size: .78rem; line-height: 1.45; }
+.affiliation { display: grid; grid-template-columns: auto 1fr; gap: .28rem .55rem; margin: 1rem 0; padding: .7rem; border-radius: 11px; background: rgba(2, 16, 30, .42); font-size: .78rem; }
+.affiliation span { color: #849db2; }
+.affiliation strong { color: #d4e5f2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal { min-height: 4.4rem; margin: .75rem 0; color: #c9d8e5; font-size: .86rem; line-height: 1.6; }
+.goal b { display: block; color: #f2c15c; font-size: .72rem; }
+.traits { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .85rem; }
+.traits span { padding: .25rem .5rem; border: 1px solid rgba(98, 221, 204, .3); border-radius: 999px; color: #bcefe7; font-size: .7rem; }
+.abilities { display: grid; gap: .35rem; }
+.abilities div { display: grid; grid-template-columns: 2.6rem 1fr 1.6rem; align-items: center; gap: .45rem; color: #a9bfd1; font-size: .72rem; }
+.abilities meter { width: 100%; height: .55rem; accent-color: #5fe1c9; }
+.abilities b { color: #ebca75; }
+.characterCard details, .treasureCard details { margin-top: .8rem; color: #aac0d0; font-size: .77rem; }
+.characterCard summary, .treasureCard summary { color: #75ddcc; cursor: pointer; }
+.characterCard details p { margin: .5rem 0 0; line-height: 1.5; }
+.approveButton { width: 100%; margin-top: 1rem; padding: .78rem 1rem; border: 1px solid #d4a63e; border-radius: 11px; background: linear-gradient(135deg, #936413, #c48e22); color: #fff7dc; font-weight: 800; cursor: pointer; }
+.approveButton:disabled { border-color: rgba(103, 157, 147, .45); background: rgba(47, 101, 94, .55); color: #bbe7df; cursor: default; }
+
+.treasureCard { position: relative; overflow: hidden; }
+.treasureCard::before { content: ""; position: absolute; width: 110px; height: 110px; top: -55px; right: -42px; border-radius: 50%; background: radial-gradient(circle, rgba(238, 188, 75, .22), transparent 70%); }
+.treasureCard > p { min-height: 7rem; color: #c2d2df; font-size: .86rem; line-height: 1.65; }
+.treasureCard dl { display: grid; gap: .55rem; }
+.treasureCard dl div { padding: .65rem .7rem; border-radius: 10px; background: rgba(2, 17, 31, .45); }
+.treasureCard dt { color: #e6b94f; font-size: .7rem; }
+.treasureCard dd { margin: .18rem 0 0; color: #b9cbda; font-size: .78rem; line-height: 1.5; }
+.treasureCard ol { padding-left: 1.2rem; }
+.treasureCard li { margin: .65rem 0; }
+.treasureCard li b, .treasureCard li span { display: block; }
+.treasureCard li b { color: #e7c773; }
+
+.topicFilter { display: grid; gap: .3rem; min-width: min(340px, 100%); }
+.topicFilter span { color: #8da8ba; font-size: .7rem; letter-spacing: .08em; }
+.topicFilter select { width: 100%; padding: .65rem .75rem; border: 1px solid rgba(94, 219, 202, .38); border-radius: 10px; background: #0b243d; color: #e5f5ff; }
+.worldCard { min-width: 0; padding: 1.2rem; border: 1px solid rgba(242, 193, 92, .32); border-radius: 19px; background: radial-gradient(circle at 100% 0%, rgba(101, 63, 170, .18), transparent 34%), linear-gradient(150deg, rgba(24, 46, 78, .98), rgba(8, 27, 47, .98)); box-shadow: 0 14px 32px rgba(0, 0, 0, .24); }
+.worldCard header span { color: var(--matrix-aqua); font-size: .72rem; font-weight: 800; }
+.worldCard h5 { margin: .3rem 0 .4rem; color: #ffe0a0; font-family: var(--font-serif, serif); font-size: 1.35rem; }
+.worldCard header p { margin: 0; color: #91a9bd; font-size: .77rem; line-height: 1.5; }
+.worldLogline { min-height: 5.2rem; color: #ccdae6; line-height: 1.68; }
+.worldMetrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .35rem; margin: .8rem 0; }
+.worldMetrics span { padding: .5rem .25rem; border: 1px solid rgba(93, 151, 191, .28); border-radius: 9px; background: rgba(3, 17, 31, .46); color: #8faabd; text-align: center; font-size: .62rem; }
+.worldMetrics b { display: block; color: #f1c45e; font-size: 1rem; }
+.worldDetails { display: grid; gap: .5rem; }
+.worldDetails div { padding: .62rem .7rem; border-left: 2px solid rgba(98, 226, 207, .56); background: rgba(2, 17, 31, .4); }
+.worldDetails dt { color: #e3b958; font-size: .69rem; }
+.worldDetails dd { margin: .2rem 0 0; color: #b6c9d8; font-size: .77rem; line-height: 1.5; }
+.worldCard details { margin-top: .85rem; color: #a9bfd0; font-size: .76rem; }
+.worldCard summary { color: #72dec9; cursor: pointer; }
+.worldCard h6 { margin: .85rem 0 .25rem; color: #e5c46d; font-size: .78rem; }
+.worldCard ul, .worldCard ol { margin: 0; padding-left: 1.1rem; }
+.worldCard li { margin: .48rem 0; line-height: 1.48; }
+.worldCard li b, .worldCard li span { display: block; }
+
+@media (max-width: 1080px) {
+  .capacityGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .characterGrid, .treasureGrid, .worldGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .library { border-radius: 18px; }
+  .hero, .sectionHeading { align-items: stretch; flex-direction: column; padding-left: 1rem; padding-right: 1rem; }
+  .seedBadge { min-width: 0; }
+  .capacityGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 1rem; padding-right: 1rem; }
+  .materializationNote, .message { margin-left: 1rem; margin-right: 1rem; }
+  .viewTabs { grid-template-columns: 1fr; padding-left: 1rem; padding-right: 1rem; }
+  .characterGrid, .treasureGrid, .worldGrid { grid-template-columns: 1fr; padding-left: 1rem; padding-right: 1rem; }
+  .pageControls { justify-content: flex-start; }
+}

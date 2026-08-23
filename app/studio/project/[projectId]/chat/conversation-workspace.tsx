@@ -1823,6 +1823,7 @@ export default function ConversationWorkspace({
       artifactOpen={artifactOpen}
       loading={loading}
       onOpenSidebar={() => setSidebarOpen(true)}
+      onToggleSidebar={() => setSidebarOpen((value) => !value)}
       onOpenArtifacts={() => setArtifactOpen(true)}
       onToggleArtifacts={() => setArtifactOpen((value) => !value)}
       onCloseDrawers={() => {
@@ -1842,6 +1843,7 @@ export default function ConversationWorkspace({
           busy={busy}
           branchPending={branchPending}
           open={sidebarOpen}
+          onClose={closeSidebar}
           onSearchChange={setSearch}
           onToggleArchived={() => setShowArchived((value) => !value)}
           onNewSession={() => { void newSession(); }}

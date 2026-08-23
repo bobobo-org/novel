@@ -151,7 +151,18 @@ check("character AI runs in the form and fills a validated RPG candidate", () =>
   assert.match(projectSections, /taskType: "character\.create"/u);
   assert.match(projectSections, /normalizeAICharacterStats/u);
   assert.match(projectSections, /characterRpgPointTotal\(characterAICandidate\.draft\.rpgStats\)/u);
-  assert.match(projectSections, /已自動填入下方/u);
+  assert.match(projectSections, /核准並建立角色/u);
+  assert.match(projectSections, /套用後自行修改/u);
+  assert.match(projectSections, /拒絕候選/u);
+  assert.match(projectSections, /characterAIRuleFallback/u);
+  assert.match(projectSections, /OLLAMA_TIMEOUT/u);
+  assert.match(projectSections, /本機規則後備候選 · 非模型輸出/u);
+  assert.match(projectSections, /閉端 AI 未完成（\$\{failureCode\}）；已立即建立可用的本機規則候選/u);
+  assert.match(projectSections, /approveAndSaveCharacterAICandidate/u);
+  assert.match(projectSections, /characterFormRef\.current\?\.requestSubmit\(\)/u);
+  assert.match(projectSections, /!characterAICandidate\.applied/u);
+  assert.match(projectSections, /角色已核准並建立/u);
+  assert.match(projectSections, /setCharacterAIProgress\(null\)/u);
   assert.doesNotMatch(projectSections, /closedAIHref\(projectId, "character\.dialogue"/u);
 });
 

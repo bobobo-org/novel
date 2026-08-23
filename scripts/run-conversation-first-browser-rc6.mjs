@@ -106,6 +106,18 @@ async function launchBrowser() {
   }
 }
 
+async function ensureDesktopSidebarOpen(page) {
+  const sidebar = page.getByLabel("小說專案欄");
+  await page.waitForTimeout(350);
+  if (await sidebar.getAttribute("data-open") !== "true") {
+    await page.getByTestId("conversation-sidebar-toggle").click();
+  }
+  await page.waitForFunction(() => document.querySelector('aside[aria-label="小說專案欄"]')?.getAttribute("data-open") === "true");
+  await sidebar.waitFor({ state: "visible" });
+  await page.waitForTimeout(350);
+  return sidebar;
+}
+
 async function createProject(page, title) {
   await page.goto(`${baseUrl}/studio/create`, { waitUntil: "domcontentloaded", timeout: 90_000 });
   await page.getByTestId("canonical-create-flow").waitFor({ state: "visible", timeout: 90_000 });
@@ -693,13 +705,65 @@ harness.test("browser", "route and component source expose the complete conversa
 harness.test("browser", "desktop creates a project and lands on a usable chat workspace", async () => {
   const { page, href, pageErrors } = await getDesktopFixture();
   assert.equal(new URL(page.url()).pathname, href);
-  assert.equal(await page.getByLabel("小說專案欄").isVisible(), true);
+  const sidebar = page.getByLabel("小說專案欄");
+  const sidebarToggle = page.getByTestId("conversation-sidebar-toggle");
+  assert.equal(await sidebar.isVisible(), false);
+  assert.equal(await sidebarToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(await sidebarToggle.getAttribute("aria-controls"), "conversation-session-sidebar");
+  const mainWidthBefore = await page.locator("main").evaluate((element) => element.getBoundingClientRect().width);
+  await sidebarToggle.click();
+  await sidebar.waitFor({ state: "visible" });
+  assert.equal(await sidebarToggle.getAttribute("aria-expanded"), "true");
+  const sidebarBox = await sidebar.boundingBox();
+  assert(sidebarBox && sidebarBox.width >= 300 && sidebarBox.width <= 321, JSON.stringify(sidebarBox));
+  const mainWidthWhileOpen = await page.locator("main").evaluate((element) => element.getBoundingClientRect().width);
+  assert.equal(mainWidthWhileOpen, mainWidthBefore, "overlay sidebar must not shrink the reading stage");
+  await page.getByTestId("conversation-sidebar-close").click();
+  await sidebar.waitFor({ state: "hidden" });
+  assert.equal(await sidebarToggle.getAttribute("aria-expanded"), "false");
   assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
   assert.equal(await page.getByLabel("小說專案訊息").isEnabled(), true);
   const workspaceText = await page.getByTestId("conversation-first-workspace").innerText();
   assert.match(workspaceText, /閉端 AI 自動協調器/u);
   assert.doesNotMatch(workspaceText, /改用 Local Ollama|連接 Private AI Hub/u);
   assert.equal(await page.locator('a[href*="backend="]').count(), 0);
+  assert.deepEqual(pageErrors, []);
+});
+
+harness.test("browser", "desktop A/B/C uses the wide luxury stage with readable type", async () => {
+  const { page, projectId, href, pageErrors } = await getDesktopFixture();
+  await page.goto(`${baseUrl}${href}`, { waitUntil: "domcontentloaded", timeout: 90_000 });
+  await seedRpgPresentationFixture(page, projectId);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const choices = page.getByTestId("rpg-inline-choices").locator("button");
+  await choices.first().waitFor({ state: "visible" });
+  assert.equal(await choices.count(), 3);
+  const presentation = await page.getByTestId("rpg-inline-choices").evaluate((element) => {
+    const container = element.getBoundingClientRect();
+    const cards = [...element.querySelectorAll("button")].map((button) => {
+      const box = button.getBoundingClientRect();
+      const paragraph = button.querySelector("p");
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        width: box.width,
+        height: box.height,
+        bodyFontSize: paragraph ? Number.parseFloat(getComputedStyle(paragraph).fontSize) : 0,
+      };
+    });
+    return {
+      containerWidth: container.width,
+      cards,
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    };
+  });
+  assert.equal(presentation.overflow, false);
+  assert(presentation.containerWidth >= 1_000, JSON.stringify(presentation));
+  assert(presentation.cards.every((card) => card.width >= 300 && card.height >= 360 && card.bodyFontSize >= 16));
+  assert(presentation.cards[1].left >= presentation.cards[0].right);
+  assert(presentation.cards[2].left >= presentation.cards[1].right);
+  assert(Math.abs(presentation.cards[0].top - presentation.cards[2].top) <= 1);
   assert.deepEqual(pageErrors, []);
 });
 
@@ -777,12 +841,13 @@ harness.test("browser", "manual-learning parser is fetched as a real Worker only
 
 harness.test("browser", "session create, rename, search, archive and delete stay in the project", async () => {
   const { page } = await getDesktopFixture();
-  const sidebar = page.getByLabel("小說專案欄");
+  let sidebar = await ensureDesktopSidebarOpen(page);
   const rows = sidebar.locator("[data-active]");
   const originalCount = await rows.count();
 
   await sidebar.getByRole("button", { name: "＋ 新對話" }).click();
   await page.waitForFunction((count) => document.querySelectorAll('aside[aria-label="小說專案欄"] [data-active]').length === count + 1, originalCount);
+  sidebar = await ensureDesktopSidebarOpen(page);
   page.once("dialog", (dialog) => dialog.accept("RC6 第二對話"));
   await sidebar.locator('[data-active="true"] button[title="重新命名"]').click();
   await sidebar.getByRole("button", { name: "RC6 第二對話" }).waitFor();
@@ -790,12 +855,15 @@ harness.test("browser", "session create, rename, search, archive and delete stay
   assert.equal(await rows.count(), 1);
   await sidebar.getByLabel("搜尋對話").fill("");
 
+  sidebar = await ensureDesktopSidebarOpen(page);
   await sidebar.getByRole("button", { name: "＋ 新對話" }).click();
+  sidebar = await ensureDesktopSidebarOpen(page);
   page.once("dialog", (dialog) => dialog.accept("RC6 待封存"));
   await sidebar.locator('[data-active="true"] button[title="重新命名"]').click();
   await sidebar.getByRole("button", { name: "RC6 待封存" }).waitFor();
   page.once("dialog", (dialog) => dialog.accept());
   await sidebar.locator('[data-active="true"] button[title="封存"]').click();
+  sidebar = await ensureDesktopSidebarOpen(page);
   await sidebar.getByRole("button", { name: "顯示封存" }).click();
   const archivedRow = sidebar.locator("[data-active]").filter({ hasText: "RC6 待封存" });
   await archivedRow.waitFor();
@@ -807,8 +875,10 @@ harness.test("browser", "session create, rename, search, archive and delete stay
 
 harness.test("browser", "natural-language dashboard query, branching, and reload persistence work in one thread", async () => {
   const { page, pageErrors } = await getDesktopFixture();
-  const sidebar = page.getByLabel("小說專案欄");
+  const sidebar = await ensureDesktopSidebarOpen(page);
   await sidebar.locator('[data-active="true"] .sessionButton, [data-active="true"] button').first().waitFor();
+  await page.getByTestId("conversation-sidebar-close").click();
+  await sidebar.waitFor({ state: "hidden" });
   const composer = page.getByLabel("小說專案訊息");
   await composer.fill("第一行");
   await composer.press("Shift+Enter");
@@ -889,12 +959,68 @@ harness.test("browser", "project tools preserve the selected project and active 
   const contextTabs = page.getByTestId("people-world-context-tabs");
   await contextTabs.waitFor({ state: "visible" });
   assert.equal(await contextTabs.getAttribute("data-active-view"), "characters");
-  await contextTabs.getByRole("link", { name: /角色視角 AI/u }).click();
+
+  const socialLibrary = page.getByTestId("social-world-library");
+  await socialLibrary.waitFor({ state: "visible" });
+  assert.match(await socialLibrary.innerText(), /218[\s,，]*類題材/u);
+  assert.match(await socialLibrary.innerText(), /100,000[\s\S]*原創人物/u);
+  assert.match(await socialLibrary.innerText(), /1,000,000[\s\S]*人寶情境/u);
+  assert.equal(await socialLibrary.locator("[data-character-id]").count(), 6);
+  await socialLibrary.getByRole("button", { name: "核准角色與持有鏈" }).first().click();
+  await socialLibrary.getByTestId("social-library-status").filter({ hasText: /已核准/u }).waitFor({ timeout: 30_000 });
+  assert.equal(await socialLibrary.getByRole("button", { name: "已核准為正式角色" }).first().isDisabled(), true);
+
+  await socialLibrary.getByRole("tab", { name: /寶物、持有人與十因果/u }).click();
+  assert.equal(await socialLibrary.locator("[data-treasure-id]").count(), 6);
+  const firstTreasureDetails = socialLibrary.locator("[data-treasure-id] details").first();
+  await firstTreasureDetails.locator("summary").click();
+  assert.equal(await firstTreasureDetails.locator("ol > li").count(), 10);
+  const firstTreasureCard = socialLibrary.locator("[data-treasure-id]").first();
+  await firstTreasureCard.getByRole("button", { name: "核准這件寶物" }).click();
+  await firstTreasureCard.getByRole("button", { name: "已核准為正式寶物" }).waitFor({ timeout: 30_000 });
+  assert.equal(await firstTreasureCard.getByRole("button", { name: "已核准為正式寶物" }).isDisabled(), true);
+
+  await contextTabs.getByRole("link", { name: /世界設定/u }).click();
+  await page.waitForURL((url) => (
+    url.pathname === `${projectPrefix}/people-world`
+    && url.searchParams.get("view") === "world"
+  ));
+  const worldLibrary = page.getByTestId("social-world-library");
+  await worldLibrary.waitFor({ state: "visible" });
+  assert.equal(await worldLibrary.getByTestId("procedural-world-grid").locator("[data-world-id]").count(), 6);
+  await worldLibrary.getByTestId("world-topic-filter").selectOption({ index: 1 });
+  assert.match(await worldLibrary.getByTestId("world-topic-filter").locator("option:checked").innerText(), /1,000 個世界/u);
+  const firstWorldCard = worldLibrary.getByTestId("procedural-world-grid").locator("[data-world-id]").first();
+  const secondWorldCard = worldLibrary.getByTestId("procedural-world-grid").locator("[data-world-id]").nth(1);
+  await firstWorldCard.getByRole("button", { name: "核准世界與五條規則" }).click();
+  await firstWorldCard.getByRole("button", { name: "已核准為正式世界" }).waitFor({ timeout: 30_000 });
+  assert.equal(await firstWorldCard.getByRole("button", { name: "已核准為正式世界" }).isDisabled(), true);
+  await secondWorldCard.getByRole("button", { name: "核准世界與五條規則" }).click();
+  await secondWorldCard.getByRole("button", { name: "已核准為正式世界" }).waitFor({ timeout: 30_000 });
+  assert.equal(await secondWorldCard.getByRole("button", { name: "已核准為正式世界" }).isDisabled(), true);
+  assert.equal(await firstWorldCard.getByRole("button", { name: "核准世界與五條規則" }).isDisabled(), false);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByTestId("social-world-library").waitFor({ state: "visible" });
+  assert.equal(await page.getByTestId("social-world-library").getByRole("button", { name: "已核准為正式世界" }).count(), 1);
+  assert.equal(await page.getByTestId("social-world-library").getByRole("button", { name: "已核准為正式世界" }).first().isDisabled(), true);
+
+  const reloadedContextTabs = page.getByTestId("people-world-context-tabs");
+  await reloadedContextTabs.waitFor({ state: "visible" });
+  assert.equal(await reloadedContextTabs.getAttribute("data-active-view"), "world");
+  await reloadedContextTabs.getByRole("link", { name: /角色資料/u }).click();
+  await page.waitForURL((url) => (
+    url.pathname === `${projectPrefix}/people-world`
+    && url.searchParams.get("view") === "characters"
+  ));
+  assert.equal(await page.getByTestId("social-world-library").getByRole("button", { name: "已核准為正式角色" }).first().isDisabled(), true);
+  const characterContextTabs = page.getByTestId("people-world-context-tabs");
+  await characterContextTabs.waitFor({ state: "visible" });
+  await characterContextTabs.getByRole("link", { name: /角色視角 AI/u }).click();
   await page.waitForURL((url) => (
     url.pathname === `${projectPrefix}/people-world`
     && url.searchParams.get("view") === "character-ai"
   ));
-  assert.equal(await contextTabs.getAttribute("data-active-view"), "character-ai");
+  assert.equal(await characterContextTabs.getAttribute("data-active-view"), "character-ai");
   assert.equal(new URL(page.url()).pathname.startsWith(projectPrefix), true);
   assert.deepEqual(pageErrors, []);
 });
@@ -1214,15 +1340,22 @@ harness.test("mobile", "390x844 keeps the composer usable and turns side panels 
   assert(layout.send && layout.send.left >= 0 && layout.send.right <= 390 && layout.send.bottom <= 844 && layout.send.height >= 39);
   assert(layout.sidebarRight !== null && layout.sidebarRight <= 0);
 
-  await page.getByRole("button", { name: "打開專案欄" }).click();
+  const sidebarToggle = page.getByTestId("conversation-mobile-sidebar-toggle");
+  assert.equal(await sidebarToggle.getAttribute("aria-label"), "打開專案與對話側欄");
+  assert.equal(await sidebarToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(await sidebarToggle.getAttribute("aria-controls"), "conversation-session-sidebar");
+  await sidebarToggle.click();
   const sidebar = page.getByLabel("小說專案欄");
   await page.waitForFunction(() => {
     const element = document.querySelector('aside[aria-label="小說專案欄"]');
     return element?.getAttribute("data-open") === "true" && element.getBoundingClientRect().left >= -1;
   });
+  assert.equal(await sidebarToggle.getAttribute("aria-expanded"), "true");
   const openSidebar = await sidebar.boundingBox();
   assert(openSidebar && openSidebar.x >= -1 && openSidebar.x + openSidebar.width <= 391, JSON.stringify(openSidebar));
   await page.getByRole("button", { name: "關閉抽屜" }).click({ position: { x: 370, y: 400 } });
+  await page.waitForFunction(() => document.querySelector('aside[aria-label="小說專案欄"]')?.getAttribute("data-open") === "false");
+  assert.equal(await sidebarToggle.getAttribute("aria-expanded"), "false");
   assert.deepEqual(pageErrors, []);
 });
 

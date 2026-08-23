@@ -18,6 +18,7 @@ export function ConversationShell({
   composer,
   artifactDrawer,
   onOpenSidebar,
+  onToggleSidebar,
   onOpenArtifacts,
   onToggleArtifacts,
   onCloseDrawers,
@@ -35,6 +36,7 @@ export function ConversationShell({
   composer: ReactNode;
   artifactDrawer: ReactNode;
   onOpenSidebar: () => void;
+  onToggleSidebar: () => void;
   onOpenArtifacts: () => void;
   onToggleArtifacts: () => void;
   onCloseDrawers: () => void;
@@ -49,13 +51,30 @@ export function ConversationShell({
         onOpenArtifacts={onOpenArtifacts}
         onClose={onCloseDrawers}
       />
-      <div className={styles.workspace} data-artifact-open={artifactOpen}>
+      <div
+        className={styles.workspace}
+        data-artifact-open={artifactOpen}
+        data-sidebar-open={sidebarOpen}
+      >
         {sidebar}
         <section className={styles.main}>
           <header className={styles.threadHeader}>
-            <div>
-              <h1>{sessionTitle}</h1>
-              <p>{chapterTitle ? `目前章節：${chapterTitle}` : "尚未指定章節"} · 玩法：{playModeLabel}</p>
+            <div className={styles.threadIdentity}>
+              <button
+                className={styles.sidebarToggle}
+                type="button"
+                data-testid="conversation-sidebar-toggle"
+                aria-expanded={sidebarOpen}
+                aria-controls="conversation-session-sidebar"
+                onClick={onToggleSidebar}
+              >
+                <span aria-hidden="true">☰</span>
+                <span>專案／對話</span>
+              </button>
+              <div>
+                <h1>{sessionTitle}</h1>
+                <p>{chapterTitle ? `目前章節：${chapterTitle}` : "尚未指定章節"} · 玩法：{playModeLabel}</p>
+              </div>
             </div>
             <div className={styles.rightActions}>
               <Link className={styles.quietButton} href="/">系統首頁</Link>

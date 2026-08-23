@@ -13,6 +13,7 @@ import {
   type CharacterRpgArchetype,
   type CharacterRpgStatKey,
   type DomainRecord,
+  type LoreEntry,
   type NovelProject,
   type ProjectBackup,
   type StoryBible,
@@ -21,6 +22,7 @@ import {
   type WorldRule,
   type WritingTask,
 } from "@/lib/novel-ai/domain";
+import type { SocialWorldApprovalJournal } from "@/lib/novel-ai/social-world-approval";
 import {
   createNovelRepository,
   persistenceFailureOrNull,
@@ -58,6 +60,7 @@ import {
 import CharacterPortraitImage from "./character-portrait";
 import ProjectNavigation from "./project-navigation";
 import { ProjectContextSummary, ProjectContextTabs } from "./project-context-tabs";
+import SocialWorldLibrary from "./social-world-library";
 import PersistenceRecoveryNotice from "../../persistence-recovery-notice";
 
 type Section =
@@ -73,6 +76,8 @@ type Data = {
   project: NovelProject | null;
   chapters: Chapter[];
   characters: Character[];
+  lore: LoreEntry[];
+  approvalJournals: SocialWorldApprovalJournal[];
   worlds: World[];
   rules: WorldRule[];
   timeline: TimelineEvent[];
@@ -161,10 +166,13 @@ type CharacterAIDraft = {
 };
 
 type CharacterAICandidate = {
-  candidateId: string;
+  candidateId: string | null;
   modelId: string;
   actualExecutor: string;
   contextSourceSummary: string | null;
+  source: "closed-ai" | "local-rules-fallback";
+  fallbackReason: string | null;
+  applied: boolean;
   draft: CharacterAIDraft;
 };
 
@@ -295,6 +303,96 @@ function parseCharacterAIDraft(content: string, currentName: string): CharacterA
   };
 }
 
+function characterAIFailureCode(cause: unknown) {
+  const code = (cause as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && /^[A-Z][A-Z0-9_]{2,100}$/u.test(code)) return code;
+  if (cause instanceof Error && /\bOLLAMA_TIMEOUT\b/u.test(cause.message)) return "OLLAMA_TIMEOUT";
+  return cause instanceof Error && /timeout|逾時|超時/iu.test(cause.message)
+    ? "MODEL_TIMEOUT"
+    : "MODEL_OUTPUT_UNAVAILABLE";
+}
+
+function characterAIRuleFallback(
+  snapshot: CharacterAIFormSnapshot,
+  projectId: string,
+  variant: number,
+): CharacterAIDraft {
+  const textSeed = [
+    projectId,
+    snapshot.name,
+    snapshot.identity,
+    snapshot.goal,
+    snapshot.faction,
+    String(variant),
+  ].join("|");
+  let seed = 2_166_136_261;
+  for (const character of textSeed) {
+    seed ^= character.codePointAt(0) ?? 0;
+    seed = Math.imul(seed, 16_777_619) >>> 0;
+  }
+  const choose = <T,>(values: readonly T[], offset: number) =>
+    values[((seed + Math.imul(offset + 1, 2_654_435_761)) >>> 0) % values.length]!;
+  const name = snapshot.name.trim() || `${choose(["沈", "蘇", "顧", "楚", "葉", "洛", "林", "謝"], 0)}${choose(["星河", "清弦", "照雪", "景行", "雲岫", "知微", "長寧", "若衡"], 1)}`;
+  const faction = characterAIList(snapshot.faction);
+  const identity = snapshot.identity.trim() || choose([
+    "負責追查異常事件的外門執事",
+    "背負家族舊約的流浪術士",
+    "熟悉藥理與情報交換的行商",
+    "被迫捲入權力角力的年輕護衛",
+    "守護禁地線索的低調門人",
+    "能辨識謊言代價的地方記錄官",
+  ] as const, 2);
+  const personality = snapshot.personality.trim() || choose([
+    "冷靜審慎，遇到弱者時會打破自己的規矩",
+    "言語直接但重視承諾，習慣先觀察再出手",
+    "表面隨和，實際會把每筆人情與風險記在心裡",
+    "好勝而不莽撞，願意承擔自己決策造成的代價",
+    "戒心很強，只有在證據充分時才交付信任",
+  ] as const, 3);
+  const capabilities = characterAIList(snapshot.capabilities);
+  const values = characterAIList(snapshot.values);
+  const limitations = characterAIList(snapshot.limitations);
+  const rpgArchetype = snapshot.rpgArchetype === "custom"
+    ? suggestCharacterRpgArchetype([identity, personality, ...capabilities, ...values])
+    : snapshot.rpgArchetype;
+  return {
+    name,
+    aliases: characterAIList(snapshot.aliases),
+    identity,
+    goal: snapshot.goal.trim() || choose([
+      "查清眼前危機的真正受益者，同時保住最重要的盟友。",
+      "在不犧牲無辜者的前提下，取得足以改變自身命運的資格。",
+      "找回失落的證據，證明家族舊案另有主謀。",
+      "建立一個不再依賴強者施捨的安全立足點。",
+      "阻止秘密交易完成，並查出內應隱藏的身分。",
+    ] as const, 4),
+    lifeStatus: snapshot.lifeStatus,
+    location: snapshot.location.trim() || choose(["城郊驛站", "宗門外院", "邊境市集", "廢棄藥圃", "家族舊宅"], 5),
+    age: snapshot.age.trim() && Number.isFinite(Number(snapshot.age))
+      ? Math.max(0, Math.min(300, Math.round(Number(snapshot.age))))
+      : null,
+    personality,
+    fears: characterAIList(snapshot.fear).length
+      ? characterAIList(snapshot.fear)
+      : [choose(["重演一次未能救人的失敗", "信任被當成弱點利用", "身分暴露後連累同行者", "在關鍵時刻失去判斷力"], 6)],
+    privateSecrets: characterAIList(snapshot.secret),
+    factions: faction.length ? faction : [choose(["青霄外院", "聽雨商會", "無名藥堂", "北境巡盟", "自由行旅"], 7)],
+    values: values.length ? values : ["守信", choose(["自由", "家族", "公義", "求真", "互助"], 8)],
+    capabilities: capabilities.length
+      ? capabilities
+      : [choose(["劍術", "醫術", "追蹤", "談判", "陣法", "情報分析"], 9), choose(["危機判斷", "細節觀察", "資源調度", "靈息感知"], 10)],
+    limitations: limitations.length
+      ? limitations
+      : [choose(["舊傷在長時間戰鬥後復發", "無法對受信任者說出完整謊言", "每次動用秘術都會留下可追蹤痕跡", "對家族相關威脅容易失去冷靜"], 11)],
+    voiceStyle: snapshot.voiceStyle,
+    isProtagonist: snapshot.isProtagonist,
+    rpgArchetype,
+    rpgStats: snapshot.rpgArchetype === "custom"
+      ? normalizeAICharacterStats(snapshot.rpgStats, rpgArchetype)
+      : characterRpgStatsForArchetype(rpgArchetype),
+  };
+}
+
 export default function ProjectSectionClient({
   projectId,
   section,
@@ -315,6 +413,8 @@ export default function ProjectSectionClient({
         project,
         chapters,
         characters,
+        lore,
+        approvalJournals,
         worlds,
         rules,
         timeline,
@@ -326,6 +426,8 @@ export default function ProjectSectionClient({
         repo.get<NovelProject>("projects", projectId),
         repo.list<Chapter>("chapters", projectId),
         repo.list<Character>("characters", projectId),
+        repo.list<LoreEntry>("lore", projectId),
+        repo.list<SocialWorldApprovalJournal>("operationJournal", projectId),
         repo.list<World>("worlds", projectId),
         repo.list<WorldRule>("worldRules", projectId),
         repo.list<TimelineEvent>("timeline", projectId),
@@ -338,6 +440,10 @@ export default function ProjectSectionClient({
         project,
         chapters: chapters.sort((left, right) => left.order - right.order),
         characters: characters.sort((left, right) => left.name.localeCompare(right.name, "zh-Hant")),
+        lore,
+        approvalJournals: approvalJournals.filter(
+          (journal) => journal.operationType === "social-world-approval-v1",
+        ),
         worlds,
         rules: rules.sort((left, right) => left.title.localeCompare(right.title, "zh-Hant")),
         timeline: timeline.sort((left, right) =>
@@ -439,6 +545,16 @@ function SectionBody({
     return (
       <>
         <ProjectContextTabs projectId={project.id} context="people-world" active="characters" />
+        <SocialWorldLibrary
+          key="social-world-library-characters"
+          project={project}
+          approvedCharacters={data.characters}
+          approvedLore={data.lore}
+          approvalJournals={data.approvalJournals}
+          storyBibles={data.bibles}
+          approvedWorlds={data.worlds}
+          onChanged={onChanged}
+        />
         <CharacterEditor projectId={project.id} characters={data.characters} storyBibles={data.bibles} onChanged={onChanged} />
       </>
     );
@@ -447,6 +563,17 @@ function SectionBody({
     return (
       <>
         <ProjectContextTabs projectId={project.id} context="people-world" active="world" />
+        <SocialWorldLibrary
+          key="social-world-library-worlds"
+          project={project}
+          approvedCharacters={data.characters}
+          approvedLore={data.lore}
+          approvalJournals={data.approvalJournals}
+          storyBibles={data.bibles}
+          approvedWorlds={data.worlds}
+          initialView="worlds"
+          onChanged={onChanged}
+        />
         <WorldEditor
           projectId={project.id}
           worlds={data.worlds}
@@ -600,6 +727,8 @@ function CharacterEditor({
   const [characterAICandidate, setCharacterAICandidate] = useState<CharacterAICandidate | null>(null);
   const characterAIControllerRef = useRef<AbortController | null>(null);
   const characterAIFormBeforeRef = useRef<CharacterAIFormSnapshot | null>(null);
+  const characterAIRuleVariantRef = useRef(0);
+  const characterFormRef = useRef<HTMLFormElement | null>(null);
   const portraitPageSize = 12;
   const filteredPortraits = useMemo(
     () => filterCharacterPortraitCatalog({ query: portraitQuery, themeId: portraitTheme }),
@@ -690,7 +819,9 @@ function CharacterEditor({
     if (!candidate || characterAIBusy) return;
     setCharacterAIBusy(true);
     try {
-      await closedAgentOS.rejectCandidate(candidate.candidateId);
+      if (candidate.candidateId) {
+        await closedAgentOS.rejectCandidate(candidate.candidateId);
+      }
       if (characterAIFormBeforeRef.current) {
         applyCharacterAIForm(characterAIFormBeforeRef.current);
       }
@@ -713,29 +844,35 @@ function CharacterEditor({
     const controller = new AbortController();
     characterAIControllerRef.current = controller;
     let generatedCandidateId: string | null = null;
+    const originalForm = characterAIFormBeforeRef.current ?? currentCharacterAIForm();
     try {
       if (!characterAIFormBeforeRef.current) {
-        characterAIFormBeforeRef.current = currentCharacterAIForm();
+        characterAIFormBeforeRef.current = originalForm;
       }
       if (characterAICandidate) {
-        await closedAgentOS.rejectCandidate(characterAICandidate.candidateId);
+        if (characterAICandidate.candidateId) {
+          await closedAgentOS.rejectCandidate(characterAICandidate.candidateId);
+        }
+        if (characterAICandidate.applied) {
+          applyCharacterAIForm(originalForm);
+        }
         setCharacterAICandidate(null);
       }
       const currentFields = {
-        name: name.trim(),
-        aliases: characterAIList(aliases),
-        identity: identity.trim(),
-        goal: goal.trim(),
-        location: location.trim(),
-        age: age.trim() || null,
-        personality: personality.trim(),
-        fears: characterAIList(fear),
-        privateSecrets: characterAIList(secret),
-        factions: characterAIList(faction),
-        values: characterAIList(values),
-        capabilities: characterAIList(capabilities),
-        limitations: characterAIList(limitations),
-        isProtagonist,
+        name: originalForm.name.trim(),
+        aliases: characterAIList(originalForm.aliases),
+        identity: originalForm.identity.trim(),
+        goal: originalForm.goal.trim(),
+        location: originalForm.location.trim(),
+        age: originalForm.age.trim() || null,
+        personality: originalForm.personality.trim(),
+        fears: characterAIList(originalForm.fear),
+        privateSecrets: characterAIList(originalForm.secret),
+        factions: characterAIList(originalForm.faction),
+        values: characterAIList(originalForm.values),
+        capabilities: characterAIList(originalForm.capabilities),
+        limitations: characterAIList(originalForm.limitations),
+        isProtagonist: originalForm.isProtagonist,
       };
       const result = await executeStudioClosedAgent({
         taskId: `character-form:${crypto.randomUUID()}`,
@@ -770,27 +907,71 @@ function CharacterEditor({
         },
       });
       generatedCandidateId = result.candidate.id;
-      const draft = parseCharacterAIDraft(result.candidate.content, name);
+      const draft = parseCharacterAIDraft(result.candidate.content, originalForm.name);
       setCharacterAICandidate({
         candidateId: result.candidate.id,
         modelId: result.candidate.modelId,
         actualExecutor: result.candidate.actualExecutor,
         contextSourceSummary: result.candidate.contextSourceSummary ?? null,
+        source: "closed-ai",
+        fallbackReason: null,
+        applied: false,
         draft,
       });
-      applyCharacterAIForm(characterAIDraftAsForm(draft));
-      setMessage("AI 已直接填好角色與 RPG 六項能力；目前仍是可修改表單，按「建立角色／儲存修改」後才會正式核准。");
+      setCharacterAIProgress({
+        taskId: result.task.id,
+        phase: "awaiting-approval",
+        label: "角色候選已完成，請核准建立、套用修改或拒絕",
+        percent: 100,
+        occurredAt: new Date().toISOString(),
+        backendId: result.candidate.backendId,
+        generatedCharacters: result.candidate.content.length,
+      });
+      setMessage("候選已完成且尚未改動表單。可直接核准建立角色，或先套用到表單自行修改。");
     } catch (cause) {
       if (generatedCandidateId) {
         await closedAgentOS.rejectCandidate(generatedCandidateId).catch(() => undefined);
       }
-      if (characterAIFormBeforeRef.current) {
-        applyCharacterAIForm(characterAIFormBeforeRef.current);
+      applyCharacterAIForm(originalForm);
+      if (controller.signal.aborted) {
+        characterAIFormBeforeRef.current = null;
+        setCharacterAICandidate(null);
+        setCharacterAIProgress({
+          taskId: `character-form-cancelled:${crypto.randomUUID()}`,
+          phase: "cancelled",
+          label: "角色 AI 已停止；表單與正式資料未變更",
+          percent: 100,
+          occurredAt: new Date().toISOString(),
+        });
+        setMessage("已停止角色 AI；你可以保留目前表單，或重新開始。");
+      } else {
+        const failureCode = characterAIFailureCode(cause);
+        characterAIRuleVariantRef.current += 1;
+        const draft = characterAIRuleFallback(
+          originalForm,
+          projectId,
+          characterAIRuleVariantRef.current,
+        );
+        setCharacterAICandidate({
+          candidateId: null,
+          modelId: "本機規則故事後備（非模型輸出）",
+          actualExecutor: "local-rules-fallback",
+          contextSourceSummary: "只使用目前表單與作品識別建立可修改候選",
+          source: "local-rules-fallback",
+          fallbackReason: failureCode,
+          applied: false,
+          draft,
+        });
+        setCharacterAIProgress({
+          taskId: `character-form-fallback:${crypto.randomUUID()}`,
+          phase: "awaiting-approval",
+          label: `閉端 AI 未完成（${failureCode}）；已立即建立可用的本機規則候選`,
+          percent: 100,
+          occurredAt: new Date().toISOString(),
+          generatedCharacters: JSON.stringify(draft).length,
+        });
+        setMessage("模型沒有完成，但流程沒有卡住：可直接核准本機規則候選、套用後修改，或重試閉端 AI。");
       }
-      characterAIFormBeforeRef.current = null;
-      setMessage(controller.signal.aborted
-        ? "已停止角色 AI；表單與正式資料沒有變更。"
-        : `角色 AI 失敗：${cause instanceof Error ? cause.message : "請檢查模型後重試"}`);
     } finally {
       if (characterAIControllerRef.current === controller) characterAIControllerRef.current = null;
       setCharacterAIBusy(false);
@@ -801,7 +982,31 @@ function CharacterEditor({
     const candidate = characterAICandidate;
     if (!candidate || characterAIBusy) return;
     applyCharacterAIForm(characterAIDraftAsForm(candidate.draft));
-    setMessage("已重新套用 AI 建議到表單；你仍可修改，按儲存後才會正式核准。");
+    setCharacterAICandidate({ ...candidate, applied: true });
+    setCharacterAIProgress({
+      taskId: `character-form-applied:${candidate.candidateId ?? crypto.randomUUID()}`,
+      phase: "awaiting-approval",
+      label: "候選已套用到表單；修改後按建立角色完成正式核准",
+      percent: 100,
+      occurredAt: new Date().toISOString(),
+    });
+    setMessage("候選已套用到表單；你仍可修改，按建立角色／儲存修改後才會寫入正式資料。");
+  }
+
+  function approveAndSaveCharacterAICandidate() {
+    const candidate = characterAICandidate;
+    if (!candidate || characterAIBusy) return;
+    applyCharacterAIForm(characterAIDraftAsForm(candidate.draft));
+    setCharacterAICandidate({ ...candidate, applied: true });
+    setCharacterAIProgress({
+      taskId: `character-form-approval:${candidate.candidateId ?? crypto.randomUUID()}`,
+      phase: "awaiting-approval",
+      label: editingId ? "正在核准候選並儲存角色修改" : "正在核准候選並建立角色",
+      percent: 100,
+      occurredAt: new Date().toISOString(),
+    });
+    setMessage("正在完成核准與正式角色寫入…");
+    window.setTimeout(() => characterFormRef.current?.requestSubmit(), 0);
   }
 
   function reset() {
@@ -929,11 +1134,17 @@ function CharacterEditor({
     }
     try {
       if (characterAICandidate) {
-        await closedAgentOS.approveCandidate({
-          candidateId: characterAICandidate.candidateId,
-          approvedBy: "local-author",
-          humanApproved: true,
-        });
+        if (!characterAICandidate.applied) {
+          setMessage("請先按「核准並建立角色／儲存修改」或「套用後自行修改」；也可以拒絕這份候選。");
+          return;
+        }
+        if (characterAICandidate.candidateId) {
+          await closedAgentOS.approveCandidate({
+            candidateId: characterAICandidate.candidateId,
+            approvedBy: "local-author",
+            humanApproved: true,
+          });
+        }
         setCharacterAICandidate(null);
         characterAIFormBeforeRef.current = null;
       }
@@ -988,7 +1199,8 @@ function CharacterEditor({
           : storyBible.protagonistIds.filter((id) => id !== savedCharacter.id),
       }));
       reset();
-      setMessage(existing ? "角色修改已保存。" : "角色已建立。");
+      setCharacterAIProgress(null);
+      setMessage(existing ? "角色修改已核准並保存。" : "角色已核准並建立。");
       await onChanged();
     } catch (cause) {
       setMessage(`儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
@@ -1098,14 +1310,25 @@ function CharacterEditor({
         </button>
         {characterAIBusy ? <button type="button" onClick={() => characterAIControllerRef.current?.abort("USER_CANCELLED")}>停止</button> : null}
       </div>
-      {characterAIProgress ? <div className="characterAIAssistProgress" role="status">
+      {characterAIProgress ? <div className="characterAIAssistProgress" role="status" aria-live="polite">
         <span>{characterAIProgress.label}</span>
         <strong>{characterAIProgress.percent}%{characterAIProgress.generatedCharacters != null ? ` · ${characterAIProgress.generatedCharacters} 字` : ""}</strong>
         <progress max={100} value={characterAIProgress.percent} />
       </div> : null}
-      {characterAICandidate ? <section className="characterAIAssistCandidate" data-testid="character-ai-form-candidate">
+      {(characterAIProgress || characterAICandidate) && message ? <p className="characterAIAssistNotice" role="status">{message}</p> : null}
+      {characterAICandidate ? <section
+        className="characterAIAssistCandidate"
+        data-testid="character-ai-form-candidate"
+        data-source={characterAICandidate.source}
+        data-applied={characterAICandidate.applied}
+      >
         <header>
-          <div><small>真實閉端 AI 候選 · 已自動填入下方，尚未儲存</small><h3>{characterAICandidate.draft.name}</h3></div>
+          <div>
+            <small>{characterAICandidate.source === "closed-ai"
+              ? "真實閉端 AI 候選 · 尚未改動表單"
+              : "本機規則後備候選 · 非模型輸出 · 流程可繼續"}</small>
+            <h3>{characterAICandidate.draft.name}</h3>
+          </div>
           <span>{characterAICandidate.modelId}</span>
         </header>
         <div className="characterAIAssistSummary">
@@ -1120,18 +1343,26 @@ function CharacterEditor({
           {CHARACTER_AI_STAT_KEYS.map((key) => <span key={key}><small>{CHARACTER_RPG_STAT_LABELS[key]}</small><b>{characterAICandidate.draft.rpgStats[key]}</b></span>)}
         </div>
         <footer>
-          <button type="button" disabled={characterAIBusy} onClick={applyCharacterAICandidate}>重新套用 AI 建議</button>
-          <button type="button" disabled={characterAIBusy} onClick={() => void generateCharacterAICandidate()}>換一個角色版本</button>
-          <button type="button" className="danger" disabled={characterAIBusy} onClick={() => void discardCharacterAICandidate()}>放棄候選</button>
+          <button type="button" disabled={characterAIBusy} onClick={approveAndSaveCharacterAICandidate}>
+            {editingId ? "核准並儲存角色修改" : "核准並建立角色"}
+          </button>
+          <button type="button" disabled={characterAIBusy} onClick={applyCharacterAICandidate}>
+            {characterAICandidate.applied ? "重新套用候選到表單" : "套用後自行修改"}
+          </button>
+          <button type="button" disabled={characterAIBusy} onClick={() => void generateCharacterAICandidate()}>
+            {characterAICandidate.source === "closed-ai" ? "換一個角色版本" : "重試閉端 AI"}
+          </button>
+          <button type="button" className="danger" disabled={characterAIBusy} onClick={() => void discardCharacterAICandidate()}>拒絕候選</button>
         </footer>
         <details>
           <summary>執行證明</summary>
           <p>實際執行器：{characterAICandidate.actualExecutor}</p>
           <p>作品脈絡：{characterAICandidate.contextSourceSummary ?? "已讀取正式作品資料"}</p>
-          <p>套用只會填入表單；仍需由你按儲存，才會更新正式角色。</p>
+          {characterAICandidate.fallbackReason ? <p>回退原因：{characterAICandidate.fallbackReason}。沒有冒充模型已完成，也沒有外送資料。</p> : null}
+          <p>「核准並建立角色」會立即寫入正式角色；「套用後自行修改」只填入表單，仍需再按儲存。</p>
         </details>
       </section> : null}
-      <form className="p2InlineEditor" aria-labelledby="character-editor-heading" onSubmit={(event) => void save(event)}>
+      <form ref={characterFormRef} className="p2InlineEditor" aria-labelledby="character-editor-heading" onSubmit={(event) => void save(event)}>
         <h3 id="character-editor-heading">{editingId ? "編輯角色" : "建立角色"}</h3>
         <label>角色姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label>別名（以頓號分隔）<input value={aliases} onChange={(event) => setAliases(event.target.value)} /></label>

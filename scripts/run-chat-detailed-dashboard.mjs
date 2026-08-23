@@ -9,6 +9,26 @@ const workspace = readFileSync(
   new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url),
   "utf8",
 );
+const shell = readFileSync(
+  new URL("../app/studio/project/[projectId]/chat/components/conversation-shell.tsx", import.meta.url),
+  "utf8",
+);
+const sidebar = readFileSync(
+  new URL("../app/studio/project/[projectId]/chat/components/session-sidebar.tsx", import.meta.url),
+  "utf8",
+);
+const messageRow = readFileSync(
+  new URL("../app/studio/project/[projectId]/chat/components/message-row.tsx", import.meta.url),
+  "utf8",
+);
+const turnCard = readFileSync(
+  new URL("../app/studio/project/[projectId]/chat/components/rpg-turn-card.tsx", import.meta.url),
+  "utf8",
+);
+const choiceCard = readFileSync(
+  new URL("../app/studio/project/[projectId]/chat/components/rpg-choice-card.tsx", import.meta.url),
+  "utf8",
+);
 const redirect = readFileSync(
   new URL("../app/studio/project/[projectId]/rpg/page.tsx", import.meta.url),
   "utf8",
@@ -20,6 +40,33 @@ const styles = readFileSync(
 
 assert.match(workspace, /<MessageTimeline/u, "聊天工作台必須實際渲染 MessageTimeline");
 assert.match(redirect, /\/chat\?mode=play/u, "RPG 入口必須導向實際聊天遊玩路線");
+
+// The project/conversation rail is optional context, not a permanent tax on
+// reading width. It starts closed and remains operable by keyboard and screen
+// readers on both desktop and narrow screens.
+assert.match(
+  workspace,
+  /const \[sidebarOpen, setSidebarOpen\] = useState\(false\)/u,
+  "專案／對話側欄必須預設收合，讓正文與 A/B/C 先取得閱讀焦點",
+);
+assert.match(shell, /data-sidebar-open=\{sidebarOpen\}/u, "Shell 必須揭露側欄開關狀態給樣式層");
+assert.match(shell, /data-testid="conversation-sidebar-toggle"/u, "桌機必須保留可叫出側欄的按鈕");
+assert.match(shell, /aria-expanded=\{sidebarOpen\}/u, "側欄按鈕必須向輔助科技揭露展開狀態");
+assert.match(shell, /aria-controls="conversation-session-sidebar"/u, "側欄按鈕必須指向實際受控區域");
+assert.match(shell, /專案／對話/u, "側欄入口必須使用讀者能理解的名稱");
+assert.match(sidebar, /id="conversation-session-sidebar"/u, "專案／對話側欄必須具有穩定受控 ID");
+assert.match(sidebar, /data-testid="conversation-sidebar-close"/u, "展開後必須有明確的收合按鈕");
+
+// A choice message may use the wider reading stage while ordinary prose stays
+// line-length constrained. This marker prevents future layout changes from
+// shrinking the three decisions back into the old narrow message column.
+assert.match(messageRow, /data-rpg-choices=\{/u, "含 A/B/C 的訊息必須提供獨立寬版版面標記");
+assert.match(turnCard, /data-testid="rpg-inline-choices"/u);
+assert.match(turnCard, /role="group"/u, "A/B/C 必須被輔助科技辨識為同一組決策");
+assert.match(turnCard, /aria-label="[^"]*(?:選擇|選項|抉擇|路線)[^"]*"/u, "A/B/C 決策組必須有可理解名稱");
+assert.match(choiceCard, /type="button"/u);
+assert.match(choiceCard, /aria-label=\{`選項 \$\{choice\.key\}/u, "每個選項按鈕必須讀出 A/B/C 與標題");
+assert.match(choiceCard, /data-testid=\{`rpg-choice-\$\{choice\.key\}`\}/u);
 
 assert.match(timeline, /useState\(false\)/u, "詳細儀表板必須預設收合，維持正文優先");
 assert.match(timeline, /data-testid="chat-play-dashboard-toggle"/u);
@@ -71,5 +118,38 @@ for (const className of ["playDashboardToggle", "playDashboardDetailPanel", "pla
 }
 assert.match(styles, /@media \(max-width: 900px\)[\s\S]*\.playDashboardDetailPanel \{ grid-template-columns: 1fr; \}/u);
 assert.match(styles, /@media \(max-width: 480px\)[\s\S]*\.playDashboardFactGrid \{ grid-template-columns: 1fr; \}/u);
+
+// Desktop focus mode: the hidden rail no longer reserves 240–272px, and the
+// wider stage gives three complete choice cards enough room without making
+// ordinary prose lines unbounded.
+assert.match(
+  styles,
+  /\.workspace\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/u,
+  "預設工作區不得為已收合側欄保留固定欄寬",
+);
+assert.match(styles, /\.threadInner\s*\{[\s\S]*?width:\s*min\(100%,\s*1280px\)/u, "主閱讀舞台必須容納放大的 A/B/C");
+assert.match(styles, /\.message[^\{]*data-rpg-choices[^\{]*\{[\s\S]*?(?:max-width|width):\s*(?:min\(100%,\s*)?9\d{2}px/u, "一般正文仍需維持約 900px 的舒適行寬");
+assert.match(styles, /\.choices\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/u, "寬畫面必須同時呈現完整 A/B/C");
+const choiceCardHeight = styles.match(/\.choiceCard\s*\{[\s\S]*?min-height:\s*(\d+)px/u);
+assert.ok(choiceCardHeight, "選項卡必須設定可點擊的最小高度");
+assert.ok(Number(choiceCardHeight[1]) >= 300, "放大的選項卡高度不得低於 300px");
+assert.match(styles, /\.choiceCard:(?:hover[\s\S]*?)?focus-visible|\.choiceCard:focus-visible/u, "鍵盤焦點必須和滑鼠 hover 一樣清楚可見");
+for (const key of ["A", "B", "C"]) {
+  assert.match(
+    styles,
+    new RegExp(`\\[data-rpg-choice=["']${key}["']\\]\\s+\\.choiceCard`, "u"),
+    `選項 ${key} 必須保留可辨識但不刺眼的視覺層次`,
+  );
+}
+
+// Narrow screens use one choice per row, keep the rail off-canvas, and allow
+// long outcome text to wrap instead of causing horizontal scrolling. The rail
+// is off-canvas at every width so opening it never shrinks the reading stage;
+// the 900px breakpoint swaps the desktop trigger for the mobile bar.
+assert.match(styles, /@media \(max-width: 1040px\)[\s\S]*?\.choices\s*\{\s*grid-template-columns:\s*1fr/u, "中窄畫面必須把 A/B/C 改為單欄大卡");
+assert.match(styles, /\.sidebar\s*\{[\s\S]*?position:\s*fixed[\s\S]*?transform:\s*translateX\(-105%\)/u, "收合側欄必須預設離開閱讀畫面");
+assert.match(styles, /\.sidebar\[data-open=["']true["']\]\s*\{[\s\S]*?transform:\s*translateX\(0\)/u, "側欄展開時必須回到畫面並可操作");
+assert.match(styles, /@media \(max-width: 900px\)[\s\S]*?\.mobileBar\s*\{[\s\S]*?display:\s*flex/u, "窄畫面必須保留可叫出側欄的行動工具列");
+assert.match(styles, /@media \(max-width: 480px\)[\s\S]*?\.choiceOutcome[^\{]*\{\s*grid-template-columns:\s*58px\s+minmax\(0,\s*1fr\)/u, "極窄畫面的收益、代價與風險必須可換行");
 
 console.log("PASS chat detailed dashboard");

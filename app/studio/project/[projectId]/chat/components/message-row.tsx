@@ -121,6 +121,7 @@ export const MessageRow = memo(function MessageRow({
       data-source-message-id={message.sourceMessageId ?? undefined}
       data-lineage-root={lineage.rootId}
       data-lineage-depth={lineage.depth}
+      data-rpg-choices={rpgChoices ? "true" : undefined}
       data-rpg-story={messageArtifacts.some((artifact) => artifact.artifactType === "rpg") || undefined}
     >
       <div className={styles.messageMeta}>
