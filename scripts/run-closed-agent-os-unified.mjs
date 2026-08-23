@@ -2848,7 +2848,9 @@ test("product UI and health expose the unified system truth", () => {
   assert.match(ui, /Ollama 尚未啟動或沒有可用模型/);
   assert.match(ui, /automaticConnectionFailure\(error, "Local Ollama"\)/);
   assert.match(ui, /裝置內生成模型已就緒/);
-  assert.match(navigation, /\["closed-ai","閉端 AI 中心"\]/);
+  assert.match(navigation, /\["ai-hub","AI 協調與學習"\]/);
+  assert.match(navigation, /"ai-hub": \["ai-hub", "closed-ai", "learning"\]/);
+  assert.match(navigation, /context="ai"/);
   assert.match(health, /threeClosedAISharedSystemStatus: "not_verified"/);
   assert.match(
     health,
