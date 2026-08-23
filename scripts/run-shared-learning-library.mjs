@@ -299,6 +299,80 @@ const approvedContext = await buildApprovedLearningContext({
 assert.equal(approvedContext.rules.length, 8);
 assert.equal(approvedContext.instructions.length, 8);
 
+const legacyProjectId = "legacy-learning-repository-project";
+const legacyRuleTemplate = approvedContext.rules[0];
+const legacySourceTemplate = await sharedRepository.getSource(legacyRuleTemplate.sourceId);
+assert.ok(legacySourceTemplate);
+const legacySource = {
+  ...legacySourceTemplate,
+  projectId: legacyProjectId,
+};
+const noisyLegacyRules = Array.from({ length: 40 }, (_, index) => ({
+  ...legacyRuleTemplate,
+  id: `legacy-learning-rule:${String(index).padStart(2, "0")}`,
+  projectId: legacyProjectId,
+  sourceId: legacySource.id,
+  confidence: 1 - (index / 100),
+  revision: index + 1,
+}));
+let legacyFamilyQueryCount = 0;
+const legacyQueryContext = await buildApprovedLearningContext({
+  repository: {
+    getProfile: async () => null,
+    listSources: async (projectId) => projectId === legacyProjectId ? [legacySource] : [],
+    queryApprovedRules: async (projectId, families, limitPerFamily) => {
+      legacyFamilyQueryCount += 1;
+      assert.equal(projectId, legacyProjectId);
+      assert.ok(families.includes(legacyRuleTemplate.family));
+      assert.equal(limitPerFamily, 32);
+      return noisyLegacyRules;
+    },
+    listRules: async () => {
+      throw new Error("LEGACY_QUERY_FALLBACK_MUST_NOT_SCAN_LIST_RULES");
+    },
+  },
+  projectId: legacyProjectId,
+  taskType: "three_choices",
+  maximumRules: 8,
+});
+assert.equal(legacyFamilyQueryCount, 1);
+assert.deepEqual(
+  legacyQueryContext.selectedRuleIds,
+  ["legacy-learning-rule:00", "legacy-learning-rule:01"],
+  "legacy family-query repositories must still be bounded to two candidates per dimension",
+);
+
+let legacyListRuleCount = 0;
+let legacyListSourceCount = 0;
+const legacyListContext = await buildApprovedLearningContext({
+  repository: {
+    getProfile: async () => null,
+    listRules: async (projectId) => {
+      legacyListRuleCount += 1;
+      assert.equal(projectId, legacyProjectId);
+      return [
+        ...noisyLegacyRules,
+        { ...noisyLegacyRules[0], id: "legacy-cross-project", projectId: "another-project" },
+        { ...noisyLegacyRules[0], id: "legacy-unapproved", status: "candidate" },
+      ];
+    },
+    listSources: async (projectId) => {
+      legacyListSourceCount += 1;
+      return projectId === legacyProjectId ? [legacySource] : [];
+    },
+  },
+  projectId: legacyProjectId,
+  taskType: "three_choices",
+  maximumRules: 8,
+});
+assert.equal(legacyListRuleCount, 1);
+assert.equal(legacyListSourceCount, 1);
+assert.deepEqual(
+  legacyListContext.selectedRuleIds,
+  ["legacy-learning-rule:00", "legacy-learning-rule:01"],
+  "list-only repositories must exclude cross-project/unapproved rows and remain dimension-bounded",
+);
+
 const choicePlan = await buildRpgRuleChoicePlan({
   snapshot: {
     chapter: { id: "chapter-1", revision: 3 },

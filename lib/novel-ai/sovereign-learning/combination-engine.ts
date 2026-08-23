@@ -75,6 +75,123 @@ function taskFamilies(taskType: string) {
   return TASK_FAMILIES[taskType] ?? TASK_FAMILIES.default;
 }
 
+type LegacyCompatibleLearningRepository = Partial<Pick<
+  SovereignLearningRepository,
+  | "getProfile"
+  | "getSource"
+  | "listSources"
+  | "listRules"
+  | "queryApprovedRules"
+  | "queryApprovedRulesByDimension"
+>>;
+
+const LEARNING_RULE_DIMENSION_COUNT = 16;
+
+function compareCandidateRuleRank(left: LearnedNarrativeRule, right: LearnedNarrativeRule) {
+  const leftConfidence = Number.isFinite(left.confidence) ? left.confidence : 0;
+  const rightConfidence = Number.isFinite(right.confidence) ? right.confidence : 0;
+  const leftAbstraction = Number.isFinite(left.abstractionScore) ? left.abstractionScore : 0;
+  const rightAbstraction = Number.isFinite(right.abstractionScore) ? right.abstractionScore : 0;
+  return rightConfidence - leftConfidence
+    || rightAbstraction - leftAbstraction
+    || left.id.localeCompare(right.id);
+}
+
+function boundApprovedRulesByDimension(input: {
+  rules: LearnedNarrativeRule[];
+  projectId: string;
+  families: LearningRuleFamily[];
+  limitPerDimension: number;
+}) {
+  const familySet = new Set(input.families);
+  const boundedLimit = Number.isFinite(input.limitPerDimension)
+    ? Math.max(1, Math.min(4, Math.floor(input.limitPerDimension)))
+    : 1;
+  const maximumCandidates = Math.min(
+    512,
+    Math.max(1, familySet.size) * LEARNING_RULE_DIMENSION_COUNT * boundedLimit,
+  );
+  const counts = new Map<string, number>();
+  const selectedIds = new Set<string>();
+  const selected: LearnedNarrativeRule[] = [];
+  const approved = input.rules
+    .filter((rule) => {
+      const runtimeProjectId = (rule as LearnedNarrativeRule & { projectId?: string }).projectId;
+      return (!runtimeProjectId || runtimeProjectId === input.projectId)
+        && rule.status === "approved"
+        && familySet.has(rule.family);
+    })
+    .sort(compareCandidateRuleRank);
+  for (const rule of approved) {
+    if (selectedIds.has(rule.id)) continue;
+    const key = `${rule.family}:${rule.dimension}`;
+    const count = counts.get(key) ?? 0;
+    if (count >= boundedLimit) continue;
+    selected.push(rule);
+    selectedIds.add(rule.id);
+    counts.set(key, count + 1);
+    if (selected.length >= maximumCandidates) break;
+  }
+  return selected;
+}
+
+async function queryApprovedRuleCandidates(input: {
+  repository: LegacyCompatibleLearningRepository;
+  projectId: string;
+  families: LearningRuleFamily[];
+  limitPerDimension: number;
+}) {
+  const { repository, projectId, families, limitPerDimension } = input;
+  if (typeof repository.queryApprovedRulesByDimension === "function") {
+    return boundApprovedRulesByDimension({
+      rules: await repository.queryApprovedRulesByDimension(
+        projectId,
+        families,
+        limitPerDimension,
+      ),
+      projectId,
+      families,
+      limitPerDimension,
+    });
+  }
+  if (typeof repository.queryApprovedRules === "function") {
+    const limitPerFamily = Math.min(32, limitPerDimension * LEARNING_RULE_DIMENSION_COUNT);
+    return boundApprovedRulesByDimension({
+      rules: await repository.queryApprovedRules(projectId, families, limitPerFamily),
+      projectId,
+      families,
+      limitPerDimension,
+    });
+  }
+  if (typeof repository.listRules === "function") {
+    return boundApprovedRulesByDimension({
+      rules: await repository.listRules(projectId),
+      projectId,
+      families,
+      limitPerDimension,
+    });
+  }
+  throw new Error("SOVEREIGN_LEARNING_RULE_READ_UNAVAILABLE");
+}
+
+async function loadCandidateSources(input: {
+  repository: LegacyCompatibleLearningRepository;
+  projectId: string;
+  sourceIds: string[];
+}) {
+  const sourceIdSet = new Set(input.sourceIds);
+  if (typeof input.repository.getSource === "function") {
+    return (await Promise.all(
+      input.sourceIds.map((sourceId) => input.repository.getSource?.(sourceId)),
+    )).filter((source): source is LearningSourceRecord => source !== null && source !== undefined);
+  }
+  if (typeof input.repository.listSources === "function") {
+    return (await input.repository.listSources(input.projectId))
+      .filter((source) => sourceIdSet.has(source.id));
+  }
+  return [];
+}
+
 function scoreRule(
   rule: LearnedNarrativeRule,
   profile: LearningPreferenceProfile | null,
@@ -105,18 +222,23 @@ export async function buildApprovedLearningContext(input: {
   // stays bounded after years of learning, while a high-volume dimension can
   // no longer crowd every other mechanism out before final scoring.
   const candidateLimitPerDimension = 2;
+  const repository = input.repository as LegacyCompatibleLearningRepository;
   const [rules, profile] = await Promise.all([
-    input.repository.queryApprovedRulesByDimension(
-      input.projectId,
+    queryApprovedRuleCandidates({
+      repository,
+      projectId: input.projectId,
       families,
-      candidateLimitPerDimension,
-    ),
-    input.repository.getProfile(input.projectId),
+      limitPerDimension: candidateLimitPerDimension,
+    }),
+    typeof repository.getProfile === "function"
+      ? repository.getProfile(input.projectId)
+      : Promise.resolve(null),
   ]);
-  const sources = (await Promise.all(
-    [...new Set(rules.map((rule) => rule.sourceId))]
-      .map((sourceId) => input.repository.getSource(sourceId)),
-  )).filter((source): source is LearningSourceRecord => source !== null);
+  const sources = await loadCandidateSources({
+    repository,
+    projectId: input.projectId,
+    sourceIds: [...new Set(rules.map((rule) => rule.sourceId))],
+  });
   const activeSourceTrust = new Map(
     sources
       .filter((source) => source.status === "active")
