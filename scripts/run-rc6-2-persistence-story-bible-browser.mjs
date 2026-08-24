@@ -82,7 +82,8 @@ async function createProject(page, title) {
   await page.goto(`${baseUrl}/studio/create`, { waitUntil: "networkidle" });
   await page.getByTestId("p2-project-title").fill(title);
   await page.getByTestId("create-play-mode-general").click();
-  await page.locator(".p2CreationAssistantActions > button").first().click();
+  await page.locator('[data-topic-id="classic-topic-002"]').click();
+  await page.getByTestId("create-ai-story-seed").click();
   for (let step = 0; step < 4; step += 1) {
     const action = page.locator(".p2CreatePanel > footer button.gold");
     await action.waitFor();
@@ -399,8 +400,11 @@ try {
   check("Story Bible conversation access opens same project", new URL(page.url()).pathname.includes(`/studio/project/${encodeURIComponent(firstProjectId)}/chat`));
   const composer = page.getByTestId("conversation-message-composer").locator("textarea");
   await composer.waitFor();
-  check("Story Bible conversation carries a scoped non-mutating request", new URL(page.url()).searchParams.get("prompt")?.includes("Story Bible") === true
-    && new URL(page.url()).searchParams.get("prompt")?.includes("不要直接修改 Canon") === true);
+  const scopedStoryBibleRequest = page.locator('[data-role="user"]')
+    .filter({ hasText: "請讀取這部作品目前的 Story Bible" })
+    .filter({ hasText: "不要直接修改 Canon" });
+  await scopedStoryBibleRequest.first().waitFor({ timeout: 20_000 });
+  check("Story Bible conversation carries a scoped non-mutating request", await scopedStoryBibleRequest.count() > 0);
 
   const secondProjectId = await createProject(page, "RC6.2 Fresh Story Two");
   check("second project has a distinct id", secondProjectId !== firstProjectId, { firstProjectId, secondProjectId });
