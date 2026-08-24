@@ -4,6 +4,16 @@ import {
   PROCEDURAL_WORLD_VARIANTS_PER_TOPIC,
   proceduralWorldAt,
 } from "./procedural-world-library";
+import {
+  IDENTITY_MECHANISMS,
+  createIdentityMechanismOverlay,
+  sanitizeVisibleText,
+  topicEraProfileAt,
+  type IdentityContext,
+  type IdentityMechanismOverlay,
+  type StoryEra,
+  type TopicContentBoundary,
+} from "./topic-era-ontology";
 
 const STORY_LIBRARY = rawStoryLibrary as StoryLibrary;
 const CLASSIC_TOPICS = STORY_LIBRARY.topics.filter((topic) => topic.enabled && topic.classic);
@@ -13,7 +23,7 @@ if (CLASSIC_TOPICS.length !== 218 || TOPIC_BY_ID.size !== 218) {
   throw new Error(`TOPIC_WORLD_CONTRACT_CATALOG_MISMATCH:${CLASSIC_TOPICS.length}/${TOPIC_BY_ID.size}`);
 }
 
-export const TOPIC_WORLD_CONTRACT_VERSION = "topic-world-contract-v2" as const;
+export const TOPIC_WORLD_CONTRACT_VERSION = "topic-world-contract-v3" as const;
 
 export const CULTIVATION_REALM_ORDER = [
   "凡人",
@@ -46,6 +56,18 @@ export type TopicWorldContract = {
   worldId: string;
   worldOrdinal: number;
   worldFamily: "cultivation" | "topic-derived";
+  eraProfile: {
+    primaryEra: StoryEra;
+    supportedEras: StoryEra[];
+    premise: string;
+    settingTags: string[];
+    addressTerms: string[];
+    institutionTypes: string[];
+    occupations: string[];
+    resourceTypes: string[];
+    contentBoundary: TopicContentBoundary;
+    identityOverlay?: IdentityMechanismOverlay;
+  };
   displaySummary: string;
   canonRules: string[];
   institutions: string[];
@@ -174,6 +196,14 @@ function unique(items: readonly string[]) {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
 }
 
+function visible(value: string) {
+  return sanitizeVisibleText(value);
+}
+
+function visibleItems(items: readonly string[]) {
+  return unique(items.map(visible));
+}
+
 function indexedItem<T>(items: readonly T[], index: number) {
   return items[index % items.length]!;
 }
@@ -189,6 +219,28 @@ function isCultivationTopic(topic: StoryTopic) {
   return /仙俠|修仙|修真|煉氣|靈根|宗門雜役|王朝修煉|修真文明/u.test(signals);
 }
 
+function isIdentityMechanismTopic(topic: StoryTopic) {
+  const signals = [topic.name, topic.description, ...topic.tags, ...topic.subCategories].join("|");
+  return /附身|變身|身體交換|靈魂交換|身分交換|身份交換/u.test(signals);
+}
+
+const IDENTITY_CONTEXTS: IdentityContext[] = [
+  "school",
+  "corporate",
+  "adult-industry",
+  "historical-court",
+  "cultivation",
+  "inherit-topic",
+];
+
+const IDENTITY_CONTEXT_ERAS: Partial<Record<IdentityContext, StoryEra>> = {
+  school: "contemporary",
+  corporate: "contemporary",
+  "adult-industry": "contemporary",
+  "historical-court": "historical",
+  cultivation: "timeless-fantasy",
+};
+
 function topicInstitutionSignals(topic: StoryTopic) {
   const subCategories = unique(topic.subCategories).slice(0, 4);
   const worlds = unique(topic.recommendedWorlds).slice(0, 2);
@@ -203,19 +255,35 @@ function topicAssetSignals(topic: StoryTopic) {
   ]);
 }
 
-function buildTopicDerivedInstitutions(topic: StoryTopic, world: ReturnType<typeof proceduralWorldAt>) {
+type EraProfile = TopicWorldContract["eraProfile"];
+
+function activeLexicon(profile: EraProfile) {
+  return profile.identityOverlay ?? profile;
+}
+
+function buildTopicDerivedInstitutions(topic: StoryTopic, profile: EraProfile, worldOrdinal: number) {
+  const lexicon = activeLexicon(profile);
   const signals = topicInstitutionSignals(topic);
-  return world.factions.map((faction, index) => {
+  const institutions = lexicon.institutionTypes;
+  return Array.from({ length: Math.max(4, institutions.length) }, (_, index) => {
+    const institution = indexedItem(institutions, index);
+    const occupation = indexedItem(lexicon.occupations, worldOrdinal + index);
+    const address = indexedItem(lexicon.addressTerms, worldOrdinal + index);
+    const setting = indexedItem(lexicon.settingTags, worldOrdinal + index);
     const signal = signals[index % signals.length] ?? topic.name;
-    return `${faction.name}：以「${signal}」分配權責；${faction.publicGoal}`;
+    return `${institution}：由${address}與${occupation}在${setting}分配權責，並以「${signal}」推進題材衝突。`;
   });
 }
 
-function buildTopicDerivedAssets(topic: StoryTopic, world: ReturnType<typeof proceduralWorldAt>) {
+function buildTopicDerivedAssets(topic: StoryTopic, profile: EraProfile, worldOrdinal: number) {
+  const lexicon = activeLexicon(profile);
   const signals = topicAssetSignals(topic);
-  return world.resources.map((resource, index) => {
+  return Array.from({ length: Math.max(4, lexicon.resourceTypes.length) }, (_, index) => {
+    const resource = indexedItem(lexicon.resourceTypes, worldOrdinal + index);
+    const occupation = indexedItem(lexicon.occupations, worldOrdinal + index);
+    const institution = indexedItem(lexicon.institutionTypes, worldOrdinal + index);
     const signal = signals[index % signals.length] ?? topic.name;
-    return `${signal}資源｜${resource.name}：${resource.access}`;
+    return `${resource}：由${occupation}在${institution}中管理；取得、移轉與耗用都要留下後果，並服務「${signal}」。`;
   });
 }
 
@@ -282,7 +350,6 @@ function buildCultivationAssets(profile: CultivationWorldProfile) {
 
 function buildCultivationRules(
   topic: StoryTopic,
-  world: ReturnType<typeof proceduralWorldAt>,
   profile: CultivationWorldProfile,
 ) {
   return [
@@ -292,7 +359,7 @@ function buildCultivationRules(
     "功法、丹藥、符籙、陣法、武器／法器、靈草與秘境機緣都要記錄來源、持有人、使用條件與後果。",
     `本世界位於${profile.domain}；${profile.spiritualState}。地理、靈氣與修煉限制不可因換場消失。`,
     `主線壓力固定為「${profile.centralPressure}」，並以「${profile.topicFocus}」呈現${topic.name}的題材承諾。`,
-    `世界連續性錨點固定為 ${world.topic.topicId}/${world.worldOrdinal}；境界、宗門立場、寶物持有人與既有因果不可重置。`,
+    "境界、宗門立場、寶物持有人與既有因果必須延續，不得因換場、換章或重新載入而重置。",
   ];
 }
 
@@ -308,7 +375,8 @@ function buildCultivationDisplaySummary(
   ].join("\n");
 }
 
-function buildTopicDerivedRules(topic: StoryTopic, world: ReturnType<typeof proceduralWorldAt>) {
+function buildTopicDerivedRules(topic: StoryTopic, profile: EraProfile) {
+  const lexicon = activeLexicon(profile);
   const topicSignals = unique([
     ...topic.tags.slice(0, 3),
     ...topic.subCategories.slice(0, 3),
@@ -316,10 +384,68 @@ function buildTopicDerivedRules(topic: StoryTopic, world: ReturnType<typeof proc
   ]);
   return [
     `題材承諾固定為「${topic.name}」：${topic.description}。`,
-    `制度與資源必須由本題材訊號衍生：${topicSignals.join("、")}；不得套用無關題材的固定模板。`,
-    `世界連續性錨點固定為 ${world.topic.topicId}/${world.worldOrdinal}；人物、制度、資源與既有後果不因換場重置。`,
-    ...world.rules.slice(0, 3).map((rule) => `${rule.statement}；${rule.consequence}`),
+    profile.identityOverlay?.premise ?? profile.premise,
+    `場景以${lexicon.settingTags.join("、")}為主；稱謂採${lexicon.addressTerms.join("、")}，不得混入無關時代或題材的制度語彙。`,
+    `制度與資源由${lexicon.institutionTypes.join("、")}及${lexicon.resourceTypes.join("、")}構成，並保留「${topicSignals.join("、")}」的題材訊號。`,
+    "人物、制度、資源、身分與既有後果必須延續，不得因換場、換章或重新載入而重置。",
+    ...(profile.identityOverlay?.continuityRules ?? []),
+    ...profile.contentBoundary.rules,
   ];
+}
+
+function buildEraProfile(topic: StoryTopic, worldOrdinal: number): EraProfile {
+  const ontology = topicEraProfileAt(topic.topicId);
+  const identityContext = isIdentityMechanismTopic(topic)
+    ? indexedItem(IDENTITY_CONTEXTS, Math.floor(worldOrdinal / IDENTITY_MECHANISMS.length))
+    : undefined;
+  const identityOverlay = isIdentityMechanismTopic(topic)
+    ? createIdentityMechanismOverlay({
+        topicIdOrName: topic.topicId,
+        mechanism: indexedItem(IDENTITY_MECHANISMS, worldOrdinal),
+        context: identityContext!,
+      })
+    : undefined;
+  const boundary = identityOverlay?.contentBoundary ?? ontology.contentBoundary;
+  return {
+    primaryEra: identityContext
+      ? (IDENTITY_CONTEXT_ERAS[identityContext] ?? ontology.primaryEra)
+      : ontology.primaryEra,
+    supportedEras: [...ontology.supportedEras],
+    premise: visible(identityOverlay?.premise ?? ontology.premise),
+    settingTags: visibleItems(identityOverlay?.settingTags ?? ontology.settingTags),
+    addressTerms: visibleItems(identityOverlay?.addressTerms ?? ontology.addressTerms),
+    institutionTypes: visibleItems(identityOverlay?.institutionTypes ?? ontology.institutionTypes),
+    occupations: visibleItems(identityOverlay?.occupations ?? ontology.occupations),
+    resourceTypes: visibleItems(identityOverlay?.resourceTypes ?? ontology.resourceTypes),
+    contentBoundary: {
+      ...boundary,
+      rules: visibleItems(boundary.rules),
+    },
+    ...(identityOverlay
+      ? {
+          identityOverlay: {
+            ...identityOverlay,
+            topicName: visible(identityOverlay.topicName),
+            mechanismLabel: visible(identityOverlay.mechanismLabel),
+            contextLabel: visible(identityOverlay.contextLabel),
+            premise: visible(identityOverlay.premise),
+            rolePairs: identityOverlay.rolePairs.map(
+              ([left, right]): [string, string] => [visible(left), visible(right)],
+            ),
+            settingTags: visibleItems(identityOverlay.settingTags),
+            addressTerms: visibleItems(identityOverlay.addressTerms),
+            institutionTypes: visibleItems(identityOverlay.institutionTypes),
+            occupations: visibleItems(identityOverlay.occupations),
+            resourceTypes: visibleItems(identityOverlay.resourceTypes),
+            continuityRules: visibleItems(identityOverlay.continuityRules),
+            contentBoundary: {
+              ...identityOverlay.contentBoundary,
+              rules: visibleItems(identityOverlay.contentBoundary.rules),
+            },
+          },
+        }
+      : {}),
+  };
 }
 
 function copyPlayMechanics(mode: TopicWorldPlayMode): TopicWorldPlayMechanics {
@@ -351,23 +477,24 @@ export function topicWorldContractAt(input: {
     throw new RangeError(`TOPIC_WORLD_CONTRACT_WORLD_ORDINAL_OUT_OF_RANGE:${worldOrdinal}`);
   }
   const world = proceduralWorldAt({ seed, topicId: topic.topicId, worldOrdinal });
+  const eraProfile = buildEraProfile(topic, worldOrdinal);
   const cultivation = isCultivationTopic(topic);
   const cultivationProfile = cultivation ? buildCultivationProfile(topic, world) : null;
   const institutions = cultivation
     ? buildCultivationInstitutions(cultivationProfile!)
-    : buildTopicDerivedInstitutions(topic, world);
+    : buildTopicDerivedInstitutions(topic, eraProfile, worldOrdinal);
   const assets = cultivation
     ? buildCultivationAssets(cultivationProfile!)
-    : buildTopicDerivedAssets(topic, world);
+    : buildTopicDerivedAssets(topic, eraProfile, worldOrdinal);
   const canonRules = cultivation
-    ? buildCultivationRules(topic, world, cultivationProfile!)
-    : buildTopicDerivedRules(topic, world);
+    ? buildCultivationRules(topic, cultivationProfile!)
+    : buildTopicDerivedRules(topic, eraProfile);
   const playMechanics = copyPlayMechanics(input.playMode);
   const displaySummary = cultivation
     ? buildCultivationDisplaySummary(topic, cultivationProfile!, playMechanics)
     : [
-        `${topic.name}世界｜${world.title}`,
-        world.logline,
+        `${topic.name}世界｜${eraProfile.identityOverlay?.contextLabel ?? eraProfile.settingTags[worldOrdinal % eraProfile.settingTags.length]}`,
+        eraProfile.premise,
         `本作採用「${playMechanics.label}」；只疊加${playMechanics.dimensions.join("、")}，不改寫題材世界的 Canon。`,
       ].join("\n");
 
@@ -376,19 +503,25 @@ export function topicWorldContractAt(input: {
     contractId: `${TOPIC_WORLD_CONTRACT_VERSION}:${world.id}:${input.playMode}`,
     seed,
     topicId: topic.topicId,
-    topicName: topic.name,
+    topicName: visible(topic.name),
     worldId: world.id,
     worldOrdinal,
     worldFamily: cultivation ? "cultivation" : "topic-derived",
-    displaySummary,
-    canonRules,
-    institutions: unique(institutions),
-    assets: unique(assets),
-    playMechanics,
+    eraProfile,
+    displaySummary: visible(displaySummary),
+    canonRules: visibleItems(canonRules),
+    institutions: visibleItems(institutions),
+    assets: visibleItems(assets),
+    playMechanics: {
+      ...playMechanics,
+      label: visible(playMechanics.label),
+      dimensions: visibleItems(playMechanics.dimensions),
+      rules: visibleItems(playMechanics.rules),
+    },
     sourceSignals: {
-      tags: [...topic.tags],
-      subCategories: [...topic.subCategories],
-      recommendedWorlds: [...topic.recommendedWorlds],
+      tags: visibleItems(topic.tags),
+      subCategories: visibleItems(topic.subCategories),
+      recommendedWorlds: visibleItems(topic.recommendedWorlds),
     },
   };
 }

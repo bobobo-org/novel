@@ -147,21 +147,17 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
   }, []);
 
   const recentId = safeProjectId(recentProject?.id ?? "");
-  const continueHref = projectCount === 1 && recentId
-    ? `/studio/project/${encodeURIComponent(recentId)}/chat`
-    : projectCount > 0
-      ? "/professional?intent=chat"
-      : "/studio/create";
   const localAIHref = useMemo(() => {
     const returnTo = recentId
       ? `/studio/project/${encodeURIComponent(recentId)}/chat`
       : "/professional?intent=chat";
     return `/settings/local-ai?returnTo=${encodeURIComponent(returnTo)}`;
   }, [recentId]);
-  const entries = [
-    ["建立新作品", "先命名並選定玩法；建立後，續寫、改寫和 RPG 都在同一個故事工作台。", "/studio/create", "✦"],
-    [projectCount > 1 ? "選擇作品" : "繼續作品", projectCount > 1 ? `從 ${projectCount} 部正式作品中選擇；選定後直接進入該作品的故事工作台。` : recentProject ? `繼續《${recentProject.title}》；不需要再判斷該開哪一種寫作介面。` : "尚無作品時會引導你建立第一部作品。", continueHref, "↗"],
-  ] as const;
+  const projectSummary = projectCount > 1
+    ? `已有 ${projectCount} 部作品，進入後選擇要繼續的故事。`
+    : recentProject
+      ? `上次寫到《${recentProject.title}》，進入後可直接接續。`
+      : "還沒有作品，進入後會先引導你建立第一部故事。";
 
   return (
     <main
@@ -175,39 +171,46 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
           <span className="brandSeal">創</span>
           <span><b>諸天萬界</b><small>小說生成系統</small></span>
         </Link>
-        <nav aria-label="主要導覽">
-          <Link className="active" href="/">首頁</Link>
-          <Link href="/studio/create">建立作品</Link>
-          <Link href={continueHref}>選擇作品</Link>
-          <Link href="/professional?intent=library">資料與專業工具</Link>
-        </nav>
-        <Link className="navCta" href={continueHref}>{projectCount > 0 ? "選擇作品" : "建立新作品"}</Link>
+        <p className="frontdoorCatalog" data-testid="frontdoor-catalog-summary">
+          {packs} 個分類包・{classicTopics} 類經典題材
+        </p>
       </header>
 
-      <section className="frontdoorHero">
-        <div className="heroCopy">
-          <p className="eyebrow">本機優先・每一步由你確認</p>
-          <h1>諸天萬界小說生成系統</h1>
-          <p className="lead">首頁只負責建立或選擇作品；每部作品共用一個故事工作台</p>
-          <h2>建立新作品，或選擇一部繼續</h2>
-          <div className="heroActions">
-            <Link className="primaryAction" href="/studio/create">開始新故事</Link>
-            <Link className="secondaryAction" href={continueHref}>{projectCount > 1 ? "選擇作品繼續" : "繼續最近作品"}</Link>
+      <section className="frontdoorEssentialShell" data-testid="frontdoor-essential-shell">
+        <section className="frontdoorHero">
+          <div className="heroCopy">
+            <p className="eyebrow">本機優先・每一步由你確認</p>
+            <h1>一個入口，繼續你的萬界故事</h1>
+            <p className="lead">建立、選擇與續寫都由同一個故事入口接手，不需要先判斷該開哪一套工具。</p>
+            <p className="frontdoorProjectSummary">{projectSummary}</p>
+            <div className="heroActions">
+              <Link
+                className="primaryAction"
+                data-testid="frontdoor-primary-action"
+                href="/professional?intent=chat"
+              >
+                開始／繼續創作
+              </Link>
+            </div>
           </div>
-        </div>
-        <div className="worldPreview" aria-label="故事世界預覽">
-          <span className="moon" />
-          <span className="mountain mountainBack" />
-          <span className="mountain mountainFront" />
-          <div className="previewCaption"><small>目前模式</small><b>作品留在裝置・AI 候選需核准</b></div>
-        </div>
-      </section>
+          <div className="worldPreview" aria-label="故事世界預覽">
+            <span className="moon" />
+            <span className="mountain mountainBack" />
+            <span className="mountain mountainFront" />
+            <div className="previewCaption"><small>目前模式</small><b>作品留在裝置・AI 候選需核准</b></div>
+          </div>
+        </section>
 
-      <section className="frontdoorRuntime" aria-label="目前執行狀態">
-        <Link className="frontdoorRuntimeCard" href="/studio/settings/storage"><span>作品儲存</span><strong>本機裝置</strong><small>IndexedDB 是正式作品庫</small></Link>
-        <article data-state={closedAI}><span>閉端 AI</span><strong>{closedAI}</strong><small>不會暗中切換外部 AI</small></article>
-        <Link className="frontdoorRuntimeCard" data-state={cloudSync} href="/studio/settings/storage"><span>雲端同步</span><strong>{cloudSync}</strong><small>端對端加密・異常不阻擋創作</small></Link>
-        <article><span>外部 AI</span><strong>預設未使用</strong><small>只有明確同意才可呼叫</small></article>
+        <section
+          className="frontdoorRuntime"
+          aria-label="目前執行狀態"
+          data-testid="frontdoor-runtime"
+        >
+          <article><span>作品儲存</span><strong>本機裝置</strong><small>IndexedDB 是正式作品庫</small></article>
+          <article data-state={closedAI}><span>閉端 AI</span><strong>{closedAI}</strong><small>不會暗中切換外部 AI</small></article>
+          <article data-state={cloudSync}><span>雲端同步</span><strong>{cloudSync}</strong><small>端對端加密・異常不阻擋創作</small></article>
+          <article><span>外部 AI</span><strong>預設未使用</strong><small>只有明確同意才可呼叫</small></article>
+        </section>
       </section>
 
       {legacyPreview?.found && legacyPreview.pending && !dismissLegacy ? (
@@ -231,26 +234,12 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         </section>
       ) : null}
 
-      <section className="frontdoorEntries" aria-labelledby="entryTitle">
-        <div className="sectionTitle">
-          <span>{packs} 個分類包・{classicTopics} 類經典題材</span>
-          <h2 id="entryTitle">首頁只有兩個開始方式</h2>
-        </div>
-        <div className="entryGrid">
-          {entries.map(([title, description, href, icon]) => {
-            const content = <>
-              <span className="entryIndex">{icon}</span><h3>{title}</h3><p>{description}</p>
-              <span className="entryArrow" aria-hidden="true">→</span>
-            </>;
-            return <Link className="entryCard" href={href} key={title}>{content}</Link>;
-          })}
-        </div>
-      </section>
       <footer className="frontdoorFooter">
         <p>快速本機模式：速度較快，長篇品質有限。系統不會把 API online 顯示成 AI online。</p>
-        <Link href="/professional?intent=library">作品資料與專業工具</Link>
-        <Link href={localAIHref}>閉端 AI 與本機模型設定</Link>
-        <Link href="/professional?intent=library&legacyMigration=import">舊作品匯入與相容功能</Link>
+        <nav aria-label="精簡工具連結">
+          <Link href="/professional?intent=library">作品資料與工具</Link>
+          <Link href={localAIHref}>閉端 AI 設定</Link>
+        </nav>
       </footer>
     </main>
   );

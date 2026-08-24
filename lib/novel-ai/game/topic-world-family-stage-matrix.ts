@@ -447,9 +447,12 @@ function familyDisplayName(input: {
     if (input.organizationKind === "散修盟") return `${input.baseName}・${input.organizationName}同行家族`;
     return `${input.baseName}・${input.organizationName}商脈`;
   }
-  if (input.organizationKind === "企業集團") return `${input.baseName}・經營家族`;
-  if (input.organizationKind === "政權組織") return `${input.baseName}・權力家族`;
-  if (input.organizationKind === "學術團體") return `${input.baseName}・師生家系`;
+  // The organization is part of the public family name so two independently
+  // materialized families with the same surname never collapse into one
+  // indistinguishable card on the same stage-selection screen.
+  if (input.organizationKind === "企業集團") return `${input.baseName}・${input.organizationName}經營支`;
+  if (input.organizationKind === "政權組織") return `${input.baseName}・${input.organizationName}權力支`;
+  if (input.organizationKind === "學術團體") return `${input.baseName}・${input.organizationName}師生支`;
   return `${input.baseName}・${input.organizationName}關係網`;
 }
 

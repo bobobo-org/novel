@@ -19,6 +19,7 @@ import {
 import { optionalValue } from "../lib/novel-ai/domain/index.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import { proceduralTreasureRecordAt } from "../lib/novel-ai/game/procedural-treasure-library.ts";
+import { listProceduralWorldTopics } from "../lib/novel-ai/game/procedural-world-library.ts";
 
 const buildStartedAt = performance.now();
 const cultivation = buildTopicWorldFamilyStageMatrix({
@@ -313,20 +314,25 @@ assert.throws(
   /TOPIC_WORLD_FAMILY_CANON_PROJECT_ID_REQUIRED/u,
 );
 
-// Domain integration writes one coherent ProjectBundle. Old drafts without a
-// stageFamily address receive the deterministic first candidate; all four
-// powers, the selected family, six approved people, seven links and all asset
-// controls are already present in the initial backup and StoryBible.
+// Domain integration writes one coherent ProjectBundle after an explicit
+// stage-family choice. No creation path may silently approve the first family.
 const fallbackDraft = createDraft("quick");
 fallbackDraft.title = "家族矩陣整合測試";
 fallbackDraft.genreId = "classic-topic-009";
 fallbackDraft.answers.playMode = optionalValue("rpg", "user_defined");
-const fallbackBundle = buildProjectBundle(fallbackDraft);
 const fallbackMatrix = buildTopicWorldFamilyStageMatrix({
   seed: `novel-project:${fallbackDraft.projectId}:procedural-v1`,
   topicId: fallbackDraft.genreId,
   playMode: "rpg",
 });
+fallbackDraft.answers.stageFamily = optionalValue(
+  serializeTopicWorldFamilyDraftSelection({
+    matrix: fallbackMatrix,
+    familyId: fallbackMatrix.stageFamilies[0].familyId,
+  }),
+  "user_defined",
+);
+const fallbackBundle = buildProjectBundle(fallbackDraft);
 const fallbackCharacters = [
   ...(fallbackBundle.protagonist ? [fallbackBundle.protagonist] : []),
   ...(fallbackBundle.cast ?? []),
@@ -336,7 +342,8 @@ assert.equal(fallbackBundle.cast?.length, 5);
 assert.equal(fallbackBundle.relationships?.length, 7);
 assert.equal(fallbackBundle.lore?.filter((entry) => entry.kind === "faction").length, 5);
 assert.equal(fallbackBundle.lore?.filter((entry) => entry.kind === "item").length, 8);
-assert.equal(fallbackBundle.storyState.worldFlags["story.familyStageSelection"], "deterministic-fallback");
+assert.equal(fallbackBundle.storyState.worldFlags["story.familyStageSelection"], "explicit");
+assert.equal(fallbackBundle.storyState.worldFlags["story.familyStageApprovedBy"], "user");
 assert.equal(fallbackBundle.storyState.worldFlags["story.familyStageApproved"], true);
 assert.equal(fallbackBundle.storyState.worldFlags["story.organizationCount"], 4);
 assert.equal(fallbackBundle.storyState.worldFlags["story.assetControlCount"], 8);
@@ -418,10 +425,77 @@ assert.deepEqual(
   fallbackBundle.storyState,
 );
 
+// New drafts expose the still-empty answer while the author is choosing. They
+// must stop here rather than silently treating the first candidate as approved.
+const requiredSelectionDraft = createDraft("quick");
+requiredSelectionDraft.title = "新版流程必須選擇上場家族";
+requiredSelectionDraft.genreId = "classic-topic-009";
+requiredSelectionDraft.answers.playMode = optionalValue("rpg", "user_defined");
+requiredSelectionDraft.answers.stageFamily = optionalValue(null, "deferred");
+assert.throws(
+  () => buildProjectBundle(requiredSelectionDraft),
+  (error) => (
+    error?.code === "PROJECT_STAGE_FAMILY_REQUIRED"
+    && /明確選擇並核准/u.test(error.message)
+  ),
+);
+
+// Old classified drafts did not carry the stageFamily answer at all. Missing
+// data is still not author consent: migration must return to the selector.
+const legacyMissingSelectionDraft = createDraft("legacy");
+legacyMissingSelectionDraft.title = "舊草稿也必須選擇上場家族";
+legacyMissingSelectionDraft.genreId = "classic-topic-009";
+legacyMissingSelectionDraft.answers.playMode = optionalValue("rpg", "user_defined");
+delete legacyMissingSelectionDraft.answers.stageFamily;
+assert.throws(
+  () => buildProjectBundle(legacyMissingSelectionDraft),
+  (error) => (
+    error?.code === "PROJECT_STAGE_FAMILY_REQUIRED"
+    && /明確選擇並核准/u.test(error.message)
+  ),
+);
+
+// Creation must persist the authoritative 218-topic catalog index. This is
+// the first coordinate of the procedural world address, so every catalog
+// topic must map to exactly one ordinal without hash collisions.
+const proceduralTopics = listProceduralWorldTopics();
+const createdTopicOrdinals = [];
+assert.equal(proceduralTopics.length, 218);
+for (const catalogTopic of proceduralTopics) {
+  const draft = createDraft("quick");
+  draft.title = `題材位址 ${catalogTopic.topicOrdinal + 1}`;
+  draft.genreId = catalogTopic.topicId;
+  draft.answers.playMode = optionalValue("general", "user_defined");
+  const matrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: catalogTopic.topicId,
+    playMode: "general",
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix,
+      familyId: matrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
+  const bundle = buildProjectBundle(draft);
+  const profile = bundle.world?.proceduralWorldProfile;
+  assert.ok(profile, `${catalogTopic.topicId}: procedural world profile required`);
+  assert.equal(profile.topicId, catalogTopic.topicId);
+  assert.equal(profile.topicOrdinal, catalogTopic.topicOrdinal);
+  assert.equal(profile.worldOrdinal, matrix.worldOrdinal);
+  createdTopicOrdinals.push(profile.topicOrdinal);
+}
+assert.equal(new Set(createdTopicOrdinals).size, 218);
+assert.deepEqual(
+  createdTopicOrdinals.toSorted((left, right) => left - right),
+  Array.from({ length: 218 }, (_, index) => index),
+);
+
 // The repository receives the already-validated bundle in one create call;
 // no family-stage record is left as an unapproved side queue.
 const fallbackRepository = new MemoryNovelRepository();
-await fallbackRepository.createProject(fallbackBundle, "family-stage:fallback");
+await fallbackRepository.createProject(fallbackBundle, "family-stage:explicit-integration");
 const persistedFallback = await fallbackRepository.exportProject(fallbackBundle.project.id);
 assert.equal(persistedFallback.projects.length, 1);
 assert.equal(persistedFallback.worlds.length, 1);
@@ -466,6 +540,7 @@ explicitDraft.answers.cast = optionalValue(
 );
 const explicitBundle = buildProjectBundle(explicitDraft);
 assert.equal(explicitBundle.storyState.worldFlags["story.familyStageSelection"], "explicit");
+assert.equal(explicitBundle.storyState.worldFlags["story.familyStageApprovedBy"], "user");
 assert.equal(explicitBundle.storyState.worldFlags["story.selectedFamilyId"], explicitFamily.familyId);
 assert.equal(explicitBundle.protagonist.name, explicitDraft.protagonist.value);
 assert.equal(explicitBundle.protagonist.id, explicitProtagonist.characterId);
@@ -486,6 +561,18 @@ externalLeadDraft.title = "外部主角仍然保留";
 externalLeadDraft.genreId = "classic-topic-009";
 externalLeadDraft.answers.playMode = optionalValue("rpg", "user_defined");
 externalLeadDraft.protagonist = optionalValue("作者自訂主角", "user_defined");
+const externalLeadMatrix = buildTopicWorldFamilyStageMatrix({
+  seed: `novel-project:${externalLeadDraft.projectId}:procedural-v1`,
+  topicId: externalLeadDraft.genreId,
+  playMode: "rpg",
+});
+externalLeadDraft.answers.stageFamily = optionalValue(
+  serializeTopicWorldFamilyDraftSelection({
+    matrix: externalLeadMatrix,
+    familyId: externalLeadMatrix.stageFamilies[0].familyId,
+  }),
+  "user_defined",
+);
 const externalLeadBundle = buildProjectBundle(externalLeadDraft);
 assert.equal(externalLeadBundle.protagonist.name, "作者自訂主角");
 assert.equal(externalLeadBundle.cast.length, 6);

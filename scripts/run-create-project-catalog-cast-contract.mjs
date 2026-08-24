@@ -67,8 +67,8 @@ assert.match(styles, /\.p2TopicGridLarge\{[^}]*repeat\(auto-fit,minmax\(210px,1f
 assert.match(styles, /@media\(max-width:900px\)[^{]*\{[^}]*\.p2FoundationSetup>header/u);
 assert.match(source, /data-testid="creation-topic-world-contract"/u);
 assert.match(source, /世界種子 \{topicContract\.worldOrdinal \+ 1\}／1000/u);
-assert.match(source, /組織、宗門與家族/u);
-assert.match(source, /資源、寶物與取得條件/u);
+assert.match(source, /組織、陣營與關係網/u);
+assert.match(source, /資源、物件與取得條件/u);
 assert.match(source, /const modeSteps = draft\.mode === "guided" \? 6/u);
 assert.match(source, /draft\.step === 1 && !draft\.genreId/u, "every creation mode must choose a topic first");
 assert.doesNotMatch(source, /draft\.mode === "blank" && draft\.step === 1 && !draft\.genreId/u);
@@ -82,18 +82,50 @@ assert.doesNotMatch(
   "story setting and immutable rules must not overwrite each other",
 );
 for (const requiredFamilyStageSurface of [
-  "上場家族",
-  "上場宗門",
-  "上場派系",
-  "四勢力",
+  "陣營／家族／宗門",
+  "題材相符候選",
   "資產控制",
-  "一鍵核准",
+  "選擇這組上場群像",
 ]) {
   assert.ok(
     source.includes(requiredFamilyStageSurface),
     `missing family-stage creation UI contract: ${requiredFamilyStageSurface}`,
   );
 }
+assert.match(source, /data-testid="creation-stage-selection-route"/u);
+assert.match(source, /系統不會代選第一組/u);
+assert.match(source, /data-testid="creation-primary-next"/u);
+assert.match(source, /下一步：選擇上場群像/u);
+assert.doesNotMatch(source, /<span>\{language\}<\/span>/u, "language choices must not expose internal locale codes");
+
+const mergeCoreCastStart = source.indexOf("function mergeCreationCoreCast");
+const mergeCoreCastEnd = source.indexOf("function closedAISeedSource", mergeCoreCastStart);
+const mergeCoreCastSource = source.slice(mergeCoreCastStart, mergeCoreCastEnd);
+assert.ok(mergeCoreCastStart >= 0 && mergeCoreCastEnd > mergeCoreCastStart);
+assert.doesNotMatch(
+  mergeCoreCastSource,
+  /firstFamily|applyStageFamilyToDraft|listTopicWorldFamilyStageCandidates/u,
+  "AI or device fallback must never silently approve the first stage group",
+);
+
+const stageChooserIndex = source.indexOf('data-testid="creation-stage-family-candidates"');
+const worldDetailsIndex = source.indexOf('data-testid="creation-world-foundation-details"');
+assert.ok(stageChooserIndex >= 0, "the topic-matched stage chooser must be rendered");
+assert.ok(worldDetailsIndex > stageChooserIndex, "stage candidates must appear before expandable world details");
+assert.match(source, /data-testid=\{`creation-stage-family-details-/u, "each candidate keeps its long details collapsed");
+assert.match(source, /data-testid="creation-materialization-truth"/u);
+for (const truthField of [
+  "capacity.materializedStageCharacters",
+  "capacity.materializedStageAssets",
+  "capacity.characters",
+  "capacity.treasures",
+  "capacity.relationshipScenarios",
+]) {
+  assert.ok(source.includes(truthField), `creation capacity truth is missing ${truthField}`);
+}
+assert.match(source, /其餘資料未預先建立或載入/u, "virtual procedural capacity must not be presented as materialized records");
+assert.doesNotMatch(source, /宗門、修行家族、散修盟與坊市/u, "generic topics must not receive cultivation-only UI copy");
+assert.doesNotMatch(source, /功法、丹藥、符籙、陣法、法器、靈草、秘境的資產控制/u);
 
 console.log(JSON.stringify({
   ok: true,
@@ -102,4 +134,6 @@ console.log(JSON.stringify({
   supportingCastMinimum: 4,
   canonicalCastField: "answers.cast",
   styledCreationSurfaces: 7,
+  explicitStageSelection: true,
+  materializationTruthVisible: true,
 }, null, 2));

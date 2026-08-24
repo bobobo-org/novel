@@ -2,7 +2,40 @@ export const SOCIAL_MATRIX_SCHEMA_VERSION = "novel-social-matrix-v1" as const;
 
 export type SocialInstitutionKind = "宗門" | "門派" | "世家聯盟" | "商會" | "學宮" | "祕密結社";
 export type SocialRelationshipKind = "血親" | "師徒" | "同門" | "盟友" | "競爭" | "債務" | "救命之恩" | "宿敵" | "監護" | "交易";
-export type SocialPossessionKind = "丹藥" | "藥丸" | "武器" | "符籙" | "陣法" | "特殊機緣" | "祕笈" | "信物";
+export type SocialPossessionKind =
+  | "丹藥"
+  | "藥丸"
+  | "武器"
+  | "符籙"
+  | "陣法"
+  | "特殊機緣"
+  | "祕笈"
+  | "信物"
+  | "合約"
+  | "道具"
+  | "素材"
+  | "設備"
+  | "檔案"
+  | "教材"
+  | "器材"
+  | "文件"
+  | "憑證"
+  | "研究資料"
+  | "數據"
+  | "資源"
+  | "生醫製劑"
+  | "航太模組"
+  | "通行憑證"
+  | "維生系統"
+  | "異星樣本"
+  | "藥材"
+  | "兵器"
+  | "文書"
+  | "印信"
+  | "輿圖"
+  | "工具"
+  | "證物"
+  | "線索";
 
 export type SocialMatrixPortrait = {
   source: "procedural-original-svg";

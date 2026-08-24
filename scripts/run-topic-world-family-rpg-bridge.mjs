@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
+import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import {
   buildDeterministicRpgChatTurnCandidate,
@@ -16,6 +20,18 @@ const draft = createDraft("quick");
 draft.title = "家族宗門正文橋接測試";
 draft.genreId = "classic-topic-009";
 draft.answers.playMode = optionalValue("rpg", "user_defined");
+const stageMatrix = buildTopicWorldFamilyStageMatrix({
+  seed: `novel-project:${draft.projectId}:procedural-v1`,
+  topicId: draft.genreId,
+  playMode: "rpg",
+});
+draft.answers.stageFamily = optionalValue(
+  serializeTopicWorldFamilyDraftSelection({
+    matrix: stageMatrix,
+    familyId: stageMatrix.stageFamilies[0].familyId,
+  }),
+  "user_defined",
+);
 const bundle = buildProjectBundle(draft);
 await repository.createProject(bundle, "family-stage:rpg-bridge");
 

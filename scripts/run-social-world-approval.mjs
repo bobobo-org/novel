@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createDraft, buildProjectBundle } from "../lib/novel-ai/domain/creation.ts";
+import { optionalValue } from "../lib/novel-ai/domain/index.ts";
+import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/index.ts";
 import {
   beginSocialWorldApproval,
@@ -33,6 +38,18 @@ function fixtureBundle(title = "不改變根種子的作品") {
   const draft = createDraft("quick");
   draft.title = title;
   draft.genreId = "classic-topic-001";
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode: "general",
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix: stageMatrix,
+      familyId: stageMatrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
   return buildProjectBundle(draft);
 }
 

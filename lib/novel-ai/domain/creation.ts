@@ -18,9 +18,6 @@ import {
 } from "../game/topic-world-contract";
 import {
   approveTopicWorldFamilyCanonCandidate,
-  buildTopicWorldFamilyStageMatrix,
-  createTopicWorldFamilyCanonCandidate,
-  listTopicWorldFamilyStageCandidates,
   restoreTopicWorldFamilyDraftSelection,
   type ApprovedTopicWorldFamilyCanon,
   type TopicWorldFamilyStageMatrix,
@@ -28,6 +25,7 @@ import {
   type TopicWorldStageMember,
 } from "../game/topic-world-family-stage-matrix";
 import { PROCEDURAL_CAUSAL_DIMENSIONS } from "../game/procedural-story-library";
+import { listProceduralWorldTopics } from "../game/procedural-world-library";
 
 export function createDraft(mode: ProjectCreationDraft["mode"] = "quick"): ProjectCreationDraft {
   const projectId = crypto.randomUUID();
@@ -207,9 +205,23 @@ type ResolvedFamilyStage = {
   matrix: TopicWorldFamilyStageMatrix;
   family: TopicWorldStageFamily;
   approved: ApprovedTopicWorldFamilyCanon;
-  selectionSource: "explicit" | "deterministic-fallback";
+  selectionSource: "explicit";
   selectedProtagonistId: string | null;
 };
+
+const PROCEDURAL_WORLD_TOPIC_ORDINAL_BY_ID = new Map(
+  listProceduralWorldTopics().map(({ topicId, topicOrdinal }) => [topicId, topicOrdinal] as const),
+);
+
+function proceduralWorldTopicOrdinal(topicId: string) {
+  const topicOrdinal = PROCEDURAL_WORLD_TOPIC_ORDINAL_BY_ID.get(topicId);
+  if (topicOrdinal === undefined) {
+    throw Object.assign(new Error(`題材 ${topicId} 尚未建立可重播的世界位址。`), {
+      code: "PROJECT_TOPIC_PROCEDURAL_ADDRESS_NOT_FOUND",
+    });
+  }
+  return topicOrdinal;
+}
 
 function stageFamilySelectionMismatch(detail: string) {
   return Object.assign(
@@ -218,11 +230,20 @@ function stageFamilySelectionMismatch(detail: string) {
   );
 }
 
+function stageFamilySelectionRequired() {
+  return Object.assign(
+    new Error("建立作品前必須明確選擇並核准一組上場家族、宗門或派系。"),
+    { code: "PROJECT_STAGE_FAMILY_REQUIRED" },
+  );
+}
+
 /**
  * A compact stage-family address is replayed before any Domain record is
- * built. This makes an explicit selection all-or-nothing; an old draft with
- * no selection receives the first deterministic candidate at the same topic
- * world address instead of losing its cast.
+ * built. This makes an explicit selection all-or-nothing. New drafts carry a
+ * deferred `stageFamily` answer while waiting for the author, so an empty
+ * answer is rejected rather than silently approving the first candidate.
+ * Drafts created before this field existed must return to the selector. A
+ * missing field is not consent to approve the first generated family.
  */
 function resolveFamilyStage(
   draft: ProjectCreationDraft,
@@ -258,31 +279,7 @@ function resolveFamilyStage(
     };
   }
 
-  const matrix = buildTopicWorldFamilyStageMatrix({
-    seed: baseContract.seed,
-    topicId: baseContract.topicId,
-    playMode: baseContract.playMechanics.mode,
-    worldOrdinal: baseContract.worldOrdinal,
-  });
-  const firstCandidate = listTopicWorldFamilyStageCandidates({ matrix, limit: 1 })[0];
-  if (!firstCandidate) {
-    throw new Error("TOPIC_WORLD_FAMILY_STAGE_FALLBACK_NOT_FOUND");
-  }
-  const canonCandidate = createTopicWorldFamilyCanonCandidate({
-    matrix,
-    familyId: firstCandidate.familyId,
-  });
-  return {
-    matrix,
-    family: firstCandidate.family,
-    approved: approveTopicWorldFamilyCanonCandidate({
-      candidate: canonCandidate,
-      projectId: draft.projectId,
-      approvedBy: "user",
-    }),
-    selectionSource: "deterministic-fallback",
-    selectedProtagonistId: null,
-  };
+  throw stageFamilySelectionRequired();
 }
 
 function stageMemberCharacter(input: {
@@ -444,15 +441,15 @@ function selectedStageProtagonistId(input: {
       (member) => member.stageRole === "男主角候選",
     )?.characterId ?? stageCharacters[0]?.id ?? null;
   }
-  if (familyStage.selectionSource === "explicit" && authoredSupporting.length) {
+  if (authoredSupporting.length) {
     const supportingNames = new Set(authoredSupporting.map((entry) => entry.name));
     const omitted = stageCharacters.filter((character) => !supportingNames.has(character.name));
     if (omitted.length === 1) return omitted[0].id;
   }
-  return familyStage.selectionSource === "explicit"
-    ? familyStage.approved.canonRecords.characters.find((member) => member.stageRole === "男主角候選")
-        ?.characterId ?? stageCharacters[0]?.id ?? null
-    : null;
+  // A supplied name that is not one of the approved family members is an
+  // outside lead. Keep the complete selected family as the ensemble instead
+  // of silently renaming and consuming its first protagonist candidate.
+  return null;
 }
 
 function applyAuthoredStageCast(input: {
@@ -694,7 +691,7 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
     protagonistId: stageProtagonistId,
     protagonistName: requestedProtagonistName,
     protagonistGoal: seed.goal,
-    supporting: familyStage.selectionSource === "explicit" ? authoredSupporting : [],
+    supporting: authoredSupporting,
   });
   const selectedStageProtagonist = stageProtagonistId
     ? stageCharacters.find((character) => character.id === stageProtagonistId) ?? null
@@ -774,7 +771,7 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
       schemaVersion: "procedural-world-profile-v1" as const,
       sourceWorldId: approvedCanon.canonRecords.world.worldId,
       topicId: topicContract.topicId,
-      topicOrdinal: stableNumber(topicContract.topicId) % 218,
+      topicOrdinal: proceduralWorldTopicOrdinal(topicContract.topicId),
       worldOrdinal: topicContract.worldOrdinal,
       relationshipScenarioId: familyStage.matrix.matrixId,
       characterIds: stageCharacters.map((character) => character.id),
@@ -972,6 +969,7 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
       "story.familyStageSelection": familyStage.selectionSource,
       "story.familyStageCandidateId": approvedCanon.candidateId,
       "story.familyStageApprovalId": approvedCanon.approvalId,
+      "story.familyStageApprovedBy": approvedCanon.approvedBy,
       "story.familyStageApproved": approvedCanon.canonicalMutation === 1,
       "story.selectedFamilyId": selectedFamily.familyId,
       "story.selectedFamilyName": selectedFamily.name,

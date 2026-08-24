@@ -6,10 +6,41 @@ import {
   topicWorldContractAt,
 } from "../lib/novel-ai/game/topic-world-contract.ts";
 import {
+  IDENTITY_MECHANISMS,
+  sanitizeVisibleText,
+} from "../lib/novel-ai/game/topic-era-ontology.ts";
+import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import {
   buildProjectBundle,
   createDraft,
 } from "../lib/novel-ai/domain/creation.ts";
 import { optionalValue } from "../lib/novel-ai/domain/index.ts";
+
+const INTERNAL_VISIBLE_CODE = /(?:classic-topic|world|treasure)-[a-z0-9-]+|[・｜|]\s*(?=[A-Z0-9]*\d)[A-Z0-9]{3,8}\s*[・｜|]/iu;
+
+function visibleContractText(contract) {
+  return JSON.stringify({
+    topicName: contract.topicName,
+    eraProfile: contract.eraProfile,
+    displaySummary: contract.displaySummary,
+    canonRules: contract.canonRules,
+    institutions: contract.institutions,
+    assets: contract.assets,
+    playMechanics: contract.playMechanics,
+    sourceSignals: contract.sourceSignals,
+  });
+}
+
+function assertNoVisibleInternalCode(contract, label) {
+  assert.doesNotMatch(
+    visibleContractText(contract),
+    INTERNAL_VISIBLE_CODE,
+    `${label} leaked an internal topic, world, treasure, or base36 code`,
+  );
+}
 
 const topics = listTopicWorldContractTopics();
 assert.equal(topics.length, 218);
@@ -31,6 +62,11 @@ assert.deepEqual(cultivationReplay, cultivation);
 assert.equal(cultivation.schemaVersion, TOPIC_WORLD_CONTRACT_VERSION);
 assert.equal(cultivation.worldFamily, "cultivation");
 assert.equal(cultivation.worldOrdinal, 37);
+assert.equal(cultivation.eraProfile.primaryEra, "timeless-fantasy");
+assert.ok(cultivation.eraProfile.addressTerms.length > 0);
+assert.ok(cultivation.eraProfile.occupations.length > 0);
+assert.ok(cultivation.eraProfile.resourceTypes.length > 0);
+assertNoVisibleInternalCode(cultivation, "cultivation contract");
 assert.ok(cultivation.displaySummary.includes("仙俠修真"));
 assert.ok(cultivation.canonRules.some((rule) => rule.includes(CULTIVATION_REALM_ORDER.join(" → "))));
 for (const realm of ["凡人", "煉氣", "築基", "金丹", "元嬰", "化神", "煉虛", "合體", "大乘", "渡劫"]) {
@@ -83,6 +119,7 @@ for (let worldOrdinal = 0; worldOrdinal < 1_000; worldOrdinal += 1) {
   });
   cultivationContractIds.add(contract.contractId);
   cultivationSettings.add(contract.displaySummary);
+  assertNoVisibleInternalCode(contract, `cultivation world ${worldOrdinal}`);
   assert.doesNotMatch(
     cultivationText,
     /移動城市|質押|公共稽核|公民裁決|跨區交通|基礎設施|交付窗口|現金安全線|供應鏈/u,
@@ -106,6 +143,55 @@ assert.ok(
   "topic-derived contract must use its own subcategory signals",
 );
 assert.ok(!possession.canonRules.some((rule) => rule.includes("煉氣 → 築基")));
+assertNoVisibleInternalCode(possession, "identity contract");
+
+const identityMechanisms = new Set();
+for (let worldOrdinal = 0; worldOrdinal < IDENTITY_MECHANISMS.length; worldOrdinal += 1) {
+  const contract = topicWorldContractAt({
+    seed: "identity-mechanisms",
+    topicId: "classic-topic-001",
+    playMode: "general",
+    worldOrdinal,
+  });
+  identityMechanisms.add(contract.eraProfile.identityOverlay?.mechanism);
+}
+assert.equal(identityMechanisms.size, IDENTITY_MECHANISMS.length);
+
+for (const [worldOrdinal, contextLabel, institutionType, primaryEra] of [
+  [0, "校園社群", "學校", "contemporary"],
+  [5, "企業職場", "企業", "contemporary"],
+  [10, "成人影視產業", "成人影視製作公司", "contemporary"],
+  [15, "歷史宮廷", "朝廷", "historical"],
+  [20, "修行世界", "正道宗門", "timeless-fantasy"],
+]) {
+  const contract = topicWorldContractAt({
+    seed: `identity-context-${worldOrdinal}`,
+    topicId: "classic-topic-001",
+    playMode: "general",
+    worldOrdinal,
+  });
+  assert.equal(contract.worldFamily, "topic-derived");
+  assert.equal(contract.eraProfile.identityOverlay?.contextLabel, contextLabel);
+  assert.equal(contract.eraProfile.primaryEra, primaryEra);
+  assert.ok(contract.eraProfile.institutionTypes.includes(institutionType));
+  assertNoVisibleInternalCode(contract, `identity context ${contextLabel}`);
+  if (["校園社群", "企業職場"].includes(contextLabel)) {
+    assert.doesNotMatch(visibleContractText(contract), /煉氣|築基|宗門|靈草|法器/u);
+  }
+}
+
+const adultIdentity = topicWorldContractAt({
+  seed: "adult-identity-boundary",
+  topicId: "classic-topic-001",
+  playMode: "general",
+  worldOrdinal: 10,
+});
+assert.equal(adultIdentity.eraProfile.contentBoundary.audience, "adult");
+assert.equal(adultIdentity.eraProfile.contentBoundary.originalCharactersOnly, true);
+assert.equal(adultIdentity.eraProfile.contentBoundary.consentRequired, true);
+assert.equal(adultIdentity.eraProfile.contentBoundary.nonExplicit, true);
+assert.match(adultIdentity.eraProfile.contentBoundary.rules.join("｜"), /撤回/u);
+assert.match(adultIdentity.eraProfile.contentBoundary.rules.join("｜"), /隱私/u);
 
 // Every official classic topic has a compact replayable contract that carries
 // topic-specific data instead of merely swapping the displayed topic name.
@@ -123,7 +209,15 @@ for (const topic of topics) {
   assert.ok(contract.canonRules.length >= 5);
   assert.ok(contract.institutions.length >= 4);
   assert.ok(contract.assets.length >= 4);
-  const sourceTerms = [...topic.tags, ...topic.subCategories, ...topic.recommendedWorlds];
+  assert.ok(contract.eraProfile.premise.length > 0);
+  assert.ok(contract.eraProfile.settingTags.length > 0);
+  assert.ok(contract.eraProfile.addressTerms.length > 0);
+  assert.ok(contract.eraProfile.occupations.length > 0);
+  assert.ok(contract.eraProfile.contentBoundary.rules.length > 0);
+  assertNoVisibleInternalCode(contract, topic.topicId);
+  const sourceTerms = [...topic.tags, ...topic.subCategories, ...topic.recommendedWorlds]
+    .map(sanitizeVisibleText)
+    .filter(Boolean);
   assert.ok(
     sourceTerms.some((term) => [
       contract.displaySummary,
@@ -183,6 +277,18 @@ cultivationDraft.answers.worldRule = optionalValue(
   "靈氣衰竭後，各宗門與修行家族爭奪殘存靈脈。",
   "user_defined",
 );
+const cultivationStageMatrix = buildTopicWorldFamilyStageMatrix({
+  seed: `novel-project:${cultivationDraft.projectId}:procedural-v1`,
+  topicId: cultivationDraft.genreId,
+  playMode: "rpg",
+});
+cultivationDraft.answers.stageFamily = optionalValue(
+  serializeTopicWorldFamilyDraftSelection({
+    matrix: cultivationStageMatrix,
+    familyId: cultivationStageMatrix.stageFamilies[0].familyId,
+  }),
+  "user_defined",
+);
 const cultivationBundle = buildProjectBundle(cultivationDraft);
 assert.equal(cultivationBundle.cast?.length, 6);
 assert.equal(cultivationBundle.relationships?.length, 8);
@@ -231,13 +337,14 @@ const explicitLegacyCultivationDraft = createDraft("legacy");
 explicitLegacyCultivationDraft.title = "已有正式修仙題材的舊作";
 explicitLegacyCultivationDraft.genreId = "classic-topic-009";
 explicitLegacyCultivationDraft.protagonist = optionalValue("舊作修士", "user_defined");
-const explicitLegacyCultivationBundle = buildProjectBundle(explicitLegacyCultivationDraft);
-assert.equal(explicitLegacyCultivationBundle.project.genreId, "classic-topic-009");
-assert.equal(explicitLegacyCultivationBundle.storyState.worldFlags["story.worldFamily"], "cultivation");
-assert.equal(explicitLegacyCultivationBundle.storyState.worldFlags["story.familyStageApproved"], true);
-assert.equal(explicitLegacyCultivationBundle.cast?.length, 6);
-assert.equal(explicitLegacyCultivationBundle.lore?.filter((entry) => entry.kind === "item").length, 8);
-assert.equal(explicitLegacyCultivationBundle.storyState.worldFlags["story.topicSelectionPending"], undefined);
+delete explicitLegacyCultivationDraft.answers.stageFamily;
+assert.throws(
+  () => buildProjectBundle(explicitLegacyCultivationDraft),
+  (error) => (
+    error?.code === "PROJECT_STAGE_FAMILY_REQUIRED"
+    && /明確選擇並核准/u.test(error.message)
+  ),
+);
 
 assert.throws(
   () => topicWorldContractAt({ seed: "", topicId: "classic-topic-009", playMode: "general" }),
@@ -258,5 +365,7 @@ console.log(JSON.stringify({
   topics: topics.length,
   cultivationWorlds: cultivationSettings.size,
   cultivationRealms: CULTIVATION_REALM_ORDER.length,
+  identityMechanisms: identityMechanisms.size,
+  identityContexts: 5,
   playModes: Object.keys(mechanics),
 }, null, 2));
