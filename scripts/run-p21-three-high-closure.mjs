@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
+import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 import { createProjectBackup, validateBackupPayload } from "../lib/novel-ai/repository/backup.ts";
 import { migrateLegacyStudioProjects } from "../lib/novel-ai/repository/migration/legacy-studio-migration.ts";
 import { resolveCapabilityCatalog, capabilityStatus } from "../lib/novel-ai/capabilities/index.ts";
@@ -19,7 +23,26 @@ async function test(name, work) {
   catch (error) { results.push({ name, status: "FAIL", elapsedMs: Math.round(performance.now() - started), error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }); }
 }
 const effect = (delta = 3) => ({ statChanges: { reputation: delta }, relationshipChanges: {}, resourceChanges: {}, moneyChange: 0, worldFlags: {}, questProgress: {}, achievementProgress: {}, timelineEvents: ["choice"] });
-function draft(title) { const value = createDraft("quick"); value.title = title; value.genreId = "classic-topic-002"; value.coreIdea = optionalValue("A choice changes the city.", "user_defined"); value.protagonist = optionalValue("Lin Zhao", "user_defined"); return value; }
+function draft(title) {
+  const value = createDraft("quick");
+  value.title = title;
+  value.genreId = "classic-topic-002";
+  value.coreIdea = optionalValue("A choice changes the city.", "user_defined");
+  value.protagonist = optionalValue("Lin Zhao", "user_defined");
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${value.projectId}:procedural-v1`,
+    topicId: value.genreId,
+    playMode: "general",
+  });
+  value.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix: stageMatrix,
+      familyId: stageMatrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
+  return value;
+}
 async function fixture(label = "fixture") {
   const repository = new MemoryNovelRepository(), bundle = buildProjectBundle(draft(label));
   await repository.createProject(bundle, `create:${label}`);

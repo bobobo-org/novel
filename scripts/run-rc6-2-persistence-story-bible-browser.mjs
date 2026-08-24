@@ -84,17 +84,30 @@ async function createProject(page, title) {
   await page.getByTestId("create-play-mode-general").click();
   await page.locator('[data-topic-id="classic-topic-002"]').click();
   await page.getByTestId("create-ai-story-seed").click();
-  for (let step = 0; step < 4; step += 1) {
-    const action = page.locator(".p2CreatePanel > footer button.gold");
-    await action.waitFor();
-    const label = (await action.textContent()) ?? "";
-    await action.click();
-    if (label.includes("建立") && label.includes("作品")) {
-      await page.locator(".p2CreateSuccess").waitFor({ timeout: 30_000 });
-      break;
-    }
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-testid="create-ai-story-seed"]');
+    const status = document.querySelector('[data-testid="create-ai-story-seed-status"]');
+    return Boolean(button && !button.hasAttribute("disabled") && status?.textContent?.trim());
+  }, undefined, { timeout: 90_000 });
+
+  const stepBar = page.locator(".p2StepBar");
+  const next = page.locator(".p2CreatePanel > footer button.gold");
+  for (let expectedStep = 2; expectedStep <= 3; expectedStep += 1) {
+    const previous = await stepBar.getAttribute("aria-label");
+    await next.click();
+    await page.waitForFunction(
+      ({ selector, previous }) => document.querySelector(selector)?.getAttribute("aria-label") !== previous,
+      { selector: ".p2StepBar", previous },
+    );
+    assert.match(await stepBar.getAttribute("aria-label") ?? "", new RegExp(String(expectedStep), "u"));
   }
-  await page.locator(".p2CreateSuccess").waitFor({ timeout: 30_000 });
+
+  const familyCandidates = page.getByTestId("creation-stage-family-candidates");
+  await familyCandidates.waitFor({ state: "visible" });
+  await familyCandidates.getByRole("button", { name: /選擇這組上場群像/u }).first().click();
+  await page.locator(".p2FoundationReady").waitFor({ state: "visible" });
+  await next.click();
+  await page.locator(".p2CreateSuccess").waitFor({ timeout: 90_000 });
   const href = await page.locator('.p2CreateSuccess a[href*="/chat"]').first().getAttribute("href");
   const projectId = href?.match(/\/studio\/project\/([^/]+)\/chat/u)?.[1] ?? "";
   assert.ok(projectId, `PROJECT_ID_MISSING:${href}`);

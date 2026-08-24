@@ -8,6 +8,10 @@ import {
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { applyStoryChoiceEffect } from "../lib/novel-ai/game/effects/index.ts";
 import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import {
   CULTIVATION_REALM_CATALOG_V3,
   MINGTAN_PRESET_ID,
   RPG_RESOURCE_CATALOG_V3,
@@ -72,6 +76,19 @@ function fixtureDraft(title) {
   draft.genreId = "classic-topic-009";
   draft.coreIdea = optionalValue("明檀必須在敵對宗門環伺下重建傳承。", "user_defined");
   draft.protagonist = optionalValue("明檀", "user_defined");
+  draft.answers.playMode = optionalValue("rpg", "user_defined");
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode: "rpg",
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix: stageMatrix,
+      familyId: stageMatrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
   return draft;
 }
 

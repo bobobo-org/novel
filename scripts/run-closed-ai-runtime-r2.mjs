@@ -52,6 +52,10 @@ import {
 } from "../lib/novel-ai/domain/creation.ts";
 import { optionalValue } from "../lib/novel-ai/domain/common.ts";
 import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import {
   composeProjectContext,
 } from "../lib/novel-ai/web/project-context-composer.ts";
 
@@ -1045,6 +1049,18 @@ test("project-context-composer", "composer includes canonical project layers and
   draft.title = "Runtime R2 Project";
   draft.genreId = "classic-topic-002";
   draft.protagonist = optionalValue("Runtime R2 Protagonist", "user_defined");
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode: "general",
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix: stageMatrix,
+      familyId: stageMatrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
   const bundle = buildProjectBundle(draft);
   await repository.createProject(bundle, "context-r2-create");
   const now = new Date().toISOString();
