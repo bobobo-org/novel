@@ -11,6 +11,10 @@ import {
   createDraft,
 } from "../lib/novel-ai/domain/creation.ts";
 import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import {
   CONVERSATION_STORES,
   NOVEL_STORES,
 } from "../lib/novel-ai/repository/contracts/index.ts";
@@ -643,6 +647,18 @@ function rpgFixtureDraft(title) {
   draft.genreId = "classic-topic-002";
   draft.coreIdea = optionalValue("A conversation choice changes the city.", "user_defined");
   draft.protagonist = optionalValue("Lin Zhao", "user_defined");
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode: "general",
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix: stageMatrix,
+      familyId: stageMatrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
   return draft;
 }
 

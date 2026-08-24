@@ -13,6 +13,10 @@ import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-
 import { IndexedDbNovelRepository } from "../lib/novel-ai/repository/indexeddb/indexeddb-repository.ts";
 import { createProjectBackup } from "../lib/novel-ai/repository/backup.ts";
 import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import {
   PROJECT_PLAYMODE_CLONE_VERSION,
   ProjectCloneSourceError,
   buildProjectPlaymodeCloneDraft,
@@ -24,6 +28,21 @@ const checks = [];
 const check = (name, condition) => {
   assert.equal(Boolean(condition), true, name);
   checks.push(name);
+};
+
+const selectStageFamily = (draft, playMode) => {
+  const matrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode,
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix,
+      familyId: matrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
 };
 
 const sourceDraft = createDraft("quick");
@@ -39,6 +58,7 @@ sourceDraft.answers.language = optionalValue("zh-TW", "user_defined");
 sourceDraft.answers.worldRule = optionalValue("每一次承諾都會改變資源。", "user_defined");
 sourceDraft.answers.conflict = optionalValue("主角必須在守信與救人之間取捨。", "user_defined");
 sourceDraft.answers.opening = optionalValue("失蹤者留下明日才會寄出的信。", "user_defined");
+selectStageFamily(sourceDraft, "management");
 
 const repository = new MemoryNovelRepository();
 const sourceBundle = buildProjectBundle(sourceDraft);
@@ -83,6 +103,7 @@ check("source project cannot masquerade as clone draft", !isCurrentProjectPlaymo
 clone.draft.title = "來源作品：RPG 支線";
 clone.draft.answers.playStructure = optionalValue("choice", "user_defined");
 clone.draft.answers.playMode = optionalValue("rpg", "user_defined");
+selectStageFamily(clone.draft, "rpg");
 const targetBundle = buildProjectBundle(clone.draft);
 check("confirmed target play mode is independent", targetBundle.storyState.worldFlags["story.playMode"] === "rpg");
 check("new StoryState retains local lineage", targetBundle.storyState.worldFlags["story.cloneFromProjectId"] === sourceBundle.project.id);
@@ -124,6 +145,7 @@ indexedSourceDraft.answers.playStructure = optionalValue("general", "user_define
 indexedSourceDraft.answers.worldRule = optionalValue("來源必須可由新 repository 讀取。", "user_defined");
 indexedSourceDraft.answers.conflict = optionalValue("跨路由讀取失敗。", "user_defined");
 indexedSourceDraft.answers.opening = optionalValue("建立成功後切換 cloneFrom。", "user_defined");
+selectStageFamily(indexedSourceDraft, "general");
 const indexedSourceBundle = buildProjectBundle(indexedSourceDraft);
 const indexedCreateRepository = new IndexedDbNovelRepository();
 await indexedCreateRepository.createProject(indexedSourceBundle, "create:indexed-clone-source");

@@ -3,6 +3,10 @@ import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import {
   STORY_ENDING_CONTRACT_VERSION,
   STORY_POST_ENDING_ACTIONS,
   evaluateStoryEnding,
@@ -115,6 +119,18 @@ for (const playMode of scenarios) {
   draft.protagonist = optionalValue("林澄", "user_defined");
   draft.coreIdea = optionalValue("林澄必須在封鎖完成前查明密訊來源，並保住蘇錦魚的選擇權。", "user_defined");
   draft.answers.playMode = optionalValue(playMode, "user_defined");
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode,
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix: stageMatrix,
+      familyId: stageMatrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
   const bundle = buildProjectBundle(draft);
   await repository.createProject(bundle, `arc-closure:${playMode}`);
   const chapter = await repository.put("chapters", {

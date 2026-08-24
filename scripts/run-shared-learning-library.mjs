@@ -4,6 +4,10 @@ import { IDBKeyRange as FakeIDBKeyRange, indexedDB as fakeIndexedDB } from "fake
 import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { resolveRpgChoice } from "../lib/novel-ai/game/progression/rpg-progression.ts";
+import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 import { ConversationRepositoryService } from "../lib/novel-ai/conversation/repository.ts";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "../lib/novel-ai/conversation/tool-registry.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
@@ -476,6 +480,18 @@ draft.title = "核准按鈕回歸測試";
 draft.genreId = "classic-topic-009";
 draft.coreIdea = optionalValue("主角必須在對手逼近前守住傳承並查清失蹤線索。", "user_defined");
 draft.protagonist = optionalValue("明檀", "user_defined");
+const stageMatrix = buildTopicWorldFamilyStageMatrix({
+  seed: `novel-project:${draft.projectId}:procedural-v1`,
+  topicId: draft.genreId,
+  playMode: "general",
+});
+draft.answers.stageFamily = optionalValue(
+  serializeTopicWorldFamilyDraftSelection({
+    matrix: stageMatrix,
+    familyId: stageMatrix.stageFamilies[0].familyId,
+  }),
+  "user_defined",
+);
 const bundle = buildProjectBundle(draft);
 await novelRepository.createProject(bundle, "create:approval-regression");
 const chapter = await novelRepository.put("chapters", {

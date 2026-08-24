@@ -3,6 +3,10 @@ import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import {
   approveRpgChatTurn,
   buildDeterministicRpgChatTurnCandidate,
   buildRpgRuleChoicePlan,
@@ -28,6 +32,18 @@ for (const scenario of scenarios) {
   draft.protagonist = optionalValue("林澄", "user_defined");
   draft.coreIdea = optionalValue("林澄必須在夥伴離去前守住瀕危事業與彼此的承諾。", "user_defined");
   draft.answers.playMode = optionalValue(scenario.playMode, "user_defined");
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode: scenario.playMode,
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix: stageMatrix,
+      familyId: stageMatrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
   const bundle = buildProjectBundle(draft);
   assert.ok(bundle.cast.length >= 4, `${scenario.playMode}: auto-family must provide at least four supporting characters`);
   const stageCompanionName = bundle.cast[0]?.name;
