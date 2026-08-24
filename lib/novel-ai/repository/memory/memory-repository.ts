@@ -93,7 +93,21 @@ export class MemoryNovelRepository implements NovelRepository {
   async createProject(bundle: ProjectBundle, requestId: string) {
     const replay = this.requests.get(requestId); if (replay) return structuredClone(replay);
     if (await this.get("projects", bundle.project.id)) throw new Error("PROJECT_ALREADY_EXISTS");
-    const writes: Array<[NovelStoreName, DomainRecord | null]> = [["projects",bundle.project],["projectSeeds",bundle.seed],["storyBibles",bundle.storyBible],["characters",bundle.protagonist],["worlds",bundle.world],["storyStates",bundle.storyState],["tasks",bundle.initialTask],["readerStates",bundle.readerState],["backups",bundle.initialBackup]];
+    const writes: Array<[NovelStoreName, DomainRecord | null]> = [
+      ["projects", bundle.project],
+      ["projectSeeds", bundle.seed],
+      ["storyBibles", bundle.storyBible],
+      ["characters", bundle.protagonist],
+      ...(bundle.cast ?? []).map((record) => ["characters", record] as [NovelStoreName, DomainRecord]),
+      ...(bundle.relationships ?? []).map((record) => ["relationships", record] as [NovelStoreName, DomainRecord]),
+      ["worlds", bundle.world],
+      ...(bundle.worldRules ?? []).map((record) => ["worldRules", record] as [NovelStoreName, DomainRecord]),
+      ...(bundle.lore ?? []).map((record) => ["lore", record] as [NovelStoreName, DomainRecord]),
+      ["storyStates", bundle.storyState],
+      ["tasks", bundle.initialTask],
+      ["readerStates", bundle.readerState],
+      ["backups", bundle.initialBackup],
+    ];
     for (const [store, record] of writes) if (record) await this.put(store, record);
     this.requests.set(requestId, structuredClone(bundle)); return structuredClone(bundle);
   }

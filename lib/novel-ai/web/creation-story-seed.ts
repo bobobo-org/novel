@@ -116,12 +116,16 @@ export function creationStorySeedPrompt(input: {
     input.existing.conflict.value ? `已有衝突：${input.existing.conflict.value}` : "",
     input.existing.opening.value ? `已有開場：${input.existing.opening.value}` : "",
   ].filter(Boolean).join("\n");
+  const topicWorldInstruction = /仙俠|修仙|修真|玄幻/u.test(input.topic ?? "")
+    ? "此題材的世界設定必須明確規範境界階梯（凡人、煉氣、築基、金丹、元嬰、化神、煉虛、合體、大乘、渡劫）、宗門與修行家族，以及丹藥、符籙、陣法、武器／法器、靈草與秘境機緣如何取得和付出代價。"
+    : "世界設定必須具體交代此題材獨有的身分階序、主要組織、稀缺資源、能力或職業規則，以及違反規則的可追蹤代價；不要只寫通用奇幻背景。";
   return [
     "你是閉端 AI 自動協調器的故事起點編劇。請產生一份具體、可修改、彼此因果一致的原創故事雛形。",
     `作品名稱：${input.title}`,
     `玩法：${input.playModeLabel}`,
     `題材：${input.topic ?? "由作品名稱與已有設定推斷"}`,
     languageInstruction,
+    topicWorldInstruction,
     existing,
     "不得覆寫、否定或改名已有設定；請補足空白並讓新內容與它們一致。",
     "只輸出一個 JSON 物件，不要 Markdown、解說或前後文字。必須恰有以下五個頂層欄位與完整子欄位：",
@@ -170,7 +174,7 @@ export function mergeCreationStorySeed(
     opposition: keepOrSuggest(current.opposition, suggestion.opposition, source),
     opening: keepOrSuggest(current.opening, suggestion.opening, source),
   };
-  const answer = (key: "story" | "protagonist" | "goal" | "conflict" | "worldRule" | "opening", value: string) => {
+  const answer = (key: "story" | "protagonist" | "goal" | "conflict" | "world" | "worldRule" | "opening", value: string) => {
     const present = draft.answers[key];
     return present?.value?.trim() ? present : suggestedValue(value, source);
   };
@@ -188,7 +192,8 @@ export function mergeCreationStorySeed(
       protagonist: answer("protagonist", suggestion.protagonist),
       goal: answer("goal", suggestion.goal),
       conflict: answer("conflict", suggestion.conflict),
-      worldRule: answer("worldRule", suggestion.worldRule || suggestion.world),
+      world: answer("world", suggestion.world),
+      worldRule: answer("worldRule", suggestion.worldRule),
       opening: answer("opening", suggestion.opening),
     },
     seedCandidate,

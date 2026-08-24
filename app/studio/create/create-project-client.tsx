@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   STORY_LIBRARY,
@@ -17,6 +18,19 @@ import {
   STORY_PLAY_MODE_LABELS,
   type StoryPlayModeId,
 } from "@/lib/novel-ai/domain/play-mode";
+import {
+  topicWorldContractAt,
+  type TopicWorldPlayMode,
+} from "@/lib/novel-ai/game/topic-world-contract";
+import {
+  buildTopicWorldFamilyStageMatrix,
+  listTopicWorldFamilyStageCandidates,
+  restoreTopicWorldFamilyDraftSelection,
+  serializeTopicWorldFamilyDraftSelection,
+  type TopicWorldFamilyStageMatrix,
+  type TopicWorldStageFamily,
+  type TopicWorldStageMember,
+} from "@/lib/novel-ai/game/topic-world-family-stage-matrix";
 import {
   makeRecord,
   optionalValue,
@@ -44,7 +58,7 @@ import {
   parseCreationStorySeed,
   type CreationStorySeed,
 } from "@/lib/novel-ai/web/creation-story-seed";
-import { runStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import { runStudioPreCreationClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
 import PersistenceRecoveryNotice from "../persistence-recovery-notice";
 
 const DRAFT_KEY = "novel_p2_creation_draft";
@@ -61,9 +75,9 @@ const questions = [
     choices: ["一段改變命運的冒險", "一場人物關係的考驗", "一個逐步揭開的謎團"],
   },
   {
-    key: "protagonist",
-    title: "故事跟著誰前進？",
-    choices: ["林知微｜冷靜但害怕再次失去", "沈星河｜勇敢但容易獨自承擔", "江離｜敏銳但不輕易相信別人"],
+    key: "familyIntent",
+    title: "哪一種家族／宗門／派系會走上舞台？",
+    choices: ["守成家族｜想保住傳承，內部卻有人要求改革", "新興派系｜想打破舊秩序，但資源與名分不足", "邊緣盟族｜同時受兩方拉攏，必須選擇代價"],
   },
   {
     key: "conflict",
@@ -72,7 +86,7 @@ const questions = [
   },
   {
     key: "worldRule",
-    title: "故事舞台最重要的規則是什麼？",
+    title: "這個世界不可違背的規則是什麼？",
     choices: ["每次獲得力量都必須付出代價", "真相只能由行動證明", "平凡秩序下藏著另一套會回應選擇的規則"],
   },
   {
@@ -107,6 +121,229 @@ const proceduralOpenings = [
   "一場不該失敗的儀式成功了，代價卻落在完全無關的人身上。",
   "城門關閉前最後一位旅人，帶來了主角已親手銷毀的證據。",
 ];
+
+const MIN_SUPPORTING_CAST = 4;
+
+const SUPPORTING_CAST_ROLES = [
+  {
+    role: "companion",
+    roleLabel: "核心同行者",
+    relationship: "與主角互補，也敢在主角冒進時提出反對",
+  },
+  {
+    role: "opposition",
+    roleLabel: "對立者",
+    relationship: "與主角追求互相衝突的結果，但有自己想守住的事物",
+  },
+  {
+    role: "catalyst",
+    roleLabel: "事件推動者",
+    relationship: "掌握關鍵消息或資源，會主動改變第一幕局面",
+  },
+  {
+    role: "witness",
+    roleLabel: "關鍵見證者",
+    relationship: "知道部分真相，是否開口會改變眾人對主角的判斷",
+  },
+] as const;
+
+const TOPIC_SEARCH_ALIASES: Record<string, string[]> = {
+  "classic-topic-001": [
+    "附身變身（男變女／女變男／靈魂交換）",
+    "男變女",
+    "女變男",
+    "靈魂交換",
+  ],
+};
+
+function normalizeTopicSearch(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-TW")
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function topicDisplayName(topicId: string, name: string) {
+  return topicId === "classic-topic-001"
+    ? "附身變身（男變女／女變男／靈魂交換）"
+    : name;
+}
+
+function topicMatchesSearch(topic: ReturnType<typeof listStoryTopics>[number], query: string) {
+  const normalizedQuery = normalizeTopicSearch(query);
+  if (!normalizedQuery) return true;
+  const haystack = normalizeTopicSearch([
+    topicDisplayName(topic.topicId, topic.name),
+    topic.description,
+    ...topic.subCategories,
+    ...topic.tags,
+    ...topic.legacyAliases,
+    ...(TOPIC_SEARCH_ALIASES[topic.topicId] ?? []),
+  ].join(" "));
+  return haystack.includes(normalizedQuery);
+}
+
+type CoreCastRole = "protagonist" | "companion" | "opposition" | "catalyst" | "witness" | `supporting-${number}`;
+
+type CoreCastEntry = {
+  role: CoreCastRole;
+  roleLabel: string;
+  value: string;
+  name: string;
+  relationship: string;
+  goal: string;
+  description: string;
+  complete: boolean;
+};
+
+function splitProtagonist(value: string) {
+  const [rawName, ...details] = value.split(/[｜|]/u).map((item) => item.trim()).filter(Boolean);
+  return {
+    name: rawName || "尚未設定",
+    description: details.join("｜"),
+  };
+}
+
+function supportingRoleOf(roleLabel: string, index: number): CoreCastRole {
+  if (roleLabel.includes("同行") || roleLabel.includes("夥伴")) return "companion";
+  if (roleLabel.includes("對立") || roleLabel.includes("反派")) return "opposition";
+  if (roleLabel.includes("推動") || roleLabel.includes("引路")) return "catalyst";
+  if (roleLabel.includes("見證") || roleLabel.includes("證人")) return "witness";
+  return `supporting-${index}`;
+}
+
+function parseSupportingCast(value: string | null | undefined): CoreCastEntry[] {
+  return (value ?? "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const [name = "", roleLabel = "", relationship = "", ...goalParts] = line
+        .split(/[｜|]/u)
+        .map((item) => item.trim());
+      const goal = goalParts.join("｜").trim();
+      return {
+        role: supportingRoleOf(roleLabel, index),
+        roleLabel,
+        value: line,
+        name,
+        relationship,
+        goal,
+        description: [relationship, goal].filter(Boolean).join("；"),
+        complete: Boolean(name && roleLabel && relationship && goal),
+      };
+    });
+}
+
+function serializeSupportingCast(entries: Array<Pick<CoreCastEntry, "name" | "roleLabel" | "relationship" | "goal">>) {
+  return entries
+    .map((entry) => [entry.name, entry.roleLabel, entry.relationship, entry.goal].join("｜"))
+    .join("\n");
+}
+
+function supportingCastOf(draft: ProjectCreationDraft) {
+  return parseSupportingCast(draft.answers.cast?.value);
+}
+
+function supportingCastSlotsOf(draft: ProjectCreationDraft) {
+  const entries = supportingCastOf(draft);
+  const assigned = new Set<number>();
+  const requiredSlots = SUPPORTING_CAST_ROLES.map((template) => {
+    const exactIndex = entries.findIndex((entry, index) => !assigned.has(index) && entry.role === template.role);
+    const fallbackIndex = entries.findIndex((_, index) => !assigned.has(index));
+    const sourceIndex = exactIndex >= 0 ? exactIndex : fallbackIndex;
+    if (sourceIndex >= 0) assigned.add(sourceIndex);
+    const entry = sourceIndex >= 0 ? entries[sourceIndex] : null;
+    return {
+      role: template.role,
+      roleLabel: entry?.roleLabel || template.roleLabel,
+      value: entry?.value || "",
+      name: entry?.name || "",
+      relationship: entry?.relationship || "",
+      goal: entry?.goal || "",
+      description: entry?.description || "",
+      complete: entry?.complete ?? false,
+    } satisfies CoreCastEntry;
+  });
+  const additionalFamilyMembers = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ index }) => !assigned.has(index))
+    .map(({ entry }, index) => ({
+      ...entry,
+      role: `supporting-${SUPPORTING_CAST_ROLES.length + index}` as const,
+    }));
+  return [...requiredSlots, ...additionalFamilyMembers];
+}
+
+function coreCastOf(draft: ProjectCreationDraft, seed = draft.seedCandidate ?? buildSeedCandidate(draft)): CoreCastEntry[] {
+  const protagonistValue = seed.protagonist.value?.trim()
+    || draft.protagonist.value?.trim()
+    || draft.answers.protagonist?.value?.trim()
+    || "";
+  const protagonist = splitProtagonist(protagonistValue);
+  return [
+    {
+      role: "protagonist",
+      roleLabel: "主角",
+      value: protagonistValue,
+      name: protagonist.name,
+      relationship: "作品主要視角與決策者",
+      goal: seed.goal.value?.trim() || protagonist.description,
+      description: protagonist.description,
+      complete: Boolean(protagonistValue),
+    },
+    ...supportingCastSlotsOf(draft),
+  ];
+}
+
+function enrichedSeedFromDraft(draft: ProjectCreationDraft, seed = draft.seedCandidate ?? buildSeedCandidate(draft)): ProjectSeed {
+  const cast = coreCastOf(draft, seed);
+  const protagonist = cast.find((entry) => entry.role === "protagonist")!;
+  const opposition = cast.find((entry) => entry.role === "opposition");
+  const topicContract = topicContractForCreationDraft(draft);
+  const world = draft.answers.world?.value?.trim()
+    || seed.world.value?.trim()
+    || topicContract?.displaySummary
+    || "";
+  const worldRule = draft.answers.worldRule?.value?.trim() || "";
+  const contractRules = topicContract?.canonRules.join("\n") || "";
+  const castDirections = cast
+    .filter((entry) => entry.complete)
+    .map((entry) => entry.role === "protagonist"
+      ? `核心陣容｜主角：${entry.value}`
+      : `核心陣容｜${entry.name}｜${entry.roleLabel}｜${entry.relationship}｜${entry.goal}`);
+  return {
+    ...seed,
+    protagonist: protagonist.value
+      ? optionalValue(protagonist.name, seed.protagonist.status === "ai_suggested" ? "ai_suggested" : "user_defined")
+      : seed.protagonist,
+    world: world
+      ? optionalValue(
+          world,
+          draft.answers.world?.value
+            ? draft.answers.world.status === "ai_suggested" ? "ai_suggested" : "user_defined"
+            : seed.world.value
+              ? seed.world.status
+              : "inferred",
+        )
+      : seed.world,
+    worldRule: worldRule || contractRules
+      ? optionalValue(
+          worldRule || contractRules,
+          worldRule
+            ? draft.answers.worldRule?.status === "ai_suggested" ? "ai_suggested" : "user_defined"
+            : "inferred",
+        )
+      : seed.worldRule,
+    opposition: opposition?.complete
+      ? optionalValue(`${opposition.name}｜${opposition.relationship}｜${opposition.goal}`, draft.answers.cast?.status === "ai_suggested" ? "ai_suggested" : "user_defined")
+      : seed.opposition,
+    directions: [
+      ...seed.directions.filter((item) => !item.startsWith("核心陣容｜")),
+      ...castDirections,
+    ],
+  };
+}
 
 type CandidatePayload = {
   logline?: string;
@@ -159,6 +396,133 @@ function playModeOf(draft: ProjectCreationDraft) {
   return mode === "interactive" ? null : mode;
 }
 
+function topicContractForCreationDraft(draft: ProjectCreationDraft) {
+  const topic = resolveStoryTopic(draft.genreId);
+  const playMode = playModeOf(draft);
+  if (!topic || !playMode) return null;
+  const contractMode: TopicWorldPlayMode = playMode === "rpg"
+    || playMode === "romance"
+    || playMode === "management"
+    ? playMode
+    : "general";
+  return topicWorldContractAt({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: topic.topicId,
+    playMode: contractMode,
+  });
+}
+
+function topicWorldFamilyMatrixForCreationDraft(draft: ProjectCreationDraft) {
+  const topic = resolveStoryTopic(draft.genreId);
+  const playMode = playModeOf(draft);
+  if (!topic || !playMode) return null;
+  const matrixMode: TopicWorldPlayMode = playMode === "rpg"
+    || playMode === "romance"
+    || playMode === "management"
+    ? playMode
+    : "general";
+  return buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: topic.topicId,
+    playMode: matrixMode,
+  });
+}
+
+function restoredStageFamilyForDraft(
+  draft: ProjectCreationDraft,
+  expectedMatrix?: TopicWorldFamilyStageMatrix | null,
+) {
+  const serialized = draft.answers.stageFamily?.value?.trim();
+  if (!serialized) return null;
+  try {
+    const restored = restoreTopicWorldFamilyDraftSelection(serialized);
+    if (expectedMatrix && restored.matrix.matrixId !== expectedMatrix.matrixId) return null;
+    return restored;
+  } catch {
+    return null;
+  }
+}
+
+function relationshipDescription(
+  family: TopicWorldStageFamily,
+  member: TopicWorldStageMember,
+  protagonist: TopicWorldStageMember,
+) {
+  const relationship = family.relationships.find((entry) => (
+    entry.sourceCharacterId === member.characterId && entry.targetCharacterId === protagonist.characterId
+  ) || (
+    entry.targetCharacterId === member.characterId && entry.sourceCharacterId === protagonist.characterId
+  ));
+  if (!relationship) return `${family.name}的${member.familyRole}，與${protagonist.name}共同承擔家族局勢`;
+  return `${family.name}的${member.familyRole}；與${protagonist.name}是${relationship.kind}，信任 ${relationship.trust}／張力 ${relationship.tension}；${relationship.historyHook}`;
+}
+
+function applyStageFamilyToDraft(
+  draft: ProjectCreationDraft,
+  matrix: TopicWorldFamilyStageMatrix,
+  familyId: string,
+  preferredCharacterId?: string,
+) {
+  const family = matrix.stageFamilies.find((entry) => entry.familyId === familyId);
+  if (!family) return draft;
+  const protagonist = family.members.find((entry) => entry.characterId === preferredCharacterId)
+    ?? family.members.find((entry) => entry.stageRole === "男主角候選")
+    ?? family.members[0];
+  if (!protagonist) return draft;
+  const supportingCast = family.members
+    .filter((entry) => entry.characterId !== protagonist.characterId)
+    .map((member) => ({
+      name: member.name,
+      roleLabel: member.stageRole,
+      relationship: relationshipDescription(family, member, protagonist),
+      goal: member.goal,
+    }));
+  const protagonistValue = `${protagonist.name}｜${protagonist.identity}`;
+  const worldValue = matrix.worldSituation;
+  const worldRuleValue = matrix.worldContract.canonRules.join("\n");
+  const baseSeed = draft.seedCandidate ?? buildSeedCandidate(draft);
+  const directions = [
+    ...baseSeed.directions.filter((item) => !item.startsWith("上場家族｜") && !item.startsWith("世界勢力｜") && !item.startsWith("世界資產｜")),
+    `上場家族｜${family.name}｜${family.organizationKind}「${family.organizationName}」｜${family.stagePremise}`,
+    ...matrix.organizations.map((organization) => `世界勢力｜${organization.kindLabel}「${organization.name}」｜${organization.situationBrief}`),
+    ...matrix.assetControls.map((asset) => `世界資產｜${asset.category}「${asset.name}」｜${asset.controllerOrganizationName}${asset.controlRelation}｜持有人：${asset.holderName}`),
+  ];
+  const conflictValue = draft.answers.conflict?.value?.trim() || family.stagePremise;
+  const nextSeed: ProjectSeed = {
+    ...baseSeed,
+    protagonist: optionalValue(protagonist.name, "user_defined"),
+    goal: optionalValue(protagonist.goal, "user_defined"),
+    weakness: optionalValue(protagonist.personality.privateNeed, "inferred"),
+    world: optionalValue(worldValue, "user_defined"),
+    worldRule: optionalValue(worldRuleValue, "user_defined"),
+    conflict: optionalValue(conflictValue, "user_defined"),
+    opposition: optionalValue(
+      family.members.find((entry) => entry.stageRole === "對手代表")?.goal || family.stagePremise,
+      "inferred",
+    ),
+    directions,
+  };
+  return {
+    ...draft,
+    protagonist: optionalValue(protagonistValue, "user_defined"),
+    answers: {
+      ...draft.answers,
+      stageFamily: optionalValue(serializeTopicWorldFamilyDraftSelection({
+        matrix,
+        familyId,
+        selectedProtagonistId: protagonist.characterId,
+      }), "user_defined"),
+      protagonist: optionalValue(protagonistValue, "user_defined"),
+      cast: optionalValue(serializeSupportingCast(supportingCast), "user_defined"),
+      world: optionalValue(worldValue, "user_defined"),
+      worldRule: optionalValue(worldRuleValue, "user_defined"),
+      conflict: optionalValue(conflictValue, "user_defined"),
+    },
+    seedCandidate: nextSeed,
+    updatedAt: new Date().toISOString(),
+  } satisfies ProjectCreationDraft;
+}
+
 type StoryLanguage = "zh-TW" | "zh-CN" | "en";
 
 const STORY_LANGUAGE_LABELS: Record<StoryLanguage, string> = {
@@ -175,19 +539,25 @@ function storyLanguageOf(draft: ProjectCreationDraft): StoryLanguage {
 function foundationMissing(draft: ProjectCreationDraft, seed: ProjectSeed) {
   const missing: string[] = [];
   const mode = playModeOf(draft);
+  const supportingCast = supportingCastOf(draft);
   if (!draft.title.trim()) missing.push("作品名稱");
   if (!mode) missing.push("創作／遊玩方式");
   if (mode) {
-    if (!draft.genreId && !draft.coreIdea.value?.trim() && !seed.logline.value?.trim()) missing.push("故事方向");
+    if (!draft.genreId) missing.push("題材方向（218 類擇一）");
+    if (!draft.answers.stageFamily?.value?.trim()) missing.push("上場家族／宗門／派系（選一組並一鍵核准）");
     if (!seed.protagonist.value?.trim()) missing.push("主要人物");
-    if (!seed.world.value?.trim() && !seed.worldRule.value?.trim()) missing.push("故事舞台或世界規則");
+    if (supportingCast.filter((entry) => entry.complete).length < MIN_SUPPORTING_CAST) {
+      missing.push(`登場配角（至少 ${MIN_SUPPORTING_CAST} 位，且每位都要有姓名、定位、關係與目標）`);
+    }
+    if (!seed.world.value?.trim()) missing.push("故事舞台");
+    if (!seed.worldRule.value?.trim()) missing.push("不可變世界規則");
     if (!seed.conflict.value?.trim() && !seed.goal.value?.trim()) missing.push("目標或衝突");
     if (!seed.opening.value?.trim()) missing.push("開場事件");
   }
   return missing;
 }
 
-const GUIDED_ANSWER_KEYS = ["story", "protagonist", "conflict", "worldRule", "opening"] as const;
+const GUIDED_ANSWER_KEYS = ["story", "familyIntent", "conflict", "worldRule", "opening"] as const;
 
 function guidedAnswersComplete(draft: ProjectCreationDraft) {
   return GUIDED_ANSWER_KEYS.every((key) => Boolean(draft.answers[key]?.value?.trim()));
@@ -195,35 +565,44 @@ function guidedAnswersComplete(draft: ProjectCreationDraft) {
 
 function guidedSeedFromDraft(draft: ProjectCreationDraft): ProjectSeed {
   const base = buildSeedCandidate(draft);
+  const topicContract = topicContractForCreationDraft(draft);
   const story = draft.answers.story?.value?.trim() || "一段由選擇推動的故事";
-  const rawProtagonist = draft.answers.protagonist?.value?.trim() || "主角";
+  const familyIntent = draft.answers.familyIntent?.value?.trim() || "一個即將被捲入局勢的家族／宗門／派系";
+  const rawProtagonist = draft.protagonist.value?.trim() || "待由上場家族選出的主視角人物";
   const [protagonistName, ...protagonistTraits] = rawProtagonist.split("｜").map((item) => item.trim()).filter(Boolean);
   const protagonist = protagonistName || rawProtagonist;
   const weakness = protagonistTraits.join("｜") || null;
   const conflict = draft.answers.conflict?.value?.trim() || "必須面對一個會留下代價的阻力";
-  const worldRule = draft.answers.worldRule?.value?.trim() || "每個選擇都會留下後果";
+  const world = draft.answers.world?.value?.trim()
+    || topicContract?.displaySummary
+    || base.world.value?.trim()
+    || "一個會記住人物選擇與後果的故事世界";
+  const worldRule = draft.answers.worldRule?.value?.trim()
+    || topicContract?.canonRules.join("\n")
+    || "每個選擇都會留下後果";
   const opening = draft.answers.opening?.value?.trim() || "一件打破日常秩序的事件發生";
   return {
     ...base,
     titleCandidates: [draft.title.trim()],
-    logline: optionalValue(`${protagonist}將走進${story}，並在「${worldRule}」的世界中面對${conflict}。`, "user_defined"),
-    protagonist: optionalValue(protagonist, "user_defined"),
+    logline: optionalValue(`${familyIntent}將走進${story}，並在「${worldRule}」的世界中面對${conflict}。`, "user_defined"),
+    protagonist: optionalValue(protagonist, draft.protagonist.value?.trim() ? "user_defined" : "deferred"),
     goal: optionalValue(conflict, "user_defined"),
     weakness: optionalValue(weakness, weakness ? "user_defined" : "deferred"),
-    world: optionalValue(`一個遵循「${worldRule}」的故事世界`, "user_defined"),
+    world: optionalValue(world, draft.answers.world?.value ? "user_defined" : "inferred"),
     worldRule: optionalValue(worldRule, "user_defined"),
     conflict: optionalValue(conflict, "user_defined"),
     opposition: optionalValue(conflict, "user_defined"),
     opening: optionalValue(opening, "user_defined"),
-    directions: [],
+    directions: [`上場勢力意向｜${familyIntent}`],
   };
 }
 
 function proceduralPayload(draft: ProjectCreationDraft): CandidatePayload {
   const hero = draft.protagonist.value?.trim() || draft.answers.protagonist?.value?.trim() || pick(proceduralNames);
   const goal = pick(proceduralGoals);
-  const world = pick(proceduralWorlds);
-  const worldRule = pick(proceduralRules);
+  const topicContract = topicContractForCreationDraft(draft);
+  const world = topicContract?.displaySummary || pick(proceduralWorlds);
+  const worldRule = topicContract?.canonRules.join("\n") || pick(proceduralRules);
   const opening = pick(proceduralOpenings);
   const topic = resolveStoryTopic(draft.genreId)?.name || "原創幻想";
   const mode = playModeOf(draft) ?? "general";
@@ -258,10 +637,72 @@ function completeCreationStorySeed(payload: CandidatePayload): CreationStorySeed
   };
 }
 
+function suggestedDraftValue(value: string, source: "closed-ai" | "device-fallback") {
+  const next = optionalValue(value, source === "closed-ai" ? "ai_suggested" : "inferred");
+  return {
+    ...next,
+    source: source === "closed-ai" ? "ai_candidate" as const : "system" as const,
+  };
+}
+
+function mergeCreationCoreCast(
+  merged: ProjectCreationDraft,
+  suggestion: CreationStorySeed,
+  source: "closed-ai" | "device-fallback",
+) {
+  const existing = supportingCastSlotsOf(merged);
+  const mainName = splitProtagonist(suggestion.protagonist).name;
+  const used = new Set([mainName, ...existing.map((entry) => entry.name).filter(Boolean)]);
+  const nextName = () => {
+    const candidates = proceduralNames.filter((name) => !used.has(name));
+    const selected = pick(candidates.length ? candidates : proceduralNames);
+    used.add(selected);
+    return selected;
+  };
+  const generatedGoals = [
+    `協助主角推進「${suggestion.goal}」，同時守住自己的底線`,
+    suggestion.opposition,
+    `查清「${suggestion.opening}」背後的真相，迫使眾人立即行動`,
+    `保住親眼見過的證據，並在最關鍵的時刻決定是否公開`,
+  ];
+  const completedCast = existing.map((entry, index) => ({
+    ...entry,
+    name: entry.name || nextName(),
+    roleLabel: entry.roleLabel || SUPPORTING_CAST_ROLES[index]?.roleLabel || `家族成員 ${index + 1}`,
+    relationship: entry.relationship || SUPPORTING_CAST_ROLES[index]?.relationship || "與主角同屬上場家族，另有自己的責任與選擇",
+    goal: entry.goal || generatedGoals[index] || `完成自己的家族責任，同時回應「${suggestion.goal}」造成的局勢變化`,
+  }));
+  const castValue = serializeSupportingCast(completedCast);
+  const castAnswer = merged.answers.cast?.value?.trim() && existing.every((entry) => entry.complete)
+    ? merged.answers.cast
+    : suggestedDraftValue(castValue, source);
+  const worldAnswer = merged.answers.world?.value?.trim()
+    ? merged.answers.world
+    : suggestedDraftValue(suggestion.world, source);
+  const worldRuleAnswer = merged.answers.worldRule?.value?.trim()
+    ? merged.answers.worldRule
+    : suggestedDraftValue(suggestion.worldRule, source);
+  const mergedWithCast = {
+    ...merged,
+    answers: {
+      ...merged.answers,
+      cast: castAnswer,
+      world: worldAnswer,
+      worldRule: worldRuleAnswer,
+    },
+    updatedAt: new Date().toISOString(),
+  } satisfies ProjectCreationDraft;
+  const matrix = topicWorldFamilyMatrixForCreationDraft(mergedWithCast);
+  if (!matrix || restoredStageFamilyForDraft(mergedWithCast, matrix)) return mergedWithCast;
+  const firstFamily = listTopicWorldFamilyStageCandidates({ matrix })[0]?.family;
+  return firstFamily
+    ? applyStageFamilyToDraft(mergedWithCast, matrix, firstFamily.familyId)
+    : mergedWithCast;
+}
+
 function closedAISeedSource(provider: string) {
   if (provider === "browser-ai") return "閉端 AI 自動協調器（實際執行：瀏覽器 AI）";
   if (provider === "local-ollama") return "閉端 AI 自動協調器（實際執行：本機 Ollama）";
-  if (provider === "private-ai-hub") return "閉端 AI 自動協調器（實際執行：私有 AI Hub）";
   return "閉端 AI 自動協調器";
 }
 
@@ -357,12 +798,17 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         ? "choice"
         : null;
   const topics = useMemo(
-    () => listStoryTopics({ packId: draft.genrePackId || undefined, playModeId: currentPlayMode || undefined, limit: 80 }),
-    [currentPlayMode, draft.genrePackId],
+    () => listStoryTopics().filter((item) => item.classic && !item.adultOnly),
+    [],
   );
   const topic = resolveStoryTopic(draft.genreId);
-  const modeSteps = draft.mode === "guided" ? 5 : draft.mode === "blank" ? 2 : 3;
-  const seed = draft.seedCandidate ?? buildSeedCandidate(draft);
+  const modeSteps = draft.mode === "guided" ? 6 : draft.mode === "blank" ? 2 : 3;
+  const seed = enrichedSeedFromDraft(draft);
+  const coreCast = coreCastOf(draft, seed);
+  const previewStageFamily = useMemo(
+    () => restoredStageFamilyForDraft(draft)?.family ?? null,
+    [draft],
+  );
   const missing = foundationMissing(draft, seed);
 
   const set = (partial: Partial<ProjectCreationDraft>) => setDraft((value) => ({
@@ -376,10 +822,20 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     status: "user_defined" | "deferred" = "user_defined",
   ) => {
     setDraft((current) => {
+      const resetFamilySelection = key === "playMode";
       const next: ProjectCreationDraft = {
         ...current,
-        answers: { ...current.answers, [key]: optionalValue(value, status) },
-        seedCandidate: key === "playMode" ? current.seedCandidate : null,
+        protagonist: resetFamilySelection ? optionalValue<string>(null, "deferred") : current.protagonist,
+        answers: {
+          ...current.answers,
+          [key]: optionalValue(value, status),
+          ...(resetFamilySelection ? {
+            stageFamily: optionalValue<string>(null, "deferred"),
+            protagonist: optionalValue<string>(null, "deferred"),
+            cast: optionalValue<string>(null, "deferred"),
+          } : {}),
+        },
+        seedCandidate: null,
         updatedAt: new Date().toISOString(),
       };
       if (next.mode !== "guided" || !guidedAnswersComplete(next)) return next;
@@ -387,7 +843,6 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       return {
         ...next,
         coreIdea: optionalValue(guidedSeed.logline.value, "user_defined"),
-        protagonist: optionalValue(guidedSeed.protagonist.value, "user_defined"),
         seedCandidate: guidedSeed,
       };
     });
@@ -434,7 +889,11 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
             structure === "general" ? "general" : keepThreeChoiceMode ? existing : null,
             structure === "general" || keepThreeChoiceMode ? "user_defined" : "deferred",
           ),
+          stageFamily: optionalValue<string>(null, "deferred"),
+          protagonist: optionalValue<string>(null, "deferred"),
+          cast: optionalValue<string>(null, "deferred"),
         },
+        protagonist: optionalValue<string>(null, "deferred"),
         seedCandidate: null,
         updatedAt: new Date().toISOString(),
       };
@@ -451,20 +910,21 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       return;
     }
 
-    if (draft.mode === "guided") {
-      const question = questions[Math.min(questions.length - 1, draft.step - 1)];
+    if (draft.step === 1 && !draft.genreId) {
+      setMessage("請先從完整故事庫選擇一個題材方向；系統會先建立該題材的世界規則、勢力與資源，再讓你繼續設定人物。");
+      return;
+    }
+
+    if (draft.mode === "guided" && draft.step >= 2) {
+      const questionIndex = Math.min(questions.length - 1, draft.step - 2);
+      const question = questions[questionIndex];
       if (!draft.answers[question.key]?.value?.trim()) {
-        setMessage(`請先回答第 ${draft.step} 題「${question.title}」，再繼續下一題。`);
+        setMessage(`請先回答第 ${questionIndex + 1} 題「${question.title}」，再繼續下一題。`);
         window.requestAnimationFrame(() => {
           document.querySelector<HTMLElement>(".p2GuidedChoices")?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
         return;
       }
-    }
-
-    if (draft.mode === "blank" && draft.step === 1 && !draft.genreId) {
-      setMessage("請先從完整故事庫選擇一個題材方向，再進入故事起點編輯。");
-      return;
     }
 
     set({
@@ -486,6 +946,10 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         : "請先選擇一般章節寫作或三選一互動。");
       return;
     }
+    if (!draft.genreId) {
+      setMessage("請先選擇一個題材方向。閉端 AI 會依該題材的正式世界合約補齊雛形，不會用泛用內容取代世界觀。");
+      return;
+    }
     if (seedAssistantBusy) return;
     const controller = new AbortController();
     let timedOut = false;
@@ -497,9 +961,9 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     setSeedAssistantBusy(true);
     setSeedAssistantSource("");
     setSeedAssistantStatus("正在由閉端 AI 自動協調器選擇可用算力；最遲 24 秒完成或改用裝置後備。");
-    setMessage("已收到操作，正在建立五組故事起點；不會自動建立作品，也不會覆蓋你已填的內容。");
+    setMessage("已收到操作，正在建立世界觀、故事起點與多人核心陣容；不會自動建立作品，也不會覆蓋你已填的內容。");
     try {
-      const result = await runStudioClosedAI({
+      const result = await runStudioPreCreationClosedAI({
         projectId: draft.projectId,
         task: "story_seed",
         input: creationStorySeedPrompt({
@@ -521,20 +985,24 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         signal: controller.signal,
         onProgress: (event) => {
           if (!controller.signal.aborted) {
-            setSeedAssistantStatus(event.label || "閉端 AI 正在整理故事因果與五組起點。");
+            setSeedAssistantStatus(event.label || "閉端 AI 正在整理故事因果、世界觀與核心陣容。");
           }
         },
       });
       const suggestion = parseCreationStorySeed(result.content);
       if (!suggestion) {
-        throw Object.assign(new Error("模型輸出未通過五組故事起點格式檢查。"), {
+        throw Object.assign(new Error("模型輸出未通過故事起點格式檢查。"), {
           code: "CREATE_STORY_SEED_INVALID_OUTPUT",
         });
       }
-      setDraft((current) => mergeCreationStorySeed(current, suggestion, "closed-ai"));
+      setDraft((current) => mergeCreationCoreCast(
+        mergeCreationStorySeed(current, suggestion, "closed-ai"),
+        suggestion,
+        "closed-ai",
+      ));
       const source = closedAISeedSource(result.provider);
       setSeedAssistantSource(source);
-      setSeedAssistantStatus("AI 雛形已填入空白欄位；請先閱讀、修改，再自行按下建立作品。");
+      setSeedAssistantStatus("AI 雛形、世界觀與四名核心配角已填入空白欄位；請先閱讀、修改，再自行按下建立作品。");
       setMessage(`${source}已產生可修改雛形；原有內容完整保留，且尚未建立作品。`);
     } catch (error) {
       const manuallyCancelled = controller.signal.aborted && !timedOut;
@@ -544,11 +1012,14 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         setMessage("已取消這次生成。你原本填寫的內容仍在，系統沒有建立作品。");
         return;
       }
-      setDraft((current) => mergeCreationStorySeed(
-        current,
-        completeCreationStorySeed(proceduralPayload(current)),
-        "device-fallback",
-      ));
+      setDraft((current) => {
+        const suggestion = completeCreationStorySeed(proceduralPayload(current));
+        return mergeCreationCoreCast(
+          mergeCreationStorySeed(current, suggestion, "device-fallback"),
+          suggestion,
+          "device-fallback",
+        );
+      });
       const code = timedOut
         ? "CREATE_STORY_SEED_TIMEOUT"
         : String((error as { code?: unknown })?.code ?? "MODEL_NOT_READY");
@@ -591,9 +1062,11 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     setMessage("正在建立獨立作品、第一章與可還原備份……");
     try {
       const repository = createNovelRepository();
-      const withSeed = { ...draft, seedCandidate: seed };
-      const bundle = buildProjectBundle(withSeed);
-      await repository.createProject(bundle, requestId.current);
+      const withSeed = { ...draft, seedCandidate: enrichedSeedFromDraft(draft, seed) };
+      const bundle = await repository.createProject(
+        buildProjectBundle(withSeed),
+        requestId.current,
+      );
       const chapter = await repository.put<Chapter>("chapters", {
         ...makeRecord(bundle.project.id, "user"),
         title: "第一章",
@@ -818,7 +1291,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
 
       <nav className="p2ModeTabs" aria-label="建立方式">
         <button disabled={!draft.title.trim()} className={draft.mode === "quick" ? "active" : ""} onClick={() => chooseBuildMode("quick")}><b>快速開始</b><span>少量設定，立即看可修改雛形</span></button>
-        <button disabled={!draft.title.trim()} className={draft.mode === "guided" ? "active" : ""} onClick={() => chooseBuildMode("guided")}><b>引導建立</b><span>用五個問題整理人物與第一幕</span></button>
+        <button disabled={!draft.title.trim()} className={draft.mode === "guided" ? "active" : ""} onClick={() => chooseBuildMode("guided")}><b>引導建立</b><span>先選題材，再用五個問題整理人物與第一幕</span></button>
         <button disabled={!draft.title.trim()} className={draft.mode === "blank" ? "active" : ""} onClick={() => chooseBuildMode("blank")}><b>完整故事庫</b><span>從完整題材庫挑選，再確認故事種子</span></button>
       </nav>
 
@@ -831,19 +1304,21 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           {draft.mode === "blank"
             ? <Library draft={draft} set={set} topics={topics} />
             : draft.mode === "guided"
-              ? <Guided draft={draft} setAnswer={setAnswer} />
+              ? <Guided draft={draft} set={set} setAnswer={setAnswer} topics={topics} />
               : <Quick draft={draft} set={set} topics={topics} />}
+
+          {draft.genreId && draft.step === modeSteps ? <StoryFoundationSetup draft={draft} set={set} /> : null}
 
           <section className="p2CreationAssistant" aria-label="創作帶領精靈">
             <div>
               <span>創作帶領精靈</span>
               <h3>由閉端 AI 自動協調器補齊故事雛形</h3>
-              <p>只有一個入口；系統會自動調度瀏覽器、本機或私有算力。AI 失敗才使用裝置後備，而且只填空白欄位。</p>
+              <p>只有一個入口；建立前會自動調度瀏覽器 AI 或本機 Ollama。AI 失敗才使用裝置後備，而且只填空白欄位、不建立正式作品。</p>
             </div>
             <div className="p2CreationAssistantActions">
               <button
                 type="button"
-                disabled={seedAssistantBusy}
+                disabled={seedAssistantBusy || !draft.genreId}
                 data-testid="create-ai-story-seed"
                 onClick={() => void applyAssistedSeed()}
               >
@@ -883,18 +1358,147 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           <span>正式建立前預覽</span>
           <h2>{draft.title.trim() || "請先輸入作品名稱"}</h2>
           <strong>{currentPlayMode ? STORY_PLAY_MODE_LABELS[currentPlayMode] : "尚未選擇玩法"}</strong>
+          <h3>世界觀</h3>
           <dl>
-            <div><dt>題材</dt><dd>{topic?.name || "尚未設定"}</dd></div>
+            <div><dt>題材</dt><dd>{topic ? topicDisplayName(topic.topicId, topic.name) : "尚未設定"}</dd></div>
             <div><dt>核心想法</dt><dd>{seed.logline.value || draft.coreIdea.value || "稍後補充"}</dd></div>
-            <div><dt>主角</dt><dd>{seed.protagonist.value || "稍後補充"}</dd></div>
-            <div><dt>故事舞台</dt><dd>{seed.world.value || seed.worldRule.value || "稍後補充"}</dd></div>
+            <div><dt>故事舞台</dt><dd>{seed.world.value || "稍後補充"}</dd></div>
+            <div><dt>世界規則</dt><dd>{seed.worldRule.value || "稍後補充"}</dd></div>
             <div><dt>主要阻力</dt><dd>{seed.conflict.value || "稍後補充"}</dd></div>
             <div><dt>第一章起點</dt><dd>{seed.opening.value || "稍後補充"}</dd></div>
           </dl>
+          <h3>上場家族與人物</h3>
+          {previewStageFamily ? (
+            <div className="p2SelectedFamilyPreview" data-testid="creation-selected-family-preview">
+              <span>{previewStageFamily.organizationKind}・{previewStageFamily.organizationName}</span>
+              <b>{previewStageFamily.name}</b>
+              <p>{previewStageFamily.stagePremise}</p>
+            </div>
+          ) : <p>請先從三組候選中核准一個上場家族／宗門／派系。</p>}
+          <div className="p2CastPreview" data-testid="creation-cast-preview">
+            {coreCast.map((entry, index) => (
+              <article key={`${entry.role}-${index}`} data-cast-role={entry.role}>
+                <span>{entry.roleLabel}</span>
+                <b>{entry.complete ? entry.name : "尚未完整設定"}</b>
+                <p>{entry.description || "需要補齊姓名、角色定位、與主角關係及個人目標"}</p>
+              </article>
+            ))}
+          </div>
           <p>你填寫或保留的 AI 建議，只有在你按下「建立作品」後才會進入新作品。建立前不會自動寫入正式作品。</p>
         </aside>
       </div>
     </main>
+  );
+}
+
+function TopicCatalog({ draft, set, topics }: {
+  draft: ProjectCreationDraft;
+  set: (partial: Partial<ProjectCreationDraft>) => void;
+  topics: ReturnType<typeof listStoryTopics>;
+}) {
+  const [query, setQuery] = useState("");
+  const [browsePackId, setBrowsePackId] = useState("");
+  const [modeFilter, setModeFilter] = useState<"all" | "native">("all");
+  const activePlayMode = playModeOf(draft);
+  const filteredTopics = useMemo(() => topics
+    .filter((item) => !browsePackId || item.packIds.includes(browsePackId))
+    .filter((item) => modeFilter === "all" || !activePlayMode || item.supportedPlayModes.includes(activePlayMode))
+    .filter((item) => topicMatchesSearch(item, query)), [activePlayMode, browsePackId, modeFilter, query, topics]);
+  return (
+    <section className="p2TopicCatalog" aria-labelledby="p2-topic-catalog-title" data-testid="complete-story-topic-catalog">
+      <header>
+        <div>
+          <span>完整經典題材目錄</span>
+          <h2 id="p2-topic-catalog-title">從全部 {topics.length} 類題材選擇故事方向</h2>
+          <p>題材不受一般寫作、RPG、戀愛或經營玩法限制；選定後再由玩法決定追蹤哪些狀態。</p>
+        </div>
+        <strong data-testid="story-topic-visible-count" aria-live="polite">
+          顯示 {filteredTopics.length}／{topics.length} 類
+        </strong>
+      </header>
+      <div className="p2TopicTools">
+        <label htmlFor="p2-topic-search">
+          搜尋題材、別名或子類型
+          <input
+            id="p2-topic-search"
+            data-testid="story-topic-search"
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="例如：附身變身、男變女、女變男、靈魂交換"
+            autoComplete="off"
+          />
+        </label>
+        <label htmlFor="p2-topic-pack-filter">
+          瀏覽分類包
+          <select
+            id="p2-topic-pack-filter"
+            data-testid="story-topic-pack-filter"
+            value={browsePackId}
+            onChange={(event) => setBrowsePackId(event.target.value)}
+          >
+            <option value="">全部 218 類</option>
+            {STORY_LIBRARY.packs.filter((item) => item.enabled && item.packId !== "pack-11").map((item) => (
+              <option key={item.packId} value={item.packId}>{item.name}</option>
+            ))}
+          </select>
+        </label>
+        <label htmlFor="p2-topic-mode-filter">
+          玩法分類
+          <select
+            id="p2-topic-mode-filter"
+            data-testid="story-topic-mode-filter"
+            value={modeFilter}
+            onChange={(event) => setModeFilter(event.target.value === "native" ? "native" : "all")}
+          >
+            <option value="all">全部題材（可套用目前玩法）</option>
+            <option value="native" disabled={!activePlayMode}>只看原生支援目前玩法</option>
+          </select>
+        </label>
+      </div>
+      <div className="p2TopicGrid p2TopicGridLarge" data-topic-count={filteredTopics.length}>
+        {filteredTopics.map((item) => {
+          const directlySupported = Boolean(activePlayMode && item.supportedPlayModes.includes(activePlayMode));
+          const fitLabel = activePlayMode
+            ? directlySupported
+              ? `適合目前玩法：${STORY_PLAY_MODE_LABELS[activePlayMode]}`
+              : `可改編為目前玩法：${STORY_PLAY_MODE_LABELS[activePlayMode]}`
+            : "選定玩法後會自動顯示適配方式";
+          return (
+            <button
+              type="button"
+              key={item.topicId}
+              data-topic-id={item.topicId}
+              className={draft.genreId === item.topicId ? "active" : ""}
+              aria-pressed={draft.genreId === item.topicId}
+              onClick={() => set({
+                genrePackId: item.packId,
+                genreId: item.topicId,
+                protagonist: optionalValue<string>(null, "deferred"),
+                answers: {
+                  ...draft.answers,
+                  stageFamily: optionalValue<string>(null, "deferred"),
+                  protagonist: optionalValue<string>(null, "deferred"),
+                  cast: optionalValue<string>(null, "deferred"),
+                  world: optionalValue<string>(null, "deferred"),
+                  worldRule: optionalValue<string>(null, "deferred"),
+                },
+                seedCandidate: null,
+              })}
+            >
+              <b>{topicDisplayName(item.topicId, item.name)}</b>
+              <span>{item.description}</span>
+              <span data-topic-play-fit={directlySupported ? "direct" : "adapted"}>{fitLabel}</span>
+            </button>
+          );
+        })}
+      </div>
+      {!filteredTopics.length ? (
+        <div className="p2TopicEmpty" role="status">
+          找不到符合「{query.trim()}」的題材。請清除搜尋或改看全部分類。
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -906,26 +1510,16 @@ function Quick({ draft, set, topics }: {
   if (draft.step === 1) {
     return (
       <div className="p2CreateFields">
-        <h2>選擇故事方向</h2>
-        <label>分類包（選填）
-          <select value={draft.genrePackId || ""} onChange={(event) => set({ genrePackId: event.target.value || null, genreId: null, seedCandidate: null })}>
-            <option value="">查看全部</option>
-            {STORY_LIBRARY.packs.filter((item) => item.enabled).map((item) => <option key={item.packId} value={item.packId}>{item.name}</option>)}
-          </select>
-        </label>
-        <div className="p2TopicGrid">
-          {topics.slice(0, 18).map((item) => <button type="button" key={item.topicId} className={draft.genreId === item.topicId ? "active" : ""} onClick={() => set({ genreId: item.topicId, seedCandidate: null })}><b>{item.name}</b><span>{item.description}</span></button>)}
-        </div>
+        <TopicCatalog draft={draft} set={set} topics={topics} />
       </div>
     );
   }
   if (draft.step === 2) {
     return (
       <div className="p2CreateFields">
-        <h2>放入人物與故事核心</h2>
+        <h2>放入上場勢力與故事核心</h2>
+        <p>先整理核心衝突與開場；世界觀、上場家族／宗門／派系及其完整人物與資產，會在同一頁下方一起確認。</p>
         <label>核心想法<textarea value={draft.coreIdea.value || ""} onChange={(event) => set({ coreIdea: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred"), seedCandidate: null })} /></label>
-        <label>主角姓名<input value={draft.protagonist.value || ""} onChange={(event) => set({ protagonist: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred"), seedCandidate: null })} /></label>
-        <label>故事舞台／世界規則<textarea value={draft.answers.worldRule?.value || ""} onChange={(event) => set({ answers: { ...draft.answers, worldRule: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred") }, seedCandidate: null })} /></label>
         <label>目標或衝突<textarea value={draft.answers.conflict?.value || ""} onChange={(event) => set({ answers: { ...draft.answers, conflict: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred") }, seedCandidate: null })} /></label>
         <label>開場事件<textarea value={draft.answers.opening?.value || ""} onChange={(event) => set({ answers: { ...draft.answers, opening: optionalValue(event.target.value || null, event.target.value ? "user_defined" : "deferred") }, seedCandidate: null })} /></label>
       </div>
@@ -934,15 +1528,25 @@ function Quick({ draft, set, topics }: {
   return <SeedEditor draft={draft} set={set} />;
 }
 
-function Guided({ draft, setAnswer }: {
+function Guided({ draft, set, setAnswer, topics }: {
   draft: ProjectCreationDraft;
+  set: (partial: Partial<ProjectCreationDraft>) => void;
   setAnswer: (key: string, value: string | null, status?: "user_defined" | "deferred") => void;
+  topics: ReturnType<typeof listStoryTopics>;
 }) {
-  const question = questions[Math.min(questions.length - 1, draft.step - 1)];
+  if (draft.step === 1) {
+    return (
+      <div className="p2CreateFields">
+        <TopicCatalog draft={draft} set={set} topics={topics} />
+      </div>
+    );
+  }
+  const questionIndex = Math.min(questions.length - 1, draft.step - 2);
+  const question = questions[questionIndex];
   const selected = draft.answers[question.key]?.value;
   return (
     <div className="p2CreateFields">
-      <span>第 {draft.step} 題／共 5 題</span>
+      <span>第 {questionIndex + 1} 題／共 5 題</span>
       <h2>{question.title}</h2>
       <div className="p2GuidedChoices">
         {question.choices.map((choice, index) => <button type="button" key={choice} className={selected === choice ? "active" : ""} onClick={() => setAnswer(question.key, choice)}><b>{String.fromCharCode(65 + index)}</b>{choice}</button>)}
@@ -961,15 +1565,359 @@ function Library({ draft, set, topics }: {
   if (draft.step === 1) {
     return (
       <div className="p2CreateFields">
-        <h2>完整故事庫</h2>
         <p>這裡是題材與規則索引，不是下載小說全文。選擇後只會帶入創作方向。</p>
-        <div className="p2TopicGrid p2TopicGridLarge">
-          {topics.map((item) => <button type="button" key={item.topicId} className={draft.genreId === item.topicId ? "active" : ""} onClick={() => set({ genrePackId: item.packId, genreId: item.topicId, seedCandidate: null })}><b>{item.name}</b><span>{item.description}</span></button>)}
-        </div>
+        <TopicCatalog draft={draft} set={set} topics={topics} />
       </div>
     );
   }
   return <SeedEditor draft={draft} set={set} />;
+}
+
+function StoryFoundationSetup({ draft, set }: {
+  draft: ProjectCreationDraft;
+  set: (partial: Partial<ProjectCreationDraft>) => void;
+}) {
+  const seed = enrichedSeedFromDraft(draft);
+  const topic = resolveStoryTopic(draft.genreId);
+  const topicContract = topicContractForCreationDraft(draft);
+  const familyMatrix = useMemo(
+    () => topicWorldFamilyMatrixForCreationDraft(draft),
+    [draft],
+  );
+  const familyCandidates = useMemo(
+    () => familyMatrix ? listTopicWorldFamilyStageCandidates({ matrix: familyMatrix }) : [],
+    [familyMatrix],
+  );
+  const restoredFamily = useMemo(
+    () => restoredStageFamilyForDraft(draft, familyMatrix),
+    [draft, familyMatrix],
+  );
+  const selectedFamily = restoredFamily?.family ?? null;
+  const protagonist = coreCastOf(draft, seed)[0];
+  const supportingSlots = supportingCastSlotsOf(draft);
+  const completeSupportingCount = supportingSlots.filter((entry) => entry.complete).length;
+  const organizationById = new Map(familyMatrix?.organizations.map((entry) => [entry.organizationId, entry]) ?? []);
+  const memberById = new Map(familyMatrix?.stageFamilies.flatMap((family) => family.members).map((entry) => [entry.characterId, entry]) ?? []);
+  const selectStageFamily = (family: TopicWorldStageFamily, preferredCharacterId?: string) => {
+    if (!familyMatrix) return;
+    set(applyStageFamilyToDraft(draft, familyMatrix, family.familyId, preferredCharacterId));
+  };
+  const updateProtagonist = (value: string) => {
+    const next = optionalValue(value || null, value ? "user_defined" : "deferred");
+    set({
+      protagonist: next,
+      answers: { ...draft.answers, protagonist: next },
+      seedCandidate: { ...seed, protagonist: next },
+    });
+  };
+  const updateWorld = (value: string) => {
+    const next = optionalValue(value || null, value ? "user_defined" : "deferred");
+    set({
+      answers: { ...draft.answers, world: next },
+      seedCandidate: { ...seed, world: next },
+    });
+  };
+  const updateWorldRule = (value: string) => {
+    const next = optionalValue(value || null, value ? "user_defined" : "deferred");
+    set({
+      answers: { ...draft.answers, worldRule: next },
+      seedCandidate: { ...seed, worldRule: next },
+    });
+  };
+  const updateSupportingCast = (
+    index: number,
+    key: "name" | "relationship" | "goal",
+    value: string,
+  ) => {
+    const nextEntries = supportingSlots.map((entry, entryIndex) => entryIndex === index
+      ? { ...entry, [key]: value }
+      : entry);
+    const castValue = serializeSupportingCast(nextEntries);
+    set({
+      answers: {
+        ...draft.answers,
+        cast: optionalValue(castValue, "user_defined"),
+      },
+      seedCandidate: seed,
+    });
+  };
+  return (
+    <section className="p2FoundationSetup p2CreateFields" aria-labelledby="p2-foundation-title" data-testid="creation-foundation-setup">
+      <header>
+        <div>
+          <span>正式開始前確認</span>
+          <h2 id="p2-foundation-title">核准上場家族、宗門或派系</h2>
+          <p>先看完整世界勢力與資產，再選一個家族上場。核准時會把六名人物、關係網與持有物一起帶入，不會只產生一位孤立主角。</p>
+        </div>
+        <strong>{selectedFamily ? `已核准：${selectedFamily.name}` : "尚未核准上場家族"}</strong>
+      </header>
+      <div className="p2WorldFoundation">
+        <label>
+          <span>故事舞台 <b>必填</b></span>
+          <textarea
+            data-testid="creation-world"
+            value={draft.answers.world?.value || seed.world.value || ""}
+            onChange={(event) => updateWorld(event.target.value)}
+            placeholder="例如：靈脈與商路同時衰竭的修行邊城，四個勢力共同控制山門、坊市與秘境入口。"
+          />
+        </label>
+        <label>
+          <span>不可變世界規則 <b>必填</b></span>
+          <textarea
+            data-testid="creation-world-rule"
+            value={draft.answers.worldRule?.value || seed.worldRule.value || ""}
+            onChange={(event) => updateWorldRule(event.target.value)}
+            placeholder="例如：修為必須依境界逐階突破；功法、丹藥、符籙、陣法、法器、靈草與秘境所得都必須有來源與代價。"
+          />
+        </label>
+      </div>
+      {topic?.recommendedWorlds.length ? (
+        <div className="p2WorldSuggestions" aria-label="題材世界建議">
+          <span>依「{topicDisplayName(topic.topicId, topic.name)}」選一個世界起點：</span>
+          {topic.recommendedWorlds.slice(0, 3).map((world) => (
+            <button type="button" key={world} onClick={() => updateWorld(world)}>{world}</button>
+          ))}
+        </div>
+      ) : null}
+      {topicContract ? (
+        <section className="p2WorldContractPreview" data-testid="creation-topic-world-contract" aria-label="題材世界規格預覽">
+          <header>
+            <div>
+              <span>題材世界規格・建立後寫入 Canon</span>
+              <h3>{topicDisplayName(topicContract.topicId, topicContract.topicName)}世界已建立骨架</h3>
+              <p>{topicContract.displaySummary}</p>
+            </div>
+            <strong>世界種子 {topicContract.worldOrdinal + 1}／1000</strong>
+          </header>
+          <div>
+            <article>
+              <h4>不可跳過的世界規則</h4>
+              <ul>{topicContract.canonRules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
+            </article>
+            <article>
+              <h4>組織、宗門與家族</h4>
+              <ul>{topicContract.institutions.map((institution) => <li key={institution}>{institution}</li>)}</ul>
+            </article>
+            <article>
+              <h4>資源、寶物與取得條件</h4>
+              <ul>{topicContract.assets.map((asset) => <li key={asset}>{asset}</li>)}</ul>
+            </article>
+            <article data-play-mode={topicContract.playMechanics.mode}>
+              <h4>{topicContract.playMechanics.label}專屬追蹤</h4>
+              <p>{topicContract.playMechanics.dimensions.join("・")}</p>
+              <ul>{topicContract.playMechanics.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
+            </article>
+          </div>
+        </section>
+      ) : null}
+      {familyMatrix ? (
+        <>
+          <section className="p2WorldPowerAtlas" data-testid="creation-world-power-atlas" aria-labelledby="p2-world-power-title">
+            <header>
+              <div>
+                <span>完整世界權力圖</span>
+                <h3 id="p2-world-power-title">四勢力全貌</h3>
+                <p>宗門、修行家族、散修盟與坊市都會繼續獨立行動；選定上場家族不會讓其他勢力消失。</p>
+              </div>
+              <strong>{familyMatrix.organizations.length} 個勢力・{familyMatrix.capacity.characters.toLocaleString("zh-TW")} 人物容量</strong>
+            </header>
+            <div className="p2PowerGrid">
+              {familyMatrix.organizations.map((organization) => {
+                const allies = organization.allyOrganizationIds
+                  .map((id) => organizationById.get(id)?.name)
+                  .filter(Boolean)
+                  .join("、") || "暫無公開盟友";
+                const rivals = organization.rivalOrganizationIds
+                  .map((id) => organizationById.get(id)?.name)
+                  .filter(Boolean)
+                  .join("、") || "暫無公開對手";
+                const controlledAssets = familyMatrix.assetControls
+                  .filter((asset) => organization.controlledAssetIds.includes(asset.assetControlId))
+                  .map((asset) => `${asset.category}「${asset.name}」`)
+                  .join("、") || "尚無公開資產";
+                const contestedAssets = familyMatrix.assetControls
+                  .filter((asset) => organization.contestedAssetIds.includes(asset.assetControlId))
+                  .map((asset) => `${asset.category}「${asset.name}」`)
+                  .join("、") || "目前無爭奪資產";
+                return (
+                  <article className="p2PowerCard" key={organization.organizationId}>
+                    <header><span>{organization.kindLabel}</span><b>{organization.name}</b></header>
+                    <p>{organization.situationBrief}</p>
+                    <dl>
+                      <div><dt>所在與規模</dt><dd>{organization.territory}・可容納 {organization.memberCapacity.toLocaleString("zh-TW")} 人</dd></div>
+                      <div><dt>宗旨</dt><dd>{organization.doctrine}</dd></div>
+                      <div><dt>公開目標</dt><dd>{organization.publicGoal}</dd></div>
+                      <div><dt>內部危機</dt><dd>{organization.hiddenConflict}</dd></div>
+                      <div><dt>盟友／對手</dt><dd>{allies}／{rivals}</dd></div>
+                      <div><dt>控制／爭奪</dt><dd>{controlledAssets}／{contestedAssets}</dd></div>
+                    </dl>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="p2AssetAtlas" data-testid="creation-world-asset-controls" aria-labelledby="p2-world-assets-title">
+            <header>
+              <div>
+                <span>所有權與代價</span>
+                <h3 id="p2-world-assets-title">功法、丹藥、符籙、陣法、法器、靈草、秘境的資產控制</h3>
+                <p>每一項都有控制者、實際持有人、聲索者、用途、限制與代價；故事不能無來源地憑空取得。</p>
+              </div>
+              <strong>{familyMatrix.assetControls.length} 項已建立・{familyMatrix.capacity.treasures.toLocaleString("zh-TW")} 寶物容量</strong>
+            </header>
+            <div className="p2AssetGrid">
+              {familyMatrix.assetControls.map((asset) => (
+                <article className="p2AssetCard" key={asset.assetControlId}>
+                  <header><span>{asset.category}</span><b>{asset.name}</b></header>
+                  <p>{asset.visualDescription}</p>
+                  <dl>
+                    <div><dt>資產控制</dt><dd>{asset.controllerOrganizationName}{asset.controlRelation}</dd></div>
+                    <div><dt>持有人</dt><dd>{asset.holderName}</dd></div>
+                    <div><dt>其他聲索</dt><dd>{asset.claimantOrganizationName || "無"}</dd></div>
+                    <div><dt>用途</dt><dd>{asset.function}</dd></div>
+                    <div><dt>限制</dt><dd>{asset.limitation}</dd></div>
+                    <div><dt>代價</dt><dd>{asset.cost}</dd></div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="p2StageFamilyChooser" data-testid="creation-stage-family-candidates" aria-labelledby="p2-stage-family-title">
+            <header>
+              <div>
+                <span>一鍵核准・正式上場</span>
+                <h3 id="p2-stage-family-title">選擇上場家族／上場宗門／上場派系</h3>
+                <p>每張卡都是完整群像，不是一個人。選定後可指定男主角或女主角視角，其餘五人仍會帶著自己的目標與關係上場。</p>
+              </div>
+              <strong>{selectedFamily ? `${selectedFamily.name}已選定` : "三組候選待選"}</strong>
+            </header>
+            <div className="p2StageFamilyGrid">
+              {familyCandidates.map((candidate) => {
+                const family = candidate.family;
+                const isSelected = selectedFamily?.familyId === family.familyId;
+                const familyAssets = familyMatrix.assetControls.filter((asset) => family.assetControlIds.includes(asset.assetControlId));
+                return (
+                  <article className={`p2StageFamilyCard${isSelected ? " selected" : ""}`} key={candidate.optionId}>
+                    <header>
+                      <div><span>{family.organizationKind}・{family.organizationName}</span><h4>{family.name}</h4></div>
+                      <b>{isSelected ? "已核准上場" : "候選家族"}</b>
+                    </header>
+                    <p className="p2StageFamilyLead">{family.introduction}</p>
+                    <dl className="p2StageFamilyFacts">
+                      <div><dt>根據地</dt><dd>{family.home}</dd></div>
+                      <div><dt>聲望</dt><dd>{family.reputation}</dd></div>
+                      <div><dt>家傳特質</dt><dd>{family.inheritedTrait}</dd></div>
+                      <div><dt>當前局勢</dt><dd>{family.standing}</dd></div>
+                      <div><dt>掌握資產</dt><dd>{familyAssets.map((asset) => `${asset.category}「${asset.name}」`).join("、") || "將在故事中取得"}</dd></div>
+                    </dl>
+                    <div className="p2StageFamilyMembers">
+                      {family.members.map((member) => (
+                        <article className="p2StageMember" key={member.characterId}>
+                          <Image
+                            unoptimized
+                            src={member.portrait.dataUrl}
+                            alt={`${member.name}的原創人物相片`}
+                            width={78}
+                            height={78}
+                          />
+                          <div>
+                            <span>{member.stageRole}・{member.familyRole}</span>
+                            <b>{member.name}</b>
+                            <p>{member.identity}</p>
+                            <small>目標：{member.goal}</small>
+                            <small>個性：{member.personality.traits.join("、")}；能力層級 {member.abilities.powerTier}</small>
+                            <small>專長：{member.abilities.specialties.join("、")}；持有：{member.possessionNames.join("、") || "尚無"}</small>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    <details className="p2StageRelationships">
+                      <summary>查看這一家族的錯綜關係</summary>
+                      <ul>
+                        {family.relationships.map((relationship) => {
+                          const source = memberById.get(relationship.sourceCharacterId)?.name || "未知人物";
+                          const target = memberById.get(relationship.targetCharacterId)?.name || "未知人物";
+                          return <li key={relationship.relationshipId}><b>{source} ↔ {target}</b>・{relationship.kind}・信任 {relationship.trust}／張力 {relationship.tension}／責任 {relationship.obligation}；{relationship.historyHook}</li>;
+                        })}
+                      </ul>
+                    </details>
+                    <div className="p2StageFamilyActions">
+                      <button type="button" className="primary" onClick={() => selectStageFamily(family)}>
+                        {isSelected ? "重新核准此上場家族" : "一鍵核准此上場家族"}
+                      </button>
+                      {family.members.filter((member) => member.stageRole === "男主角候選" || member.stageRole === "女主角候選").map((member) => (
+                        <button type="button" key={member.characterId} onClick={() => selectStageFamily(family, member.characterId)}>
+                          以{member.stageRole === "男主角候選" ? "男主角" : "女主角"} {member.name} 為主視角
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        </>
+      ) : (
+        <div className="p2FoundationHint" role="status">請先選擇玩法與 218 類題材之一，系統才會建立相符的家族、宗門、派系與資產控制圖。</div>
+      )}
+
+      {selectedFamily ? (
+        <details className="p2AdvancedCast">
+          <summary>進階：調整已核准家族的主視角與成員資料</summary>
+          <p>{selectedFamily.name}已帶入 {selectedFamily.members.length} 名原創人物。以下只供需要精修姓名或目標時使用；一般使用者不必再逐格設定。</p>
+          <div className="p2CastSetup">
+            <label data-cast-role="protagonist">
+              <span>主角 <b>必填</b><small>故事主要視角與決策者</small></span>
+              <input
+                data-testid="creation-cast-protagonist"
+                value={protagonist.value}
+                onChange={(event) => updateProtagonist(event.target.value)}
+                placeholder="姓名｜目標、性格弱點或身分"
+              />
+            </label>
+            {supportingSlots.map((entry, index) => (
+              <article key={entry.role} data-cast-role={entry.role}>
+                <header>
+                  <b>{entry.roleLabel}</b>
+                  <span>{entry.complete ? "設定完整" : "需要補齊"}</span>
+                </header>
+                <label>
+                  姓名
+                  <input
+                    data-testid={`creation-cast-${entry.role}-name`}
+                    value={entry.name}
+                    onChange={(event) => updateSupportingCast(index, "name", event.target.value)}
+                    placeholder="原創角色姓名"
+                  />
+                </label>
+                <label>
+                  與主角關係
+                  <input
+                    data-testid={`creation-cast-${entry.role}-relationship`}
+                    value={entry.relationship}
+                    onChange={(event) => updateSupportingCast(index, "relationship", event.target.value)}
+                    placeholder={SUPPORTING_CAST_ROLES[index]?.relationship || "與主角或家族的具體關係"}
+                  />
+                </label>
+                <label>
+                  個人目標
+                  <input
+                    data-testid={`creation-cast-${entry.role}-goal`}
+                    value={entry.goal}
+                    onChange={(event) => updateSupportingCast(index, "goal", event.target.value)}
+                    placeholder="他／她即使離開主角也會追求的目標"
+                  />
+                </label>
+              </article>
+            ))}
+          </div>
+          <p className="p2FoundationHint">目前為 {protagonist.complete ? 1 : 0} 名主角＋{completeSupportingCount} 名有獨立目標的家族人物。變更後會隨作品一起儲存。</p>
+        </details>
+      ) : null}
+    </section>
+  );
 }
 
 function SeedEditor({ draft, set }: {
@@ -988,10 +1936,7 @@ function SeedEditor({ draft, set }: {
       <h2>確認《{draft.title.trim()}》的故事起點</h2>
       <label>一句話故事<textarea value={seed.logline.value || ""} onChange={(event) => update("logline", event.target.value)} /></label>
       <div className="p2SeedEditorGrid">
-        <label>主角<input value={seed.protagonist.value || ""} onChange={(event) => update("protagonist", event.target.value)} /></label>
         <label>主角目標<input value={seed.goal.value || ""} onChange={(event) => update("goal", event.target.value)} /></label>
-        <label>故事舞台<textarea value={seed.world.value || ""} onChange={(event) => update("world", event.target.value)} /></label>
-        <label>世界規則<textarea value={seed.worldRule.value || ""} onChange={(event) => update("worldRule", event.target.value)} /></label>
         <label>主要衝突<textarea value={seed.conflict.value || ""} onChange={(event) => update("conflict", event.target.value)} /></label>
         <label>開場事件<textarea value={seed.opening.value || ""} onChange={(event) => update("opening", event.target.value)} /></label>
       </div>

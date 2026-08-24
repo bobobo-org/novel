@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   ConversationArtifact,
   ConversationAttachment,
@@ -188,13 +188,24 @@ function PlayModeDashboard({
   projectId,
   playMode,
   storyState,
+  openRequest,
 }: {
   projectId: string;
   playMode: StoryPlayModeId;
   storyState: StoryState;
+  openRequest: number;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailPanelId = useId();
+  const dashboardRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (openRequest <= 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      setDetailsOpen(true);
+      dashboardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [openRequest]);
   const progression = useMemo(
     () => readRpgProgression(storyState, projectId, progressionMode(playMode)),
     [playMode, projectId, storyState],
@@ -349,7 +360,13 @@ function PlayModeDashboard({
     }
   }
   return (
-    <section className={styles.playDashboard} data-play-mode={playMode} aria-label={`${STORY_PLAY_MODE_LABELS[playMode]}狀態儀表板`}>
+    <section
+      ref={dashboardRef}
+      className={styles.playDashboard}
+      data-play-mode={playMode}
+      data-dashboard-open-request={openRequest}
+      aria-label={`${STORY_PLAY_MODE_LABELS[playMode]}狀態儀表板`}
+    >
       <div className={styles.playDashboardHeading}>
         <div className={styles.playDashboardIdentity}>
           <b aria-hidden="true">{playMode === "management" ? "營" : playMode === "romance" ? "戀" : "冒"}</b>
@@ -436,6 +453,7 @@ export function MessageTimeline({
   retryAvailable,
   retryLabel,
   branchPendingMessageIds,
+  dashboardOpenRequest,
   fixedPlayMode,
   storyState,
   actions,
@@ -457,6 +475,7 @@ export function MessageTimeline({
   retryAvailable: boolean;
   retryLabel: string;
   branchPendingMessageIds: ReadonlySet<string>;
+  dashboardOpenRequest: number;
   fixedPlayMode: StoryPlayModeId | null;
   storyState: StoryState | null;
   actions: ConversationMessageActions;
@@ -515,7 +534,7 @@ export function MessageTimeline({
     >
       <div className={styles.threadInner}>
         {gameStory && fixedPlayMode && storyState && !dashboardTarget ? (
-          <PlayModeDashboard projectId={projectId} playMode={fixedPlayMode} storyState={storyState} />
+          <PlayModeDashboard projectId={projectId} playMode={fixedPlayMode} storyState={storyState} openRequest={dashboardOpenRequest} />
         ) : null}
         {!messages.length && !loading ? (
           <section className={styles.welcome}>
@@ -561,7 +580,7 @@ export function MessageTimeline({
             branchPending={branchPendingMessageIds.has(message.id)}
             actions={actions}
             lineage={lineageByMessageId.get(message.id) ?? { rootId: message.id, depth: 0 }}
-            playDashboard={showDashboard ? <PlayModeDashboard projectId={projectId} playMode={fixedPlayMode} storyState={storyState} /> : null}
+            playDashboard={showDashboard ? <PlayModeDashboard projectId={projectId} playMode={fixedPlayMode} storyState={storyState} openRequest={dashboardOpenRequest} /> : null}
             playDashboardPlacement={showDashboard ? dashboardTarget.placement : null}
           />;
         })}

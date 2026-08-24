@@ -189,26 +189,15 @@ export const MessageRow = memo(function MessageRow({
         {message.role === "user" && message.status === "completed" ? (
           <button
             type="button"
-            data-conversation-action="edit-branch"
+            data-conversation-action="edit-message-copy"
             disabled={busy || branchPending}
             aria-busy={branchPending}
             onClick={() => actions.editMessage(message)}
           >
-            {branchPending ? "建立編輯分支中……" : "編輯並分支"}
+            {branchPending ? "正在準備修改副本……" : "修改此訊息（保留原文）"}
           </button>
         ) : null}
-        {message.status === "completed" && !rpgChoices ? (
-          <button
-            type="button"
-            data-conversation-action="branch"
-            disabled={busy || branchPending}
-            aria-busy={branchPending}
-            onClick={() => actions.createBranch(message)}
-          >
-            {branchPending ? "建立支線中……" : "另開支線"}
-          </button>
-        ) : null}
-        {branchPending ? <span className={styles.emptyNote} role="status">分支建立中，請稍候。</span> : null}
+        {branchPending ? <span className={styles.emptyNote} role="status">正在準備修改副本，請稍候。</span> : null}
         {canRegenerate ? (
           <button
             type="button"

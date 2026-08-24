@@ -70,7 +70,7 @@ for (const visibleEngineStory of [
 ]) {
   assert.throws(
     () => validateRpgStoryTurnContract(visibleEngineStory, "zh-TW"),
-    (error) => error?.message === "RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE",
+    (error) => error?.message === "RPG_AI_INTERNAL_STORY_MECHANICS_LEAK",
   );
 }
 const closureLedger = (snapshot) => Object.fromEntries([
@@ -110,6 +110,8 @@ for (const playMode of scenarios) {
   const repository = new MemoryNovelRepository();
   const draft = createDraft("quick");
   draft.title = `八回合結案-${playMode}`;
+  draft.genrePackId = "pack-6";
+  draft.genreId = "classic-topic-009";
   draft.protagonist = optionalValue("林澄", "user_defined");
   draft.coreIdea = optionalValue("林澄必須在封鎖完成前查明密訊來源，並保住蘇錦魚的選擇權。", "user_defined");
   draft.answers.playMode = optionalValue(playMode, "user_defined");

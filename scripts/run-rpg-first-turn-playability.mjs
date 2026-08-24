@@ -23,10 +23,15 @@ for (const scenario of scenarios) {
   const repository = new MemoryNovelRepository();
   const draft = createDraft("quick");
   draft.title = `首回合-${scenario.playMode}`;
+  draft.genrePackId = "pack-6";
+  draft.genreId = "classic-topic-009";
   draft.protagonist = optionalValue("林澄", "user_defined");
   draft.coreIdea = optionalValue("林澄必須在夥伴離去前守住瀕危事業與彼此的承諾。", "user_defined");
   draft.answers.playMode = optionalValue(scenario.playMode, "user_defined");
   const bundle = buildProjectBundle(draft);
+  assert.ok(bundle.cast.length >= 4, `${scenario.playMode}: auto-family must provide at least four supporting characters`);
+  const stageCompanionName = bundle.cast[0]?.name;
+  assert.ok(stageCompanionName, `${scenario.playMode}: auto-family must provide a named on-stage companion`);
   await repository.createProject(bundle, `create:${scenario.playMode}`);
   const chapter = await repository.put("chapters", {
     ...makeRecord(bundle.project.id),
@@ -40,21 +45,10 @@ for (const scenario of scenarios) {
     ...bundle.project,
     activeChapterId: chapter.id,
   }, bundle.project.revision);
-  const companion = await repository.put("characters", {
-    ...makeRecord(bundle.project.id),
-    name: "蘇錦魚",
-    aliases: [],
-    identity: optionalValue("守著最後承諾的同行者", "user_defined"),
-    personality: optionalValue("審慎、尊重界線，也會追問責任", "user_defined"),
-    goal: optionalValue("在天亮前保住團隊與彼此的選擇權", "user_defined"),
-    lifeStatus: "alive",
-    locationId: null,
-  });
   const storyBible = await repository.get("storyBibles", bundle.storyBible.id);
   assert.ok(storyBible);
   await repository.put("storyBibles", {
     ...storyBible,
-    characterIds: [...new Set([...storyBible.characterIds, companion.id])],
     unresolvedThreads: [
       ...storyBible.unresolvedThreads,
       "青楓派巡察將於天亮封鎖最後通路",
@@ -96,7 +90,7 @@ for (const scenario of scenarios) {
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.encounter.signature)).size, 3);
   assert.ok(snapshot.baseChoices.every((choice) => choice.description.includes("帳冊上的赤字")));
   assert.ok(snapshot.baseChoices.every((choice) => choice.description.includes("林澄")));
-  assert.ok(snapshot.baseChoices.some((choice) => choice.description.includes("蘇錦魚")));
+  assert.ok(snapshot.baseChoices.some((choice) => choice.description.includes(stageCompanionName)));
   assert.ok(snapshot.baseChoices.some((choice) => choice.description.includes("青楓派巡察")));
   assert.equal(snapshot.storyState.resources["game.actionPoints"], scenario.expectedActionPoints);
   assert.equal(snapshot.storyState.resources["game.turn"], 0);
@@ -154,7 +148,7 @@ for (const scenario of scenarios) {
   );
   assert.doesNotMatch(candidate.story, /第零日|第一日/u);
   assert.ok(candidate.story.includes("林澄"));
-  assert.ok(candidate.story.includes("蘇錦魚"));
+  assert.ok(candidate.story.includes(stageCompanionName));
   assert.ok(candidate.story.includes("青楓派巡察"));
   assert.equal(candidate.outcomeLines.length, 4);
   assert.match(candidate.outcomeLines[0], /^行動結果：C｜/u);

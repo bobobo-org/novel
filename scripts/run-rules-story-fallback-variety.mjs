@@ -22,7 +22,10 @@ import {
   PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
   proceduralCharacterTreasureScenarioAt,
 } from "../lib/novel-ai/game/procedural-story-library.ts";
-import { validateRpgStoryTurnContract } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
+import {
+  buildRpgResolutionDirectorPrompt,
+  validateRpgStoryTurnContract,
+} from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 
 const modes = ["adventure", "cultivation", "management"];
 const spaces = Object.fromEntries(modes.map((mode) => [mode, proceduralEncounterCombinationSpace(mode)]));
@@ -179,7 +182,32 @@ const story = buildDeterministicRpgTurnStory({
         goal: { value: `${"守住證人與逃生路線".repeat(20)}。` },
         personality: { value: "審慎而不失勇氣。" },
         limitations: [`${"不接受強迫與隱瞞".repeat(20)}。`],
+        factionIds: ["雨港藥盟"],
+        socialMatrixProfile: { familyId: "蘇氏藥坊", institutionId: "雨港藥盟" },
       },
+      {
+        id: "counterforce",
+        name: "顧行舟",
+        goal: { value: "保住顧氏航運的夜航權" },
+        personality: { value: "冷靜、務實，從不白白讓步。" },
+        limitations: ["不拿族人性命交換口頭承諾"],
+        factionIds: ["青楓會"],
+        socialMatrixProfile: { familyId: "顧氏航運", institutionId: "青楓會" },
+      },
+      {
+        id: "witness",
+        name: "葉聞雪",
+        goal: { value: "讓被竄改的交付紀錄重新見光" },
+        personality: { value: "寡言但記得每一道筆跡。" },
+        limitations: ["證據未核對前不替任何一方背書"],
+        factionIds: ["渡口公證盟"],
+        socialMatrixProfile: { familyId: "葉氏記錄院", institutionId: "渡口公證盟" },
+      },
+    ],
+    relationships: [
+      { fromCharacterId: "hero", toCharacterId: "ally", kind: "盟友", summary: "曾共同救下藥坊傷者，仍欠一次坦白", trust: 62 },
+      { fromCharacterId: "hero", toCharacterId: "counterforce", kind: "競爭者", summary: "兩家曾因夜航權公開交鋒", trust: 24 },
+      { fromCharacterId: "hero", toCharacterId: "witness", kind: "證人", summary: "彼此只以可核對的證據合作", trust: 48 },
     ],
     progression: { turn: 3, inventory: [{ name: "帳冊與備用藥材", quantity: 1 }] },
     language: "zh-TW",
@@ -197,7 +225,7 @@ const story = buildDeterministicRpgTurnStory({
 });
 const storyScenario = proceduralCharacterTreasureScenarioAt({
   seed: "project-1|chapter-1|management",
-  ordinal: (Math.floor(3 / 3) * 7_919 + 101) % PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
+  ordinal: (Math.floor(3 / 3) * 7_919 + 303) % PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
   context: {
     playMode: "management",
     protagonist: "林澄",
@@ -211,19 +239,47 @@ for (const value of [
   "雨夜藥鋪",
   "青楓派巡察",
   "帳冊與備用藥材",
-  storyScenario.cast.counterforce.name,
-  storyScenario.cast.witness.name,
+  "顧行舟",
+  "葉聞雪",
+  "蘇氏藥坊",
+  "顧氏航運",
+  "葉氏記錄院",
   storyScenario.treasure.name,
 ]) {
   assert.ok(value && story.includes(value), `novel fallback prose did not render ${value}`);
 }
 assert.match(story, /「.+」/u, "supporting characters must speak in the novel scene");
+assert.match(story, /蘇氏藥坊[\s\S]{0,260}蘇錦魚[\s\S]{0,220}「我願意一起處理/u, "the allied family character must speak and act");
+assert.match(story, /顧氏航運[\s\S]{0,260}顧行舟[\s\S]{0,220}「我願意一起處理/u, "the rival family character must speak and act");
 assert.doesNotMatch(
   story,
-  /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
+  /核准規則|規則校準|規則故事後備|因果維度|因果鏈|本回合|下一回合|回合制|關係張力|狀態收益|狀態修訂|狀態更新|結算結果|下一輪可用|下一次行動|等待下一步|Story Bible|Canon/u,
   "reader-facing prose leaked internal engine or governance wording",
 );
 validateRpgStoryTurnContract(story, "zh-TW");
+
+const familyDirectorPrompt = JSON.parse(buildRpgResolutionDirectorPrompt({
+  context: {
+    stagedFamilies: [
+      { family: "蘇氏藥坊", faction: "雨港藥盟", members: ["蘇錦魚"] },
+      { family: "顧氏航運", faction: "青楓會", members: ["顧行舟"] },
+    ],
+    supportingCharacters: [{ name: "蘇錦魚" }, { name: "顧行舟" }],
+    relationships: [{ from: "林澄", to: "蘇錦魚", summary: "仍欠一次坦白" }],
+  },
+  choice: {
+    key: "B",
+    title: "借勢調度",
+    description: "重新配置現有人力與資金",
+    encounter,
+  },
+  language: "zh-TW",
+  resolution: { outcomeLabel: "失敗", roll: 24, successChance: 58, settlement: [] },
+}));
+assert.match(familyDirectorPrompt.instruction, /上場人物網絡/u);
+assert.match(familyDirectorPrompt.instruction, /兩名具名配角/u);
+assert.match(familyDirectorPrompt.instruction, /上場家族或派系/u);
+assert.match(familyDirectorPrompt.instruction, /不同人物說出至少兩句/u);
 
 // Browser reproduction guard: the closed-AI story may be rejected as too long,
 // so its deterministic replacement must remain valid even when every causal

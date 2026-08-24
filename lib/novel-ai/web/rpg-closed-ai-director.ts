@@ -92,6 +92,18 @@ const INTERNAL_STORY_MECHANICS_PATTERNS: ReadonlyArray<{
     kind: "preset-round-count",
     pattern: /(?:到|於|在)(?:了)?第\s*(?:\d{1,3}|[一二三四五六七八九十百兩]+)\s*回合[^。！？\n]{0,10}(?:結束|結案|完結|收束|進入結局)/u,
   },
+  {
+    kind: "family-stage-internal-contract",
+    pattern: /(?:世界契約|題材契約|所屬家族\s*ID|因果維度)(?:\s*[：:=]\s*[^，。；\n]+)?/iu,
+  },
+  {
+    kind: "story-engine-language",
+    pattern: /(?:核准規則|規則校準|關係張力|下一回合|下一輪可用)(?:\s*[：:=]\s*[^，。；\n]+)?/iu,
+  },
+  {
+    kind: "family-stage-internal-contract",
+    pattern: /\b(?:contractStatement|canonicalStatus|schemaVersion|VIRTUAL_CANDIDATE)\b(?:\s*[：:=]\s*[^,.;\n]+)?/iu,
+  },
 ];
 
 const INTERNAL_PROMPT_KEYS = new Set([
@@ -113,6 +125,10 @@ const INTERNAL_PROMPT_KEYS = new Set([
   "causalchainaction",
   "successfactorids",
   "contextsignature",
+  "contractstatement",
+  "canonicalstatus",
+  "schemaversion",
+  "virtualcandidate",
 ]);
 
 function internalPromptKey(key: string) {
@@ -293,10 +309,10 @@ export function buildRpgChoiceDirectorPrompt(input: {
     instruction: [
       "你是閉端小說 RPG 文案導演。請理解目前章節、角色、世界規則、未解伏筆、最近選擇與正式 RPG 狀態，僅潤飾本回合 A/B/C 的顯示文案。",
       "每個 key 已由規則引擎綁定策略，而且 A/B/C 的策略位置會輪替；必須逐項服從 immutableRuleChoices，不可自行假設 A、B、C 的策略。",
-      "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
+      "context.project.fixedPlayMode 只鎖定本回合的操作、數值與結算方式；世界規則與 Lore 已核定的修煉、宗門、家族、丹藥、符籙、陣法、法器或靈草等題材詞仍必須保留。不得憑空引入其他玩法的數值機制。",
       "不得重述前情、不得沿用最近回合標題、不得使用空泛句型。只能重寫 title、description、consequenceTeaser；不得輸出或修改策略、需求、成功率、風險、成本、效果、判定或其他規則欄位。",
       "不得透露或猜測任何預設回合總數、回合上限、內部故事弧階段、結局條件、門檻或判定機制。若 readerSafeCausalContracts 提供 currentDirections，只能描述當下列出的三個方向，不得解釋它們為何現在出現。",
-      "三項要承接具體上下文並導向不同事件與人物反應。只輸出 JSON，不要 Markdown。",
+      "三項要承接具體上下文並導向不同事件與人物反應；若 context.selectedStageFamily、stagedOrganizations、stagedAssets 已提供資料，三項應分別讓具體人物、勢力或資產介入，不能只替換策略形容詞。只輸出 JSON，不要 Markdown。",
       outputLanguageInstruction(input.language),
     ].join("\n"),
     outputSchema: {
@@ -387,7 +403,7 @@ export function validateRpgStoryTurnContract(
   assertRpgReaderSafeOutput(value);
   const visibleEngineLanguage = language === "en"
     ? /\b(?:approved rule|rule calibration|this turn(?:'s)? goal|relationship tension|state update|settlement result|next-turn available|game loop|causal framework|system (?:stores?|will|does not))\b/iu
-    : /核准規則|規則校準|本回合(?:目標|結算)|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|規則判定|因果框架|故事弧編號|作品\s*Canon|系統(?:保存|會|不會)/u;
+    : /核准規則|規則校準|本回合(?:目標|結算)|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|規則判定|因果框架|故事弧編號|作品\s*Canon|世界契約|題材契約|所屬家族\s*ID|因果維度|系統(?:保存|會|不會)/u;
   if (visibleEngineLanguage.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE");
   }
@@ -448,16 +464,21 @@ export function buildRpgResolutionDirectorPrompt(input: {
         ? "The first line must be a concrete literary title enclosed in angle quotation marks, with no round number or game label."
         : "第一行必須是「〈具體場景或事件標題〉」；不可顯示回合數、遊戲標籤，也不可使用「新的冒險」等空話。",
       "開頭要自然承認玩家剛選擇的行動，接著承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；完整寫出一場有場景、行動、對話、感官、直接後果與新局勢的戲。",
+      "把 context.stagedFamilies、supportingCharacters 與 relationships 視為會主動改變局勢的上場人物網絡，不可只讓主角自言自語。若既有資料提供至少兩名配角，正文至少讓主角與兩名具名配角登場；兩名配角必須各自採取不同且可見的行動，並由不同人物說出至少兩句推動衝突的對話。",
+      "上場家族或派系必須透過成員、信使、資源、承諾、阻攔或旁觀者反應實際介入場景；不可只列家族名稱或把所有人都寫成服從主角的背景板。若既有資料不足兩名配角，可依世界規則創造原創臨時人物補足現場互動，但不得使用真實人物，也不得宣稱臨時人物已成為正式 Canon。",
+      "若 context.selectedStageFamily、stagedOrganizations、stagedAssets 已提供資料，必須選用其中至少一個已核定資產，讓其控制勢力、目前持有人與聲索勢力透過行動形成可見因果；不得改名、換持有人或只把資料列成清單。資產的作用、限制與代價要成為場景阻力或解法。",
+      "supportingCharacters.hiddenMotivations 只用來塑造角色行為；除非目前證據已揭露，不可讓角色直接說出秘密，也不可把欄位名稱寫入正文。",
+      "人物的既有目標、拒絕底線與關係摘要要化成動作、語氣和選擇，不要列人物卡、設定表、家族 ID、派系 ID 或資料庫欄位。",
       "小說標題後使用 8 到 16 個完整小說段落；不要另加分節標題、編號或小標，避免把同一段拆成只有一句的碎片。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
-      "故事要推進到下一次需要玩家決定的自然停頓點，但不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
+      "故事要推進到需要玩家決定的自然停頓點，以門被推開、證據被交出、人物要求回答或迫近事件等具體畫面收尾；不要寫『下一回合』『下一輪』『等待下一步』等介面語句，不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
       input.language === "en"
         ? "Write 1,100 to 2,200 characters. After the literary title, write exactly 10 complete story paragraphs with no extra headings; keep each paragraph substantial and continue until the scene reaches a genuine decision point."
         : "正文需有 900 至 1,600 個中文字。小說標題後恰好寫 10 個完整小說段落，不加分節標題；每段約 130 至 155 個中文字，正文總長以 1,050 至 1,450 字為安全目標，未達最低篇幅時不得提早總結。",
       input.language === "en"
         ? "Use the ten paragraphs in order for: immediate action, resistance, opposing reaction, sensory escalation, irreversible cost, result taking effect, relationship reaction, changed environment, new danger, and a genuine decision point. Do not print this plan."
         : "十段依序完成：行動落地、阻力出現、對手反應、感官升壓、不可逆代價、判定結果生效、人物關係反應、環境改變、新危險逼近、自然決策點。不要把這份段落計畫印出來。",
-      "必須服從 context.project.fixedPlayMode；不得把其他玩法的戰鬥、修煉、戀愛或經營術語與資源混入目前作品。",
+      "context.project.fixedPlayMode 只鎖定本回合的操作、數值與結算方式；世界規則與 Lore 已核定的修煉、宗門、家族、丹藥、符籙、陣法、法器或靈草等題材詞仍必須保留。不得憑空引入其他玩法的數值機制。",
       "不得透露或猜測任何預設回合總數、回合上限、內部故事弧階段、結局條件、門檻或判定機制。若 readerSafeCausalContract 提供 currentDirections，只能呈現當下方向，不得說明系統為何在此時允許收束。",
       "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出小說標題與小說正文；不得寫出核准規則、規則校準、本回合目標、關係張力、狀態更新、結算結果、下一輪可用資源、因果框架或任何系統術語。不要分節標題、行動結果、狀態面板、JSON、程式碼、規則解釋或下一組選項，這些會由介面在正文後另行顯示。",
       outputLanguageInstruction(input.language),

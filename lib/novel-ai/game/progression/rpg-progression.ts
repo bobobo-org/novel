@@ -1328,6 +1328,9 @@ export function buildRpgChoices(input: {
   narrativeAnchors?: {
     supportingCharacter?: string | null;
     unresolvedThread?: string | null;
+    familyOrFaction?: string | null;
+    storyAsset?: string | null;
+    factionPressure?: string | null;
   };
   causalKnowledgeDigest?: string;
 }): RpgChoice[] {
@@ -1379,23 +1382,40 @@ export function buildRpgChoices(input: {
   };
   const supportingCharacter = input.narrativeAnchors?.supportingCharacter?.trim();
   const unresolvedThread = input.narrativeAnchors?.unresolvedThread?.trim();
+  const familyOrFaction = input.narrativeAnchors?.familyOrFaction?.trim();
+  const storyAsset = input.narrativeAnchors?.storyAsset?.trim();
+  const factionPressure = input.narrativeAnchors?.factionPressure?.trim();
   const availableInventory = input.progression.inventory.find((item) => item.quantity > 0)?.name;
   const choicePool = input.playMode === "romance" ? ROMANCE_CHOICE_POOL : CHOICE_POOL;
   const storyProps: Record<RpgMode, Record<RpgChoiceStrategy, string>> = {
     adventure: {
-      steady: supportingCharacter ? `${supportingCharacter}的態度與現場退路` : "現場線索與退路",
-      resource: availableInventory || "現有裝備",
-      bold: unresolvedThread ? `未解線索「${unresolvedThread}」` : "對手剛暴露的破綻",
+      steady: familyOrFaction
+        ? `${familyOrFaction}與${supportingCharacter || "同行者"}守住的退路`
+        : supportingCharacter ? `${supportingCharacter}的態度與現場退路` : "現場線索與退路",
+      resource: storyAsset || availableInventory || "現有裝備",
+      bold: factionPressure
+        ? `勢力暗流「${factionPressure}」${unresolvedThread ? `與未解線索「${unresolvedThread}」` : ""}`
+        : unresolvedThread ? `未解線索「${unresolvedThread}」` : "對手剛暴露的破綻",
     },
     cultivation: {
-      steady: supportingCharacter ? `${supportingCharacter}目前願意交付的信任` : "彼此已建立的信任",
-      resource: availableInventory || "尚未兌現的承諾",
-      bold: unresolvedThread ? `尚未說清的心結「${unresolvedThread}」` : "關係轉折的關鍵時機",
+      steady: familyOrFaction
+        ? `${familyOrFaction}與${supportingCharacter || "同行者"}目前願意交付的信任`
+        : supportingCharacter ? `${supportingCharacter}目前願意交付的信任` : "彼此已建立的信任",
+      resource: storyAsset || availableInventory || "尚未兌現的承諾",
+      bold: factionPressure
+        ? `勢力暗流「${factionPressure}」${unresolvedThread ? `與尚未說清的心結「${unresolvedThread}」` : ""}`
+        : unresolvedThread ? `尚未說清的心結「${unresolvedThread}」` : "關係轉折的關鍵時機",
     },
     management: {
-      steady: supportingCharacter ? `${supportingCharacter}與現有團隊的品質標準` : "現有團隊與品質標準",
-      resource: `可調度資金 ${input.progression.management.cash.toLocaleString("zh-TW")} 與 ${input.progression.management.staff} 名人力`,
-      bold: unresolvedThread ? `尚未化解的營運危機「${unresolvedThread}」` : "市場窗口與品牌聲量",
+      steady: familyOrFaction
+        ? `${familyOrFaction}與${supportingCharacter || "團隊代表"}共同守住的品質標準`
+        : supportingCharacter ? `${supportingCharacter}與現有團隊的品質標準` : "現有團隊與品質標準",
+      resource: storyAsset
+        ? `${storyAsset}與可調度資金 ${input.progression.management.cash.toLocaleString("zh-TW")}`
+        : `可調度資金 ${input.progression.management.cash.toLocaleString("zh-TW")} 與 ${input.progression.management.staff} 名人力`,
+      bold: factionPressure
+        ? `勢力暗流「${factionPressure}」${unresolvedThread ? `與尚未化解的營運危機「${unresolvedThread}」` : ""}`
+        : unresolvedThread ? `尚未化解的營運危機「${unresolvedThread}」` : "市場窗口與品牌聲量",
     },
   };
   return strategies.map((strategy, index) => {

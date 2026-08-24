@@ -70,7 +70,7 @@ export function SessionSidebar({
       <button className={styles.newSession} type="button" onClick={onNewSession} disabled={busy}>＋ 新對話</button>
       {branchPending ? (
         <p className={styles.emptyNote} role="status">
-          分支建立中。新對話、重新命名、封存與刪除已暫停；你仍可指定完成後要停留的對話。
+          正在準備修改副本。新對話、重新命名、封存與刪除已暫停；你仍可指定完成後要停留的對話。
         </p>
       ) : null}
       <input className={styles.searchInput} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜尋對話" aria-label="搜尋對話" />
@@ -89,7 +89,7 @@ export function SessionSidebar({
               onClick={() => onChooseSession(session.id)}
             >
               {session.id === queuedSessionId
-                ? "等待分支完成後切換……"
+                ? "等待修改完成後切換……"
                 : session.id === switchingSessionId
                   ? "切換中……"
                   : `${session.status === "archived" ? "〔封存〕" : ""}${session.title}`}

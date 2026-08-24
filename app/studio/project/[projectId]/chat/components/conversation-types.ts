@@ -63,7 +63,6 @@ export type ConversationMessageActions = {
   rejectArtifact: (artifact: ConversationArtifact) => void;
   regenerateMessage: (message: ConversationMessage) => void;
   editMessage: (message: ConversationMessage) => void;
-  createBranch: (message: ConversationMessage) => void;
   retryMessage: (content: string) => void;
   stopGeneration: () => void;
 };

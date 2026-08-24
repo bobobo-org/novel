@@ -387,6 +387,163 @@ function projectSeed(snapshot: RpgChatSnapshot): StudioProjectSeed {
   };
 }
 
+const FAMILY_STAGE_INTERNAL_LORE_PATTERN = /(?:世界契約|題材契約|所屬家族\s*ID|contractStatement|canonicalStatus|VIRTUAL_CANDIDATE|schemaVersion|十因果維度)/iu;
+
+function loreDisplayParts(entry: LoreEntry) {
+  const [prefix, ...rest] = entry.title.split("｜").map((value) => value.trim()).filter(Boolean);
+  return {
+    prefix: prefix || entry.kind,
+    name: rest.join("｜") || prefix || entry.title,
+  };
+}
+
+function readerSafeLoreContent(value: string) {
+  return value
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line && !FAMILY_STAGE_INTERNAL_LORE_PATTERN.test(line))
+    .join("\n")
+    .replace(/(?:social-(?:family|institution)-[^\s，。；、)）]+|[\da-f]{8,}-[\da-f-]{20,})/giu, "既有勢力")
+    .trim();
+}
+
+function loreField(content: string, label: string) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = content.match(new RegExp(`(?:^|[；;\\n])\\s*${escaped}\\s*[：:]\\s*([^；;\\n。]+)`, "u"));
+  return match?.[1]?.trim() || null;
+}
+
+function firstLoreNarrativeLine(content: string) {
+  return content.split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find((line) => line && !/^[^：:]{1,12}[：:]/u.test(line)) ?? "";
+}
+
+function cleanLoreEntityName(value: string | null | undefined) {
+  return value
+    ?.replace(/（[^）]*）/gu, "")
+    .replace(/[。；;，,：:\s]+$/gu, "")
+    .trim() || null;
+}
+
+type FamilyStageOrganizationNarrative = {
+  id: string;
+  kind: string;
+  name: string;
+  situation: string;
+  territory: string | null;
+  doctrine: string | null;
+  publicGoal: string | null;
+  hiddenConflict: string | null;
+  allies: string | null;
+  rivals: string | null;
+  controlledAssets: string | null;
+  contestedAssets: string | null;
+};
+
+type FamilyStageAssetNarrative = {
+  id: string;
+  category: string;
+  name: string;
+  storyHook: string;
+  controller: string | null;
+  holder: string | null;
+  claimant: string | null;
+  function: string | null;
+  limitation: string | null;
+  cost: string | null;
+  visualDescription: string | null;
+  holderCharacterId: string | null;
+  stakeholderCharacterIds: string[];
+  controllerOrganizationId: string | null;
+  claimantOrganizationId: string | null;
+};
+
+function buildFamilyStageNarrativeContext(input: {
+  lore: readonly LoreEntry[];
+  storyState: StoryState;
+}) {
+  const loreById = new Map(input.lore.map((entry) => [entry.id, entry] as const));
+  const flags = storyWorldFlags(input.storyState);
+  const selectedFamilyId = typeof flags["story.selectedFamilyId"] === "string"
+    ? String(flags["story.selectedFamilyId"])
+    : null;
+  const factionLore = input.lore.filter((entry) => entry.kind === "faction");
+  const selectedFamilyLore = (selectedFamilyId ? loreById.get(selectedFamilyId) : null)
+    ?? factionLore.find((entry) => loreDisplayParts(entry).prefix === "上場家族")
+    ?? null;
+  const organizationLore = factionLore.filter((entry) => entry.id !== selectedFamilyLore?.id);
+  const organizations: FamilyStageOrganizationNarrative[] = organizationLore.map((entry) => {
+    const safeContent = readerSafeLoreContent(entry.content);
+    const parts = loreDisplayParts(entry);
+    return {
+      id: entry.id,
+      kind: parts.prefix,
+      name: parts.name,
+      situation: firstLoreNarrativeLine(safeContent),
+      territory: loreField(safeContent, "領域"),
+      doctrine: loreField(safeContent, "內部準則"),
+      publicGoal: loreField(safeContent, "公開目標"),
+      hiddenConflict: loreField(safeContent, "隱藏衝突"),
+      allies: loreField(safeContent, "盟友"),
+      rivals: loreField(safeContent, "對手"),
+      controlledAssets: loreField(safeContent, "控制"),
+      contestedAssets: loreField(safeContent, "爭奪"),
+    };
+  });
+  const organizationByName = new Map(organizations.map((organization) => [organization.name, organization] as const));
+  const assets: FamilyStageAssetNarrative[] = input.lore
+    .filter((entry) => entry.kind === "item")
+    .map((entry) => {
+      const safeContent = readerSafeLoreContent(entry.content);
+      const parts = loreDisplayParts(entry);
+      const controller = cleanLoreEntityName(loreField(safeContent, "控制勢力"));
+      const claimant = cleanLoreEntityName(loreField(safeContent, "聲索勢力"));
+      return {
+        id: entry.id,
+        category: parts.prefix,
+        name: parts.name,
+        storyHook: firstLoreNarrativeLine(safeContent),
+        controller,
+        holder: cleanLoreEntityName(loreField(safeContent, "持有人")),
+        claimant,
+        function: loreField(safeContent, "作用"),
+        limitation: loreField(safeContent, "限制"),
+        cost: loreField(safeContent, "代價"),
+        visualDescription: loreField(safeContent, "外觀"),
+        holderCharacterId: entry.proceduralTreasureProfile?.holderCharacterId ?? null,
+        stakeholderCharacterIds: entry.proceduralTreasureProfile?.stakeholderCharacterIds ?? [],
+        controllerOrganizationId: controller ? organizationByName.get(controller)?.id ?? null : null,
+        claimantOrganizationId: claimant ? organizationByName.get(claimant)?.id ?? null : null,
+      };
+    });
+  const selectedStageFamily = selectedFamilyLore ? {
+    id: selectedFamilyLore.id,
+    name: loreDisplayParts(selectedFamilyLore).name,
+    introduction: firstLoreNarrativeLine(readerSafeLoreContent(selectedFamilyLore.content)),
+    standing: loreField(readerSafeLoreContent(selectedFamilyLore.content), "家族位置"),
+    stagePremise: loreField(readerSafeLoreContent(selectedFamilyLore.content), "上場前提"),
+    controlledAssets: loreField(readerSafeLoreContent(selectedFamilyLore.content), "掌握資產"),
+  } : null;
+  const prioritizedLore = [
+    ...organizationLore,
+    ...(selectedFamilyLore ? [selectedFamilyLore] : []),
+    ...input.lore.filter((entry) => entry.kind === "item"),
+    ...input.lore.filter((entry) => entry.kind !== "faction" && entry.kind !== "item").slice(-7),
+  ].filter((entry, index, values) => values.findIndex((candidate) => candidate.id === entry.id) === index);
+  return {
+    loreById,
+    selectedStageFamily,
+    organizations,
+    assets,
+    readerSafeLore: prioritizedLore.slice(0, 20).map((entry) => ({
+      kind: entry.kind,
+      title: entry.title,
+      content: readerSafeLoreContent(entry.content),
+    })),
+  };
+}
+
 function buildDirectorContext(input: {
   project: NovelProject;
   chapter: Chapter;
@@ -407,11 +564,32 @@ function buildDirectorContext(input: {
   conflict: string;
 }) {
   const worldFlags = storyWorldFlags(input.storyState);
+  const familyStage = buildFamilyStageNarrativeContext({
+    lore: input.lore,
+    storyState: input.storyState,
+  });
   const protagonist = input.characters.find((character) =>
     input.storyBible.protagonistIds.includes(character.id))
     ?? input.characters[0]
     ?? null;
   const nameById = new Map(input.characters.map((character) => [character.id, character.name]));
+  const stagedCharacters = input.characters.slice(0, 14);
+  const stagedFamilyMap = new Map<string, {
+    family: string | null;
+    faction: string | null;
+    members: string[];
+  }>();
+  for (const character of stagedCharacters) {
+    const affiliation = characterNarrativeAffiliation(character, familyStage.loreById);
+    if (!affiliation.affiliationKey) continue;
+    const current = stagedFamilyMap.get(affiliation.affiliationKey) ?? {
+      family: affiliation.familyLabel,
+      faction: affiliation.factionLabel,
+      members: [],
+    };
+    if (!current.members.includes(character.name)) current.members.push(character.name);
+    stagedFamilyMap.set(affiliation.affiliationKey, current);
+  }
   return {
     project: {
       title: input.project.title,
@@ -459,19 +637,54 @@ function buildDirectorContext(input: {
       values: protagonist.values ?? [],
       capabilities: protagonist.capabilities ?? [],
       limitations: protagonist.limitations ?? [],
+      family: characterNarrativeAffiliation(protagonist, familyStage.loreById).familyLabel,
+      faction: characterNarrativeAffiliation(protagonist, familyStage.loreById).factionLabel,
     } : null,
     supportingCharacters: input.characters
       .filter((character) => character.id !== protagonist?.id)
       .slice(0, 10)
-      .map((character) => ({
-        name: character.name,
-        identity: character.identity.value,
-        personality: character.personality.value,
-        goal: character.goal.value,
-      })),
+      .map((character) => {
+        const affiliation = characterNarrativeAffiliation(character, familyStage.loreById);
+        return {
+          name: character.name,
+          identity: character.identity.value,
+          personality: character.personality.value,
+          goal: character.goal.value,
+          capabilities: character.capabilities?.slice(0, 5) ?? [],
+          limitations: character.limitations?.slice(0, 3) ?? [],
+          hiddenMotivations: character.privateSecrets?.slice(0, 2) ?? [],
+          family: affiliation.familyLabel,
+          faction: affiliation.factionLabel,
+        };
+      }),
+    stagedFamilies: [...stagedFamilyMap.values()].slice(0, 8),
+    selectedStageFamily: familyStage.selectedStageFamily ? {
+      name: familyStage.selectedStageFamily.name,
+      introduction: familyStage.selectedStageFamily.introduction,
+      standing: familyStage.selectedStageFamily.standing,
+      stagePremise: familyStage.selectedStageFamily.stagePremise,
+      controlledAssets: familyStage.selectedStageFamily.controlledAssets,
+    } : null,
+    stagedOrganizations: familyStage.organizations.map((organization) => {
+      const { id, ...serializedOrganization } = organization;
+      void id;
+      return serializedOrganization;
+    }),
+    stagedAssets: familyStage.assets.map((asset) => ({
+      category: asset.category,
+      name: asset.name,
+      storyHook: asset.storyHook,
+      controller: asset.controller,
+      holder: asset.holder,
+      claimant: asset.claimant,
+      function: asset.function,
+      limitation: asset.limitation,
+      cost: asset.cost,
+      visualDescription: asset.visualDescription,
+    })),
     relationships: input.relationships.slice(-16).map((relationship) => ({
-      from: nameById.get(relationship.fromCharacterId) ?? relationship.fromCharacterId,
-      to: nameById.get(relationship.toCharacterId) ?? relationship.toCharacterId,
+      from: nameById.get(relationship.fromCharacterId) ?? "未登錄人物",
+      to: nameById.get(relationship.toCharacterId) ?? "未登錄人物",
       kind: relationship.kind,
       summary: relationship.summary,
       trust: relationship.trust,
@@ -481,11 +694,7 @@ function buildDirectorContext(input: {
       description: rule.description,
       immutable: rule.immutable,
     })),
-    lore: input.lore.slice(-12).map((entry) => ({
-      kind: entry.kind,
-      title: entry.title,
-      content: entry.content,
-    })),
+    lore: familyStage.readerSafeLore,
     timeline: input.timeline.slice(-12).map((event) => ({
       storyTime: event.storyTime,
       title: event.title,
@@ -690,6 +899,9 @@ export async function loadRpgChatSnapshot(
   });
   const remainingThread = storyBible.unresolvedThreads
     .find((thread) => thread.trim() && thread.trim() !== storyArc.thread)?.trim();
+  const familyStageNarrative = buildFamilyStageNarrativeContext({ lore, storyState });
+  const firstStagedOrganization = familyStageNarrative.organizations[0] ?? null;
+  const firstStagedAsset = familyStageNarrative.assets[0] ?? null;
   const continuation = storyArc.resolved ? {
     thread: remainingThread ?? "結案後果引發的新責任、新對手與下一個期限",
     goal: remainingThread
@@ -711,6 +923,14 @@ export async function loadRpgChatSnapshot(
     narrativeAnchors: {
       supportingCharacter: characters.find((character) =>
         !storyBible.protagonistIds.includes(character.id))?.name ?? null,
+      familyOrFaction: familyStageNarrative.selectedStageFamily?.name
+        ?? firstStagedOrganization?.name
+        ?? null,
+      storyAsset: firstStagedAsset?.name ?? null,
+      factionPressure: firstStagedOrganization?.hiddenConflict
+        ?? firstStagedOrganization?.rivals
+        ?? firstStagedAsset?.claimant
+        ?? null,
       unresolvedThread: storyArc.resolved
         ? storyBible.unresolvedThreads.find((thread) => thread.trim() !== storyArc.thread) ?? null
         : storyArc.thread,
@@ -1029,6 +1249,127 @@ function embeddedNarrativeFact(value: string) {
   return value.replace(/[。！？!?；;：:]+$/u, "").trim();
 }
 
+function readableAffiliationName(value: string | null | undefined) {
+  const compact = value?.replace(/\s+/gu, " ").trim() ?? "";
+  if (
+    !compact
+    || compact.length > 32
+    || compact.includes(":")
+    || /^social-(?:family|institution)-/iu.test(compact)
+    || /^[\da-f]{8,}(?:-[\da-f-]+)?$/iu.test(compact)
+  ) return null;
+  return narrativeFact(compact, "", 32) || null;
+}
+
+function affiliationNameFromLore(
+  affiliationId: string | null,
+  loreById?: ReadonlyMap<string, LoreEntry>,
+) {
+  if (!affiliationId) return null;
+  const lore = loreById?.get(affiliationId);
+  if (!lore || lore.kind !== "faction") return null;
+  return loreDisplayParts(lore).name || null;
+}
+
+function inferredFamilyName(
+  character: Character,
+  familyId: string,
+  loreById?: ReadonlyMap<string, LoreEntry>,
+) {
+  const canonical = affiliationNameFromLore(familyId, loreById);
+  if (canonical) return canonical;
+  const readable = readableAffiliationName(familyId);
+  if (readable) return readable;
+  const firstHan = Array.from(character.name).find((letter) => /[\u3400-\u9fff]/u.test(letter));
+  return firstHan ? `${firstHan}氏家族` : `${narrativeFact(character.name, "該角色", 16)}家族`;
+}
+
+function inferredFactionName(
+  character: Character,
+  factionId: string,
+  loreById?: ReadonlyMap<string, LoreEntry>,
+) {
+  const canonical = affiliationNameFromLore(factionId, loreById);
+  if (canonical) return canonical;
+  const readable = readableAffiliationName(factionId);
+  if (readable) return readable;
+  const identity = character.identity?.value?.replace(/\s+/gu, " ").trim() ?? "";
+  const identityFaction = identity.match(/同時隸屬([^，。；、]{2,18})/u)?.[1]?.trim()
+    ?? identity.match(/^([^，。；、]{2,18}?)(?:的|門下|所屬|成員|弟子|代表)/u)?.[1]?.trim();
+  return identityFaction && identityFaction !== character.name
+    ? identityFaction
+    : null;
+}
+
+function characterNarrativeAffiliation(
+  character: Character | null | undefined,
+  loreById?: ReadonlyMap<string, LoreEntry>,
+) {
+  const familyId = character?.socialMatrixProfile?.familyId?.trim() || null;
+  const factionId = character?.socialMatrixProfile?.institutionId?.trim()
+    || character?.factionIds?.find((value) => value.trim() && value !== familyId)?.trim()
+    || null;
+  const familyLabel = character && familyId
+    ? inferredFamilyName(character, familyId, loreById)
+    : null;
+  const factionLabel = character && factionId
+    ? inferredFactionName(character, factionId, loreById)
+    : null;
+  return {
+    familyId,
+    factionId,
+    familyLabel,
+    factionLabel,
+    affiliationKey: familyId
+      ? `family:${familyId}`
+      : factionId
+        ? `faction:${factionId}`
+        : null,
+  };
+}
+
+function stageDistinctAffiliations(
+  characters: readonly Character[],
+  turn: number,
+  loreById?: ReadonlyMap<string, LoreEntry>,
+) {
+  if (!characters.length) return [];
+  const rotated = characters.map((_, index) => characters[(turn + index) % characters.length]);
+  const staged: Character[] = [];
+  const stagedIds = new Set<string>();
+  const affiliationKeys = new Set<string>();
+  for (const character of rotated) {
+    const key = characterNarrativeAffiliation(character, loreById).affiliationKey;
+    if (!key || affiliationKeys.has(key)) continue;
+    staged.push(character);
+    stagedIds.add(character.id);
+    affiliationKeys.add(key);
+    if (staged.length === 3) return staged;
+  }
+  for (const character of rotated) {
+    if (stagedIds.has(character.id)) continue;
+    staged.push(character);
+    stagedIds.add(character.id);
+    if (staged.length === 3) break;
+  }
+  return staged;
+}
+
+function relationshipNarrativeBetween(
+  relationships: readonly CharacterRelationship[] | undefined,
+  firstId: string | undefined,
+  secondId: string | undefined,
+) {
+  if (!firstId || !secondId) return null;
+  const relationship = (relationships ?? []).find((candidate) => (
+    candidate.fromCharacterId === firstId && candidate.toCharacterId === secondId
+  ) || (
+    candidate.fromCharacterId === secondId && candidate.toCharacterId === firstId
+  ));
+  if (!relationship) return null;
+  return narrativeFact(relationship.summary || relationship.kind, relationship.kind, 44);
+}
+
 function existingCharacterAsCandidate(
   character: Character | null | undefined,
   fallback: ProceduralCharacterCandidate,
@@ -1069,6 +1410,10 @@ function existingCharacterAsCandidate(
 
 function deterministicTurnContext(snapshot: RpgChatSnapshot) {
   const flags = storyWorldFlags(snapshot.storyState);
+  const familyStage = buildFamilyStageNarrativeContext({
+    lore: snapshot.lore ?? [],
+    storyState: snapshot.storyState,
+  });
   const protagonist = snapshot.characters.find((character) =>
     snapshot.storyBible.protagonistIds.includes(character.id))
     ?? snapshot.characters[0]
@@ -1096,14 +1441,79 @@ function deterministicTurnContext(snapshot: RpgChatSnapshot) {
       conflict,
     },
   });
-  const rotatedExisting = existingSupporting.length
-    ? existingSupporting.map((_, index) => existingSupporting[(turn + index) % existingSupporting.length])
-    : [];
+  const stagedExisting = stageDistinctAffiliations(
+    existingSupporting,
+    turn,
+    familyStage.loreById,
+  );
   const rotatedProcedural = scenario.cast.members.map((_, index) =>
     scenario.cast.members[(turn + index) % scenario.cast.members.length]);
-  const supporting = existingCharacterAsCandidate(rotatedExisting[0], rotatedProcedural[0]);
-  const counterforce = existingCharacterAsCandidate(rotatedExisting[1], rotatedProcedural[1]);
-  const witness = existingCharacterAsCandidate(rotatedExisting[2], rotatedProcedural[2]);
+  const supporting = existingCharacterAsCandidate(stagedExisting[0], rotatedProcedural[0]);
+  const counterforce = existingCharacterAsCandidate(stagedExisting[1], rotatedProcedural[1]);
+  const witness = existingCharacterAsCandidate(stagedExisting[2], rotatedProcedural[2]);
+  const castAffiliations = {
+    supporting: characterNarrativeAffiliation(stagedExisting[0], familyStage.loreById),
+    counterforce: characterNarrativeAffiliation(stagedExisting[1], familyStage.loreById),
+    witness: characterNarrativeAffiliation(stagedExisting[2], familyStage.loreById),
+  };
+  const castRelationships = {
+    supporting: relationshipNarrativeBetween(
+      snapshot.relationships,
+      protagonist?.id,
+      stagedExisting[0]?.id,
+    ),
+    counterforce: relationshipNarrativeBetween(
+      snapshot.relationships,
+      protagonist?.id,
+      stagedExisting[1]?.id,
+    ),
+    witness: relationshipNarrativeBetween(
+      snapshot.relationships,
+      protagonist?.id,
+      stagedExisting[2]?.id,
+    ),
+  };
+  const stagedCharacterIds = new Set([
+    protagonist?.id,
+    ...stagedExisting.map((character) => character.id),
+  ].filter((value): value is string => Boolean(value)));
+  const stagedAssetCandidates = familyStage.assets.filter((asset) =>
+    Boolean(asset.holderCharacterId && stagedCharacterIds.has(asset.holderCharacterId)));
+  const assetPool = stagedAssetCandidates.length ? stagedAssetCandidates : familyStage.assets;
+  const stageAsset = assetPool.length
+    ? assetPool[(turn + existingSupporting.length) % assetPool.length]!
+    : null;
+  const stageAssetLore = stageAsset ? familyStage.loreById.get(stageAsset.id) : null;
+  const holderRelationship = stageAsset
+    ? [
+        stageAsset.controller ? `${stageAsset.controller}掌控` : null,
+        stageAsset.holder ? `${stageAsset.holder}持有` : null,
+        stageAsset.claimant && stageAsset.claimant !== "無其他聲索者"
+          ? `${stageAsset.claimant}另有聲索`
+          : null,
+      ].filter(Boolean).join("，")
+    : null;
+  const treasure = stageAsset ? {
+    ...scenario.treasure,
+    id: stageAsset.id,
+    ordinal: stageAssetLore?.proceduralTreasureProfile?.ordinal ?? scenario.treasure.ordinal,
+    name: stageAsset.name,
+    category: stageAsset.category,
+    holderRelationship: holderRelationship || scenario.treasure.holderRelationship,
+    function: stageAsset.function || scenario.treasure.function,
+    limitation: stageAsset.limitation || scenario.treasure.limitation,
+    cost: stageAsset.cost || scenario.treasure.cost,
+    visualDescription: stageAsset.visualDescription || scenario.treasure.visualDescription,
+  } : scenario.treasure;
+  const activeFamilyIds = [
+    familyStage.selectedStageFamily?.id,
+    ...Object.values(castAffiliations).map((affiliation) => affiliation.familyId),
+  ].filter((value): value is string => Boolean(value));
+  const activeFactionIds = [
+    stageAsset?.controllerOrganizationId,
+    stageAsset?.claimantOrganizationId,
+    ...Object.values(castAffiliations).map((affiliation) => affiliation.factionId),
+  ].filter((value): value is string => Boolean(value));
   return {
     protagonist: protagonist?.name
       ?? (snapshot.language === "en" ? "The protagonist" : "主角"),
@@ -1111,6 +1521,13 @@ function deterministicTurnContext(snapshot: RpgChatSnapshot) {
     supportingCharacter: supporting,
     counterforce,
     witness,
+    castAffiliations,
+    castRelationships,
+    activeFamilyIds,
+    activeFactionIds,
+    selectedStageFamily: familyStage.selectedStageFamily,
+    stagedOrganizations: familyStage.organizations,
+    stageAsset,
     scenario,
     conflict,
     unresolved: narrativeFact(
@@ -1121,8 +1538,8 @@ function deterministicTurnContext(snapshot: RpgChatSnapshot) {
     ),
     location,
     inventory: inventory?.name ?? "現有資源",
-    storyProp: inventory?.name ?? scenario.treasure.name,
-    treasure: scenario.treasure,
+    storyProp: stageAsset?.name ?? inventory?.name ?? scenario.treasure.name,
+    treasure,
   };
 }
 
@@ -1416,18 +1833,18 @@ function finalizeDeterministicRpgStory(input: {
     ? [
         "Everyone checked the conditions still available before moving again.",
         "That confirmation preserved the cost and did not reset the result.",
-        "The next response therefore had to begin from what had truly changed.",
+        "Outside the room, approaching footsteps made the changed situation impossible to ignore.",
       ]
     : input.language === "zh-CN"
       ? [
           "众人重新核对仍可动用的条件，没有把愿望误当成已经完成的结果。",
           "这份确认没有抹去代价，只让后续能够承接已经发生的变化。",
-          "因此下一次回应必须从真实后果继续，不能回到原点。",
+          "门外逐渐逼近的脚步声，让已经发生的变化再也无法被忽略。",
         ]
       : [
           "眾人重新核對仍可動用的條件，沒有把願望誤當成已經完成的結果。",
           "這份確認沒有抹去代價，只讓後續能夠承接已經發生的變化。",
-          "因此下一次回應必須從真實後果繼續，不能回到原點。",
+          "門外逐漸逼近的腳步聲，讓已經發生的變化再也無法被忽略。",
         ];
   for (let attempt = 0; deterministicStoryLength(title, paragraphs) < targetMinimum && attempt < 40; attempt += 1) {
     const indexes = paragraphs
@@ -1516,6 +1933,12 @@ function buildTraditionalNovelFallback(input: {
   const counterforce = context.counterforce;
   const witness = context.witness;
   const treasure = context.treasure;
+  const stageAsset = context.stageAsset;
+  const stageOrganization = context.stagedOrganizations.find((organization) =>
+    organization.id === stageAsset?.controllerOrganizationId
+      || organization.id === stageAsset?.claimantOrganizationId)
+    ?? context.stagedOrganizations[0]
+    ?? null;
   const causalFrame = buildRpgTurnCausalContract({ snapshot, choice, outcome: resolution.outcome });
   const seed = stableStringify({
     projectId: snapshot.project.id,
@@ -1560,6 +1983,33 @@ function buildTraditionalNovelFallback(input: {
   const counterSpeech = spokenByCharacter(counterforce.directDialogue, protagonist);
   const counterAction = spokenByCharacter(counterforce.proactiveAction, protagonist);
   const witnessAction = spokenByCharacter(witness.proactiveAction, protagonist);
+  const allyGroup = context.castAffiliations.supporting.familyLabel
+    ?? context.castAffiliations.supporting.factionLabel;
+  const counterGroup = context.castAffiliations.counterforce.familyLabel
+    ?? context.castAffiliations.counterforce.factionLabel;
+  const witnessGroup = context.castAffiliations.witness.familyLabel
+    ?? context.castAffiliations.witness.factionLabel;
+  const allyCollectiveBeat = allyGroup
+    ? `${allyGroup}的人先封住側門，把退路留給傷者；`
+    : "";
+  const counterCollectiveBeat = counterGroup
+    ? `${counterGroup}也換下門外哨位，把出入口握在自己手中。`
+    : "";
+  const witnessCollectiveBeat = witnessGroup
+    ? `${witnessGroup}的信使送來兩份互相矛盾的證詞；`
+    : "";
+  const familyCollectiveBeat = context.selectedStageFamily
+    ? `${context.selectedStageFamily.name}沒有置身事外，族中負責接應的人已守在門外；`
+    : "";
+  const organizationPressureBeat = stageOrganization
+    ? `${stageOrganization.kind}「${stageOrganization.name}」派人封住另一端，表面為了${stageOrganization.publicGoal || "維持眼前秩序"}，實際上仍受${stageOrganization.hiddenConflict || stageOrganization.rivals || "未公開的內部爭議"}牽制。`
+    : "";
+  const stageAssetOwnershipBeat = stageAsset
+    ? `${stageAsset.controller ? `${stageAsset.controller}控制此物` : "此物的控制權尚未落定"}，${stageAsset.holder ? `${stageAsset.holder}此刻親自持有` : "持有人仍未現身"}${stageAsset.claimant && stageAsset.claimant !== "無其他聲索者" ? `，${stageAsset.claimant}則當眾提出聲索` : ""}。${stageAsset.storyHook ? narrativeFact(stageAsset.storyHook, "它已被捲入眼前爭端", 70) : "它已被捲入眼前爭端"}`
+    : "";
+  const allyRelationshipBeat = context.castRelationships.supporting
+    ? `兩人之間那段「${embeddedNarrativeFact(context.castRelationships.supporting)}」的舊關係，也因此被迫攤到燈下。`
+    : "";
   const terminalAction = choice.encounter.arcNextAction
     ?? (choice.encounter.arcPhase === "resolution" ? "resolution" : null);
   const modeOpening = snapshot.playMode === "management"
@@ -1583,11 +2033,11 @@ function buildTraditionalNovelFallback(input: {
 
   const paragraphs = [
     modeOpening,
-    `${allyAction}${allySpeech}${ally.name}把條件說得很清楚。那不是替${protagonist}補位，而是為了${ally.goal}；若這件事被忽略，${ally.name}寧可獨自離開。`,
-    `${treasure.name}就在這時被帶到眾人眼前。${treasure.holderRelationship}；它可以${treasure.function}，卻也有不能繞過的缺口：${treasure.limitation}。${protagonist}只查看封口與磨損，沒有把尚未屬於自己的東西收進手中。`,
-    `${counterforce.name}沒有等人邀請便插手。${counterAction}${counterSpeech}${visiblePressure}。${counterforce.name}想守住的是${counterforce.goal}，因此即使願意合作，也不會沿著${protagonist}預先畫好的線走。`,
+    `${familyCollectiveBeat}${allyCollectiveBeat}${allyAction}${allySpeech}${ally.name}把條件說得很清楚。那不是替${protagonist}補位，而是為了${ally.goal}；若這件事被忽略，${ally.name}寧可獨自離開。${allyRelationshipBeat}`,
+    `${treasure.name}就在這時被帶到眾人眼前。${stageAssetOwnershipBeat || treasure.holderRelationship}；它可以${treasure.function}，卻也有不能繞過的缺口：${treasure.limitation}。${protagonist}只查看封口與磨損，沒有把尚未屬於自己的東西收進手中。`,
+    `${counterCollectiveBeat}${organizationPressureBeat}${counterforce.name}沒有等人邀請便插手。${counterAction}${counterSpeech}${visiblePressure}。${counterforce.name}想守住的是${counterforce.goal}，即使合作也不會沿著${protagonist}預先畫好的線走。`,
     modeAction,
-    `${witness.name}原本一直站在光線以外，此刻卻主動改變了局面。${witnessAction}隨後，${witness.name}把自己看見的細節交給兩邊核對，卻扣下最關鍵的一句，要求眾人先證明誰願意承擔後果。`,
+    `${witnessCollectiveBeat}${witness.name}原本站在光線以外，此刻卻主動改變局面。${witnessAction}隨後，${witness.name}把看見的細節交給兩邊核對，卻扣下最關鍵的一句，要求眾人先證明誰願意承擔後果。`,
     outcomeProse,
     `${ally.name}沒有因結果立刻改變立場。${ally.name}先將能保住的部分交給${witness.name}看管，再把${treasure.name}推回原持有人面前。${treasure.cost}，這筆代價落在眾人之間，也讓原本模糊的信任有了明確邊界。`,
     `直到人聲稍歇，${protagonist}才從散亂痕跡裡辨出「${context.unresolved}」的新線索。它指向${counterforce.name}先前避開的那個位置，也解釋了「${embeddedConflict}」為何會在今天忽然惡化。答案仍不完整，方向卻再也不是原地打轉。`,
@@ -1599,7 +2049,7 @@ function buildTraditionalNovelFallback(input: {
           ? `${titleImage}在清晨重新顯出輪廓。舊事沒有被推翻，${ally.name}保留的證據卻指向另一個從未回答的問題；${protagonist}帶著已承擔的一切走向新地點，另一段故事由此開始。`
           : terminalAction === "resolution"
             ? `${titleImage}終於安定下來。${protagonist}沒有再追逐多餘的勝利，只與三人確認誰留下、誰離開，以及什麼已經不能挽回。當最後一個人走出${context.location}，這段紛爭也抵達了真正的終點。`
-            : `${titleImage}還留在原處，卻已和片刻前不同。門外有人帶著新的條件逼近，${ally.name}則握住尚未交出的證據；${protagonist}明白，下一次行動將從這些已發生的後果開始，而不是把今天重演一遍。`,
+            : `${titleImage}還留在原處，卻已和片刻前不同。門外三聲叩響，新條件已送到門檻；${ally.name}握住尚未交出的證據，${counterforce.name}則伸手攔住${witness.name}。門閂被推開以前，${protagonist}必須決定先相信誰。`,
   ];
   return finalizeDeterministicRpgStory({ title: `〈${titleImage}〉`, paragraphs, language: "zh-TW" });
 }
@@ -1951,9 +2401,18 @@ function attachProceduralSceneReceipt(
     ? String(snapshot.storyState.worldFlags["story.recentSupportingActors"])
         .split("|").map((value) => value.trim()).filter(Boolean)
     : [];
-  const recentActors = [context.supportingCharacter.id, ...previousActors]
+  const recentActors = [
+    context.supportingCharacter.id,
+    context.counterforce.id,
+    context.witness.id,
+    ...previousActors,
+  ]
     .filter((value, index, all) => all.indexOf(value) === index)
-    .slice(0, 3);
+    .slice(0, 9);
+  const activeFamilyIds = context.activeFamilyIds
+    .filter((value, index, all) => all.indexOf(value) === index);
+  const activeFactionIds = context.activeFactionIds
+    .filter((value, index, all) => all.indexOf(value) === index);
   const effect = {
     ...resolution.effect,
     worldFlags: {
@@ -1964,8 +2423,22 @@ function attachProceduralSceneReceipt(
       "story.activeCounterforceCharacterName": context.counterforce.name,
       "story.activeWitnessCharacterId": context.witness.id,
       "story.activeWitnessCharacterName": context.witness.name,
+      "story.activeFamilyIds": activeFamilyIds.join("|"),
+      "story.activeFactionIds": activeFactionIds.join("|"),
       "story.activeTreasureId": context.treasure.id,
       "story.activeTreasureName": context.treasure.name,
+      ...(context.stageAsset ? {
+        "story.activeStageAssetLoreId": context.stageAsset.id,
+        ...(context.stageAsset.holderCharacterId
+          ? { "story.activeStageAssetHolderCharacterId": context.stageAsset.holderCharacterId }
+          : {}),
+        ...(context.stageAsset.controllerOrganizationId
+          ? { "story.activeStageAssetControllerOrganizationId": context.stageAsset.controllerOrganizationId }
+          : {}),
+        ...(context.stageAsset.claimantOrganizationId
+          ? { "story.activeStageAssetClaimantOrganizationId": context.stageAsset.claimantOrganizationId }
+          : {}),
+      } : {}),
       "story.relationshipScenarioId": context.scenario.id,
       "story.recentSupportingActors": recentActors.join("|"),
     },

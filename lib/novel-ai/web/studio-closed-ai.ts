@@ -1,4 +1,7 @@
-import { localProviderSnapshots } from "../router/platform-executor";
+import {
+  executePlatformAI,
+  localProviderSnapshots,
+} from "../router/platform-executor";
 import type {
   ClosedAIBackendId,
   ClosedAIExecutionReceipt,
@@ -553,6 +556,32 @@ export async function runStudioClosedAI(
       bypassReason: input.regeneration?.cacheBypassReason ?? null,
     },
   };
+}
+
+/**
+ * Executes an AI-only creation candidate before a canonical project exists.
+ *
+ * The regular Studio Closed Agent route composes context from the canonical
+ * project repository and therefore must only be used after project creation.
+ * Creation onboarding has no canonical project yet, so it deliberately uses
+ * the same strict-local platform router with an empty context. The returned
+ * text remains an unpersisted suggestion until the author creates the project.
+ */
+export async function runStudioPreCreationClosedAI(
+  input: StudioClosedAITaskInput & { task: "story_seed" },
+  execute: PlatformExecutor = executePlatformAI,
+) {
+  if (execute === executePlatformAI) {
+    try {
+      await getStudioClosedAIRuntimeCoordinator().connectLocalAutomatically(input.signal);
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      // Local Ollama is optional. The strict-local platform router may still
+      // select an already verified Browser AI runtime; otherwise it fails
+      // truthfully and the create page can offer its explicit device fallback.
+    }
+  }
+  return runStudioClosedAI(input, execute);
 }
 
 export async function regenerateStudioClosedAI(

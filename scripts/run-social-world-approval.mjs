@@ -32,6 +32,7 @@ async function test(name, work) {
 function fixtureBundle(title = "不改變根種子的作品") {
   const draft = createDraft("quick");
   draft.title = title;
+  draft.genreId = "classic-topic-001";
   return buildProjectBundle(draft);
 }
 

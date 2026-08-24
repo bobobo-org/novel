@@ -127,7 +127,7 @@ export function useConversationSessionController({
   const queueSessionIntent = useCallback((sessionId: string) => {
     const token = beginSessionIntent(sessionId);
     setQueuedSessionId(sessionId);
-    onProgress("分支建立中；已記住你的對話切換，完成後會以這次選擇為準。");
+    onProgress("正在準備修改副本；已記住你的對話切換，完成後會以這次選擇為準。");
     return token;
   }, [beginSessionIntent, onProgress]);
 
@@ -390,6 +390,7 @@ export function useConversationSessionController({
     ...derived,
     setSearch,
     setShowArchived,
+    setStoryState,
     loadWorkspace,
     refreshSession,
     chooseSession,

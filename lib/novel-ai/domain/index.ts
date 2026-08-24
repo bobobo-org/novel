@@ -606,7 +606,15 @@ export type ProjectBundle = {
   seed: ProjectSeed;
   storyBible: StoryBible;
   protagonist: Character | null;
+  /** Supporting cast materialized with the project so prose generation starts as an ensemble. */
+  cast?: Character[];
+  /** Canonical links between the protagonist and the initial supporting cast. */
+  relationships?: CharacterRelationship[];
   world: World | null;
+  /** Topic-specific rules selected during creation. */
+  worldRules?: WorldRule[];
+  /** Topic-specific institutions, resources and assets that may enter the story. */
+  lore?: LoreEntry[];
   storyState: StoryState;
   initialTask: WritingTask;
   readerState: ReaderState;

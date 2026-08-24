@@ -13,6 +13,7 @@ let serverProcess = null;
 let serverOutput = "";
 let browser = null;
 let desktopFixture = null;
+let dashboardFixture = null;
 let mobileFixture = null;
 let longSessionFixture = null;
 
@@ -163,12 +164,56 @@ async function makeFixture(viewport, title) {
   return { context, page, pageErrors, ...created };
 }
 
+async function lockFixtureToRpg(page, projectId) {
+  await page.evaluate(async ({ projectId }) => {
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-intelligence-platform");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction("storyStates", "readwrite");
+    const store = transaction.objectStore("storyStates");
+    const states = await new Promise((resolve, reject) => {
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const state = states.find((item) => item.projectId === projectId && !item.deletedAt);
+    if (!state) throw new Error("RC6_DASHBOARD_STORY_STATE_MISSING");
+    store.put({
+      ...state,
+      worldFlags: { ...state.worldFlags, "story.playMode": "rpg" },
+      revision: state.revision + 1,
+      updatedAt: new Date().toISOString(),
+    });
+    await new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    database.close();
+  }, { projectId });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByTestId("conversation-first-workspace").waitFor();
+  await waitUntilIdle(page);
+}
+
 async function getDesktopFixture() {
   desktopFixture ??= await makeFixture(
     { width: 1440, height: 900 },
     `RC6 對話工作區 ${crypto.randomUUID().slice(0, 8)}`,
   );
   return desktopFixture;
+}
+
+async function getDashboardFixture() {
+  if (dashboardFixture) return dashboardFixture;
+  dashboardFixture = await makeFixture(
+    { width: 1440, height: 900 },
+    `RC6 狀態儀表板 ${crypto.randomUUID().slice(0, 8)}`,
+  );
+  await lockFixtureToRpg(dashboardFixture.page, dashboardFixture.projectId);
+  return dashboardFixture;
 }
 
 async function getMobileFixture() {
@@ -462,8 +507,10 @@ async function sendLocalStatusQuery(page) {
   await composer.press("Enter");
   await page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" }).last()
     .waitFor({ state: "visible" });
-  await page.getByLabel("作品結果抽屜").waitFor({ state: "visible" });
+  const dashboard = page.getByTestId("chat-detailed-dashboard");
+  await dashboard.waitFor({ state: "visible" });
   await waitUntilIdle(page);
+  return dashboard;
 }
 
 async function seedRpgPresentationFixture(page, projectId) {
@@ -873,31 +920,64 @@ harness.test("browser", "session create, rename, search, archive and delete stay
   assert.equal(await sidebar.getByText("RC6 待封存").count(), 0);
 });
 
-harness.test("browser", "natural-language dashboard query, branching, and reload persistence work in one thread", async () => {
-  const { page, pageErrors } = await getDesktopFixture();
+harness.test("browser", "natural-language status query expands the readable dashboard without raw JSON or a generic branch", async () => {
+  const { page, pageErrors } = await getDashboardFixture();
   const sidebar = await ensureDesktopSidebarOpen(page);
   await sidebar.locator('[data-active="true"] .sessionButton, [data-active="true"] button').first().waitFor();
+  const sessionCount = await sidebar.locator("[data-session-id]").count();
   await page.getByTestId("conversation-sidebar-close").click();
   await sidebar.waitFor({ state: "hidden" });
   const composer = page.getByLabel("小說專案訊息");
   await composer.fill("第一行");
   await composer.press("Shift+Enter");
   assert.match(await composer.inputValue(), /\n/u);
-  await sendLocalStatusQuery(page);
-  assert.equal(await page.getByLabel("作品結果抽屜").isVisible(), true);
-  assert.equal(await page.getByLabel("作品結果抽屜").locator("pre").count(), 1);
-  await page.getByRole("button", { name: "關閉作品結果" }).click();
+  const dashboard = await sendLocalStatusQuery(page);
+  for (const section of ["mode", "mainline", "relationships", "inventory", "quests", "recent-history"]) {
+    assert.equal(await dashboard.locator(`[data-dashboard-section="${section}"]`).count(), 1, `missing readable dashboard section: ${section}`);
+  }
+  assert.match(await dashboard.innerText(), /人物關係/u);
+  assert.match(await dashboard.innerText(), /背包與可用資源/u);
+  assert.match(await dashboard.innerText(), /任務與里程碑/u);
+  assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
+  assert.equal(await page.getByTestId("conversation-first-workspace").locator("pre").filter({ hasText: /protagonistStats|relationships|inventory/u }).count(), 0);
+  assert.equal(await page.locator('[data-conversation-action="branch"]').count(), 0);
+  assert.equal(await page.getByRole("button", { name: "另開支線" }).count(), 0);
+  const statusMessage = page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" }).last();
+  assert.equal(await statusMessage.getByRole("button", { name: "修改此訊息（保留原文）" }).count(), 1);
+  assert.equal(await sidebar.locator("[data-session-id]").count(), sessionCount, "a read-only status query must not create another conversation");
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByTestId("conversation-first-workspace").waitFor();
   await page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" }).waitFor();
-  const beforeBranch = await sidebar.locator("[data-active]").count();
-  await page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" })
-    .getByRole("button", { name: /另開支線/u }).click();
-  await page.waitForFunction((count) => document.querySelectorAll('aside[aria-label="小說專案欄"] [data-active]').length === count + 1, beforeBranch);
-  assert.equal(await composer.inputValue(), "從這裡繼續故事。");
-  assert.equal(await composer.evaluate((element) => element === document.activeElement), true);
   assert.equal(await page.locator('article[data-role="user"]').filter({ hasText: "查看狀態" }).count(), 1);
+  assert.equal(await page.locator('[data-conversation-action="branch"]').count(), 0);
+  assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
+  assert.equal(await composer.inputValue(), "");
+  assert.deepEqual(pageErrors, []);
+});
+
+harness.test("browser", "URL prompt executes once, clears itself, and never remains as a composer prefill", async () => {
+  const { page, href, pageErrors } = await getDashboardFixture();
+  const prompt = "查看目前狀態與資源。";
+  await page.goto(`${baseUrl}${href}?prompt=${encodeURIComponent(prompt)}`, {
+    waitUntil: "domcontentloaded",
+    timeout: 90_000,
+  });
+  const promptedMessage = page.locator('article[data-role="user"]').filter({ hasText: prompt });
+  await promptedMessage.waitFor({ state: "visible" });
+  await page.getByTestId("chat-detailed-dashboard").waitFor({ state: "visible" });
+  await waitUntilIdle(page);
+  assert.equal(await promptedMessage.count(), 1);
+  assert.equal(new URL(page.url()).searchParams.has("prompt"), false);
+  assert.equal(await page.getByLabel("小說專案訊息").inputValue(), "");
+  assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
+  assert.equal(await page.locator('[data-conversation-action="branch"]').count(), 0);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByTestId("conversation-first-workspace").waitFor();
+  await waitUntilIdle(page);
+  assert.equal(await page.locator('article[data-role="user"]').filter({ hasText: prompt }).count(), 1, "reload must not execute the consumed URL prompt again");
+  assert.equal(await page.getByLabel("小說專案訊息").inputValue(), "");
   assert.deepEqual(pageErrors, []);
 });
 
@@ -1025,7 +1105,7 @@ harness.test("browser", "project tools preserve the selected project and active 
   assert.deepEqual(pageErrors, []);
 });
 
-harness.test("long-session", "1000-message branch, edit, approval, switching, and reload preserve one canonical timeline", async () => {
+harness.test("long-session", "1000-message edit-copy, approval, switching, and reload preserve one canonical timeline", async () => {
   const { page, projectId, pageErrors } = await getLongSessionFixture();
   const seeded = await seedLongSession(page, projectId);
   await page.reload({ waitUntil: "domcontentloaded" });
@@ -1090,95 +1170,14 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
   assert.equal(initialState.invocation?.messageId, seeded.candidateMessageId);
   assert.equal(initialState.invocation?.outputDigest, initialState.artifact?.candidateDigest);
 
-  const branchSourceId = "rc6-long-message-0998";
-  const branchButton = restoredTimeline.locator(`article[data-message-id="${branchSourceId}"]`)
-    .locator('[data-conversation-action="branch"]');
-  const competingBranchButton = restoredTimeline.locator('article[data-message-id="rc6-long-message-0996"]')
-    .locator('[data-conversation-action="branch"]');
-  const raceDraft = "RC6 branch pending 期間不得送出的訊息";
-  const sidebarDuringBranch = await ensureDesktopSidebarOpen(page);
-  await page.getByLabel("小說專案訊息").fill(raceDraft);
-  await branchButton.evaluate((button) => {
-    button.click();
-    button.click();
-    button.click();
-  });
-  const branchGlobalStatus = page.getByTestId("conversation-branch-global-status");
-  await branchGlobalStatus.waitFor({ state: "visible" });
-  assert.equal(await branchButton.isDisabled(), true);
-  assert.equal(await competingBranchButton.isDisabled(), true, "every message branch must be disabled globally");
-  const composer = page.getByTestId("conversation-message-composer");
-  assert.equal(await composer.getAttribute("aria-busy"), "true");
-  assert.equal(await page.getByLabel("小說專案訊息").isDisabled(), true);
-  assert.match(await composer.innerText(), /分支建立中；訊息與附件操作已暫停/u);
-  assert.equal(await sidebarDuringBranch.getByRole("button", { name: "＋ 新對話" }).isDisabled(), true);
-  assert.equal(await sidebarDuringBranch.locator('[data-active="true"] button[title="重新命名"]').isDisabled(), true);
-  await competingBranchButton.evaluate((button) => button.click());
-  await composer.getByRole("button", { name: "送出" }).evaluate((button) => button.click());
-  const activeSessionButton = sidebarDuringBranch.locator('[data-active="true"] > button');
-  assert.equal(await activeSessionButton.isDisabled(), false, "session intent must remain queueable without starting a second operation");
-  await activeSessionButton.click();
-  await sidebarDuringBranch.locator(`[data-session-id="${seeded.sessionId}"][data-queued="true"]`).waitFor();
-  await branchGlobalStatus.waitFor({ state: "hidden" });
-  const branchStayedState = await waitForLongSessionState(
-    page,
-    projectId,
-    seeded,
-    (state) => state.sessions.length === 2
-      && state.activeSessionId === seeded.sessionId
-      && state.sessions.some((session) => session.id !== seeded.sessionId && session.messageCount === 999),
-    "queued session intent was overwritten by branch completion",
+  const editSourceId = "rc6-long-message-0998";
+  assert.equal(await restoredTimeline.locator('[data-conversation-action="branch"]').count(), 0, "generic branch actions must not return in long sessions");
+  assert.equal(
+    await restoredTimeline.locator(`article[data-message-id="${editSourceId}"]`)
+      .locator('[data-conversation-action="edit-message-copy"]').count(),
+    1,
+    "user messages must retain the explicit edit-copy action",
   );
-  const settledBranchState = await inspectLongSessionState(page, projectId, seeded);
-  assert.equal(settledBranchState.sessions.length, 2, "competing branch clicks must create exactly one branch");
-  assert.equal(settledBranchState.activeSessionId, seeded.sessionId, "the later queued session intent must win");
-  assert.equal(settledBranchState.sessions.find((session) => session.id === seeded.sessionId)?.messageCount, 1000);
-  assert.equal(settledBranchState.sessions.some((session) => session.lastContent === raceDraft), false, "composer click must not start a hidden send");
-  const branchSession = branchStayedState.sessions.find((session) => session.id !== seeded.sessionId);
-  assert(branchSession, "the single created branch must remain available without stealing active session");
-  assert.equal(branchSession.parentSessionId, seeded.sessionId);
-  assert.equal(branchSession.branchedFromMessageId, branchSourceId);
-  assert.equal(branchSession.messageCount, 999);
-  assert.equal(branchSession.firstSourceMessageId, "rc6-long-message-0000");
-  assert.equal(branchSession.lastSourceMessageId, branchSourceId);
-  assert.equal(branchSession.lastCandidateIds.length, 0);
-  assert.equal(settledBranchState.projectRevision, seeded.projectRevision);
-  assert.equal(settledBranchState.chapterRevision, seeded.chapterRevision);
-  const branchSessionId = branchSession.id;
-
-  await sidebarDuringBranch.locator(`[data-session-id="${branchSessionId}"] > button`).click();
-
-  await page.waitForFunction((sessionId) => {
-    const timeline = document.querySelector('[data-testid="conversation-message-timeline"]');
-    const active = document.querySelector('[data-testid="conversation-session-sidebar"] [data-active="true"]');
-    return active?.getAttribute("data-session-id") === sessionId
-      && timeline?.getAttribute("data-total-messages") === "999";
-  }, branchSessionId);
-  const branchedTimeline = page.getByTestId("conversation-message-timeline");
-  const branchedLast = branchedTimeline.locator("article[data-message-id]").last();
-  assert.equal(await branchedLast.getAttribute("data-source-message-id"), branchSourceId);
-  assert.equal(await branchedLast.getAttribute("data-lineage-depth"), "998");
-
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForFunction((sessionId) => {
-    const timeline = document.querySelector('[data-testid="conversation-message-timeline"]');
-    return sessionStorage.getItem(
-      `novel:conversation-active:${location.pathname.split("/")[3]}`,
-    ) === sessionId && timeline?.getAttribute("data-total-messages") === "999";
-  }, branchSessionId);
-  const branchReloadState = await inspectLongSessionState(page, projectId, seeded);
-  assert.equal(branchReloadState.activeSessionId, branchSessionId);
-  assert.equal(branchReloadState.sessions.length, 2);
-  assert.equal(branchReloadState.chapterRevision, seeded.chapterRevision);
-
-  const sidebar = await ensureDesktopSidebarOpen(page);
-  await sidebar.locator(`[data-session-id="${seeded.sessionId}"] > button`).click();
-  await page.waitForFunction((sessionId) => {
-    const active = document.querySelector('[data-testid="conversation-session-sidebar"] [data-active="true"]');
-    const timeline = document.querySelector('[data-testid="conversation-message-timeline"]');
-    return active?.getAttribute("data-session-id") === sessionId
-      && timeline?.getAttribute("data-total-messages") === "1000";
-  }, seeded.sessionId);
 
   const sourceCandidateMessage = page.locator(`article[data-message-id="${seeded.candidateMessageId}"]`);
   const approvalActions = sourceCandidateMessage.getByTestId("conversation-approval-actions");
@@ -1215,25 +1214,24 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
   assert.equal(approvalReloadState.approvals.length, 1);
   assert.equal(approvalReloadState.artifact?.status, "approved");
 
-  const editedContent = "請續寫章節，這是 RC6 編輯分支且不得覆寫原訊息。";
+  const editedContent = "請續寫章節，這是 RC6 修改副本且不得覆寫原訊息。";
   page.once("dialog", (dialog) => dialog.accept(editedContent));
-  await page.locator(`article[data-message-id="${branchSourceId}"]`)
-    .getByRole("button", { name: "編輯並分支" }).click();
+  await page.locator(`article[data-message-id="${editSourceId}"]`)
+    .getByRole("button", { name: "修改此訊息（保留原文）" }).click();
   const editedState = await waitForLongSessionState(
     page,
     projectId,
     seeded,
-    (state) => state.sessions.length === 3
-      && state.activeSessionId !== seeded.sessionId
-      && state.activeSessionId !== branchSessionId,
-    "edit branch did not commit a third isolated session",
+    (state) => state.sessions.length === 2
+      && state.activeSessionId !== seeded.sessionId,
+    "edit copy did not commit a second isolated session",
   );
   const editSession = editedState.sessions.find((session) => session.id === editedState.activeSessionId);
-  assert(editSession, "edited branch must become active only with its message snapshot");
+  assert(editSession, "edited copy must become active only with its message snapshot");
   assert.equal(editSession.parentSessionId, seeded.sessionId);
   assert.equal(editSession.branchedFromMessageId, "rc6-long-message-0997");
   assert.equal(editSession.messageCount, 999);
-  assert.equal(editSession.lastSourceMessageId, branchSourceId);
+  assert.equal(editSession.lastSourceMessageId, editSourceId);
   assert.equal(editSession.lastContent, editedContent);
   assert.equal(editedState.sourceMessage?.content, "請續寫章節，保留原對話並先提出候選。");
   assert.equal(editedState.chapterRevision, seeded.chapterRevision + 1);
@@ -1249,10 +1247,11 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
   }, editSessionId);
   const editReloadState = await inspectLongSessionState(page, projectId, seeded);
   assert.equal(editReloadState.activeSessionId, editSessionId);
+  assert.equal(editReloadState.sessions.length, 2);
   assert.equal(editReloadState.chapterRevision, seeded.chapterRevision + 1);
   assert.equal(editReloadState.approvals.length, 1);
 
-  const switchSnapshots = await page.evaluate(({ originalSessionId, branchSessionId }) => new Promise((resolve) => {
+  const switchSnapshots = await page.evaluate(({ originalSessionId, editSessionId }) => new Promise((resolve) => {
     const snapshots = [];
     const capture = () => {
       const active = document.querySelector('[data-testid="conversation-session-sidebar"] [data-active="true"]');
@@ -1273,37 +1272,34 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
     const originalButton = document.querySelector(
       `[data-testid="conversation-session-sidebar"] [data-session-id="${originalSessionId}"] > button`,
     );
-    const branchButton = document.querySelector(
-      `[data-testid="conversation-session-sidebar"] [data-session-id="${branchSessionId}"] > button`,
+    const editButton = document.querySelector(
+      `[data-testid="conversation-session-sidebar"] [data-session-id="${editSessionId}"] > button`,
     );
     originalButton.click();
-    branchButton.click();
+    editButton.click();
     setTimeout(() => {
       observer.disconnect();
       capture();
       resolve(snapshots);
     }, 750);
-  }), { originalSessionId: seeded.sessionId, branchSessionId });
+  }), { originalSessionId: seeded.sessionId, editSessionId });
   await page.waitForFunction((sessionId) => {
     const active = document.querySelector('[data-testid="conversation-session-sidebar"] [data-active="true"]');
     return active?.getAttribute("data-session-id") === sessionId
       && document.querySelector('[data-testid="conversation-message-timeline"]')?.getAttribute("data-total-messages") === "999";
-  }, branchSessionId);
+  }, editSessionId);
   for (const snapshot of switchSnapshots) {
     if (snapshot.activeSessionId === seeded.sessionId) {
       assert.equal(snapshot.totalMessages, "1000", `original session exposed a mixed snapshot: ${JSON.stringify(snapshot)}`);
       assert.equal(snapshot.lastMessageId, seeded.candidateMessageId, `original session exposed wrong messages: ${JSON.stringify(snapshot)}`);
-    } else if (snapshot.activeSessionId === branchSessionId) {
-      assert.equal(snapshot.totalMessages, "999", `branch session exposed a mixed snapshot: ${JSON.stringify(snapshot)}`);
-      assert.equal(snapshot.lastSourceMessageId, branchSourceId, `branch session exposed wrong lineage: ${JSON.stringify(snapshot)}`);
-      assert.match(snapshot.lastText, /保留原對話並先提出候選/u);
     } else if (snapshot.activeSessionId === editSessionId) {
       assert.equal(snapshot.totalMessages, "999", `edit session exposed a mixed snapshot: ${JSON.stringify(snapshot)}`);
-      assert.match(snapshot.lastText, /RC6 編輯分支/u);
+      assert.equal(snapshot.lastSourceMessageId, editSourceId, `edit session exposed wrong lineage: ${JSON.stringify(snapshot)}`);
+      assert.match(snapshot.lastText, /RC6 修改副本/u);
     }
   }
   const switchedState = await inspectLongSessionState(page, projectId, seeded);
-  assert.equal(switchedState.activeSessionId, branchSessionId, "rapid A→B switching must commit only the latest request");
+  assert.equal(switchedState.activeSessionId, editSessionId, "rapid original→edit switching must commit only the latest request");
   assert.equal(switchedState.chapterRevision, seeded.chapterRevision + 1);
   assert.equal(switchedState.approvals.length, 1);
 
@@ -1311,10 +1307,10 @@ harness.test("long-session", "1000-message branch, edit, approval, switching, an
   await page.waitForFunction((sessionId) => (
     sessionStorage.getItem(`novel:conversation-active:${location.pathname.split("/")[3]}`) === sessionId
     && document.querySelector('[data-testid="conversation-message-timeline"]')?.getAttribute("data-total-messages") === "999"
-  ), branchSessionId);
+  ), editSessionId);
   const finalState = await inspectLongSessionState(page, projectId, seeded);
-  assert.equal(finalState.activeSessionId, branchSessionId);
-  assert.equal(finalState.sessions.length, 3);
+  assert.equal(finalState.activeSessionId, editSessionId);
+  assert.equal(finalState.sessions.length, 2);
   assert.equal(finalState.projectRevision, seeded.projectRevision);
   assert.equal(finalState.chapterRevision, seeded.chapterRevision + 1);
   assert.equal(finalState.approvals.length, 1);
@@ -1359,23 +1355,22 @@ harness.test("mobile", "390x844 keeps the composer usable and turns side panels 
   assert.deepEqual(pageErrors, []);
 });
 
-harness.test("mobile", "dashboard stays hidden until requested and opens as a bottom sheet", async () => {
-  const { page } = await getMobileFixture();
+harness.test("mobile", "requested status expands an inline readable dashboard without a nested raw-data sheet", async () => {
+  const { page, projectId } = await getMobileFixture();
+  await lockFixtureToRpg(page, projectId);
   assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
-  await sendLocalStatusQuery(page);
-  const drawer = page.getByLabel("作品結果抽屜");
-  const box = await drawer.boundingBox();
-  assert(
-    box
-      && box.x >= -1
-      && box.x + box.width <= 391
-      && box.y + box.height <= 845
-      && box.y + box.height >= 842,
-    JSON.stringify(box),
-  );
-  assert(box.height <= 640 && box.height < 844);
-  await page.getByRole("button", { name: "關閉作品結果" }).click();
-  await drawer.waitFor({ state: "detached" });
+  const dashboard = await sendLocalStatusQuery(page);
+  const box = await dashboard.boundingBox();
+  assert(box && box.x >= -1 && box.x + box.width <= 391, JSON.stringify(box));
+  assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
+  assert.equal(await dashboard.locator("pre").count(), 0);
+  assert.equal(await page.locator('[data-conversation-action="branch"]').count(), 0);
+  const layout = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    composerDisabled: document.querySelector('textarea[aria-label="小說專案訊息"]')?.disabled ?? true,
+  }));
+  assert.equal(layout.overflow, false);
+  assert.equal(layout.composerDisabled, false);
 });
 
 harness.test("mobile", "inline A/B/C choices are single-column touch targets and RPG outcome is collapsed", async () => {
@@ -1410,6 +1405,7 @@ try {
   await harness.run();
 } finally {
   await desktopFixture?.context.close();
+  await dashboardFixture?.context.close();
   await mobileFixture?.context.close();
   await longSessionFixture?.context.close();
   await browser.close();

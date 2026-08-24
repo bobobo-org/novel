@@ -145,6 +145,7 @@ export default function ConversationWorkspace({
   const [retryLabel, setRetryLabel] = useState("重試");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [artifactOpen, setArtifactOpen] = useState(false);
+  const [dashboardOpenRequest, setDashboardOpenRequest] = useState(0);
   const [drawer, setDrawer] = useState<DrawerPayload>(null);
   const [artifactDraft, setArtifactDraft] = useState("");
   const [artifactView, setArtifactView] = useState<"candidate" | "diff" | "comparison">("candidate");
@@ -169,6 +170,10 @@ export default function ConversationWorkspace({
   const operationLockRef = useRef(false);
   const retryActionRef = useRef<(() => void) | null>(null);
   const initialPromptUsed = useRef(false);
+  const initialPromptSenderRef = useRef<(
+    contentOverride?: string,
+    onAccepted?: () => void,
+  ) => Promise<void>>(async () => undefined);
   const operationLocked = useCallback(() => operationLockRef.current, []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const {
@@ -189,6 +194,7 @@ export default function ConversationWorkspace({
     visibleSessions,
     setSearch,
     setShowArchived,
+    setStoryState,
     loadWorkspace,
     refreshSession,
     chooseSession: switchSession,
@@ -210,7 +216,6 @@ export default function ConversationWorkspace({
   const {
     pendingMessageIds: branchPendingMessageIds,
     isBranchPending,
-    createBranch,
     editMessage,
   } = useConversationBranchController({
     projectId,
@@ -297,20 +302,12 @@ export default function ConversationWorkspace({
     setDrawer,
   });
 
+  initialPromptSenderRef.current = sendRequest;
+
   useEffect(() => {
     const timer = window.setTimeout(() => void loadWorkspace(), 0);
     return () => window.clearTimeout(timer);
   }, [loadWorkspace]);
-
-  useEffect(() => {
-    if (initialPromptUsed.current || !initialPrompt) return;
-    const timer = window.setTimeout(() => {
-      if (initialPromptUsed.current) return;
-      initialPromptUsed.current = true;
-      setDraft(initialPrompt);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [initialPrompt]);
 
   useEffect(() => () => abortRef.current?.abort("CONVERSATION_UNMOUNTED"), []);
 
@@ -506,23 +503,17 @@ export default function ConversationWorkspace({
       execute: async () => {
         const states = await repository.list<StoryState>("storyStates", projectId);
         const state = states.find((item) => item.id === project?.storyStateId) ?? states[0] ?? null;
-        const content = state
-          ? JSON.stringify({
-            money: state.money,
-            inventory: state.inventory,
-            relationships: state.relationships,
-            protagonistStats: state.protagonistStats,
-            resources: state.resources,
-            location: state.locationState,
-            time: state.timeState,
-            risk: state.riskState,
-          }, null, 2)
-          : "目前作品沒有可顯示的 StoryState。";
-        setDrawer({ kind: "status", title: "目前狀態", content });
-        setArtifactOpen(true);
+        setDrawer(null);
+        setArtifactOpen(false);
+        if (state) {
+          setStoryState(state);
+          setDashboardOpenRequest((request) => request + 1);
+        }
         return {
           result: undefined,
-          assistantContent: "已依你的要求打開狀態；它不會自動出現在故事正文中。",
+          assistantContent: state
+            ? "完整狀態儀表板已展開；能力、人物關係、背包資源、任務與近期歷程都已依正式存檔整理。"
+            : "目前作品尚未建立可顯示的狀態資料；故事與數值均未修改。",
         };
       },
     });
@@ -1302,10 +1293,10 @@ export default function ConversationWorkspace({
     }
   }
 
-  async function sendRequest(contentOverride?: string) {
+  async function sendRequest(contentOverride?: string, onAccepted?: () => void) {
     const content = (contentOverride ?? draft).trim();
     if (isBranchPending()) {
-      setProgress("分支正在建立；這次送出沒有啟動，請等待目前操作完成。");
+      setProgress("正在準備修改副本；這次送出沒有啟動，請等待目前操作完成。");
       return;
     }
     if (!activeSession || busy || operationLockRef.current || (!content && !localAttachments.length)) return;
@@ -1452,6 +1443,7 @@ export default function ConversationWorkspace({
         parentMessageId: last?.id ?? null,
         sourceMessageId: activeRpgChoiceMessage?.message.id ?? null,
       });
+      onAccepted?.();
       let preparedAttachments: Array<{
         record: ConversationAttachment;
         extraction: ManualLearningFileExtraction;
@@ -1605,6 +1597,21 @@ export default function ConversationWorkspace({
       }
     }
   }
+
+  useEffect(() => {
+    if (initialPromptUsed.current || !initialPrompt || loading || busy || !activeSession) return;
+    const timer = window.setTimeout(() => {
+      if (initialPromptUsed.current || operationLockRef.current) return;
+      initialPromptUsed.current = true;
+      void initialPromptSenderRef.current(initialPrompt, () => {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("prompt");
+        if (url.searchParams.get("mode") === "play") url.searchParams.delete("mode");
+        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeSession, busy, initialPrompt, loading]);
 
   async function regenerateMessage(message: ConversationMessage) {
     if (message.role !== "assistant") return;
@@ -1796,16 +1803,6 @@ export default function ConversationWorkspace({
     editMessage: (message) => {
       void editMessage(message);
     },
-    createBranch: (message) => {
-      void createBranch(message).then((created) => {
-        if (!created) return;
-        setDraft("從這裡繼續故事。");
-        setProgress("支線已建立並切換完成；續寫指令已放入輸入框，可直接送出或先修改。");
-        window.setTimeout(() => {
-          document.querySelector<HTMLTextAreaElement>('[aria-label="小說專案訊息"]')?.focus();
-        }, 0);
-      });
-    },
     retryMessage: (content) => {
       void sendRequest(content);
     },
@@ -1871,6 +1868,7 @@ export default function ConversationWorkspace({
           retryAvailable={retryAvailable}
           retryLabel={retryLabel}
           branchPendingMessageIds={branchPendingMessageIds}
+          dashboardOpenRequest={dashboardOpenRequest}
           fixedPlayMode={fixedPlayMode}
           storyState={storyState}
           actions={messageActions}
@@ -1883,7 +1881,7 @@ export default function ConversationWorkspace({
           active={Boolean(activeSession)}
           projectId={projectId}
           busy={busy}
-          busyReason={branchPending ? "分支建立中；訊息與附件操作已暫停。" : null}
+          busyReason={branchPending ? "正在準備修改副本；訊息與附件操作已暫停。" : null}
           busyReasonTestId={branchPending ? "conversation-branch-global-status" : undefined}
           canStop={canStop}
           draft={draft}

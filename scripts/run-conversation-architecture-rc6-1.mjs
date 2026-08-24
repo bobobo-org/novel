@@ -94,6 +94,10 @@ const hookFiles = [
 async function componentContract() {
   await test("workspace delegates substantial UI to named component contracts", async () => {
     const workspace = await fs.readFile(path.join(chatRoot, "conversation-workspace.tsx"), "utf8");
+    const messageRow = await read("app/studio/project/[projectId]/chat/components/message-row.tsx");
+    const messageTimeline = await read("app/studio/project/[projectId]/chat/components/message-timeline.tsx");
+    const conversationTypes = await read("app/studio/project/[projectId]/chat/components/conversation-types.ts");
+    const editController = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-branch.ts");
     for (const file of componentFiles) {
       const absolute = path.join(chatRoot, "components", file);
       const source = await fs.readFile(absolute, "utf8");
@@ -109,10 +113,42 @@ async function componentContract() {
     }
     assert.doesNotMatch(workspace, /messages\.map\s*\(/u, "message rows belong to MessageTimeline");
     assert.doesNotMatch(workspace, /<aside className=\{styles\.artifactDrawer\}/u, "drawer rendering must not remain in the orchestrator");
-    for (const operation of ["createBranch", "editMessage", "approveArtifact", "rejectArtifact", "chooseRpgOption", "executeRpgChoice", "prepareLocalAttachments"]) {
+    for (const operation of ["editMessage", "approveArtifact", "rejectArtifact", "chooseRpgOption", "executeRpgChoice", "prepareLocalAttachments"]) {
       assert.doesNotMatch(workspace, new RegExp(`(?:async\\s+)?function\\s+${operation}\\b`, "u"), `${operation} belongs to a controller hook`);
     }
-    assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-branch.ts"), /conversation\.branchSession\(/u);
+    assert.doesNotMatch(conversationTypes, /createBranch\s*:/u, "the public message-action contract must not expose a generic branch command");
+    assert.doesNotMatch(messageRow, /data-conversation-action=["']branch["']|另開支線|actions\.createBranch/u);
+    assert.match(messageRow, /data-conversation-action="edit-message-copy"/u);
+    assert.match(messageRow, /修改此訊息（保留原文）/u);
+    assert.match(editController, /conversation\.editMessageWithBranch\(/u);
+    assert.match(editController, /window\.prompt\([\s\S]*?message\.content/u, "editing must seed the copy dialog with the original message");
+    assert.doesNotMatch(editController, /conversation\.branchSession\(/u, "the controller must not retain a generic branch-only path");
+    assert.match(workspace, /setDashboardOpenRequest\(\(request\) => request \+ 1\)/u);
+    assert.doesNotMatch(
+      workspace,
+      /setDrawer\(\{\s*kind:\s*["']status["'][\s\S]{0,800}?protagonistStats/u,
+      "a status query must not serialize StoryState into the raw artifact drawer",
+    );
+    assert.match(messageTimeline, /data-testid="chat-detailed-dashboard"/u);
+    assert.match(messageTimeline, /openRequest/u);
+    for (const section of ["mode", "mainline", "relationships", "inventory", "quests", "recent-history"]) {
+      assert.match(messageTimeline, new RegExp(`data-dashboard-section="${section}"`, "u"));
+    }
+    assert.match(workspace, /url\.searchParams\.delete\("prompt"\)/u);
+    assert.match(workspace, /window\.history\.replaceState\(/u);
+    assert.match(workspace, /initialPromptSenderRef\.current = sendRequest/u);
+    assert.match(
+      workspace,
+      /void initialPromptSenderRef\.current\(initialPrompt, \(\) => \{[\s\S]*?url\.searchParams\.delete\("prompt"\)[\s\S]*?window\.history\.replaceState\(/u,
+      "a URL prompt must be removed only from the sender acceptance callback",
+    );
+    assert.match(workspace, /onAccepted\?\.\(\);/u, "the URL cleanup callback runs only after the user message is enqueued");
+    assert.doesNotMatch(
+      workspace,
+      /initialPromptUsed\.current = true;\s*const url = new URL/u,
+      "the URL must remain intact when the prompt is rejected by a busy or locked sender",
+    );
+    assert.doesNotMatch(workspace, /setDraft\(initialPrompt\)/u, "a URL prompt must execute once instead of remaining as a draft");
     assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts"), /conversation\.approveChapterArtifact\(/u);
     const rpgController = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts");
     assert.match(rpgController, /const plan = await buildRpgRuleChoicePlan\(\{/u);
@@ -308,7 +344,7 @@ function longSessionFixture(size) {
 }
 
 async function longSession() {
-  await test("100/500/1000-message windows preserve IDs, branch/edit and candidate lineage", async () => {
+  await test("100/500/1000-message windows preserve IDs, edit-copy and candidate lineage", async () => {
     for (const size of [100, 500, 1000]) {
       const messages = longSessionFixture(size);
       const immutableSnapshot = structuredClone(messages);

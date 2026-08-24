@@ -180,11 +180,25 @@ export class IndexedDbNovelRepository implements NovelRepository {
     if (current?.projectId) notifyCloudSyncMutation(current.projectId, `remove:${store}`);
   }
   async createProject(bundle: ProjectBundle, requestId: string) {
-    const db = await this.open(), names = ["projects","projectSeeds","storyBibles","characters","worlds","storyStates","tasks","readerStates","backups",REQUEST_STORE] as string[], tx = db.transaction(names, "readwrite"), ledger = tx.objectStore(REQUEST_STORE);
+    const db = await this.open(), names = ["projects","projectSeeds","storyBibles","characters","relationships","worlds","worldRules","lore","storyStates","tasks","readerStates","backups",REQUEST_STORE] as string[], tx = db.transaction(names, "readwrite"), ledger = tx.objectStore(REQUEST_STORE);
     const replay = await request(ledger.get(requestId)) as { requestId: string; bundle: ProjectBundle } | undefined;
     if (replay) { tx.abort(); return replay.bundle; }
     if (await request(tx.objectStore("projects").get(bundle.project.id))) { tx.abort(); throw new Error("PROJECT_ALREADY_EXISTS"); }
-    const writes: Array<[string, DomainRecord | null]> = [["projects",bundle.project],["projectSeeds",bundle.seed],["storyBibles",bundle.storyBible],["characters",bundle.protagonist],["worlds",bundle.world],["storyStates",bundle.storyState],["tasks",bundle.initialTask],["readerStates",bundle.readerState],["backups",bundle.initialBackup]];
+    const writes: Array<[string, DomainRecord | null]> = [
+      ["projects", bundle.project],
+      ["projectSeeds", bundle.seed],
+      ["storyBibles", bundle.storyBible],
+      ["characters", bundle.protagonist],
+      ...(bundle.cast ?? []).map((record) => ["characters", record] as [string, DomainRecord]),
+      ...(bundle.relationships ?? []).map((record) => ["relationships", record] as [string, DomainRecord]),
+      ["worlds", bundle.world],
+      ...(bundle.worldRules ?? []).map((record) => ["worldRules", record] as [string, DomainRecord]),
+      ...(bundle.lore ?? []).map((record) => ["lore", record] as [string, DomainRecord]),
+      ["storyStates", bundle.storyState],
+      ["tasks", bundle.initialTask],
+      ["readerStates", bundle.readerState],
+      ["backups", bundle.initialBackup],
+    ];
     for (const [store, record] of writes) if (record) tx.objectStore(store).put(record);
     ledger.put({ requestId, projectId: bundle.project.id, bundle, createdAt: new Date().toISOString() });
     await complete(tx);
