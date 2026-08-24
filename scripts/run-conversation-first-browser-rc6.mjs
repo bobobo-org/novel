@@ -124,8 +124,9 @@ async function createProject(page, title) {
   await page.getByTestId("canonical-create-flow").waitFor({ state: "visible", timeout: 90_000 });
   await page.getByTestId("p2-project-title").fill(title);
   await page.getByTestId("create-play-mode-general").click();
-  await page.locator(".p2CreationAssistantActions button").first().click();
-  await page.locator(".p2FoundationReady").waitFor({ state: "visible" });
+  await page.locator('[data-topic-id="classic-topic-009"]').click();
+  await page.getByTestId("create-ai-story-seed").click();
+  await page.locator(".p2FoundationReady").waitFor({ state: "visible", timeout: 90_000 });
 
   const stepBar = page.locator(".p2StepBar");
   const next = page.locator(".p2CreatePanel > footer button.gold");
@@ -138,6 +139,10 @@ async function createProject(page, title) {
     );
     assert.match(await stepBar.getAttribute("aria-label") ?? "", new RegExp(String(expectedStep), "u"));
   }
+  const familyCandidates = page.getByTestId("creation-stage-family-candidates");
+  await familyCandidates.waitFor({ state: "visible" });
+  await familyCandidates.getByRole("button", { name: /核准此上場家族/u }).first().click();
+  await page.locator(".p2FoundationReady").waitFor({ state: "visible" });
   await next.click();
   const primary = page.locator(".p2CreateSuccess a.primaryAction");
   await primary.waitFor({ state: "visible", timeout: 90_000 });
