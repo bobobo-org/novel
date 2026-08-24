@@ -19,7 +19,7 @@ async function test(name, work) {
   catch (error) { results.push({ name, status: "FAIL", elapsedMs: Math.round(performance.now() - started), error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }); }
 }
 const effect = (delta = 3) => ({ statChanges: { reputation: delta }, relationshipChanges: {}, resourceChanges: {}, moneyChange: 0, worldFlags: {}, questProgress: {}, achievementProgress: {}, timelineEvents: ["choice"] });
-function draft(title) { const value = createDraft("quick"); value.title = title; value.coreIdea = optionalValue("A choice changes the city.", "user_defined"); value.protagonist = optionalValue("Lin Zhao", "user_defined"); return value; }
+function draft(title) { const value = createDraft("quick"); value.title = title; value.genreId = "classic-topic-002"; value.coreIdea = optionalValue("A choice changes the city.", "user_defined"); value.protagonist = optionalValue("Lin Zhao", "user_defined"); return value; }
 async function fixture(label = "fixture") {
   const repository = new MemoryNovelRepository(), bundle = buildProjectBundle(draft(label));
   await repository.createProject(bundle, `create:${label}`);
@@ -55,8 +55,72 @@ await test("15 Browser restart persistence", async () => { const { payload } = a
 await test("16 App restart persistence", async () => { const exported = await first.repository.exportProject(first.project.id), restored = new MemoryNovelRepository(); await restored.importProject(exported, "replace", first.project.id); assert.equal((await restored.list("approvalTransactions", first.project.id)).length, 1); });
 const studioSource = await readFile(new URL("../app/studio/studio-client.tsx", import.meta.url), "utf8");
 await test("17 Legacy localStorage cannot become canonical", async () => { const shell = studioSource.slice(studioSource.indexOf("function shellStateForLocalStorage"), studioSource.indexOf("function projectFromCanonical")); assert.doesNotMatch(shell, /acceptedChoices|storyBranches|storyBibles|approvalTransactions|idempotencyRecords/); });
-await test("18 Legacy migration first run", async () => { const storage = new Map([["novel_p12_studio_state", JSON.stringify({projects:[{id:"legacy-one",title:"Legacy"}]})]]); globalThis.localStorage = { getItem:key=>storage.get(key)??null, setItem:(key,value)=>storage.set(key,value), removeItem:key=>storage.delete(key) }; const repository = new MemoryNovelRepository(), result = await migrateLegacyStudioProjects(repository); assert.equal(result.migrated, 1); globalThis.__migrationRepo = repository; });
-await test("19 Legacy migration rerun", async () => { const result = await migrateLegacyStudioProjects(globalThis.__migrationRepo); assert.equal(result.errors.length, 0); assert.equal((await globalThis.__migrationRepo.list("projects")).length, 1); delete globalThis.localStorage; delete globalThis.__migrationRepo; });
+await test("18 Legacy migration first run", async () => {
+  const storage = new Map([["novel_p12_studio_state", JSON.stringify({
+    projects: [{
+      id: "legacy-one",
+      title: "Legacy",
+      draft: "舊作正文必須原樣保留。",
+      optionalFields: {
+        protagonist: "舊作主角",
+        world: "作者明示的舊作城市",
+        worldRule: "作者明示的舊作規則",
+      },
+    }],
+  })]]);
+  globalThis.localStorage = {
+    getItem: key => storage.get(key) ?? null,
+    setItem: (key, nextValue) => storage.set(key, nextValue),
+    removeItem: key => storage.delete(key),
+  };
+  const repository = new MemoryNovelRepository();
+  const result = await migrateLegacyStudioProjects(repository);
+  assert.equal(result.migrated, 1);
+  const project = await repository.get("projects", "legacy-one");
+  const state = (await repository.list("storyStates", "legacy-one"))[0];
+  const bible = (await repository.list("storyBibles", "legacy-one"))[0];
+  const chapters = await repository.list("chapters", "legacy-one");
+  const characters = await repository.list("characters", "legacy-one");
+  const worlds = await repository.list("worlds", "legacy-one");
+  const rules = await repository.list("worldRules", "legacy-one");
+  const relationships = await repository.list("relationships", "legacy-one");
+  const lore = await repository.list("lore", "legacy-one");
+  assert.equal(project.genreId, null);
+  assert.equal(bible.theme.value, null);
+  assert.equal(bible.theme.status, "deferred");
+  assert.equal(state.worldFlags["story.topicSelectionPending"], true);
+  assert.equal(state.worldFlags["story.familySelectionPending"], true);
+  assert.equal(chapters[0].content, "舊作正文必須原樣保留。");
+  assert.deepEqual(characters.map((entry) => entry.name), ["舊作主角"]);
+  assert.equal(worlds[0].summary.value, "作者明示的舊作城市");
+  assert.deepEqual(rules.map((entry) => entry.description), ["作者明示的舊作規則"]);
+  assert.equal(relationships.length, 0);
+  assert.equal(lore.length, 0);
+  assert.doesNotMatch(
+    JSON.stringify({ project, state, bible, characters, worlds, rules, relationships, lore }),
+    /classic-topic-|family-stage|上場家族|程序寶物/u,
+  );
+  globalThis.__migrationRepo = repository;
+});
+await test("19 Legacy migration rerun", async () => {
+  const repository = globalThis.__migrationRepo;
+  const before = {
+    projects: (await repository.list("projects")).length,
+    characters: (await repository.list("characters", "legacy-one")).length,
+    worlds: (await repository.list("worlds", "legacy-one")).length,
+    rules: (await repository.list("worldRules", "legacy-one")).length,
+  };
+  const result = await migrateLegacyStudioProjects(repository);
+  assert.equal(result.errors.length, 0);
+  assert.deepEqual({
+    projects: (await repository.list("projects")).length,
+    characters: (await repository.list("characters", "legacy-one")).length,
+    worlds: (await repository.list("worlds", "legacy-one")).length,
+    rules: (await repository.list("worldRules", "legacy-one")).length,
+  }, before);
+  delete globalThis.localStorage;
+  delete globalThis.__migrationRepo;
+});
 let backupPayload;
 await test("20 Backup completeness", async () => { backupPayload = (await createProjectBackup(first.repository, first.project.id, "full", { appCommit:"test", releaseTag:"rc" })).payload; for (const store of ["acceptedChoices","storyBranches","storyBibles","storyBibleDeltas","approvalTransactions","idempotencyRecords","storyStates"]) assert.ok(backupPayload.manifest.includedStores.includes(store)); });
 await test("21 Restore completeness", async () => { const restored = new MemoryNovelRepository(); await restored.importProject(backupPayload.records, "replace", first.project.id); assert.deepEqual(await counts(restored, first.project.id), { acceptedChoices: 1, storyBranches: 1, storyBibleDeltas: 1, approvalTransactions: 1, idempotencyRecords: 1, operationJournal: 0 }); });

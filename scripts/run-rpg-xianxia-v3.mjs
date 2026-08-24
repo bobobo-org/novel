@@ -69,6 +69,7 @@ async function rejectsWithCode(run, expectedCode) {
 function fixtureDraft(title) {
   const draft = createDraft("quick");
   draft.title = title;
+  draft.genreId = "classic-topic-009";
   draft.coreIdea = optionalValue("明檀必須在敵對宗門環伺下重建傳承。", "user_defined");
   draft.protagonist = optionalValue("明檀", "user_defined");
   return draft;

@@ -198,7 +198,7 @@ export async function migrateLegacyStudioProjects(
             ...snapshot.project,
             title: text(row.title) || snapshot.project.title,
             genrePackId: text(row.packId) ?? snapshot.project.genrePackId,
-            genreId: text(row.topicId) ?? snapshot.project.genreId,
+            genreId: snapshot.project.genreId,
             subgenreId:
               text(row.subCategory) ?? snapshot.project.subgenreId,
             coreIdea: coreIdea

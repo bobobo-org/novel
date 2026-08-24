@@ -640,6 +640,7 @@ const rpgChoiceEffect = (reputationDelta = 3) => ({
 function rpgFixtureDraft(title) {
   const draft = createDraft("quick");
   draft.title = title;
+  draft.genreId = "classic-topic-002";
   draft.coreIdea = optionalValue("A conversation choice changes the city.", "user_defined");
   draft.protagonist = optionalValue("Lin Zhao", "user_defined");
   return draft;

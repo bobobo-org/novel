@@ -473,6 +473,7 @@ class RuntimeGuardLearningRepository extends MemorySovereignLearningRepository {
 const novelRepository = new MemoryNovelRepository();
 const draft = createDraft("quick");
 draft.title = "核准按鈕回歸測試";
+draft.genreId = "classic-topic-009";
 draft.coreIdea = optionalValue("主角必須在對手逼近前守住傳承並查清失蹤線索。", "user_defined");
 draft.protagonist = optionalValue("明檀", "user_defined");
 const bundle = buildProjectBundle(draft);

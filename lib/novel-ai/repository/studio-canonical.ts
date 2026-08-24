@@ -7,6 +7,8 @@ import {
   isStoryPlayModeId,
   type StoryPlayModeId,
 } from "../domain/play-mode";
+import rawStoryLibrary from "../../../data/story-library.json" with { type: "json" };
+import type { StoryLibrary } from "../../novel-data/story-library-types";
 
 export type StudioProjectSeed = {
   id: string;
@@ -41,21 +43,37 @@ export type StudioCanonicalSnapshot = {
 
 const value = (input?: string | null) => optionalValue(input?.trim() || null, input?.trim() ? "user_defined" : "deferred");
 
+const EXPLICIT_LEGACY_TOPICS = (rawStoryLibrary as StoryLibrary).topics.filter((topic) => (
+  topic.enabled && topic.classic && !topic.adultOnly
+));
+
+function resolveExplicitLegacyTopic(topicLabel?: string | null) {
+  const requested = topicLabel?.trim() || null;
+  if (!requested) return null;
+  return EXPLICIT_LEGACY_TOPICS.find((topic) => (
+    topic.topicId === requested
+    || topic.name === requested
+    || topic.legacyAliases.includes(requested)
+  )) ?? null;
+}
+
 export async function ensureStudioCanonicalProject(repository: NovelRepository, input: StudioProjectSeed): Promise<StudioCanonicalSnapshot> {
   let project = await repository.get<NovelProject>("projects", input.id);
   if (!project) {
+    const explicitTopic = resolveExplicitLegacyTopic(input.topicId);
     const draft = createDraft("legacy");
     draft.id = `studio-migration-${input.id}`;
     draft.projectId = input.id;
     draft.title = input.title;
-    draft.genrePackId = input.packId ?? null;
-    draft.genreId = input.topicId ?? null;
+    draft.genrePackId = input.packId ?? explicitTopic?.packId ?? null;
+    draft.genreId = explicitTopic?.topicId ?? null;
     draft.subgenreId = input.subCategory ?? null;
     draft.coreIdea = value(input.coreIdea);
     draft.protagonist = value(input.protagonist);
     draft.style = value(input.style);
     draft.answers.goal = value(input.goal);
-    draft.answers.worldRule = value(input.worldRule || input.world);
+    draft.answers.world = value(input.world);
+    draft.answers.worldRule = value(input.worldRule);
     draft.answers.obstacle = value(input.conflict);
     if (input.selectedPlayModeId) {
       draft.answers.playMode = optionalValue(
@@ -64,6 +82,17 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
       );
     }
     const bundle = buildProjectBundle(draft);
+    if (!explicitTopic) {
+      bundle.storyState.worldFlags = {
+        ...bundle.storyState.worldFlags,
+        ...(input.topicId?.trim()
+          ? { "story.legacyUnresolvedTopicLabel": input.topicId.trim() }
+          : {}),
+        ...(input.topicId?.trim()
+          ? { "story.legacyTopicMigrationWarning": `舊題材「${input.topicId.trim()}」未對應正式 ID，已保留原文字。` }
+          : {}),
+      };
+    }
     bundle.project.adultMode = input.adultMode === true;
     bundle.project.adultExperienceProfile = input.adultMode ? input.adultExperienceProfile ?? null : null;
     await repository.createProject(bundle, `studio-project:${input.id}`);

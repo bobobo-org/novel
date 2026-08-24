@@ -28,8 +28,8 @@ const check = (name, condition) => {
 
 const sourceDraft = createDraft("quick");
 sourceDraft.title = "來源作品";
-sourceDraft.genrePackId = "fantasy";
-sourceDraft.genreId = "urban-fantasy";
+sourceDraft.genrePackId = "pack-9";
+sourceDraft.genreId = "classic-topic-002";
 sourceDraft.coreIdea = optionalValue("一位調查員追查會改寫承諾的城市。", "user_defined");
 sourceDraft.protagonist = optionalValue("沈星河", "user_defined");
 sourceDraft.style = optionalValue("場景先行，選擇留下後果。", "user_defined");
@@ -75,7 +75,7 @@ check("clone draft carries current clone contract", clone.draft.answers.cloneFlo
 check("clone draft carries source lineage", clone.draft.answers.cloneFrom?.value === sourceBundle.project.id);
 check("clone source title and play mode are visible data", clone.source.sourceTitle === "來源作品" && clone.source.sourcePlayMode === "management");
 check("clone source reports chapters without copying prose", clone.source.sourceChapterCount === 1 && !JSON.stringify(clone.draft).includes("絕對不可寫入"));
-check("project settings are prefilled", clone.draft.genrePackId === "fantasy" && clone.draft.genreId === "urban-fantasy");
+check("project settings are prefilled", clone.draft.genrePackId === "pack-9" && clone.draft.genreId === "classic-topic-002");
 check("necessary story seed is prefilled", clone.draft.seedCandidate?.protagonist.value === "沈星河" && clone.draft.seedCandidate?.worldRule.value === "每一次承諾都會改變資源。");
 check("current clone draft is recognized", isCurrentProjectPlaymodeCloneDraft(clone.draft, sourceBundle.project.id));
 check("source project cannot masquerade as clone draft", !isCurrentProjectPlaymodeCloneDraft({ ...clone.draft, projectId: sourceBundle.project.id }, sourceBundle.project.id));
@@ -116,7 +116,7 @@ check("creating clone never mutates source", JSON.stringify(sourceAfterCreate) =
 globalThis.indexedDB = fakeIndexedDB;
 const indexedSourceDraft = createDraft("quick");
 indexedSourceDraft.title = "IndexedDB 即時來源";
-indexedSourceDraft.genreId = "urban-fantasy";
+indexedSourceDraft.genreId = "classic-topic-002";
 indexedSourceDraft.coreIdea = optionalValue("建立完成後立刻讀取。", "user_defined");
 indexedSourceDraft.protagonist = optionalValue("即時測試者", "user_defined");
 indexedSourceDraft.answers.playMode = optionalValue("general", "user_defined");

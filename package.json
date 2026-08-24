@@ -237,6 +237,7 @@
     "test:ai:character-dynamics-procedural-rpg": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-character-dynamics-procedural-rpg.mjs",
     "test:ai:procedural-story-library": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-procedural-story-library.mjs",
     "test:ai:topic-world-family-stage-matrix": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-topic-world-family-stage-matrix.mjs",
+    "test:ai:topic-world-family-rpg-bridge": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-topic-world-family-rpg-bridge.mjs",
     "test:ai:rules-story-fallback-variety": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rules-story-fallback-variety.mjs",
     "test:ai:rules-story-arc-closure": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rules-story-arc-closure.mjs",
     "test:ai:closed:cache-runtime": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-cache-runtime.mjs",

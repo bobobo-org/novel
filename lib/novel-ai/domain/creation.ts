@@ -494,8 +494,171 @@ function applyAuthoredStageCast(input: {
   });
 }
 
+/**
+ * Browser saves created before the 218-topic gate must remain readable, but an
+ * unknown legacy story must never be silently assigned a topic, family or
+ * treasure matrix. This bundle preserves only author-supplied Canon and marks
+ * the missing topic/family setup for an explicit future choice.
+ */
+function buildUnclassifiedLegacyProjectBundle(
+  draft: ProjectCreationDraft,
+  seed: ProjectSeed,
+): ProjectBundle {
+  const projectId = draft.projectId;
+  const title = draft.title.trim() || "未命名作品";
+  const protagonist: Character | null = seed.protagonist.value
+    ? {
+        ...makeRecord(projectId),
+        name: seed.protagonist.value,
+        aliases: [],
+        identity: optionalValue<string>(),
+        personality: optionalValue<string>(),
+        goal: seed.goal,
+        lifeStatus: "unknown",
+        locationId: null,
+      }
+    : null;
+  const world = seed.world.value
+    ? {
+        ...makeRecord(projectId),
+        name: optionalValue<string>(null, "deferred"),
+        era: optionalValue<string>(null, "deferred"),
+        summary: seed.world,
+      }
+    : null;
+  const worldRules = seed.worldRule.value
+    ? [{
+        ...makeRecord(projectId, "user"),
+        title: "作者世界規則",
+        description: seed.worldRule.value,
+        immutable: true,
+      }]
+    : [];
+  const storyBible = {
+    ...makeRecord(projectId),
+    theme: optionalValue<string>(null, "deferred"),
+    style: draft.style,
+    protagonistIds: protagonist ? [protagonist.id] : [],
+    characterIds: protagonist ? [protagonist.id] : [],
+    relationshipIds: [],
+    worldId: world?.id ?? null,
+    worldRuleIds: worldRules.map((rule) => rule.id),
+    loreIds: [],
+    timelineEventIds: [],
+    foreshadowing: [],
+    unresolvedThreads: seed.conflict.value ? [seed.conflict.value] : [],
+    forbiddenContradictions: [],
+    authorPreferences: [],
+  };
+  const requestedPlayMode = selectedStoryPlayMode(draft.answers);
+  const playMode = requestedPlayMode && isStoryPlayModeId(requestedPlayMode)
+    ? requestedPlayMode
+    : "general";
+  const cloneFromProjectId = draft.answers.cloneFrom?.value?.trim() || null;
+  const storyState = {
+    ...makeRecord(projectId),
+    protagonistStats: {},
+    resources: {},
+    money: null,
+    inventory: [],
+    relationships: {},
+    reputation: null,
+    factionStanding: {},
+    worldFlags: {
+      "story.playMode": playMode,
+      "story.playModeLocked": true,
+      "story.setupComplete": true,
+      "story.creationMode": draft.mode,
+      "story.language": draft.answers.language?.value || "zh-TW",
+      "story.legacyUnclassified": true,
+      "story.topicSelectionPending": true,
+      "story.familySelectionPending": true,
+      ...(cloneFromProjectId && cloneFromProjectId !== projectId
+        ? { "story.cloneFromProjectId": cloneFromProjectId }
+        : {}),
+    },
+    questStates: {},
+    achievementStates: {},
+    timeState: null,
+    locationState: null,
+    riskState: null,
+  };
+  const project = {
+    ...makeRecord(projectId),
+    id: projectId,
+    title,
+    proceduralRootSeed: `novel-project:${projectId}:procedural-v1`,
+    creationMode: draft.mode,
+    genrePackId: draft.genrePackId,
+    genreId: null,
+    subgenreId: draft.subgenreId,
+    coreIdea: draft.coreIdea,
+    narrativeStyle: draft.style,
+    adultMode: false,
+    adultExperienceProfile: null,
+    activeChapterId: null,
+    storyBibleId: storyBible.id,
+    storyStateId: storyState.id,
+  };
+  const initialTask = {
+    ...makeRecord(projectId),
+    title: "寫下第一章",
+    kind: "writing" as const,
+    status: "not_started" as const,
+    progress: 0,
+    target: 1,
+  };
+  const readerState = {
+    ...makeRecord(projectId),
+    chapterId: null,
+    positionType: "ratio" as const,
+    positionValue: 0,
+    contentAnchor: null,
+    scrollTop: 0,
+    percentage: 0,
+    theme: "night" as const,
+    fontFamily: "system-ui",
+    fontSize: 20,
+    lineHeight: 1.9,
+    contentWidth: 760,
+    paragraphSpacing: 18,
+    lastReadAt: null,
+  };
+  const initialBackup = {
+    ...makeRecord(projectId),
+    formatVersion: "novel-backup-v2" as const,
+    kind: "initial" as const,
+    byteSize: 0,
+    snapshot: {
+      project,
+      seed,
+      storyBible,
+      protagonist,
+      world,
+      worldRules,
+      storyState,
+    },
+  };
+  initialBackup.byteSize = new TextEncoder().encode(JSON.stringify(initialBackup.snapshot)).byteLength;
+  return {
+    project,
+    seed,
+    storyBible,
+    protagonist,
+    world,
+    worldRules,
+    storyState,
+    initialTask,
+    readerState,
+    initialBackup,
+  };
+}
+
 export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
   const seed = draft.seedCandidate ?? buildSeedCandidate(draft);
+  if (draft.mode === "legacy" && !draft.genreId) {
+    return buildUnclassifiedLegacyProjectBundle(draft, seed);
+  }
   const projectId = draft.projectId;
   const bibleRecord = makeRecord(projectId);
   const stateRecord = makeRecord(projectId);

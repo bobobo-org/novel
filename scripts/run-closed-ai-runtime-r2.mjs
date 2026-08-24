@@ -1043,6 +1043,7 @@ test("project-context-composer", "composer includes canonical project layers and
   const repository = new MemoryNovelRepository();
   const draft = createDraft("blank");
   draft.title = "Runtime R2 Project";
+  draft.genreId = "classic-topic-002";
   draft.protagonist = optionalValue("Runtime R2 Protagonist", "user_defined");
   const bundle = buildProjectBundle(draft);
   await repository.createProject(bundle, "context-r2-create");

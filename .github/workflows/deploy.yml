@@ -332,6 +332,9 @@ jobs:
             pnpm test:ai:public-story-research-seed
             pnpm test:ai:mode-choice-curriculum
             pnpm test:ai:procedural-story-library
+            pnpm test:studio:topic-world-contract
+            pnpm test:ai:topic-world-family-stage-matrix
+            pnpm test:ai:topic-world-family-rpg-bridge
             pnpm test:ai:rules-story-fallback-variety
             pnpm test:ai:rules-story-arc-closure
             pnpm test:studio:rpg-first-turn-playability

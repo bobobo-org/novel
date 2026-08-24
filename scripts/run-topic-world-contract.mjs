@@ -220,6 +220,25 @@ assert.deepEqual(
   cultivationBundle.lore,
 );
 
+const missingTopicDraft = createDraft("quick");
+missingTopicDraft.title = "新作品不得繞過題材選擇";
+assert.throws(
+  () => buildProjectBundle(missingTopicDraft),
+  (error) => error?.code === "PROJECT_TOPIC_REQUIRED",
+);
+
+const explicitLegacyCultivationDraft = createDraft("legacy");
+explicitLegacyCultivationDraft.title = "已有正式修仙題材的舊作";
+explicitLegacyCultivationDraft.genreId = "classic-topic-009";
+explicitLegacyCultivationDraft.protagonist = optionalValue("舊作修士", "user_defined");
+const explicitLegacyCultivationBundle = buildProjectBundle(explicitLegacyCultivationDraft);
+assert.equal(explicitLegacyCultivationBundle.project.genreId, "classic-topic-009");
+assert.equal(explicitLegacyCultivationBundle.storyState.worldFlags["story.worldFamily"], "cultivation");
+assert.equal(explicitLegacyCultivationBundle.storyState.worldFlags["story.familyStageApproved"], true);
+assert.equal(explicitLegacyCultivationBundle.cast?.length, 6);
+assert.equal(explicitLegacyCultivationBundle.lore?.filter((entry) => entry.kind === "item").length, 8);
+assert.equal(explicitLegacyCultivationBundle.storyState.worldFlags["story.topicSelectionPending"], undefined);
+
 assert.throws(
   () => topicWorldContractAt({ seed: "", topicId: "classic-topic-009", playMode: "general" }),
   /TOPIC_WORLD_CONTRACT_SEED_REQUIRED/u,
