@@ -126,7 +126,11 @@ async function createProject(page, title) {
   await page.getByTestId("create-play-mode-general").click();
   await page.locator('[data-topic-id="classic-topic-009"]').click();
   await page.getByTestId("create-ai-story-seed").click();
-  await page.locator(".p2FoundationReady").waitFor({ state: "visible", timeout: 90_000 });
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-testid="create-ai-story-seed"]');
+    const status = document.querySelector('[data-testid="create-ai-story-seed-status"]');
+    return Boolean(button && !button.hasAttribute("disabled") && status?.textContent?.trim());
+  }, undefined, { timeout: 90_000 });
 
   const stepBar = page.locator(".p2StepBar");
   const next = page.locator(".p2CreatePanel > footer button.gold");
@@ -141,7 +145,7 @@ async function createProject(page, title) {
   }
   const familyCandidates = page.getByTestId("creation-stage-family-candidates");
   await familyCandidates.waitFor({ state: "visible" });
-  await familyCandidates.getByRole("button", { name: /核准此上場家族/u }).first().click();
+  await familyCandidates.getByRole("button", { name: /選擇這組上場群像/u }).first().click();
   await page.locator(".p2FoundationReady").waitFor({ state: "visible" });
   await next.click();
   const primary = page.locator(".p2CreateSuccess a.primaryAction");
