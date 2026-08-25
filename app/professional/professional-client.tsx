@@ -15,6 +15,7 @@ import {
   migrateLegacyStudioProjects,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 import { discoverStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import CharacterRelationshipWorkbench from "../studio/project/[projectId]/character-relationship-workbench";
 
 type ProjectSummary = {
   project: NovelProject;
@@ -282,6 +283,12 @@ export default function ProfessionalClient({
             </dl>
           </section>
 
+          <CharacterRelationshipWorkbench
+            project={project}
+            compact
+            onChanged={() => loadSummary(project.id)}
+          />
+
           <section className="professionalActionGroups" aria-label="作品全部功能">
             <article id="story-and-chapters">
               <small>STORY & CHAPTERS</small><h2>故事與章節</h2>
@@ -295,8 +302,8 @@ export default function ProfessionalClient({
               <p>管理正式人物、關係、世界規則、Story Bible 與時間線；所有頁面都留在同一作品。</p>
               <Link href={`${projectRoot}/characters`}>角色與關係</Link>
               <Link href={`${projectRoot}/world`}>世界規則</Link>
-              <Link href={`${projectRoot}/story-bible`}>Story Bible／故事記憶</Link>
-              <Link href={`${projectRoot}/timeline`}>時間線</Link>
+              <Link href={`${projectRoot}/story-bible`}>故事記憶（伏筆、禁忌與人物關係）</Link>
+              <Link href={`${projectRoot}/timeline`}>時間線（事件先後與章節位置）</Link>
             </article>
             <article id="progress-and-review">
               <small>PROGRESS & REVIEW</small><h2>任務、成就與檢查</h2>

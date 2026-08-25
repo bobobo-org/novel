@@ -19,6 +19,7 @@ export function MessageComposer({
   busyReason,
   busyReasonTestId,
   canStop,
+  stopLabel,
   draft,
   localAttachments,
   rightsConfirmed,
@@ -45,6 +46,7 @@ export function MessageComposer({
   busyReason: string | null;
   busyReasonTestId?: string;
   canStop: boolean;
+  stopLabel: string;
   draft: string;
   localAttachments: LocalAttachment[];
   rightsConfirmed: boolean;
@@ -160,7 +162,7 @@ export function MessageComposer({
             <button className={styles.quietButton} type="button" onClick={onToggleArtifacts}>結果</button>
           </div>
           <div className={styles.rightActions}>
-            {canStop ? <button className={styles.quietButton} type="button" onClick={onStop}>停止</button> : null}
+            {canStop ? <button className={styles.quietButton} type="button" onClick={onStop}>{stopLabel}</button> : null}
             <button className={styles.sendButton} type="button" onClick={composer.submit} disabled={!composer.canSend}>送出</button>
           </div>
         </div>

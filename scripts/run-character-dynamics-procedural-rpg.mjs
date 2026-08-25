@@ -63,11 +63,12 @@ function character(id, name, age = 24) {
 
 const characters = [character("char-a", "映河"), character("char-b", "清晏"), character("char-c", "懷序")];
 
-await test("100 portrait catalog entries are unique and complete", () => {
-  assert.equal(CHARACTER_PORTRAIT_CATALOG.length, 100);
-  assert.equal(new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.id)).size, 100);
+await test("10,000 portrait catalog entries are unique and complete", () => {
+  assert.equal(CHARACTER_PORTRAIT_CATALOG.length, 10_000);
+  assert.equal(new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.id)).size, 10_000);
   assert.ok(CHARACTER_PORTRAIT_CATALOG.every((item) => item.assetDigest.length === 64 && item.visualDescription.length > 8));
-  return { count: 100, themes: new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.themeId)).size };
+  assert.equal(new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.visualVariant?.variant)).size, 100);
+  return { count: 10_000, baseArt: 100, variantsPerBase: 100, themes: new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.themeId)).size };
 });
 
 await test("character dynamics are deterministic per seed and distinct across playthroughs", () => {

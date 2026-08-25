@@ -972,7 +972,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     seedAssistantControllerRef.current = controller;
     setSeedAssistantBusy(true);
     setSeedAssistantSource("");
-    setSeedAssistantStatus("正在由閉端 AI 自動協調器選擇可用算力；最遲 24 秒完成或改用裝置後備。");
+    setSeedAssistantStatus("正在由閉端 AI 自動協調器選擇可用算力；最多等待 24 秒，若確認裝置沒有可用模型會立即改用後備。");
     setMessage("已收到操作，正在建立世界觀、故事起點與多人核心陣容；不會自動建立作品，也不會覆蓋你已填的內容。");
     try {
       const result = await runStudioPreCreationClosedAI({
@@ -1036,8 +1036,12 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         ? "CREATE_STORY_SEED_TIMEOUT"
         : String((error as { code?: unknown })?.code ?? "MODEL_NOT_READY");
       setSeedAssistantSource("裝置安全後備（非 AI）");
-      setSeedAssistantStatus(`閉端模型未能完成，已改用裝置後備填入空白欄位（${code}）。`);
-      setMessage("AI 不可用或逾時，因此改用裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。");
+      setSeedAssistantStatus(timedOut
+        ? "閉端 AI 等待滿 24 秒仍未完成，已改用裝置後備填入空白欄位。"
+        : `已確認目前裝置沒有可完成此任務的閉端模型，已立即改用裝置後備填入空白欄位（${code}）。`);
+      setMessage(timedOut
+        ? "閉端 AI 已等待滿 24 秒但未完成，因此改用裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。"
+        : "閉端 AI 已嘗試瀏覽器算力與本機 Ollama，但目前裝置沒有可用模型，因此立即改用裝置後備雛形；這不是逾時，你已填的內容仍完整保留，也尚未建立作品。");
     } finally {
       window.clearTimeout(deadline);
       if (seedAssistantControllerRef.current === controller) {
@@ -1335,7 +1339,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
                 onClick={() => void applyAssistedSeed()}
               >
                 {seedAssistantBusy ? "AI 正在建立雛形……" : "由 AI 協助產生故事雛形"}
-                <small>自動協調算力 · 最長 24 秒</small>
+                <small>自動協調算力 · 最長 24 秒；確認無模型會立即後備</small>
               </button>
               {seedAssistantBusy ? (
                 <button type="button" data-testid="cancel-create-ai-story-seed" onClick={cancelAssistedSeed}>取消本次生成</button>

@@ -84,6 +84,8 @@ const requiredStageRoles = [
   "對手代表",
 ];
 for (const family of cultivation.stageFamilies) {
+  assert.doesNotMatch(family.name, /[A-Za-z0-9・]/u, `${family.name} 不得暴露程式碼或拼接符號`);
+  assert.ok([...family.name].length <= 10, `${family.name} 必須是可讀的短中文家族名`);
   assert.equal(family.members.length, TOPIC_WORLD_STAGE_MEMBER_COUNT);
   assert.deepEqual(family.members.map((member) => member.stageRole), requiredStageRoles);
   assert.equal(new Set(family.members.map((member) => member.characterId)).size, TOPIC_WORLD_STAGE_MEMBER_COUNT);
@@ -91,10 +93,15 @@ for (const family of cultivation.stageFamilies) {
   assert.equal(family.members[1].pronouns, "她");
   assert.equal(family.members[2].lifeStage, "長者");
   assert.equal(family.relationships.length, 7);
+  assert.equal(new Set(family.members.map((member) => member.organizationRole)).size, family.members.length, `${family.name} 的上場成員必須有不同主要職業`);
   assert.equal(new Set(family.relationships.map((relationship) => relationship.relationshipId)).size, 7);
   assert.ok(family.introduction.includes(family.organizationName));
   assert.ok(family.introduction.includes("上場六人"));
   assert.ok(family.assetControlIds.length >= 1);
+  const inheritedSurnames = family.members
+    .filter((member) => !/妻|夫|配偶|姻親|入贅|外姓|客居|收養/u.test(member.familyRole))
+    .map((member) => member.name.slice(0, 1));
+  assert.equal(new Set(inheritedSurnames).size, 1, `${family.name} 的非配偶直系成員必須承同姓`);
   for (const member of family.members) {
     assert.equal(member.fictional, true);
     assert.equal(member.originPolicy, "original-procedural-fiction-no-real-person-or-social-account");
@@ -261,6 +268,8 @@ for (const sample of [
   assert.equal(matrix.organizations.length, 4);
   assert.ok(matrix.organizations.every((organization) => organization.kindLabel !== "修行勢力"));
   assert.ok(matrix.stageFamilies.every((family) => family.members.length === 6));
+  assert.ok(matrix.stageFamilies.every((family) => !/[A-Za-z0-9・]/u.test(family.name)));
+  assert.ok(matrix.stageFamilies.every((family) => [...family.name].length <= 10));
   assert.ok(matrix.assetControls.length >= 4);
 }
 

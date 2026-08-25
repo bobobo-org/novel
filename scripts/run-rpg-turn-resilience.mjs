@@ -8,6 +8,7 @@ const [
   chatPage,
   playMode,
   studio,
+  conversationWorkspace,
 ] = await Promise.all([
   readFile("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", "utf8"),
   readFile("lib/novel-ai/web/rpg-chat-turn.ts", "utf8"),
@@ -15,27 +16,30 @@ const [
   readFile("app/studio/project/[projectId]/chat/page.tsx", "utf8"),
   readFile("lib/novel-ai/domain/play-mode.ts", "utf8"),
   readFile("app/studio/page.tsx", "utf8"),
+  readFile("app/studio/project/[projectId]/chat/conversation-workspace.tsx", "utf8"),
 ]);
 
-// The production RPG entry is Conversation. A check against the retired
-// rpg-workspace could pass while the real chat controller still waited for the
-// model queue for 180 seconds, so this gate reads the canonical controller.
-assert.match(chatController, /const plan = await buildRpgRuleChoicePlan\(\{/u);
-assert.match(chatController, /fallbackReason: "RPG_CHOICE_RULE_PLAN_IMMEDIATE"/u);
-assert.doesNotMatch(chatController, /planRpgChatChoices\(/u);
-assert.doesNotMatch(chatController, /180_000|超過 180 秒/u);
+// The production RPG entry is Conversation. Every round asks the verified
+// closed AI for A/B/C first, waits at most 180 seconds, and lets the reader
+// explicitly switch to the deterministic continuity fallback without
+// cancelling the whole conversation operation.
+assert.match(chatController, /plan = await planRpgChatChoices\(\{/u);
+assert.match(chatController, /fallbackReason: "USER_REQUESTED_RULE_FALLBACK"/u);
+assert.match(chatController, /requestRpgChoiceFallback/u);
+assert.match(conversationWorkspace, /不等了，改用後備選項/u);
+assert.doesNotMatch(chatController, /RPG_CHOICE_RULE_PLAN_IMMEDIATE/u);
 assert.match(chatController, /serializeRpgChoices\(envelope\)/u);
 assert.match(chatController, /generateRpgChatTurnCandidate\(/u);
 assert.match(chatController, /故事與數值均未寫入/u);
 
-const snapshotAt = chatController.indexOf("const snapshot = await loadRpgChatSnapshot");
-const immediatePlanAt = chatController.indexOf("const plan = await buildRpgRuleChoicePlan", snapshotAt);
-const completedMessageAt = chatController.indexOf("serializeRpgChoices(envelope)", immediatePlanAt);
+const snapshotAt = chatController.indexOf("const snapshot = await loadSnapshot");
+const aiPlanAt = chatController.indexOf("plan = await planRpgChatChoices", snapshotAt);
+const completedMessageAt = chatController.indexOf("serializeRpgChoices(envelope)", aiPlanAt);
 assert(snapshotAt >= 0, "the active chat controller must load the canonical RPG snapshot");
-assert(immediatePlanAt > snapshotAt, "the active chat controller must build rule choices immediately after loading the snapshot");
-assert(completedMessageAt > immediatePlanAt, "the exact A/B/C envelope must be committed after the immediate plan");
+assert(aiPlanAt > snapshotAt, "the active chat controller must ask closed AI for choices after loading the snapshot");
+assert(completedMessageAt > aiPlanAt, "the exact A/B/C envelope must be committed after AI or explicit fallback planning");
 
-assert.match(rpgService, /export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 12_000/u);
+assert.match(rpgService, /export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 180_000/u);
 assert.match(rpgService, /enhancementController\.abort\("RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT"\)/u);
 assert.match(rpgService, /signal: enhancementController\.signal/u);
 assert.match(rpgService, /clearTimeout\(enhancementTimeout\)/u);
@@ -58,9 +62,9 @@ console.log(JSON.stringify({
   status: "PASS",
   canonicalStoryEntry: "/chat",
   compatibilityRedirect: "/rpg -> /chat?mode=play",
-  choicePlanner: "immediate-bounded-rule-plan",
+  choicePlanner: "closed-ai-first-with-explicit-rule-fallback",
   exactChoiceKeys: ["A", "B", "C"],
-  modelRequiredBeforeChoices: false,
-  enhancementTimeoutMs: 12_000,
+  modelAttemptedBeforeChoices: true,
+  enhancementTimeoutMs: 180_000,
   mutationBeforeApproval: 0,
 }, null, 2));

@@ -71,6 +71,14 @@ export type CharacterPortraitAsset = {
   visualDescription: string;
   traits: string[];
   generatedBy: "openai-image-generation" | "user-upload" | "procedural-story-engine";
+  visualVariant?: {
+    variant: number;
+    hueRotate: number;
+    saturation: number;
+    brightness: number;
+    contrast: number;
+    accentLabel: string;
+  };
 };
 export type CharacterPortrait = CharacterPortraitAsset & {
   approvedAt: string;
@@ -133,6 +141,16 @@ export type CharacterSocialMatrixProfile = {
   approvedAt: string;
   approvedBy: "user";
 };
+export type CharacterCultivationProfile = {
+  schemaVersion: "character-cultivation-profile-v1";
+  spiritRootId: string;
+  realmId: string;
+  realmStage: "初期" | "中期" | "後期" | "圓滿";
+  sectBranchId: string;
+  sectRankId: string;
+  techniqueIds: string[];
+  approvedAt: string;
+};
 export type Character = DomainRecord & {
   name: string;
   aliases: string[];
@@ -153,6 +171,7 @@ export type Character = DomainRecord & {
   rpgProfile?: CharacterRpgProfile | null;
   dynamicsProfile?: CharacterDynamicsProfile | null;
   socialMatrixProfile?: CharacterSocialMatrixProfile | null;
+  cultivationProfile?: CharacterCultivationProfile | null;
   voiceStyle?: {
     formality: number;
     directness: number;

@@ -151,9 +151,10 @@ async function componentContract() {
     assert.doesNotMatch(workspace, /setDraft\(initialPrompt\)/u, "a URL prompt must execute once instead of remaining as a draft");
     assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts"), /conversation\.approveChapterArtifact\(/u);
     const rpgController = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts");
-    assert.match(rpgController, /const plan = await buildRpgRuleChoicePlan\(\{/u);
-    assert.match(rpgController, /fallbackReason: "RPG_CHOICE_RULE_PLAN_IMMEDIATE"/u);
-    assert.doesNotMatch(rpgController, /planRpgChatChoices\(/u);
+    assert.match(rpgController, /plan = await planRpgChatChoices\(\{/u);
+    assert.match(rpgController, /fallbackReason: "USER_REQUESTED_RULE_FALLBACK"/u);
+    assert.match(rpgController, /requestRpgChoiceFallback/u);
+    assert.doesNotMatch(rpgController, /RPG_CHOICE_RULE_PLAN_IMMEDIATE/u);
     assert.match(rpgController, /generateRpgChatTurnCandidate\(/u);
     assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-attachments.ts"), /extractManualLearningFileInWorker\(/u);
   });

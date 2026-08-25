@@ -1,6 +1,11 @@
 import type { StoryChoiceEffect, StoryState } from "../../domain/index";
 
-const SAFE_KEY = /^[a-zA-Z0-9_.:\-\u4e00-\u9fff]{1,64}$/;
+// Older RPG saves can contain the full procedural choice identity in a delayed
+// consequence flag. Those engine-owned identities are longer than 64
+// characters, but still consist solely of the restricted key alphabet. Keep a
+// bounded compatibility window so existing candidates can be approved; new
+// consequences use a compact deterministic key at their source.
+const SAFE_KEY = /^[a-zA-Z0-9_.:\-\u4e00-\u9fff]{1,128}$/;
 export type EffectValidation = { valid: boolean; errors: string[] };
 
 export function validateStoryChoiceEffect(effect: StoryChoiceEffect): EffectValidation {

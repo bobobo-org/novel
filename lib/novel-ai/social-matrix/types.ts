@@ -155,6 +155,7 @@ export type SocialInstitution = {
 export type SocialFamily = {
   familyId: string;
   familyIndex: number;
+  surname: string;
   name: string;
   home: string;
   reputation: string;

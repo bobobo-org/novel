@@ -83,6 +83,7 @@ type PlatformExecutor = (request: PlatformAIRequest) => Promise<PlatformAIResult
 const INTERACTIVE_CHOICE_WARM_TTL_MS = 8 * 60 * 1_000;
 const BROWSER_TO_LOCAL_RETRY_CODES = new Set([
   "BROWSER_EXPLICIT_ESCALATION_REQUIRED",
+  "BROWSER_AI_ESCALATE_LOCAL_OLLAMA",
   "BROWSER_AI_QUALITY_INSUFFICIENT",
   "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTOR_UNAVAILABLE",
   "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
@@ -581,7 +582,26 @@ export async function runStudioPreCreationClosedAI(
       // truthfully and the create page can offer its explicit device fallback.
     }
   }
-  return runStudioClosedAI(input, execute);
+  try {
+    return await runStudioClosedAI(input, execute);
+  } catch (error) {
+    const mayRetryOnLocalOllama =
+      hasExplicitLocalComputeAuthorization(
+        resolveStudioClosedComputePolicy(input.browserComputePolicy),
+      )
+      && !input.signal?.aborted
+      && BROWSER_TO_LOCAL_RETRY_CODES.has(studioClosedAIErrorCode(error));
+    if (!mayRetryOnLocalOllama) throw error;
+
+    // Creation has no canonical project yet, so it uses the context-free
+    // platform executor. When Browser AI explicitly asks for Local Ollama,
+    // preserve that empty-context boundary while locking the retry to the
+    // already authorised device-local backend.
+    return runStudioClosedAI(input, (request) => execute({
+      ...request,
+      preferredProvider: "local-ollama",
+    }));
+  }
 }
 
 export async function regenerateStudioClosedAI(

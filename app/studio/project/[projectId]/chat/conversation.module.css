@@ -1388,6 +1388,65 @@
   text-align: center;
 }
 
+.storyCharacterReference {
+  margin: 12px clamp(16px, 3vw, 38px) 0;
+  border: 1px solid rgba(105, 213, 190, 0.38);
+  border-radius: 15px;
+  background: linear-gradient(145deg, rgba(8, 38, 48, 0.92), rgba(9, 22, 39, 0.96));
+  overflow: hidden;
+}
+
+.storyCharacterReference > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  color: #dffbf4;
+  cursor: pointer;
+  list-style: none;
+}
+
+.storyCharacterReference > summary::-webkit-details-marker { display: none; }
+.storyCharacterReference > summary::before { content: "▸"; color: #e8bd64; }
+.storyCharacterReference[open] > summary::before { content: "▾"; }
+.storyCharacterReference > summary strong { color: #f1cd79; }
+.storyCharacterReference > summary small { margin-left: auto; color: var(--muted); }
+.storyCharacterReferenceNote { margin: 0; padding: 0 16px 12px; color: #9eb7c5; font-size: .78rem; }
+
+.storyCharacterGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.storyCharacterCard {
+  padding: 13px;
+  border: 1px solid rgba(86, 130, 160, 0.48);
+  border-radius: 12px;
+  background: rgba(5, 18, 32, 0.82);
+}
+
+.storyCharacterCard > header { display: flex; align-items: center; gap: 10px; }
+.storyCharacterCard h4 { margin: 0 0 3px; color: #f3d88f; }
+.storyCharacterCard header p { margin: 0; color: #b8c9d8; font-size: .76rem; }
+.storyCharacterPortrait,
+.storyCharacterInitial { width: 52px; height: 52px; flex: 0 0 52px; border: 1px solid rgba(230, 185, 91, .55); border-radius: 12px; object-fit: cover; overflow: hidden; }
+.storyCharacterInitial { display: grid; place-items: center; background: linear-gradient(145deg, #315b54, #4b315d); color: white; font-size: 1.25rem; }
+.storyCharacterCard dl { display: grid; gap: 5px; margin: 11px 0; }
+.storyCharacterCard dl > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
+.storyCharacterCard dt { color: #72cfbd; font-size: .72rem; }
+.storyCharacterCard dd { margin: 0; color: #dce7ef; font-size: .74rem; }
+.storyCharacterFacts { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 5px 8px; padding-top: 9px; border-top: 1px solid rgba(85, 117, 144, .36); font-size: .73rem; }
+.storyCharacterFacts b { color: #dcbf72; }
+.storyCharacterFacts span { color: #b6c7d5; }
+.storyCharacterRelations { display: grid; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; }
+.storyCharacterRelations li { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; gap: 6px; align-items: center; font-size: .7rem; }
+.storyCharacterRelations li span { padding: 2px 6px; border-radius: 999px; background: #493a64; color: #e9dcff; text-align: center; }
+.storyCharacterRelations li b { color: #dce7ef; }
+.storyCharacterRelations li small { color: #d6b96f; }
+.storyCharacterNoRelation { margin: 10px 0 0; color: #8397a8; font-size: .72rem; }
+
 .danger {
   color: #ffb0b0 !important;
 }
@@ -1494,6 +1553,10 @@
   .executionTraceStages,
   .executionTraceDetails dl { grid-template-columns: 1fr; }
   .composerMeta { font-size: 0.69rem; }
+  .storyCharacterReference { margin-right: 0; margin-left: 0; }
+  .storyCharacterGrid { grid-template-columns: 1fr; }
+  .storyCharacterRelations li { grid-template-columns: 54px minmax(0, 1fr); }
+  .storyCharacterRelations li small { grid-column: 2; }
 }
 
 @media (min-width: 1041px) and (max-height: 900px) {

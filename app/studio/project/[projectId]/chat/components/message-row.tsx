@@ -5,6 +5,10 @@ import type {
   ConversationAttachment,
   ConversationMessage,
   ConversationToolInvocation,
+  Character,
+  CharacterRelationship,
+  NovelProject,
+  World,
 } from "@/lib/novel-ai/domain";
 import { useConversationRpg } from "../hooks/use-conversation-rpg";
 import { CandidateCard } from "./candidate-card";
@@ -27,6 +31,7 @@ import {
   selectClosedAgentFailureEvidenceInvocation,
 } from "@/lib/novel-ai/closed-agent-os/safe-runtime-diagnostics";
 import styles from "../conversation.module.css";
+import StoryCharacterReference from "./story-character-reference";
 
 export const MessageRow = memo(function MessageRow({
   message,
@@ -44,6 +49,10 @@ export const MessageRow = memo(function MessageRow({
   lineage,
   playDashboard,
   playDashboardPlacement,
+  project,
+  worlds,
+  characters,
+  relationships,
 }: {
   message: ConversationMessage;
   allMessages: ConversationMessage[];
@@ -60,6 +69,10 @@ export const MessageRow = memo(function MessageRow({
   lineage: { rootId: string; depth: number };
   playDashboard: ReactNode;
   playDashboardPlacement: "choices" | "afterCandidate" | null;
+  project: NovelProject | null;
+  worlds: World[];
+  characters: Character[];
+  relationships: CharacterRelationship[];
 }) {
   const rpg = useConversationRpg({ message, messages: allMessages, artifactsByMessage });
   const rpgChoices = rpg.parsed;
@@ -143,13 +156,22 @@ export const MessageRow = memo(function MessageRow({
             if (rpgChoices.envelope) actions.chooseRpgOption(rpgChoices.envelope, message.id, key);
           }}
         />
-      ) : message.content ? (
+      ) : message.content && !(visibleFailure && ["failed", "cancelled"].includes(message.status)) ? (
         <div className={styles.messageBody}>{message.role === "assistant" && ["failed", "cancelled"].includes(message.status)
           ? friendlyFailedAssistantContent(
               message.content,
               failureInvocation?.safeErrorCode ?? invocation?.safeErrorCode,
             )
           : message.content}</div>
+      ) : null}
+      {project && message.role === "assistant" && message.status === "completed" && hasRpgStory && !rpgChoices ? (
+        <StoryCharacterReference
+          content={message.content}
+          project={project}
+          worlds={worlds}
+          characters={characters}
+          relationships={relationships}
+        />
       ) : null}
       {message.role === "assistant" ? <ConversationExecutionTrace invocations={messageInvocations} /> : null}
       {message.attachmentIds.map((attachmentId) => {

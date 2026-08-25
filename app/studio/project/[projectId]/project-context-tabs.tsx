@@ -39,15 +39,28 @@ function contextHref(
   context: "story" | "people-world" | "ai" | "progress",
   view: StoryContextView | PeopleWorldView | AIContextView | ProgressContextView,
 ) {
-  if (context === "ai") {
+  if (context === "ai" || context === "story") {
     return `/studio/project/${encodeURIComponent(projectId)}/${view}`;
   }
-  const base = context === "story"
-    ? "story-context"
-    : context === "progress"
+  const base = context === "progress"
       ? "progress"
       : "people-world";
   return `/studio/project/${encodeURIComponent(projectId)}/${base}?view=${encodeURIComponent(view)}`;
+}
+
+export function ProjectContextPurpose({ view }: { view: StoryContextView }) {
+  const timeline = view === "timeline";
+  return (
+    <section className={styles.purpose} data-view={view} data-testid={`${view}-purpose`}>
+      <div>
+        <small>{timeline ? "CHRONOLOGY" : "CANON MEMORY"}</small>
+        <h2>{timeline ? "時間線：事情何時發生、先後如何" : "故事記憶：哪些事不能忘、不能矛盾"}</h2>
+      </div>
+      <p>{timeline
+        ? "記錄事件時間、章節位置與事件摘要。續寫及一致性檢查會用它判斷誰當時在哪裡、哪些事已先發生，避免時序倒置。"
+        : "保存人物關係、伏筆、未解線索、世界規則與禁止矛盾。續寫與三選一會把它當作正式 Canon 記憶，避免失憶或任意改設定。"}</p>
+    </section>
+  );
 }
 
 export function ProjectContextTabs({

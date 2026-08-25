@@ -6,7 +6,11 @@ import type {
   ConversationAttachment,
   ConversationMessage,
   ConversationToolInvocation,
+  Character,
+  CharacterRelationship,
+  NovelProject,
   StoryState,
+  World,
 } from "@/lib/novel-ai/domain";
 import {
   isGameStoryPlayMode,
@@ -18,6 +22,7 @@ import {
   RPG_STAT_DEFINITIONS,
   type RpgMode,
 } from "@/lib/novel-ai/game/progression/rpg-progression";
+import { readLifeManagementSnapshot } from "@/lib/novel-ai/game/life-management-simulation";
 import { useConversationTimelineWindow } from "../hooks/use-conversation-timeline-window";
 import { useConversationApproval } from "../hooks/use-conversation-approval";
 import { useConversationAttachments } from "../hooks/use-conversation-attachments";
@@ -113,6 +118,16 @@ const DASHBOARD_STATE_LABELS: Record<string, string> = {
   "romance.trust": "信任",
   "romance.eventProgress": "事件進度",
   "romance.personalGrowth": "人物成長",
+  "career.skillGrowth": "專業成長",
+  "career.popularity": "人氣",
+  "career.publicImage": "公眾形象",
+  "career.portfolio": "作品履歷",
+  "career.auditions": "試鏡紀錄",
+  "career.income": "演藝收入",
+  "career.contractRisk": "合約風險",
+  "career.scandalRisk": "輿情風險",
+  "career.industryTrust": "業界信任",
+  "career.scheduleControl": "檔期掌控",
   "management.cash": "資金",
   "management.staff": "人力",
   "management.morale": "士氣",
@@ -210,6 +225,10 @@ function PlayModeDashboard({
     () => readRpgProgression(storyState, projectId, progressionMode(playMode)),
     [playMode, projectId, storyState],
   );
+  const lifeManagement = useMemo(
+    () => playMode === "management" ? readLifeManagementSnapshot(storyState) : null,
+    [playMode, storyState],
+  );
   const relationship = (key: string, fallback = 10) => Math.round(storyState.relationships[key] ?? fallback);
   const resource = (key: string, fallback: number) => Math.round(storyState.resources[key] ?? fallback);
   const activeQuests = Object.values(storyState.questStates).filter((value) => Number(value) > 0).length;
@@ -244,6 +263,9 @@ function PlayModeDashboard({
         ];
   const managementFacts: DashboardFact[] = playMode === "management"
     ? [
+        { label: "人生階段", value: `Lv.${lifeManagement?.phase.level ?? 1} ${lifeManagement?.phase.name ?? "新人"}` },
+        { label: "每日時間", value: `${lifeManagement?.dailyTimeBudget ?? 12} 點` },
+        { label: "授權容量", value: `${lifeManagement?.delegationCapacity ?? 0} 人／項` },
         { label: "資金", value: dashboardValue(progression.management.cash) },
         { label: "人力", value: dashboardValue(progression.management.staff, " 人") },
         { label: "士氣", value: dashboardValue(progression.management.morale, " / 100") },
@@ -259,6 +281,14 @@ function PlayModeDashboard({
         { label: "市占", value: dashboardValue(progression.management.marketShare, " / 100") },
         { label: "庫存", value: dashboardValue(resource("management.inventory", 100)) },
         { label: "產能", value: dashboardValue(resource("management.capacity", 90)) },
+        { label: "家庭", value: dashboardValue(lifeManagement?.dimensions.家庭 ?? 55, " / 100") },
+        { label: "健康", value: dashboardValue(lifeManagement?.dimensions.健康 ?? 80, " / 100") },
+        { label: "傳承", value: dashboardValue(lifeManagement?.dimensions.傳承 ?? 0, " / 100") },
+        {
+          label: "人才流失風險",
+          value: dashboardValue(lifeManagement?.retentionRisk ?? 20, " / 100"),
+          tone: (lifeManagement?.retentionRisk ?? 0) >= 60 ? "warning" : "normal",
+        },
       ]
     : [];
   if (playMode === "management") {
@@ -294,6 +324,10 @@ function PlayModeDashboard({
         { label: "信任", value: dashboardValue(relationship("romance.trust"), " / 100") },
         { label: "事件進度", value: dashboardValue(resource("romance.eventProgress", 0), " / 100") },
         { label: "人物成長", value: dashboardValue(resource("romance.personalGrowth", 0), " / 100") },
+        { label: "專業成長", value: dashboardValue(resource("career.skillGrowth", 0), " / 100") },
+        { label: "人氣", value: dashboardValue(resource("career.popularity", 0), " / 100") },
+        { label: "公眾形象", value: dashboardValue(resource("career.publicImage", 0), " / 100") },
+        { label: "作品履歷", value: dashboardValue(resource("career.portfolio", 0)) },
         { label: "心情", value: dashboardValue(progression.status.mood, " / 100") },
         { label: "壓力", value: dashboardValue(progression.status.stress, " / 100") },
         { label: "行動點", value: dashboardValue(progression.status.actionPoints) },
@@ -335,7 +369,7 @@ function PlayModeDashboard({
   const contextualResourceKeys = playMode === "management"
     ? ["management.satisfaction", "management.technology", "management.marketShare", "management.inventory", "management.capacity"]
     : playMode === "romance"
-      ? ["status.mood", "status.stress", "status.health", "status.focus", "game.actionPoints"]
+      ? ["status.mood", "status.stress", "status.health", "status.focus", "career.contractRisk", "career.scandalRisk", "game.actionPoints"]
       : ["status.hp", "status.spirit", "status.fatigue", "status.stress", "status.health", "status.focus"];
   const resourceFacts: DashboardFact[] = contextualResourceKeys.flatMap((key) => {
     const value = ownFiniteNumber(storyState.resources, key);
@@ -438,6 +472,7 @@ function PlayModeDashboard({
 }
 
 export function MessageTimeline({
+  project,
   projectId,
   sessionId,
   messages,
@@ -448,6 +483,7 @@ export function MessageTimeline({
   busy,
   regenerationReady,
   canStop,
+  stopLabel,
   progress,
   safeError,
   retryAvailable,
@@ -456,10 +492,14 @@ export function MessageTimeline({
   dashboardOpenRequest,
   fixedPlayMode,
   storyState,
+  worlds,
+  characters,
+  relationships,
   actions,
   onStarter,
   onRetry,
 }: {
+  project: NovelProject | null;
   projectId: string;
   sessionId: string;
   messages: ConversationMessage[];
@@ -470,6 +510,7 @@ export function MessageTimeline({
   busy: boolean;
   regenerationReady: boolean;
   canStop: boolean;
+  stopLabel: string;
   progress: string;
   safeError: { code: string; message: string } | null;
   retryAvailable: boolean;
@@ -478,6 +519,9 @@ export function MessageTimeline({
   dashboardOpenRequest: number;
   fixedPlayMode: StoryPlayModeId | null;
   storyState: StoryState | null;
+  worlds: World[];
+  characters: Character[];
+  relationships: CharacterRelationship[];
   actions: ConversationMessageActions;
   onStarter: (starter: string) => void;
   onRetry: () => void;
@@ -582,9 +626,13 @@ export function MessageTimeline({
             lineage={lineageByMessageId.get(message.id) ?? { rootId: message.id, depth: 0 }}
             playDashboard={showDashboard ? <PlayModeDashboard projectId={projectId} playMode={fixedPlayMode} storyState={storyState} openRequest={dashboardOpenRequest} /> : null}
             playDashboardPlacement={showDashboard ? dashboardTarget.placement : null}
+            project={project}
+            worlds={worlds}
+            characters={characters}
+            relationships={relationships}
           />;
         })}
-        {busy ? <ToolProgressCard progress={progress} canStop={canStop} onStop={actions.stopGeneration} label="停止生成" /> : null}
+        {busy ? <ToolProgressCard progress={progress} canStop={canStop} onStop={actions.stopGeneration} label={stopLabel} /> : null}
         {safeError ? (() => {
           const friendly = friendlyConversationExecutionError(safeError.code, safeError.message);
           return <section className={styles.resultCard} role="alert"><strong>{friendly.title}</strong><p>{friendly.message}</p>{retryAvailable ? <button type="button" disabled={busy} onClick={onRetry}>{retryLabel}</button> : null}</section>;

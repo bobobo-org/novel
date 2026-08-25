@@ -139,6 +139,8 @@ assert.match(client, /CREATION_AI_DEADLINE_MS = 24_000/u, "creation AI has a har
 assert.match(client, /runStudioPreCreationClosedAI\(\{/u, "the create page uses the context-free pre-creation Closed AI route");
 assert.doesNotMatch(client, /runStudioClosedAI\(\{/u, "creation must not request canonical context for a project that does not exist yet");
 assert.match(client, /browserComputePolicy: "balanced"/u, "backend routing remains automatic");
+assert.match(client, /這不是逾時/u, "an unavailable model is not mislabeled as a timeout");
+assert.match(client, /等待滿 24 秒/u, "the timeout message is reserved for the actual deadline");
 assert.match(client, /data-testid="cancel-create-ai-story-seed"/u, "generation is cancellable");
 assert.match(client, /mergeCreationStorySeed\(current, suggestion, "closed-ai"\)/u);
 assert.match(client, /mergeCreationStorySeed\([\s\S]*"device-fallback"/u, "device template is only an explicit fallback");
@@ -187,9 +189,52 @@ assert.equal(preCreationResult.dataLeftDevice, false);
 assert.equal(preCreationResult.externalRequest, false);
 assert.equal(preCreationResult.status, "completed");
 
+const fallbackRequests = [];
+const localRetryResult = await runStudioPreCreationClosedAI({
+  projectId: "unpersisted-local-retry-draft",
+  task: "story_seed",
+  input: "建立可修改的多人故事雛形",
+  browserComputePolicy: "balanced",
+}, async (request) => {
+  fallbackRequests.push(request);
+  if (fallbackRequests.length === 1) {
+    throw Object.assign(new Error("Browser AI requested Local Ollama"), {
+      code: "BROWSER_AI_ESCALATE_LOCAL_OLLAMA",
+      retryable: true,
+    });
+  }
+  assert.equal(request.preferredProvider, "local-ollama");
+  return {
+    requestId: request.requestId,
+    providerId: "local-ollama",
+    modelId: "qwen2.5:3b",
+    modelDigest: "sha256:precreation-local-retry",
+    content: validModelOutput,
+    candidateOnly: true,
+    externalRequest: false,
+    dataLeavesDevice: false,
+    elapsedMs: 2,
+    provenance: {
+      providerId: "local-ollama",
+      modelId: "qwen2.5:3b",
+      privacyMode: "strict-local",
+      reason: "pre-creation browser-to-local retry",
+      contextSources: [],
+      externalRequest: false,
+      dataLeavesDevice: false,
+      fallbackChain: [],
+      warnings: [],
+    },
+  };
+});
+assert.equal(fallbackRequests.length, 2, "Browser escalation retries exactly once on Local Ollama");
+assert.deepEqual(fallbackRequests[1].context, [], "the local retry keeps the pre-creation empty-context boundary");
+assert.equal(localRetryResult.provider, "local-ollama");
+assert.equal(localRetryResult.canonicalMutationCount, 0);
+
 console.log(JSON.stringify({
   suite: "create-story-seed-ai",
-  passed: 34,
+  passed: 42,
   coordinator: "unified-automatic",
   hardDeadlineMs: 24_000,
   authoredValuesPreserved: true,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, type MutableRefObject } from "react";
+import { useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
 import type {
   ConversationArtifact,
@@ -19,6 +19,7 @@ import {
   buildRpgChatCustomAction,
   generateRpgChatTurnCandidate,
   loadLearningAwareRpgChatSnapshot,
+  planRpgChatChoices,
   type RpgChatChoicePlan,
 } from "@/lib/novel-ai/web/rpg-chat-turn";
 import { parseRpgChoices, serializeRpgChoices } from "../components/conversation-presentation";
@@ -91,6 +92,8 @@ export function useConversationRpgController({
   setDrawer: (value: DrawerPayload) => void;
 }) {
   const rpgTurnLocksRef = useRef(new Set<string>());
+  const rpgChoiceFallbackRequestRef = useRef<(() => void) | null>(null);
+  const [rpgChoicePlanning, setRpgChoicePlanning] = useState(false);
 
   const loadSnapshot = (signal?: AbortSignal) => loadLearningAwareRpgChatSnapshot({
     repository,
@@ -131,15 +134,40 @@ export function useConversationRpgController({
     });
     try {
       const snapshot = await loadSnapshot(input.signal);
-      // Choices are a navigation control, so they must never wait for a local
-      // model queue.  The causal teacher has already selected a bounded Top-K
-      // rule set while loading the snapshot; turn it into the three playable
-      // routes immediately.  The selected route still goes through the normal
-      // closed-AI candidate, approval and atomic settlement flow below.
-      const plan = await buildRpgRuleChoicePlan({
-        snapshot,
-        fallbackReason: "RPG_CHOICE_RULE_PLAN_IMMEDIATE",
-      });
+      const planningController = new AbortController();
+      let userRequestedFallback = false;
+      const relayOuterAbort = () => planningController.abort(input.signal.reason);
+      if (input.signal.aborted) relayOuterAbort();
+      else input.signal.addEventListener("abort", relayOuterAbort, { once: true });
+      rpgChoiceFallbackRequestRef.current = () => {
+        if (planningController.signal.aborted) return;
+        userRequestedFallback = true;
+        setProgress("已停止等待閉端 AI；正在依既有故事、人物與上一回合後果建立後備三選一。");
+        planningController.abort("USER_REQUESTED_RULE_FALLBACK");
+      };
+      setRpgChoicePlanning(true);
+      setProgress("閉端 AI 正在承接上一回合設計三條故事路線；最長等待 180 秒。你可隨時改用後備選項。");
+      let plan: RpgChatChoicePlan;
+      try {
+        plan = await planRpgChatChoices({
+          snapshot,
+          signal: planningController.signal,
+          onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 最長等待 180 秒`),
+        });
+        if (userRequestedFallback) {
+          if (plan.actualExecutor !== "deterministic-rule-fallback") {
+            await rejectStudioClosedAgentCandidate(plan.candidateId).catch(() => undefined);
+          }
+          plan = await buildRpgRuleChoicePlan({
+            snapshot,
+            fallbackReason: "USER_REQUESTED_RULE_FALLBACK",
+          });
+        }
+      } finally {
+        input.signal.removeEventListener("abort", relayOuterAbort);
+        rpgChoiceFallbackRequestRef.current = null;
+        setRpgChoicePlanning(false);
+      }
       if (input.signal.aborted) {
         throw Object.assign(new Error("RPG choices cancelled."), { code: "CONVERSATION_CANCELLED" });
       }
@@ -213,6 +241,13 @@ export function useConversationRpgController({
       }).catch(() => undefined);
       throw error;
     }
+  }
+
+  function requestRpgChoiceFallback() {
+    const requestFallback = rpgChoiceFallbackRequestRef.current;
+    if (!requestFallback) return false;
+    requestFallback();
+    return true;
   }
 
   async function withRpgTurnLock<T>(turnKey: string, action: () => Promise<T>) {
@@ -549,7 +584,13 @@ export function useConversationRpgController({
     }
   }
 
-  return { createRpgChoicesMessage, executeRpgChoice, chooseRpgOption };
+  return {
+    createRpgChoicesMessage,
+    executeRpgChoice,
+    chooseRpgOption,
+    requestRpgChoiceFallback,
+    rpgChoicePlanning,
+  };
 }
 
 export function useConversationRpg({

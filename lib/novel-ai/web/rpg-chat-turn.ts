@@ -81,7 +81,7 @@ import { runStudioClosedAI } from "./studio-closed-ai";
 import { hasVerifiedExecutedStoryOutput } from "./story-output-quality";
 
 export const RPG_CHAT_TURN_SCHEMA_VERSION = "rpg-chat-turn-v1" as const;
-export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 12_000;
+export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 180_000;
 export const RPG_CHAT_STORY_AI_TIMEOUT_MS = 28_000;
 export const RPG_SHARED_LEARNING_SYNC_WAIT_MS = 350;
 
@@ -902,6 +902,25 @@ export async function loadRpgChatSnapshot(
   const familyStageNarrative = buildFamilyStageNarrativeContext({ lore, storyState });
   const firstStagedOrganization = familyStageNarrative.organizations[0] ?? null;
   const firstStagedAsset = familyStageNarrative.assets[0] ?? null;
+  const latestTurnReceipt = [...rpgTurnReceipts]
+    .sort((left, right) => right.turnNumber - left.turnNumber)[0] ?? null;
+  const recentStoryBeat = chapter.content.trim()
+    ? narrativeFact(chapter.content.slice(-360), conflict, 96)
+    : conflict;
+  const latestOutcomeLabel = latestTurnReceipt
+    ? ({
+        critical_success: "關鍵成功",
+        success: "成功",
+        partial_success: "部分成功",
+        failure: "失敗但留下新線索",
+      } as const)[latestTurnReceipt.outcome]
+    : null;
+  const evolvingConflict = latestTurnReceipt
+    ? `上一個選擇「${latestTurnReceipt.choiceTitle}」已造成${latestOutcomeLabel}的具體後果；${recentStoryBeat}`
+    : recentStoryBeat;
+  const activeSupportingName = typeof storyState.worldFlags?.["story.activeSupportingCharacterName"] === "string"
+    ? String(storyState.worldFlags["story.activeSupportingCharacterName"]).trim()
+    : "";
   const continuation = storyArc.resolved ? {
     thread: remainingThread ?? "結案後果引發的新責任、新對手與下一個期限",
     goal: remainingThread
@@ -912,7 +931,10 @@ export async function loadRpgChatSnapshot(
     progression,
     protagonist: protagonist?.name ?? "主角",
     chapterTitle: chapter.title,
-    conflict: storyArc.resolved ? conflict : storyArc.goal,
+    // The arc goal stays locked in the encounter contract.  Choice copy must
+    // instead start from the latest accepted consequence, otherwise every
+    // round reprints the first-round problem with different decorative nouns.
+    conflict: storyArc.resolved ? conflict : evolvingConflict,
     mode,
     playMode,
     variant: progression.choiceVariant,
@@ -921,8 +943,10 @@ export async function loadRpgChatSnapshot(
     storyStateRevision: storyState.revision,
     storyState,
     narrativeAnchors: {
-      supportingCharacter: characters.find((character) =>
-        !storyBible.protagonistIds.includes(character.id))?.name ?? null,
+      supportingCharacter: activeSupportingName
+        || characters.find((character) =>
+          !storyBible.protagonistIds.includes(character.id))?.name
+        || null,
       familyOrFaction: familyStageNarrative.selectedStageFamily?.name
         ?? firstStagedOrganization?.name
         ?? null,
@@ -934,6 +958,13 @@ export async function loadRpgChatSnapshot(
       unresolvedThread: storyArc.resolved
         ? storyBible.unresolvedThreads.find((thread) => thread.trim() !== storyArc.thread) ?? null
         : storyArc.thread,
+      worldContext: [
+        project.genrePackId,
+        project.genreId,
+        project.subgenreId,
+        project.coreIdea.value,
+        storyBible.theme.value,
+      ].filter(Boolean).join("｜"),
     },
     causalKnowledgeDigest: causalKnowledge.selectedRuleIds.length
       ? causalKnowledge.snapshotDigest
@@ -2259,16 +2290,16 @@ export function buildDeterministicRpgTurnStory(input: {
           ? "Only part of the aim was secured, and the cost arrived before the remaining problem could be solved."
           : "The attempt failed to achieve its intended aim, but the obstruction revealed a concrete way to continue.";
     const paragraphs = [
-      `${protagonist} committed to ${input.choice.title} without waiting for the uncertainty around ${input.snapshot.chapter.title} to settle. The first movement was deliberate: observe the nearest response, protect the path back, and force the present conflict to answer with something more useful than rumor.`,
-      `The surroundings resisted at once. Familiar details no longer lined up, and a small change in sound made the distance ahead feel narrower than before. Instead of inventing a new advantage, ${protagonist} worked only with what the current scene had already made available.`,
-      `Someone on the other side noticed the pressure and changed position. That reaction mattered more than any speech; it showed who was protecting the hidden route and who was merely pretending to understand it. The choice had now become visible, so retreat would carry a price of its own.`,
-      `Light, dust, and held breath sharpened the moment. Each pause gave the opposition another chance to close the gap, while each hurried step risked exposing the intention too early. ${protagonist} kept the action tied to the chosen approach and accepted that certainty would not arrive first.`,
-      `The cost became irreversible when the safe interval closed behind them. Time, trust, and position could no longer all be preserved together. No unexplained resource appeared to erase that pressure, and the people present understood that the consequence belonged to this decision.`,
-      `${result} The result changed what could be done next rather than ending the scene. What had seemed like one obstacle separated into a visible problem and a second, quieter danger that had been concealed by the first.`,
-      `The nearest ally answered the result with caution instead of automatic agreement. Their expression made clear that cooperation would continue, but not without a later accounting. That small shift in trust gave the outcome a human weight beyond the immediate tactical result.`,
-      `Around them, the environment settled into a different order. A route once ignored now drew attention, a guarded place became exposed, and the current location could no longer be treated as neutral ground. Every witness would remember who had moved first.`,
-      `A new danger then announced itself indirectly: a delayed pursuit, an unpaid obligation, or a clue that another faction had already begun to interpret. It was not an arbitrary punishment, but a trace left by the chosen action and therefore something that could be anticipated and answered.`,
-      `At the edge of the changed scene, ${protagonist} finally had enough evidence to see the next decision clearly. One path would contain the immediate damage, another would use the new opening, and neither could be taken without abandoning the other for now. The story paused there, with action still possible and consequences already in motion.`,
+      `At ${context.location}, ${protagonist} chose “${input.choice.title}” to answer the immediate conflict: ${context.conflict}. The decision began with ${context.storyProp}, the resource already present, rather than an advantage invented after the fact.`,
+      `${context.supporting} moved first, not as an obedient helper but to protect a separate goal: ${context.supportingCharacter.goal}. The two agreed on what each would do, and on the line ${context.supporting} would refuse to cross.`,
+      `${context.counterforce.name} reacted before the arrangement was complete. Seeking ${context.counterforce.goal}, the opposing figure shifted the pressure toward ${context.unresolved} and forced the chosen action to become visible to every witness.`,
+      `${context.treasure.name} became the center of the dispute. It could ${context.treasure.function}, but ${context.treasure.limitation}; ownership, access, and responsibility therefore mattered as much as possession.`,
+      `${protagonist} used ${context.inventory} to carry out the selected approach. ${input.choice.encounter.complication} The action consumed the promised time and position, so retreat could no longer restore the scene to its earlier state.`,
+      `${result} ${input.choice.encounter.locationShift} The outcome answered the chosen action specifically and left a visible fact that no later explanation could erase.`,
+      `${context.witness.name} checked what remained and recorded who had acted first. ${context.supporting} kept cooperating, but the response made clear that trust now depended on how ${protagonist} handled the cost already paid.`,
+      `${input.choice.encounter.worldAspect} changed the meaning of ${context.location}. The opposition could no longer pretend nothing had happened, while the protagonists could no longer rely on the route or neutrality they had before this turn.`,
+      `Evidence from the action exposed a new edge of “${context.unresolved}.” It pointed back to ${context.counterforce.name} and explained why ${context.conflict} had intensified now, carrying the same story forward instead of reopening its beginning.`,
+      `${protagonist} ended the turn with three concrete facts: what the choice achieved, what it cost, and who now controlled ${context.treasure.name}. The next decision must begin from those facts; none of the unchosen paths has occurred.`,
     ];
     return finalizeDeterministicRpgStory({
       title: `Round ${turn} | ${input.choice.title}`,
@@ -2285,19 +2316,19 @@ export function buildDeterministicRpgTurnStory(input: {
           ? "目标只完成了一部分，代价却先一步落下，剩余问题仍在逼近。"
           : "这次尝试未能达成原定目标，行动失败了，但阻力也暴露出可以继续追查的具体方向。";
     const paragraphs = [
-      `主角决定执行眼前的选择，没有等局势自行安静。第一步先确认最近的反应，再守住退路，并让藏在当前冲突后面的人不得不表态。这个动作没有凭空增加力量，只把已经存在的线索推到所有人都看得见的位置。`,
-      `周围立刻出现阻力。原本熟悉的声音和距离忽然对不上，前方的空间像被看不见的手压窄。主角没有假设自己拥有未记录的能力，而是依靠现场已经确认的条件，一点一点试出变化从哪里开始。`,
-      `对面的人察觉压力，随即换了位置。这个反应比解释更诚实，因为它暴露出谁在保护秘密，谁只是借混乱掩饰无知。选择既然已经公开，退回原地也会付出代价，所有目光都开始衡量下一步。`,
-      `光影、灰尘和压低的呼吸让气氛持续升高。每次停顿都会给对手更多封锁时间，每次冒进又可能过早暴露意图。主角只能服从已经选定的方法前进，让判断来自行动后的证据，而不是方便的巧合。`,
-      `安全的空隙在身后合拢，真正的代价从这一刻变得不可逆。时间、信任和位置无法同时保全，也没有突然出现的资源替众人抹去压力。在场的人都明白，之后的责任会沿着这次决定追上来。`,
-      `${result}结果没有让故事停止，反而把一个障碍分成了看得见的问题和藏在后面的危险。原先模糊的局势因此有了边界，主角也知道哪些成果已经留下，哪些部分绝不能假装完成。`,
-      `最近的同伴没有立刻附和，只用谨慎的目光回应。他仍愿意合作，却显然会在稍后追问这次选择的责任。关系并未凭空翻转，但信任的重心已经移动，让眼前结果多了一层无法忽略的人情分量。`,
-      `环境也重新排列了意义。过去没人注意的通道开始受到监视，原本安全的角落失去中立，目击者则会记得是谁先采取行动。当前地点不再只是背景，而成为后续冲突会反复争夺的一部分。`,
-      `新的危险随后以间接方式出现：可能是延后的追索、尚未偿还的承诺，也可能是另一方已经开始解读的痕迹。它不是毫无来源的惩罚，而是这次行动真实留下的后果，因此仍能被预判和回应。`,
-      `主角站在改变后的局势边缘，终于看清下一次决定。一个方向可以先压住眼前损失，另一个方向能够利用刚出现的机会，但此刻无法两边兼顾。故事停在行动仍然有效、后果已经前进的位置，等待下一步选择。`,
+      `${protagonist}在${context.location}选定“${input.choice.title}”，正面回应“${context.conflict}”。第一步只动用现场已有的${context.storyProp}，没有临时获得不属于自己的能力或资源。`,
+      `${context.supporting}先移到侧面接应，却没有盲目服从。为了${context.supportingCharacter.goal}，两人当场分清各自负责的行动，也说定一旦碰到${context.supportingCharacter.refusalCondition}便立即停手。`,
+      `${context.counterforce.name}察觉安排后抢先改变位置。此人要守住的是${context.counterforce.goal}，于是把压力推向“${context.unresolved}”，迫使这次选择暴露在所有目击者面前。`,
+      `${context.treasure.name}随即成为争夺中心。它可以${context.treasure.function}，却受限于${context.treasure.limitation}；谁持有、谁有权动用、谁承担代价，必须分别说清。`,
+      `${protagonist}带着${context.inventory}执行既定方案。${input.choice.encounter.complication}行动占用了已经承诺的时间与位置，退回原处也无法把一切恢复成选择之前。`,
+      `${result}${input.choice.encounter.locationShift}这项结果明确回应了刚才的行动，也留下任何人都无法靠事后解释抹去的证据。`,
+      `${context.witness.name}核对现场并记下谁先采取行动。${context.supporting}仍愿意合作，却把信任系在${protagonist}接下来是否承担已付代价之上，没有因为一次成败突然改变态度。`,
+      `${input.choice.encounter.worldAspect}改变了${context.location}的意义。对手不能再假装无事发生，${protagonist}一方也失去了原先那条退路与中立位置，故事因此真正向前移动。`,
+      `行动留下的痕迹揭开“${context.unresolved}”的新一角，并指向${context.counterforce.name}先前避开的地方。它解释了“${context.conflict}”为何此刻恶化，却没有把已完成的行动重新再演一次。`,
+      `${protagonist}最后确认三件事：刚才完成了什么、付出了什么，以及${context.treasure.name}目前由谁控制。接下来的故事只能从这些事实继续，未选择的两条路线都没有发生。`,
     ];
     return finalizeDeterministicRpgStory({
-      title: `第 ${turn} 回合｜规则接管的转折`,
+      title: `${context.location}｜${context.treasure.name}`,
       paragraphs,
       language: input.snapshot.language,
     });

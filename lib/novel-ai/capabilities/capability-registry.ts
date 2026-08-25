@@ -67,7 +67,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { id: "characterProposalApproval", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["shared Proposal Envelope and atomic approval transaction"] },
   { id: "audienceVoting", contractStatus: "not_implemented", runtimeStatus: "not_implemented", evidence: [], limitations: ["Scheduled for P2.4D"] },
   { id: "audienceLearning", contractStatus: "not_implemented", runtimeStatus: "not_implemented", evidence: [], limitations: ["Scheduled for P2.4D"] },
-  { id: "visualCharacterBible", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["100-entry generated portrait catalog", "local PNG/JPEG/WebP upload pipeline", "approved visual description and traits in character AI and RPG context"] },
+  { id: "visualCharacterBible", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["10,000-entry virtual portrait catalog backed by 100 generated artworks and deterministic visual variants", "local PNG/JPEG/WebP upload pipeline", "approved visual description and traits in character AI and RPG context"] },
   { id: "storyboard", contractStatus: "not_implemented", runtimeStatus: "not_implemented", evidence: [], limitations: ["Scheduled for P2.4C"] },
   { id: "realVideoGeneration", contractStatus: "contract_only", runtimeStatus: "not_connected", evidence: ["Generic media provider contract only"], limitations: ["Scheduled for P2.4E"] },
   { id: "privateAiHub", contractStatus: "ready", runtimeStatus: "client_dependent", evidence: ["Self-hosted loopback private node, independent pairing, work queue and real model transport"], limitations: ["No remote cloud private hub is claimed; the local private node must be running and paired"] },

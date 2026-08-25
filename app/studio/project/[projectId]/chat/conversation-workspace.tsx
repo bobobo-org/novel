@@ -179,6 +179,9 @@ export default function ConversationWorkspace({
   const {
     project,
     storyState,
+    characters,
+    relationships,
+    worlds,
     activeSessionId,
     messages,
     artifacts,
@@ -255,6 +258,8 @@ export default function ConversationWorkspace({
     createRpgChoicesMessage,
     executeRpgChoice,
     chooseRpgOption,
+    requestRpgChoiceFallback,
+    rpgChoicePlanning,
   } = useConversationRpgController({
     projectId,
     repository,
@@ -1753,6 +1758,7 @@ export default function ConversationWorkspace({
   }
 
   function stopGeneration() {
+    if (rpgChoicePlanning && requestRpgChoiceFallback()) return;
     if (!abortRef.current) return;
     abortRef.current?.abort("CONVERSATION_USER_CANCELLED");
     clearTransientAttachments();
@@ -1782,6 +1788,7 @@ export default function ConversationWorkspace({
     : null;
   const latestInvocation = invocations.at(-1) ?? null;
   const canStop = busy && cancellable;
+  const stopLabel = rpgChoicePlanning ? "不等了，改用後備選項" : "停止";
   const branchPending = branchPendingMessageIds.size > 0;
   const messageActions: ConversationMessageActions = {
     chooseRpgOption: (envelope, messageId, key) => {
@@ -1853,6 +1860,7 @@ export default function ConversationWorkspace({
       )}
       timeline={(
         <MessageTimeline
+          project={project}
           projectId={projectId}
           sessionId={activeSessionId}
           messages={messages}
@@ -1863,6 +1871,7 @@ export default function ConversationWorkspace({
           busy={busy}
           regenerationReady={closedAiRegenerationReady}
           canStop={canStop}
+          stopLabel={stopLabel}
           progress={progress}
           safeError={safeError}
           retryAvailable={retryAvailable}
@@ -1871,6 +1880,9 @@ export default function ConversationWorkspace({
           dashboardOpenRequest={dashboardOpenRequest}
           fixedPlayMode={fixedPlayMode}
           storyState={storyState}
+          worlds={worlds}
+          characters={characters}
+          relationships={relationships}
           actions={messageActions}
           onStarter={setDraft}
           onRetry={() => retryActionRef.current?.()}
@@ -1884,6 +1896,7 @@ export default function ConversationWorkspace({
           busyReason={branchPending ? "正在準備修改副本；訊息與附件操作已暫停。" : null}
           busyReasonTestId={branchPending ? "conversation-branch-global-status" : undefined}
           canStop={canStop}
+          stopLabel={stopLabel}
           draft={draft}
           localAttachments={localAttachments}
           rightsConfirmed={rightsConfirmed}

@@ -3,6 +3,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type {
   Chapter,
+  Character,
+  CharacterRelationship,
   ConversationArtifact,
   ConversationAttachment,
   ConversationMessage,
@@ -11,6 +13,7 @@ import type {
   LearningImportSession,
   NovelProject,
   StoryState,
+  World,
 } from "@/lib/novel-ai/domain";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import type { SovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
@@ -100,6 +103,9 @@ export function useConversationSessionController({
   const [project, setProject] = useState<NovelProject | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [storyState, setStoryState] = useState<StoryState | null>(null);
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [relationships, setRelationships] = useState<CharacterRelationship[]>([]);
+  const [worlds, setWorlds] = useState<World[]>([]);
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -260,10 +266,13 @@ export function useConversationSessionController({
     setLoading(true);
     onError(null);
     try {
-      const [loadedProject, loadedChapters, loadedStoryStates] = await Promise.all([
+      const [loadedProject, loadedChapters, loadedStoryStates, loadedCharacters, loadedRelationships, loadedWorlds] = await Promise.all([
         repository.get<NovelProject>("projects", projectId),
         repository.list<Chapter>("chapters", projectId),
         repository.list<StoryState>("storyStates", projectId),
+        repository.list<Character>("characters", projectId),
+        repository.list<CharacterRelationship>("relationships", projectId),
+        repository.list<World>("worlds", projectId),
       ]);
       if (!loadedProject || loadedProject.deletedAt) {
         throw Object.assign(new Error("找不到這個小說專案。"), { code: "CONVERSATION_PROJECT_NOT_FOUND" });
@@ -299,6 +308,9 @@ export function useConversationSessionController({
       setProject(loadedProject);
       setChapters([...loadedChapters].sort((left, right) => left.order - right.order));
       setStoryState(loadedStoryState);
+      setCharacters(loadedCharacters);
+      setRelationships(loadedRelationships);
+      setWorlds(loadedWorlds);
       setSessions(nextSessions);
       if (selected && snapshot) {
         commitSessionSnapshot(selected.id, snapshot, token, options.expectedIntentToken);
@@ -315,6 +327,9 @@ export function useConversationSessionController({
     } catch (error) {
       if (token === requestTokenRef.current) {
         setStoryState(null);
+        setCharacters([]);
+        setRelationships([]);
+        setWorlds([]);
         onError({ code: operationErrorCode(error), message: operationErrorMessage(error) });
       }
       return false;
@@ -375,6 +390,9 @@ export function useConversationSessionController({
     project,
     chapters,
     storyState,
+    characters,
+    relationships,
+    worlds,
     sessions,
     activeSessionId,
     messages,

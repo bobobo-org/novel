@@ -2056,6 +2056,12 @@ harness.test("routing", "explicit continuation outranks incidental Canon entity 
       targetStore: "worldRules",
     },
     {
+      content: "根據已核准的作品資料，提出世界規則候選；不要直接修改正式設定。",
+      intent: "world_rule_candidate",
+      taskType: "world.ruleCandidate",
+      targetStore: "worldRules",
+    },
+    {
       content: "請修改角色明檀的背景，讓她曾在北境修行，然後續寫下一段。",
       intent: "character_candidate",
       taskType: "character.create",

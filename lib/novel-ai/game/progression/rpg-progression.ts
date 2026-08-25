@@ -30,6 +30,8 @@ import {
   readRpgStateV3,
 } from "./xianxia-ruleset-v3";
 import type { StoryPlayModeId } from "../../domain/play-mode";
+import { managementInvestmentStrategy } from "../management-investments";
+import { selectCultivationOpportunity } from "../cultivation-opportunities";
 
 export const RPG_FORMULA_VERSION = RPG_FORMULA_V3;
 
@@ -368,6 +370,10 @@ function hashText(value: string) {
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   return hash >>> 0;
+}
+
+export function rpgConsequenceWorldFlagKey(choiceId: string) {
+  return `rpg.consequenceTriggered.${hashText(choiceId).toString(16).padStart(8, "0")}`;
 }
 
 export function experienceForLevel(level: number) {
@@ -916,6 +922,12 @@ const CHOICE_POOL: ChoiceBlueprint[] = [
  * dashboard rather than silently selecting cultivation/equipment actions.
  */
 const ROMANCE_CHOICE_POOL: ChoiceBlueprint[] = [
+  { id: "career-rest-plan", mode: "cultivation", strategy: "steady", title: "重排日程並完整休息", description: "取消一項低價值行程，安排體能恢復與下週排程，避免疲勞拖垮通告與重要關係。", consequence: "短期少一次曝光；健康、情緒與後續表現更穩定。", primaryStat: "rpg.will", secondaryStat: "rpg.intellect", risk: 1, actionCost: 1, staminaCost: -12, fatigueDelta: -14, stressDelta: -10, statRewards: { "rpg.will": 2, "rpg.intellect": 1 }, resourceRewards: { "career.scheduleControl": 4, "career.publicImage": 1 }, relationshipRewards: { "romance.trust": 2 }, questId: "growth.main", achievementId: "career.balance" },
+  { id: "career-training", mode: "cultivation", strategy: "steady", title: "安排專項訓練與驗收", description: "在歌唱、演技、舞蹈或鏡頭表現中挑一項弱點，完成訓練並用一次公開驗收確認成長。", consequence: "能力穩定上升；會占用本週可接通告的時間。", primaryStat: "rpg.technique", secondaryStat: "rpg.will", risk: 1, actionCost: 1, staminaCost: 8, fatigueDelta: 5, stressDelta: 1, statRewards: { "rpg.technique": 4, "rpg.will": 1 }, resourceRewards: { "career.skillGrowth": 5, "career.portfolio": 1 }, questId: "growth.main", achievementId: "career.training" },
+  { id: "career-audition", mode: "cultivation", strategy: "resource", title: "參加試鏡並經營作品履歷", description: "研究製作需求、準備合適片段並完成試鏡；不論結果都留下可核對的評語、人脈與履歷。", consequence: "可能獲得通告與人氣；落選也會增加疲勞和自我懷疑。", primaryStat: "rpg.charisma", secondaryStat: "rpg.technique", risk: 3, actionCost: 1, staminaCost: 10, fatigueDelta: 7, stressDelta: 5, statRewards: { "rpg.charisma": 4, "rpg.technique": 2 }, resourceRewards: { "career.auditions": 1, "career.popularity": 4, "career.portfolio": 2 }, relationshipRewards: { "career.industryTrust": 3 }, questId: "growth.main", achievementId: "career.audition" },
+  { id: "career-contract", mode: "cultivation", strategy: "resource", title: "談判通告與經紀合約", description: "逐條核對片酬、檔期、肖像授權、解約與保密條款，再決定簽約、修改或拒絕。", consequence: "能換取資源與曝光；不利條款會形成長期工作與關係債務。", primaryStat: "rpg.intellect", secondaryStat: "rpg.charisma", risk: 3, actionCost: 1, staminaCost: 5, fatigueDelta: 2, stressDelta: 4, statRewards: { "rpg.intellect": 4, "rpg.charisma": 3 }, resourceRewards: { "career.income": 5, "career.popularity": 3, "career.contractRisk": 2 }, relationshipRewards: { "career.industryTrust": 4 }, questId: "growth.main", achievementId: "career.contract" },
+  { id: "career-live-stage", mode: "cultivation", strategy: "bold", title: "接下高曝光現場演出", description: "在準備時間不足的情況下接下直播、首演或大型活動，靠臨場表現爭取跨級曝光。", consequence: "成功可大幅提高人氣與作品機會；失誤也會被媒體與觀眾放大。", primaryStat: "rpg.creativity", secondaryStat: "rpg.charisma", risk: 5, actionCost: 2, staminaCost: 18, fatigueDelta: 12, stressDelta: 10, statRewards: { "rpg.creativity": 5, "rpg.charisma": 4 }, resourceRewards: { "career.popularity": 10, "career.publicImage": 5, "career.scandalRisk": 5 }, relationshipRewards: { "career.industryTrust": 3 }, questId: "growth.main", achievementId: "career.breakthrough" },
+  { id: "career-public-romance", mode: "cultivation", strategy: "bold", title: "面對事業與感情的公開選擇", description: "在媒體、粉絲與合作方施壓時，和重要對象確認公開程度、界線與共同承擔的後果。", consequence: "真誠可能深化關係；人氣、合約與隱私也會同時承受壓力。", primaryStat: "rpg.will", secondaryStat: "rpg.charisma", risk: 4, actionCost: 2, staminaCost: 12, fatigueDelta: 7, stressDelta: 9, statRewards: { "rpg.will": 5, "rpg.charisma": 3 }, resourceRewards: { "career.publicImage": 4, "career.scandalRisk": 4, "romance.eventProgress": 8 }, relationshipRewards: { "romance.affection": 6, "romance.trust": 7 }, questId: "growth.main", achievementId: "career.boundaries" },
   { id: "romance-boundaries", mode: "cultivation", strategy: "steady", title: "坦白彼此界線", description: "選一個不受打擾的時刻說清楚期待與不能接受的事，再確認對方真正願意承擔的範圍。", consequence: "信任會穩定增加；被迴避的分歧也會因此浮上檯面。", primaryStat: "rpg.charisma", secondaryStat: "rpg.will", risk: 1, actionCost: 1, staminaCost: 4, fatigueDelta: 1, stressDelta: -3, statRewards: { "rpg.charisma": 3, "rpg.will": 2 }, resourceRewards: { "romance.eventProgress": 4, "romance.personalGrowth": 4 }, relationshipRewards: { "romance.affection": 3, "romance.trust": 6 }, questId: "growth.main", achievementId: "romance.honesty" },
   { id: "romance-repair", mode: "cultivation", strategy: "steady", title: "修補尚未解開的誤會", description: "先復述對方的感受，再為自己造成的傷害負責，提出一件今天就能做到的補救。", consequence: "關係重新取得安全感；必須放下立即辯解自己的衝動。", primaryStat: "rpg.will", secondaryStat: "rpg.charisma", risk: 1, actionCost: 1, staminaCost: 5, fatigueDelta: 2, stressDelta: -2, statRewards: { "rpg.will": 3, "rpg.charisma": 2 }, resourceRewards: { "romance.eventProgress": 6, "romance.personalGrowth": 4 }, relationshipRewards: { "romance.affection": 4, "romance.trust": 5 }, questId: "growth.main", achievementId: "romance.repair" },
   { id: "romance-space", mode: "cultivation", strategy: "steady", title: "給彼此一段喘息空間", description: "暫停追問與逼迫，把選擇權交還給對方，同時用一個明確約定保留下一次對話。", consequence: "壓力降低且界線更清楚；短期內不會立刻得到答案。", primaryStat: "rpg.intellect", secondaryStat: "rpg.will", risk: 1, actionCost: 1, staminaCost: 3, fatigueDelta: -1, stressDelta: -4, statRewards: { "rpg.intellect": 2, "rpg.will": 3 }, resourceRewards: { "romance.eventProgress": 4, "romance.personalGrowth": 5 }, relationshipRewards: { "romance.affection": 3, "romance.trust": 5 }, questId: "growth.main", achievementId: "romance.respect" },
@@ -1331,6 +1343,7 @@ export function buildRpgChoices(input: {
     familyOrFaction?: string | null;
     storyAsset?: string | null;
     factionPressure?: string | null;
+    worldContext?: string | null;
   };
   causalKnowledgeDigest?: string;
 }): RpgChoice[] {
@@ -1385,6 +1398,9 @@ export function buildRpgChoices(input: {
   const familyOrFaction = input.narrativeAnchors?.familyOrFaction?.trim();
   const storyAsset = input.narrativeAnchors?.storyAsset?.trim();
   const factionPressure = input.narrativeAnchors?.factionPressure?.trim();
+  const worldContext = input.narrativeAnchors?.worldContext?.trim() ?? "";
+  const cultivationWorld = /修仙|仙俠|修真|宗門|煉氣|築基|金丹|元嬰|靈脈|坊市|玄幻/iu.test(worldContext);
+  const entertainmentWorld = /明星|演藝|娛樂圈|經紀公司|偶像|歌手|演員|試鏡|通告|戲班|樂坊/iu.test(worldContext);
   const availableInventory = input.progression.inventory.find((item) => item.quantity > 0)?.name;
   const choicePool = input.playMode === "romance" ? ROMANCE_CHOICE_POOL : CHOICE_POOL;
   const storyProps: Record<RpgMode, Record<RpgChoiceStrategy, string>> = {
@@ -1418,10 +1434,64 @@ export function buildRpgChoices(input: {
         : unresolvedThread ? `尚未化解的營運危機「${unresolvedThread}」` : "市場窗口與品牌聲量",
     },
   };
+  const fallbackAction: Record<RpgChoiceStrategy, { title: string; description: string }> = {
+    steady: {
+      title: supportingCharacter
+        ? `與${supportingCharacter}守住現場證據`
+        : `守住現場與既有證據`,
+      description: familyOrFaction
+        ? `請${familyOrFaction}先保住退路與目擊者，逐一核對剛才行動留下的結果，不讓對手趁混亂抹去證據`
+        : `先保住退路與目擊者，逐一核對剛才行動留下的結果，不讓對手趁混亂抹去證據`,
+    },
+    resource: {
+      title: `調度${storyAsset || (cultivationWorld ? availableInventory : null) || "已登錄資源"}換取主動`,
+      description: `動用${storyProps[mode].resource}與${supportingCharacter || "可信同伴"}交涉，換取能處理眼前後果的時間、情報或公開承諾`,
+    },
+    bold: {
+      title: unresolvedThread
+        ? `逼近「${unresolvedThread}」的破口`
+        : `逼迫對手當場露出破口`,
+      description: factionPressure
+        ? `趁「${factionPressure}」尚未完成布局，沿本回合新出現的痕跡正面施壓，迫使真正阻力提前現身`
+        : `沿本回合新出現的痕跡正面施壓，迫使真正阻力提前現身並承擔可見後果`,
+    },
+  };
+  if (mode === "management") {
+    for (const strategy of ["steady", "resource", "bold"] as const) {
+      const investment = managementInvestmentStrategy(worldContext, strategy);
+      fallbackAction[strategy] = {
+        title: `${strategyMarkers[strategy]}投資「${investment.asset.name}」`,
+        description: `${investment.action}；流動性${investment.asset.liquidity}、收益週期${investment.asset.returnCycle}，並同步記錄${investment.asset.stakeholders}的權利與代價`,
+      };
+    }
+  }
+  if (cultivationWorld && mode !== "management" && input.playMode !== "romance") {
+    for (const strategy of ["steady", "resource", "bold"] as const) {
+      const opportunity = selectCultivationOpportunity({
+        seed,
+        turn: input.progression.turn,
+        strategy,
+      });
+      fallbackAction[strategy] = {
+        title: `${strategyMarkers[strategy]}參與「${opportunity.name}」`,
+        description: `先核對${opportunity.entryCost}與境界資格，再以${storyProps[mode][strategy]}參與「${opportunity.name}」；可能取得${opportunity.rewards.slice(0, 2).join("、")}，也會承擔${opportunity.risks.slice(0, 2).join("、")}`,
+      };
+    }
+  }
   return strategies.map((strategy, index) => {
+    const storyCompatible = (item: ChoiceBlueprint) => cultivationWorld || ![
+      "adv-market-blade",
+      "adv-craft",
+      "adv-bounty",
+      "grow-market-blade",
+      "grow-alchemy",
+      "grow-breakthrough",
+    ].includes(item.id);
+    const topicCompatible = (item: ChoiceBlueprint) => !item.id.startsWith("career-") || entertainmentWorld;
     const candidates = choicePool.filter((item) =>
-      item.mode === mode && item.strategy === strategy && canAfford(item, input.progression));
-    const fallback = choicePool.filter((item) => item.mode === mode && item.strategy === strategy);
+      item.mode === mode && item.strategy === strategy && storyCompatible(item) && topicCompatible(item) && canAfford(item, input.progression));
+    const fallback = choicePool.filter((item) =>
+      item.mode === mode && item.strategy === strategy && storyCompatible(item) && topicCompatible(item));
     const pool = candidates.length ? candidates : fallback;
     const start = (hashText(`${seed}|${strategy}`) + index) % pool.length;
     const selected = Array.from({ length: pool.length }, (_, offset) => pool[(start + offset) % pool.length])
@@ -1450,15 +1520,42 @@ export function buildRpgChoices(input: {
       causalKnowledgeDigest: input.causalKnowledgeDigest,
     });
     usedEncounterSignatures.add(encounter.signature);
-    const contextualTitle = `${strategyMarkers[strategy]}｜${encounter.title}：${baseChoice.title}`;
-    const contextualDescription = `針對「${conflictFocus}」，${protagonist}會先動用${storyProps[mode][strategy]}，再${baseChoice.description}；${encounter.complication}`;
+    const contextualTitle = `${strategyMarkers[strategy]}｜${encounter.title}：${fallbackAction[strategy].title}`;
+    const participantLead = `${protagonist}${supportingCharacter ? `與${supportingCharacter}` : ""}`;
+    const pressureLead = factionPressure ? `面對「${factionPressure}」時，` : "";
+    const threadLead = unresolvedThread ? `處理「${unresolvedThread}」時，` : "";
+    const contextualDescription = `承接「${conflictFocus}」，${pressureLead}${threadLead}${participantLead}${fallbackAction[strategy].description}；${encounter.complication}`;
+    const managementInvestment = mode === "management"
+      ? managementInvestmentStrategy(worldContext, strategy)
+      : null;
+    const contextualEffect = managementInvestment ? {
+      ...baseChoice.effect,
+      resourceChanges: {
+        ...baseChoice.effect.resourceChanges,
+        [`management.investment.${managementInvestment.asset.id}`]: 1,
+      },
+      worldFlags: {
+        ...baseChoice.effect.worldFlags,
+        "management.investment.lastId": managementInvestment.asset.id,
+        "management.investment.lastLiquidity": managementInvestment.asset.liquidity,
+        "management.investment.returnCycle": managementInvestment.asset.returnCycle,
+      },
+      timelineEvents: [
+        ...baseChoice.effect.timelineEvents,
+        `投資決策：${managementInvestment.asset.name}；持有人、利害關係人、流動性與退出條件已登錄。`,
+      ],
+    } : baseChoice.effect;
     return {
       ...baseChoice,
       id: `${baseChoice.id}:turn-${input.progression.turn}:variant-${input.variant ?? input.progression.choiceVariant}:${encounter.signature.slice(0, 12)}`,
       title: boundedText(contextualTitle, 8, 24, "並承擔後果"),
       encounter,
       description: boundedText(contextualDescription, 30, 100, "，結果將由規則引擎先行結算。"),
-      acceptedText: `${baseChoice.acceptedText}\n\n事件預兆：${encounter.telegraph}\n世界變化：${encounter.locationShift}／${encounter.worldAspect}`,
+      effect: contextualEffect,
+      impactLabels: managementInvestment
+        ? [...baseChoice.impactLabels.filter((item) => item !== "公司狀態"), `${managementInvestment.asset.category}資產`].slice(0, 4)
+        : baseChoice.impactLabels,
+      acceptedText: `${baseChoice.acceptedText}\n\n事件預兆：${encounter.telegraph}\n世界變化：${encounter.locationShift}／${encounter.worldAspect}${managementInvestment ? `\n投資標的：${managementInvestment.asset.name}｜流動性 ${managementInvestment.asset.liquidity}｜收益週期 ${managementInvestment.asset.returnCycle}` : ""}`,
     };
   });
 }
@@ -1703,7 +1800,7 @@ export function resolveRpgChoice(
       storyEffect: {
         ...emptyRpgEffect(),
         resourceChanges: { "meter.pursuit": Math.max(1, choice.risk - 1) },
-        worldFlags: { [`rpg.consequenceTriggered.${choice.id}`]: true },
+        worldFlags: { [rpgConsequenceWorldFlagKey(choice.id)]: true },
         timelineEvents: [`延遲後果：${choice.title}`],
       },
       meterChanges: choice.approach === "bold"

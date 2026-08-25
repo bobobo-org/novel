@@ -462,7 +462,7 @@ register(22, "xianxia", "本機模型不可用時規則後備模式誠實運作"
   const serviceSource = await readFile("lib/novel-ai/web/rpg-chat-turn.ts", "utf8");
   assert.match(serviceSource, /actualExecutor:\s*"deterministic-rule-fallback"/u);
   assert.match(serviceSource, /model:\s*"closed-causal-teacher-rules"/u);
-  assert.match(serviceSource, /RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 12_000/u);
+  assert.match(serviceSource, /RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 180_000/u);
   const fallbackPlan = await buildRpgRuleChoicePlan({
     snapshot,
     fallbackReason: "TEST_RULE_FALLBACK_EXACT_CHOICES",

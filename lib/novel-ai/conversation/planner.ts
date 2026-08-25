@@ -226,7 +226,7 @@ const RULES: IntentRule[] = [
   },
   {
     intent: "world_rule_candidate",
-    pattern: /(?:建立|新增|創建|設計|修改|調整).*(?:世界規則|世界觀|設定規則)|(?:世界規則|世界觀).*(?:建立|新增|修改|設定)/iu,
+    pattern: /(?:(?:建立|新增|創建|設計|修改|調整|提出|產生|生成|檢查).*(?:世界規則|世界觀|設定規則)|(?:世界規則|世界觀|設定規則).*(?:候選|建議|建立|新增|修改|設定|檢查))/iu,
     taskType: "world.ruleCandidate",
     executionKind: "closed_agent",
     targetStore: "worldRules",

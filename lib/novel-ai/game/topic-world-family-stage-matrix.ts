@@ -437,23 +437,22 @@ function organizationKind(contract: TopicWorldContract, statement: string, ordin
 
 function familyDisplayName(input: {
   contract: TopicWorldContract;
-  baseName: string;
-  organizationName: string;
+  surname: string;
+  publicName: string;
   organizationKind: string;
 }) {
   if (input.contract.worldFamily === "cultivation") {
-    if (input.organizationKind === "宗門") return `${input.baseName}・${input.organizationName}師承支`;
-    if (input.organizationKind === "修行家族") return input.organizationName;
-    if (input.organizationKind === "散修盟") return `${input.baseName}・${input.organizationName}同行家族`;
-    return `${input.baseName}・${input.organizationName}商脈`;
+    if (input.organizationKind === "宗門") return `${input.surname}氏傳承世家`;
+    if (input.organizationKind === "修行家族") return `${input.surname}氏修行世家`;
+    if (input.organizationKind === "散修盟") return `${input.surname}氏散修家族`;
+    return `${input.surname}氏商修世家`;
   }
-  // The organization is part of the public family name so two independently
-  // materialized families with the same surname never collapse into one
-  // indistinguishable card on the same stage-selection screen.
-  if (input.organizationKind === "企業集團") return `${input.baseName}・${input.organizationName}經營支`;
-  if (input.organizationKind === "政權組織") return `${input.baseName}・${input.organizationName}權力支`;
-  if (input.organizationKind === "學術團體") return `${input.baseName}・${input.organizationName}師生支`;
-  return `${input.baseName}・${input.organizationName}關係網`;
+  if (input.organizationKind === "企業集團") return `${input.surname}氏家族企業`;
+  if (input.organizationKind === "政權組織") return `${input.surname}氏權門`;
+  if (input.organizationKind === "學術團體") return `${input.surname}氏學術世家`;
+  if (input.organizationKind === "商業組織") return `${input.surname}氏商業世家`;
+  if (input.organizationKind === "家族") return `${input.surname}氏宗族`;
+  return input.publicName;
 }
 
 function roleCandidate(
@@ -502,8 +501,13 @@ function stageMember(
   member: SocialMatrixCharacter,
   role: TopicWorldStageRole,
   familyName: string,
+  familySurname: string,
+  profession: string,
   organizationNameValue: string,
 ) : TopicWorldStageMember {
+  const memberName = /妻|夫|配偶|姻親|入贅|外姓|客居|收養/u.test(member.familyRole)
+    ? member.name
+    : `${familySurname}${member.name.replace(/^[\p{Script=Han}]/u, "")}`;
   return {
     characterId: member.characterId,
     populationIndex: member.populationIndex,
@@ -511,13 +515,13 @@ function stageMember(
     originPolicy: member.originPolicy,
     canonicalStatus: "VIRTUAL_CANDIDATE",
     stageRole: role,
-    name: member.name,
+    name: memberName,
     pronouns: member.pronouns,
     age: member.age,
     lifeStage: member.lifeStage,
     familyRole: member.familyRole,
-    organizationRole: member.institutionRole,
-    identity: `${familyName}的${role}，同時隸屬${organizationNameValue}；${member.identity}`,
+    organizationRole: profession,
+    identity: `${familyName}的${role}，主要職業為${profession}，同時隸屬${organizationNameValue}；${member.identity}`,
     goal: member.goal,
     secret: member.secret,
     personality: clone(member.personality),
@@ -580,17 +584,30 @@ function stageFamily(input: {
   });
   const name = familyDisplayName({
     contract: input.contract,
-    baseName: selection.family.name,
-    organizationName: input.organization.name,
+    surname: selection.family.surname,
+    publicName: selection.family.name,
     organizationKind: input.organization.kindLabel,
   });
   const used = new Set<string>();
-  const members = STAGE_ROLE_ORDER.map((role) => {
+  const selectedMembers = STAGE_ROLE_ORDER.map((role) => {
     const selected = roleCandidate(selection.members, role, used);
     if (!selected) throw new Error(`TOPIC_WORLD_STAGE_FAMILY_ROLE_NOT_FOUND:${role}`);
     used.add(selected.characterId);
-    return stageMember(selected, role, name, input.organization.name);
+    return { role, selected };
   });
+  const professionPool = [...new Set([
+    ...input.contract.eraProfile.occupations,
+    ...selectedMembers.flatMap(({ selected }) => selected.institutionRole.split("／")),
+    "家族主事", "資源管理人", "對外聯絡人", "紀錄官", "專業顧問", "技術專員",
+  ].map((value) => value.trim()).filter(Boolean))];
+  const members = selectedMembers.map(({ role, selected }, ordinal) => stageMember(
+    selected,
+    role,
+    name,
+    selection.family.surname,
+    professionPool[ordinal]!,
+    input.organization.name,
+  ));
   const relationships = stageRelationships({
     matrixSeed: input.matrixSeed,
     familyId: selection.family.familyId,

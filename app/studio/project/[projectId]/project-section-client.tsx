@@ -52,6 +52,10 @@ import {
   createCharacterRpgProfile,
   suggestCharacterRpgArchetype,
 } from "@/lib/novel-ai/game/character-rpg-profile";
+import {
+  professionContinuityError,
+  professionSuggestions,
+} from "@/lib/novel-ai/game/character-profession";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import {
   executeStudioClosedAgent,
@@ -59,8 +63,9 @@ import {
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import CharacterPortraitImage from "./character-portrait";
 import ProjectNavigation from "./project-navigation";
-import { ProjectContextSummary, ProjectContextTabs } from "./project-context-tabs";
+import { ProjectContextPurpose, ProjectContextSummary, ProjectContextTabs } from "./project-context-tabs";
 import SocialWorldLibrary from "./social-world-library";
+import CharacterRelationshipWorkbench from "./character-relationship-workbench";
 import PersistenceRecoveryNotice from "../../persistence-recovery-notice";
 
 type Section =
@@ -555,7 +560,8 @@ function SectionBody({
           approvedWorlds={data.worlds}
           onChanged={onChanged}
         />
-        <CharacterEditor projectId={project.id} characters={data.characters} storyBibles={data.bibles} onChanged={onChanged} />
+        <CharacterRelationshipWorkbench project={project} onChanged={onChanged} />
+        <CharacterEditor project={project} worlds={data.worlds} characters={data.characters} storyBibles={data.bibles} onChanged={onChanged} />
       </>
     );
   }
@@ -643,6 +649,7 @@ function StoryContextWorkspace({
   return (
     <div data-testid="story-context-workspace" data-active-view={activeView}>
       <ProjectContextTabs projectId={project.id} context="story" active={activeView} />
+      <ProjectContextPurpose view={activeView} />
       <ProjectContextSummary
         items={[
           {
@@ -683,16 +690,19 @@ function StoryContextWorkspace({
 }
 
 function CharacterEditor({
-  projectId,
+  project,
+  worlds,
   characters,
   storyBibles,
   onChanged,
 }: {
-  projectId: string;
+  project: NovelProject;
+  worlds: World[];
   characters: Character[];
   storyBibles: StoryBible[];
   onChanged: () => Promise<void>;
 }) {
+  const projectId = project.id;
   const closedAgentOS = useMemo(() => getStudioClosedAgentOS(), []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -741,6 +751,10 @@ function CharacterEditor({
     safePortraitPage * portraitPageSize + portraitPageSize,
   );
   const rpgPointTotal = characterRpgPointTotal(rpgStats);
+  const identitySuggestions = useMemo(
+    () => professionSuggestions(project, worlds),
+    [project, worlds],
+  );
 
   useEffect(() => () => characterAIControllerRef.current?.abort("CHARACTER_EDITOR_UNMOUNTED"), []);
 
@@ -1132,6 +1146,11 @@ function CharacterEditor({
       setMessage("角色姓名不能留白。");
       return;
     }
+    const continuityError = professionContinuityError(identity, project, worlds);
+    if (continuityError) {
+      setMessage(continuityError);
+      return;
+    }
     try {
       if (characterAICandidate) {
         if (!characterAICandidate.applied) {
@@ -1367,7 +1386,8 @@ function CharacterEditor({
         <label>角色姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label>別名（以頓號分隔）<input value={aliases} onChange={(event) => setAliases(event.target.value)} /></label>
         <label className="p2Checkbox"><input type="checkbox" checked={isProtagonist} onChange={(event) => setIsProtagonist(event.target.checked)} />設為作品主角與 RPG 玩家角色</label>
-        <label>身分<input value={identity} onChange={(event) => setIdentity(event.target.value)} /></label>
+        <label>職業／身分<input list={`character-professions-${projectId}`} value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder={identitySuggestions.slice(0, 4).join("、")} /></label>
+        <datalist id={`character-professions-${projectId}`}>{identitySuggestions.map((item) => <option key={item} value={item} />)}</datalist>
         <label>角色目標<input value={goal} onChange={(event) => setGoal(event.target.value)} /></label>
         <label>生存狀態<select value={lifeStatus} onChange={(event) => setLifeStatus(event.target.value as Character["lifeStatus"])}><option value="alive">存活</option><option value="dead">死亡</option><option value="unknown">未知</option></select></label>
         <label>所在位置或現況<input value={location} onChange={(event) => setLocation(event.target.value)} /></label>
@@ -1408,7 +1428,7 @@ function CharacterEditor({
             </div>
             <div>
               <b>{portrait ? portrait.role : "尚未選擇人物相片"}</b>
-              <p>{portrait ? portrait.visualDescription : "可從 100 位 ChatGPT 生成人像中選擇，或上傳自己的參考照片。"}</p>
+              <p>{portrait ? portrait.visualDescription : "可從 100 張基礎美術延伸的 10,000 位原創虛擬人像中選擇，或上傳自己的參考照片。"}</p>
               <small>只有核准的外觀描述與特徵標籤會提供給角色 AI；圖片位元不會寫入 AI 提示。</small>
             </div>
           </div>
@@ -1433,7 +1453,7 @@ function CharacterEditor({
             }}>移除人物相片</button> : null}
           </div>
           <details className="characterPortraitCatalog">
-            <summary>開啟 100 位 ChatGPT 人像庫</summary>
+            <summary>開啟 10,000 位原創虛擬人像庫（100 張基礎美術 × 100 種變體）</summary>
             <div className="characterPortraitFilters">
               <label>搜尋特徵<input type="search" value={portraitQuery} onChange={(event) => { setPortraitQuery(event.target.value); setPortraitPage(0); }} placeholder="題材、身分或氣質" /></label>
               <label>題材<select value={portraitTheme} onChange={(event) => { setPortraitTheme(event.target.value); setPortraitPage(0); }}><option value="all">全部題材（100）</option>{CHARACTER_PORTRAIT_THEME_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>

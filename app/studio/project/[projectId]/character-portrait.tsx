@@ -11,6 +11,9 @@ export default function CharacterPortraitImage({
   decorative?: boolean;
 }) {
   const label = decorative ? "" : portrait.visualDescription;
+  const variantFilter = portrait.visualVariant
+    ? `hue-rotate(${portrait.visualVariant.hueRotate}deg) saturate(${portrait.visualVariant.saturation}) brightness(${portrait.visualVariant.brightness}) contrast(${portrait.visualVariant.contrast})`
+    : undefined;
   if (!portrait.atlas) {
     return (
       <img
@@ -20,6 +23,7 @@ export default function CharacterPortraitImage({
         loading="lazy"
         decoding="async"
         data-portrait-source={portrait.source}
+        style={variantFilter ? { filter: variantFilter } : undefined}
       />
     );
   }
@@ -46,6 +50,7 @@ export default function CharacterPortraitImage({
         width={portrait.atlas.width}
         height={portrait.atlas.height}
         preserveAspectRatio="none"
+        style={variantFilter ? { filter: variantFilter } : undefined}
       />
     </svg>
   );

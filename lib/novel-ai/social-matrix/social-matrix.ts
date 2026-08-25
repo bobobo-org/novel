@@ -464,6 +464,10 @@ function encodeIndex(index: number) {
 const VISIBLE_NAME_LEADS = ["青", "白", "玄", "赤", "紫", "蒼", "明", "清", "景", "雲", "星", "長", "安", "遠", "新", "和"] as const;
 const VISIBLE_NAME_PLACES = ["河", "川", "山", "湖", "海", "城", "港", "原", "林", "嶺", "谷", "洲", "庭", "橋", "峰", "澤"] as const;
 const VISIBLE_NAME_BRANCHES = ["本", "東", "西", "南", "北", "上", "中", "新", "前", "後", "左", "右", "長", "次", "內", "外"] as const;
+const FAMILY_SURNAMES = [
+  "李", "王", "張", "陳", "林", "黃", "吳", "劉", "蔡", "楊", "許", "鄭", "謝", "郭", "洪", "邱",
+  "曾", "廖", "賴", "徐", "周", "葉", "蘇", "莊", "江", "呂", "何", "羅", "高", "蕭", "潘", "朱",
+] as const;
 
 function visibleNameAddress(index: number, depth: 2 | 3) {
   const lead = VISIBLE_NAME_LEADS[index % VISIBLE_NAME_LEADS.length];
@@ -476,6 +480,28 @@ function visibleNameAddress(index: number, depth: 2 | 3) {
       % VISIBLE_NAME_BRANCHES.length
   ];
   return `${lead}${place}${branch}`;
+}
+
+function familySurname(index: number) {
+  return FAMILY_SURNAMES[socialMatrixHash(`family-surname:${index}`) % FAMILY_SURNAMES.length];
+}
+
+function familyPublicName(index: number, surname: string, genre: SocialDisplayGenre) {
+  const address = visibleNameAddress(index, 3);
+  if (genre === "cultivation") return `${address}${surname}氏修行世家`;
+  if (genre === "historical") return `${address}${surname}氏`;
+  if (genre === "business") return `${surname}氏家族企業`;
+  if (genre === "entertainment") return `${surname}氏演藝世家`;
+  return `${address}${surname}氏家族`;
+}
+
+function familyMemberName(originalName: string, surname: string, familyRole: string) {
+  // 配偶、入贅、客居、收養與外部顧問保留原姓；其餘同一家族成員承同姓。
+  if (/妻|夫|配偶|姻親|入贅|外姓|客居|收養|養子|養女|門客|家臣|外部|顧問|搭檔|夥伴|指導老師/u.test(familyRole)) {
+    return originalName;
+  }
+  const givenName = originalName.replace(/^[\p{Script=Han}]{1,2}(?=[\p{Script=Han}]{1,3}$)/u, (prefix) => prefix.length > 1 ? prefix.slice(1) : "");
+  return `${surname}${givenName || originalName.slice(-2)}`;
 }
 
 function parseCursor(cursor: string | undefined, prefix: string) {
@@ -622,13 +648,15 @@ export class DeterministicSocialMatrix {
   getFamily(index: number): SocialFamily {
     const random = seededRandom(`${this.seed}:family:${index}`);
     const vocabulary = socialDisplayVocabulary(this.context);
-    const nativeVocabulary = socialNativeVocabulary(this.context);
+    const genre = socialDisplayGenre(this.context);
     const representative = this.memberIndexForBucket(index, 0, this.familyCount, `${this.seed}:family-index`);
     const institutionIndex = this.institutionIndexForCharacter(representative);
+    const surname = familySurname(index);
     return deepFreeze({
       familyId: this.familyId(index),
       familyIndex: index,
-      name: `${visibleNameAddress(index, 3)}${nativeVocabulary.familyUnit}・${itemAt(vocabulary.familySuffixes, random)}`,
+      surname,
+      name: familyPublicName(index, surname, genre),
       home: itemAt(vocabulary.familyHomes, random),
       reputation: itemAt(vocabulary.familyReputations, random),
       inheritedTrait: itemAt(vocabulary.inheritedTraits, random),
@@ -845,7 +873,9 @@ export class DeterministicSocialMatrix {
     const familyIndex = this.familyIndexForCharacter(index);
     const institutionIndex = this.institutionIndexForCharacter(index);
     const institution = this.getInstitution(institutionIndex);
-    const name = storyCharacter.name;
+    const family = this.getFamily(familyIndex);
+    const familyRole = itemAt(nativeVocabulary.familyRoles, random);
+    const name = familyMemberName(storyCharacter.name, family.surname, familyRole);
     const age = 18 + Math.floor(random() * 65);
     const traits = uniqueItems(TRAITS, random, 3);
     const rpgStats = characterRpgStatsForArchetype(storyCharacter.rpgArchetype);
@@ -886,7 +916,7 @@ export class DeterministicSocialMatrix {
       institutionId: institution.institutionId,
       institutionRole,
       familyId: this.familyId(familyIndex),
-      familyRole: itemAt(nativeVocabulary.familyRoles, random),
+      familyRole,
       location,
       identity: `${institution.name}的${institutionRole}，目前常駐${location}`,
       goal: storyCharacter.goal,

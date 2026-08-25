@@ -47,6 +47,27 @@
   margin-bottom: 18px;
 }
 
+.purpose {
+  display: grid;
+  grid-template-columns: minmax(260px, .8fr) minmax(0, 1.2fr);
+  gap: 22px;
+  align-items: center;
+  margin: 0 0 14px;
+  padding: 18px 20px;
+  border: 1px solid #47688f;
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(18, 43, 72, .96), rgba(8, 27, 47, .96));
+}
+
+.purpose[data-view="story-bible"] {
+  border-color: rgba(166, 120, 213, .7);
+  background: linear-gradient(135deg, rgba(55, 34, 77, .94), rgba(18, 29, 54, .96));
+}
+
+.purpose small { color: #72dccb; letter-spacing: .14em; }
+.purpose h2 { margin: 5px 0 0; color: #f4d997; }
+.purpose p { margin: 0; color: #c1cee0; line-height: 1.75; }
+
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -90,4 +111,5 @@
   .summaryGrid {
     grid-template-columns: 1fr;
   }
+  .purpose { grid-template-columns: 1fr; }
 }
