@@ -158,10 +158,11 @@ export function useConversationRpgController({
           if (plan.actualExecutor !== "deterministic-rule-fallback") {
             await rejectStudioClosedAgentCandidate(plan.candidateId).catch(() => undefined);
           }
-          plan = await buildRpgRuleChoicePlan({
+          const fallbackPlan = await buildRpgRuleChoicePlan({
             snapshot,
             fallbackReason: "USER_REQUESTED_RULE_FALLBACK",
           });
+          plan = fallbackPlan;
         }
       } finally {
         input.signal.removeEventListener("abort", relayOuterAbort);

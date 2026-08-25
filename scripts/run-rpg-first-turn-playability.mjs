@@ -106,7 +106,7 @@ for (const scenario of scenarios) {
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.encounter.signature)).size, 3);
   assert.ok(snapshot.baseChoices.every((choice) => choice.description.includes("帳冊上的赤字")));
   assert.ok(snapshot.baseChoices.every((choice) => choice.description.includes("林澄")));
-  assert.ok(snapshot.baseChoices.some((choice) => choice.description.includes(stageCompanionName)));
+  assert.ok(snapshot.baseChoices.every((choice) => choice.description.includes(stageCompanionName)));
   assert.ok(snapshot.baseChoices.some((choice) => choice.description.includes("青楓派巡察")));
   assert.equal(snapshot.storyState.resources["game.actionPoints"], scenario.expectedActionPoints);
   assert.equal(snapshot.storyState.resources["game.turn"], 0);

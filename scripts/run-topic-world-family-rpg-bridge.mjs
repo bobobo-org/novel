@@ -71,11 +71,11 @@ const promptContextText = JSON.stringify({
 });
 assert.doesNotMatch(promptContextText, INTERNAL_COPY);
 assert.doesNotMatch(promptContextText, OPAQUE_FAMILY_ID);
-assert.ok(snapshot.baseChoices.some((choice) => (
+assert.ok(snapshot.baseChoices.every((choice) => (
   choice.description.includes(context.selectedStageFamily.name)
   || context.stagedOrganizations.some((organization) => choice.description.includes(organization.name))
   || context.stagedAssets.some((asset) => choice.description.includes(asset.name))
-)));
+)), "每一條 RPG 路線都必須明確承接已選家族、上場勢力或相關資產");
 
 const choice = snapshot.baseChoices.find((candidate) => !candidate.disabledReason);
 assert.ok(choice);

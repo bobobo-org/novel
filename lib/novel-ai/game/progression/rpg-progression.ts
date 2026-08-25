@@ -1521,10 +1521,18 @@ export function buildRpgChoices(input: {
     });
     usedEncounterSignatures.add(encounter.signature);
     const contextualTitle = `${strategyMarkers[strategy]}｜${encounter.title}：${fallbackAction[strategy].title}`;
-    const participantLead = `${protagonist}${supportingCharacter ? `與${supportingCharacter}` : ""}`;
     const pressureLead = factionPressure ? `面對「${factionPressure}」時，` : "";
     const threadLead = unresolvedThread ? `處理「${unresolvedThread}」時，` : "";
-    const contextualDescription = `承接「${conflictFocus}」，${pressureLead}${threadLead}${participantLead}${fallbackAction[strategy].description}；${encounter.complication}`;
+    const strategicAnchor = strategy === "resource"
+      ? storyAsset || familyOrFaction
+      : familyOrFaction || storyAsset;
+    const castLead = supportingCharacter
+      ? `${protagonist}與${supportingCharacter}`
+      : protagonist;
+    const anchorLead = strategicAnchor
+      ? `${castLead}以「${strategicAnchor}」為本次行動核心，`
+      : `${castLead}先承接眼前局勢，`;
+    const contextualDescription = `${anchorLead}承接「${conflictFocus}」，${pressureLead}${threadLead}${fallbackAction[strategy].description}；${encounter.complication}`;
     const managementInvestment = mode === "management"
       ? managementInvestmentStrategy(worldContext, strategy)
       : null;
