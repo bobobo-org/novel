@@ -10,6 +10,7 @@ import {
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "@/lib/novel-ai/providers/local-ollama/companion-release";
 import { getStudioClosedAIRuntimeCoordinator } from "@/lib/novel-ai/web/closed-agent-os-service";
+import styles from "./frontdoor-luxury.module.css";
 
 type FrontdoorProps = {
   release: Record<string, string>;
@@ -153,15 +154,34 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
       : "/professional?intent=chat";
     return `/settings/local-ai?returnTo=${encodeURIComponent(returnTo)}`;
   }, [recentId]);
-  const projectSummary = projectCount > 1
-    ? `已有 ${projectCount} 部作品，進入後選擇要繼續的故事。`
-    : recentProject
-      ? `上次寫到《${recentProject.title}》，進入後可直接接續。`
-      : "還沒有作品，進入後會先引導你建立第一部故事。";
+  const directProjectHref = projectCount === 1 && recentId
+    ? `/studio/project/${encodeURIComponent(recentId)}/chat`
+    : "";
+  const continueHref = projectCount > 0
+    ? directProjectHref || "/professional?intent=chat"
+    : "/professional?intent=chat";
+  const primaryHref = recentProject ? continueHref : "/studio/create";
+  const primaryLabel = recentProject
+    ? `繼續《${recentProject.title}》`
+    : "開始新故事";
+  const recentUpdateLabel = useMemo(() => {
+    const timestamp = Date.parse(recentProject?.updatedAt ?? "");
+    if (!Number.isFinite(timestamp)) return "等待第一筆故事";
+    return new Intl.DateTimeFormat("zh-TW", {
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(timestamp);
+  }, [recentProject?.updatedAt]);
+  const entries = [
+    ["建立新作品", "選題材、世界與上場家族，從第一章正式開篇。", "/studio/create", "開"],
+    ["選擇作品", projectCount > 0 ? `從 ${projectCount} 部正式作品中選擇；選定後直接進入該作品的故事工作台` : "查看作品庫；尚無作品時會引導你建立第一部故事。", continueHref, "續"],
+  ] as const;
 
   return (
     <main
-      className="frontdoor"
+      className={`frontdoor ${styles.luxury}`}
       data-consumer-release={release.consumerRelease}
       data-app-commit={release.appCommit}
       data-testid="modern-consumer-frontdoor"
@@ -171,52 +191,82 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
           <span className="brandSeal">創</span>
           <span><b>諸天萬界</b><small>小說生成系統</small></span>
         </Link>
-        <p className="frontdoorCatalog" data-testid="frontdoor-catalog-summary">
-          {packs} 個分類包・{classicTopics} 類經典題材
-        </p>
+        <nav aria-label="主要導覽">
+          <Link className="active" href="/">首頁</Link>
+          <Link href="/studio/create">建立世界</Link>
+          <Link href={continueHref}>故事工作臺</Link>
+          <Link href="/professional?intent=library">我的作品</Link>
+        </nav>
+        <div className={styles.navActions}>
+          <Link
+            className={styles.aiStatus}
+            data-state={closedAI}
+            href={localAIHref}
+            aria-label={`本機 AI 設定，目前${closedAI}`}
+          >
+            <span aria-hidden="true" />
+            本機 AI {closedAI}
+          </Link>
+          <Link className="navCta" href="/studio">進入創作中心</Link>
+        </div>
       </header>
 
-      <section className="frontdoorEssentialShell" data-testid="frontdoor-essential-shell">
-        <section className="frontdoorHero">
-          <div className="heroCopy">
-            <p className="eyebrow">本機優先・每一步由你確認</p>
-            <h1>一個入口，繼續你的萬界故事</h1>
-            <p className="lead">建立、選擇與續寫都由同一個故事入口接手，不需要先判斷該開哪一套工具。</p>
-            <p className="frontdoorProjectSummary">{projectSummary}</p>
-            <div className="heroActions">
-              <Link
-                className="primaryAction"
-                data-testid="frontdoor-primary-action"
-                href="/professional?intent=chat"
-              >
-                開始／繼續創作
-              </Link>
-            </div>
+      <section className="frontdoorHero">
+        <div className={styles.heroAtmosphere} aria-hidden="true">
+          <span /><span /><span /><span /><span />
+        </div>
+        <div className="heroCopy">
+          <p className="eyebrow">THE TEN THOUSAND WORLDS · STORY FORGE</p>
+          <h1><span>一念開天地，</span><span>落筆成萬界</span></h1>
+          <p className="lead">把靈感鍛造成角色、世界與會記得你每次選擇的長篇故事。</p>
+          <p className={styles.startingRule}>首頁只有兩個開始方式：建立新作品，或選擇既有作品繼續。</p>
+          <div className="heroActions">
+            <Link
+              className="primaryAction"
+              data-testid="frontdoor-primary-action"
+              href={primaryHref}
+            >
+              <span>{primaryLabel}</span><b aria-hidden="true">→</b>
+            </Link>
+            {recentProject ? (
+              <Link className="secondaryAction" href="/studio/create">開始新故事</Link>
+            ) : (
+              <Link className="secondaryAction" href="/studio/create">探索 {classicTopics} 類題材</Link>
+            )}
           </div>
-          <div className="worldPreview" aria-label="故事世界預覽">
-            <span className="moon" />
-            <span className="mountain mountainBack" />
-            <span className="mountain mountainFront" />
-            <div className="previewCaption"><small>目前模式</small><b>作品留在裝置・AI 候選需核准</b></div>
+          <div className={styles.truthRow} aria-label="平台特色">
+            <span><b>{classicTopics}</b> 類經典題材</span>
+            <span><b>{packs}</b> 個世界分類</span>
+            <span>作品<b>本機保存</b></span>
           </div>
-        </section>
+        </div>
+        <div className="worldPreview" aria-label="故事世界預覽">
+          <div className={styles.cosmos} aria-hidden="true">
+            <span className={styles.orbitOne}><i>人</i></span>
+            <span className={styles.orbitTwo}><i>界</i></span>
+            <span className={styles.orbitThree}><i>章</i></span>
+            <span className={styles.storyCore}>續</span>
+          </div>
+          <div className="previewCaption">
+            <span className={styles.previewEyebrow}>{recentProject ? "YOUR LATEST WORLD" : "A NEW WORLD AWAITS"}</span>
+            <b>{recentProject?.title ?? "尚未命名的世界"}</b>
+            <small>{recentProject ? `最後保存 · ${recentUpdateLabel}` : "從一個念頭開始，建立第一部作品"}</small>
+            <span className={styles.previewMeta}>{projectCount ? `${projectCount} 部作品仍在延續` : "等待你的第一筆"}</span>
+          </div>
+        </div>
+      </section>
 
-        <section
-          className="frontdoorRuntime"
-          aria-label="目前執行狀態"
-          data-testid="frontdoor-runtime"
-        >
-          <article><span>作品儲存</span><strong>本機裝置</strong><small>IndexedDB 是正式作品庫</small></article>
-          <article data-state={closedAI}><span>閉端 AI</span><strong>{closedAI}</strong><small>不會暗中切換外部 AI</small></article>
-          <article data-state={cloudSync}><span>雲端同步</span><strong>{cloudSync}</strong><small>端對端加密・異常不阻擋創作</small></article>
-          <article><span>外部 AI</span><strong>預設未使用</strong><small>只有明確同意才可呼叫</small></article>
-        </section>
+      <section className="frontdoorRuntime" aria-label="目前執行狀態" data-testid="frontdoor-runtime">
+        <span><b>閉端創作</b> Browser、本機 Ollama 與私有 Hub 由系統自動協調</span>
+        <span><b>資料邊界</b> 正式作品保存在本機裝置</span>
+        <span><b>雲端同步</b> {cloudSync}</span>
+        <span><b>外部 AI</b> 預設未使用</span>
       </section>
 
       {legacyPreview?.found && legacyPreview.pending && !dismissLegacy ? (
         <section className="frontdoorLegacy" data-testid="legacy-migration-preview">
           <div>
-            <span>發現舊版作品</span>
+            <span>舊作品匯入與相容功能</span>
             <h2>找到 {legacyPreview.projectCount} 部尚未確認遷移的作品</h2>
             <p>系統不會自動覆蓋新版作品。你可以先看預覽，再明確決定是否匯入。</p>
             {showLegacyDetails ? (
@@ -234,6 +284,22 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         </section>
       ) : null}
 
+      <section className="frontdoorEntries" aria-labelledby="entryTitle">
+        <div className="sectionTitle">
+          <span>CHOOSE YOUR WAY IN</span>
+          <h2 id="entryTitle">今天，從哪裡落筆？</h2>
+        </div>
+        <div className="entryGrid">
+          {entries.map(([title, description, href, icon]) => (
+            <Link className="entryCard" href={href} key={title}>
+              <span className="entryIndex">{icon}</span>
+              <h3>{title}</h3>
+              <p>{description}</p>
+              <span className="entryArrow" aria-hidden="true">→</span>
+            </Link>
+          ))}
+        </div>
+      </section>
       <footer className="frontdoorFooter">
         <p>快速本機模式：速度較快，長篇品質有限。系統不會把 API online 顯示成 AI online。</p>
         <nav aria-label="精簡工具連結">

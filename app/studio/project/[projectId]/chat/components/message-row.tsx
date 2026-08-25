@@ -65,6 +65,8 @@ export const MessageRow = memo(function MessageRow({
   const rpgChoices = rpg.parsed;
   const rpgChoicesConsumed = rpg.consumed;
   const messageArtifacts = artifactsByMessage.get(message.id) ?? [];
+  const hasRpgStory = messageArtifacts.some((artifact) => artifact.artifactType === "rpg");
+  const storyLayout = hasRpgStory && message.content.trim().length >= 800 ? "spread" : "page";
   const messageInvocations = allInvocations.filter((item) => item.messageId === message.id);
   const invocation = invocationsByMessage.get(message.id);
   const persistedFailure = selectClosedAgentFailureEvidenceInvocation(
@@ -122,7 +124,8 @@ export const MessageRow = memo(function MessageRow({
       data-lineage-root={lineage.rootId}
       data-lineage-depth={lineage.depth}
       data-rpg-choices={rpgChoices ? "true" : undefined}
-      data-rpg-story={messageArtifacts.some((artifact) => artifact.artifactType === "rpg") || undefined}
+      data-rpg-story={hasRpgStory || undefined}
+      data-rpg-story-layout={hasRpgStory ? storyLayout : undefined}
     >
       <div className={styles.messageMeta}>
         <strong>{conversationMessageLabel(message.role)}</strong>

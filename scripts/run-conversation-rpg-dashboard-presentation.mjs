@@ -26,6 +26,8 @@ assert.match(timeline, /placement: "choices"/u);
 assert.match(timeline, /placement: "afterCandidate"/u);
 assert.match(row, /playDashboardPlacement === "afterCandidate"/u);
 assert.match(row, /data-rpg-story/u);
+assert.match(row, /data-rpg-story-layout/u);
+assert.match(css, /data-rpg-story-layout=["']spread["'][\s\S]*column-count:\s*2/u);
 assert.match(turn, /NEXT TURN · 下一輪/u);
 assert.ok(turn.indexOf("{dashboard}") < turn.indexOf("下一步抉擇"));
 assert.match(choice, /可能收益/u);

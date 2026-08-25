@@ -127,7 +127,8 @@ assert.match(
   /\.workspace\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/u,
   "預設工作區不得為已收合側欄保留固定欄寬",
 );
-assert.match(styles, /\.threadInner\s*\{[\s\S]*?width:\s*min\(100%,\s*1280px\)/u, "主閱讀舞台必須容納放大的 A/B/C");
+assert.match(styles, /\.threadInner\s*\{[\s\S]*?width:\s*min\(100%,\s*1560px\)/u, "主閱讀舞台必須善用桌機兩側空間，容納一回合正文與放大的 A/B/C");
+assert.match(styles, /\.message\[data-rpg-story=["']true["']\]\s*\{[\s\S]*?width:\s*min\(100%,\s*1480px\)/u, "RPG 正文必須使用單回合寬版閱讀頁");
 assert.match(styles, /\.message[^\{]*data-rpg-choices[^\{]*\{[\s\S]*?(?:max-width|width):\s*(?:min\(100%,\s*)?9\d{2}px/u, "一般正文仍需維持約 900px 的舒適行寬");
 assert.match(styles, /\.choices\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/u, "寬畫面必須同時呈現完整 A/B/C");
 const choiceCardHeight = styles.match(/\.choiceCard\s*\{[\s\S]*?min-height:\s*(\d+)px/u);
