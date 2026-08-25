@@ -1110,8 +1110,6 @@ export default function ConversationWorkspace({
         canonicalTarget: resolvedCanonicalTarget,
       });
       const previousDigest = input.regeneration?.sourceCandidateDigest;
-      // Mount 時已在背景同步；首次送出若仍在同步，最多等候短期固定上限。
-      // 失敗會沿用本機規則與內建教師，不阻斷寫作。
       await ensureSharedLearningReady(input.signal);
       const automaticComputePolicy = input.regeneration?.preferredBackend === "local-ollama"
         ? "quality-first"
