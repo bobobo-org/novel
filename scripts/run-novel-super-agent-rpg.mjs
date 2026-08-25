@@ -496,7 +496,10 @@ await test("unified story navigation absorbs RPG and offline updates cannot pin 
   assert.doesNotMatch(navigation, /\["rpg","RPG 養成"\]/u);
   assert.match(rpgRoute, /redirect\(`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat\?mode=play`\)/u);
   assert.match(conversationRpg, /buildRpgRuleChoicePlan/u);
-  assert.match(conversationRpg, /RPG_CHOICE_RULE_PLAN_IMMEDIATE/u);
+  assert.match(conversationRpg, /planRpgChatChoices\(\{/u);
+  assert.match(conversationRpg, /fallbackReason: "USER_REQUESTED_RULE_FALLBACK"/u);
+  assert.match(conversationRpg, /最長等待 180 秒/u);
+  assert.doesNotMatch(conversationRpg, /RPG_CHOICE_RULE_PLAN_IMMEDIATE/u);
   assert.match(globalCss, /\.p2ProjectNav\{display:grid/u);
   assert.match(globalCss, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/u);
   assert.match(workspace, /規則先結算 → 產生候選正文 → 你核准才原子寫入/u);

@@ -382,9 +382,11 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(writer, /前往唯一故事工作台：續寫、改寫、RPG 與 A／B／C/u);
   assert.match(writer, /commitStudioCandidateToChapter/u);
   assert.doesNotMatch(writer, /runInlineWritingAI|AI 承接脈絡續寫|比較 3 個故事方向|完整品質續寫|AI 整章改寫候選/u);
-  assert.match(chatRpg, /const plan = await buildRpgRuleChoicePlan\(\{/u);
-  assert.match(chatRpg, /fallbackReason: "RPG_CHOICE_RULE_PLAN_IMMEDIATE"/u);
-  assert.doesNotMatch(chatRpg, /planRpgChatChoices\(/u);
+  assert.match(chatRpg, /plan = await planRpgChatChoices\(\{/u);
+  assert.match(chatRpg, /const fallbackPlan = await buildRpgRuleChoicePlan\(\{/u);
+  assert.match(chatRpg, /fallbackReason: "USER_REQUESTED_RULE_FALLBACK"/u);
+  assert.match(chatRpg, /最長等待 180 秒/u);
+  assert.doesNotMatch(chatRpg, /RPG_CHOICE_RULE_PLAN_IMMEDIATE/u);
   assert.match(chatRpg, /serializeRpgChoices\(envelope\)/u);
   assert.match(chatRpg, /generateRpgChatTurnCandidate\(/u);
   assert.match(chatRpg, /canonicalMutationCount: 0/u);
@@ -397,7 +399,7 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(rpgController, /hasVerifiedExecutedStoryOutput/);
   assert.match(rpgController, /approveStudioClosedAgentCandidate/);
   assert.match(rpgController, /canonicalMutationCount !== 0/);
-  assert.match(rpgController, /export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 12_000/u);
+  assert.match(rpgController, /export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 180_000/u);
   assert.match(rpgController, /enhancementController\.abort\("RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT"\)/u);
   assert.match(rpgController, /signal: enhancementController\.signal/u);
   assert.match(rpgController, /choices\.length !== 3/u);
