@@ -162,7 +162,7 @@ export function MessageComposer({
             <button className={styles.quietButton} type="button" onClick={onToggleArtifacts}>結果</button>
           </div>
           <div className={styles.rightActions}>
-            {canStop ? <button className={styles.quietButton} type="button" onClick={onStop}>{stopLabel}</button> : null}
+            {canStop ? <button className={styles.quietButton} type="button" onClick={onStop} aria-label={`停止生成：${stopLabel}`}>{stopLabel}</button> : null}
             <button className={styles.sendButton} type="button" onClick={composer.submit} disabled={!composer.canSend}>送出</button>
           </div>
         </div>
