@@ -86,7 +86,7 @@ function assertMeaningfullyDistinctChoiceSet(choices, label) {
   const descriptionByApproach = Object.fromEntries(
     choices.map((choice) => [choice.approach, choice.description]),
   );
-  assert.match(descriptionByApproach.steady, /先封住退路.+分開保全/u, `${label}: steady must preserve evidence before pursuit`);
+  assert.match(descriptionByApproach.steady, /先以.+封住退路.+分開保全/u, `${label}: steady must preserve evidence before pursuit`);
   assert.match(descriptionByApproach.resource, /當場交付.+作為籌碼.+換取/u, `${label}: resource must trade a concrete asset for access`);
   assert.match(descriptionByApproach.bold, /越過試探.+直取.+接受.+代價/u, `${label}: bold must force a breach and accept exposure`);
   let maximumSimilarity = 0;

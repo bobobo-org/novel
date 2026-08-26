@@ -163,11 +163,14 @@ export default function ProjectNavigation({
           <span className="p2NavLabel">全部作品功能</span>
           <span className="p2NavShort">功能</span>
         </summary>
-        <p>只在需要直接管理正式章節、設定、學習、模型診斷或備份時使用；故事創作與 RPG 請回故事工作台。</p>
+        <p>人物與世界、故事脈絡只提供唯讀查詢與上場選擇；要修改正式角色、能力、世界、記憶或時間線，請開啟「正式設定管理（可編修）」。故事創作與 RPG 請回故事工作台。</p>
         <div className="p2ProjectToolGrid">
           {PROJECT_LINKS.map(([path, label]) => {
             const { icon, short } = PROJECT_LINK_PRESENTATION[path];
             const linkActive = projectLinkIsActive(path, active);
+            const displayLabel = path === "people-world" || path === "story-context"
+              ? `${label}（唯讀／上場選擇）`
+              : label;
             const href = linkActive && activeHref
               ? activeHref
               : projectLinkHref(projectId, path, active);
@@ -177,22 +180,22 @@ export default function ProjectNavigation({
                 className={linkActive ? "active" : ""}
                 href={href}
                 aria-current={linkActive ? "page" : undefined}
-                {...(linkActive ? {} : guardedLink(href, label))}
+                {...(linkActive ? {} : guardedLink(href, displayLabel))}
               >
                 <span className="p2NavIcon" aria-hidden="true">{icon}</span>
-                <span className="p2NavLabel">{label}</span>
+                <span className="p2NavLabel">{displayLabel}</span>
                 <span className="p2NavShort">{short}</span>
               </Link>
             );
           })}
           <Link
             className="p2NavWorkbench"
-            href={`/professional?projectId=${encodeURIComponent(projectId)}`}
+            href={projectHome}
             prefetch={false}
-            {...guardedLink(`/professional?projectId=${encodeURIComponent(projectId)}`, "作品資料管理")}
+            {...guardedLink(projectHome, "正式設定管理（可編修）")}
           >
             <span className="p2NavIcon" aria-hidden="true">▦</span>
-            <span className="p2NavLabel">作品資料管理</span>
+            <span className="p2NavLabel">正式設定管理（可編修）</span>
             <span className="p2NavShort">資料</span>
           </Link>
           {playMode ? <Link

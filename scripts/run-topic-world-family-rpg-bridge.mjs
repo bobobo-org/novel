@@ -17,6 +17,7 @@ const OPAQUE_FAMILY_ID = /social-(?:family|institution)-[^\s，。；、)）]+/i
 
 const repository = new MemoryNovelRepository();
 const draft = createDraft("quick");
+draft.projectId = "11111111-1111-4111-8111-111111111111";
 draft.title = "家族宗門正文橋接測試";
 draft.genreId = "classic-topic-009";
 draft.answers.playMode = optionalValue("rpg", "user_defined");
@@ -71,11 +72,21 @@ const promptContextText = JSON.stringify({
 });
 assert.doesNotMatch(promptContextText, INTERNAL_COPY);
 assert.doesNotMatch(promptContextText, OPAQUE_FAMILY_ID);
-assert.ok(snapshot.baseChoices.every((choice) => (
+const choicesWithoutStageAnchor = snapshot.baseChoices.filter((choice) => !(
   choice.description.includes(context.selectedStageFamily.name)
   || context.stagedOrganizations.some((organization) => choice.description.includes(organization.name))
   || context.stagedAssets.some((asset) => choice.description.includes(asset.name))
-)), "每一條 RPG 路線都必須明確承接已選家族、上場勢力或相關資產");
+));
+assert.deepEqual(
+  choicesWithoutStageAnchor.map((choice) => ({
+    key: choice.key,
+    approach: choice.approach,
+    title: choice.title,
+    description: choice.description,
+  })),
+  [],
+  "每一條 RPG 路線都必須明確承接已選家族、上場勢力或相關資產",
+);
 
 const choice = snapshot.baseChoices.find((candidate) => !candidate.disabledReason);
 assert.ok(choice);

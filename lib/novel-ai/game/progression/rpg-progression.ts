@@ -1537,10 +1537,14 @@ export function buildRpgChoices(input: {
       ? `${castLead}以「${strategicAnchor}」為本次行動核心，`
       : `${castLead}先承接眼前局勢，`;
     const strategyAnchor = Array.from(storyProps[mode][strategy]).slice(0, 28).join("");
+    const routeEntity = strategy === "resource"
+      ? storyAsset || familyOrFaction
+      : familyOrFaction || storyAsset;
+    const namedRouteAnchor = routeEntity ? `「${routeEntity}」` : `「${strategyAnchor}」`;
     const strategyOpening: Record<RpgChoiceStrategy, string> = {
-      steady: `${supportingCharacter || protagonist}先封住退路，${protagonist}分開保全「${strategyAnchor}」與目擊證詞，暫緩追擊以換取可核對的證據`,
-      resource: `${protagonist}當場交付「${strategyAnchor}」作為籌碼，向${familyOrFaction || supportingCharacter || "知情者"}換取時間、情報與介入資格`,
-      bold: `${protagonist}越過試探，沿「${strategyAnchor}」直取對手尚未封死的缺口，接受暴露身分與正面衝突的代價`,
+      steady: `${supportingCharacter || protagonist}先以${namedRouteAnchor}封住退路，${protagonist}分開保全目擊證詞，暫緩追擊以換取可核對的證據`,
+      resource: `${protagonist}當場交付${namedRouteAnchor}作為籌碼，向${familyOrFaction || supportingCharacter || "知情者"}換取時間、情報與介入資格`,
+      bold: `${protagonist}借${namedRouteAnchor}掩護越過試探，沿「${strategyAnchor}」直取對手尚未封死的缺口，接受暴露身分與正面衝突的代價`,
     };
     const contextualDescription = [
       strategyOpening[strategy],

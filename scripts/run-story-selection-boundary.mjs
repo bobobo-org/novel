@@ -114,6 +114,23 @@ assert.match(selectorSource, /repository\.put<StoryState>\("storyStates"/u);
 assert.doesNotMatch(selectorSource, /repository\.(?:put|remove)[\s\S]{0,80}\("(?:characters|worlds|worldRules|storyBibles|relationships|lore|timeline)"/u);
 assert.match(selectorSource, /data-canon-edit-surface="story-selection-only"/u);
 
+const professionalSource = source("app/professional/professional-client.tsx");
+assert.match(professionalSource, /mode="home-edit"/u);
+assert.match(professionalSource, /在首頁編修正式角色、世界與記憶/u);
+for (const label of [
+  "故事內選擇上場人物（唯讀）",
+  "故事內選擇上場世界與規則（唯讀）",
+  "故事內選擇上場記憶（唯讀）",
+  "故事內選擇上場時間線（唯讀）",
+]) {
+  assert.match(professionalSource, new RegExp(label, "u"));
+}
+
+const projectNavigationSource = source("app/studio/project/[projectId]/project-navigation.tsx");
+assert.match(projectNavigationSource, /人物與世界、故事脈絡只提供唯讀查詢與上場選擇/u);
+assert.match(projectNavigationSource, /正式設定管理（可編修）/u);
+assert.match(projectNavigationSource, /href=\{projectHome\}/u);
+
 const chatViewSource = source("app/studio/project/[projectId]/chat/components/conversation-workspace-view.tsx");
 assert.match(chatViewSource, /conversation-story-stage-selector/u);
 assert.match(chatViewSource, /<StoryStageSelector/u);

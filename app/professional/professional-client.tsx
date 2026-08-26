@@ -345,12 +345,12 @@ export default function ProfessionalClient({
             <article id="world-and-characters">
               <small>CANON & WORLD</small><h2>角色、世界與記憶</h2>
               <p>正式人物、能力、世界與 Story Bible 直接在上方首頁編修；故事進行中則選擇目前上場的人物、規則與記憶。</p>
-              <Link href="#character-world-memory-home">在首頁編修與選擇上場內容</Link>
-              <Link href={`${projectRoot}/characters`}>完整角色資料庫</Link>
+              <Link href="#character-world-memory-home">在首頁編修正式角色、世界與記憶</Link>
+              <Link href={`${projectRoot}/characters`}>故事內選擇上場人物（唯讀）</Link>
               <Link href={`${projectRoot}/character-ai`}>角色視角模擬（非正式 Canon）</Link>
-              <Link href={`${projectRoot}/world`}>世界規則</Link>
-              <Link href={`${projectRoot}/story-bible`}>故事記憶（伏筆、禁忌與人物關係）</Link>
-              <Link href={`${projectRoot}/timeline`}>時間線（事件先後與章節位置）</Link>
+              <Link href={`${projectRoot}/world`}>故事內選擇上場世界與規則（唯讀）</Link>
+              <Link href={`${projectRoot}/story-bible`}>故事內選擇上場記憶（唯讀）</Link>
+              <Link href={`${projectRoot}/timeline`}>故事內選擇上場時間線（唯讀）</Link>
             </article>
             <article id="progress-and-review">
               <small>PROGRESS & REVIEW</small><h2>任務、成就與檢查</h2>
