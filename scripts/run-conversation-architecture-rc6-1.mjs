@@ -62,6 +62,7 @@ async function test(name, action) {
 }
 
 const componentFiles = [
+  "conversation-workspace-view.tsx",
   "conversation-shell.tsx",
   "session-sidebar.tsx",
   "message-timeline.tsx",
@@ -94,12 +95,14 @@ const hookFiles = [
 async function componentContract() {
   await test("workspace delegates substantial UI to named component contracts", async () => {
     const workspace = await fs.readFile(path.join(chatRoot, "conversation-workspace.tsx"), "utf8");
+    const workspaceView = await read("app/studio/project/[projectId]/chat/components/conversation-workspace-view.tsx");
     const messageRow = await read("app/studio/project/[projectId]/chat/components/message-row.tsx");
     const messageTimeline = await read("app/studio/project/[projectId]/chat/components/message-timeline.tsx");
     const conversationTypes = await read("app/studio/project/[projectId]/chat/components/conversation-types.ts");
     const editController = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-branch.ts");
     const editDialog = await read("app/studio/project/[projectId]/chat/components/edit-message-copy-dialog.tsx");
     const conversationRepository = await read("lib/novel-ai/conversation/repository.ts");
+    assert.match(workspace, /<ConversationWorkspaceView\b/u, "workspace must delegate rendering to its view contract");
     for (const file of componentFiles) {
       const absolute = path.join(chatRoot, "components", file);
       const source = await fs.readFile(absolute, "utf8");
@@ -111,7 +114,7 @@ async function componentContract() {
       assert.ok(source.length >= 450, `${file} must own meaningful derived state or behavior`);
     }
     for (const name of ["ConversationShell", "SessionSidebar", "MessageTimeline", "MessageComposer"]) {
-      assert.match(workspace, new RegExp(`<${name}\\b`), `${name} must be used by workspace`);
+      assert.match(workspaceView, new RegExp(`<${name}\\b`), `${name} must be used by workspace view`);
     }
     assert.doesNotMatch(workspace, /messages\.map\s*\(/u, "message rows belong to MessageTimeline");
     assert.doesNotMatch(workspace, /<aside className=\{styles\.artifactDrawer\}/u, "drawer rendering must not remain in the orchestrator");
@@ -125,7 +128,7 @@ async function componentContract() {
     assert.match(editController, /conversation\.editMessageWithBranch\(/u);
     assert.doesNotMatch(editController, /window\.prompt\(/u, "editing must use the controlled copy dialog instead of a native prompt");
     assert.match(editController, /sourceContent:\s*message\.content/u, "editing must seed the controlled dialog with the original message");
-    assert.match(workspace, /<EditMessageCopyDialog/u);
+    assert.match(workspaceView, /<EditMessageCopyDialog/u);
     assert.match(editDialog, /role="dialog"[\s\S]*?aria-modal="true"/u);
     assert.match(editDialog, /確認並在副本重試/u);
     assert.doesNotMatch(editController, /conversation\.branchSession\(/u, "the controller must not retain a generic branch-only path");
@@ -322,6 +325,7 @@ async function bundleBudget() {
 async function lazyTools() {
   await test("artifact and technical panels are demand-loaded while playable choice facts stay visible", async () => {
     const workspace = await read("app/studio/project/[projectId]/chat/conversation-workspace.tsx");
+    const workspaceView = await read("app/studio/project/[projectId]/chat/components/conversation-workspace-view.tsx");
     const drawer = await read("app/studio/project/[projectId]/chat/components/artifact-drawer.tsx");
     const messageRow = await read("app/studio/project/[projectId]/chat/components/message-row.tsx");
     const attachmentCard = await read("app/studio/project/[projectId]/chat/components/attachment-card.tsx");
@@ -330,8 +334,8 @@ async function lazyTools() {
     const attachments = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-attachments.ts");
     const learningLoader = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-learning-loader.ts");
     const parser = await read("lib/novel-ai/web/manual-learning-file.ts");
-    assert.match(workspace, /const ArtifactDrawer = dynamic\(\(\) => import\("\.\/components\/artifact-drawer"\)/u);
-    assert.doesNotMatch(workspace, /import ArtifactDrawer from/u);
+    assert.match(workspaceView, /const ArtifactDrawer = dynamic\(\(\) => import\("\.\/artifact-drawer"\)/u);
+    assert.doesNotMatch(workspaceView, /import ArtifactDrawer from/u);
     assert.match(drawer, /const TechnicalEvidencePanel = dynamic\(\(\) => import\("\.\/technical-evidence-panel"\)/u);
     assert.match(attachmentCard, /const AttachmentPreview = dynamic\(\(\) => import\("\.\/attachment-preview"\)/u);
     assert.match(attachmentCard, /previewOpen \? <AttachmentPreview/u);

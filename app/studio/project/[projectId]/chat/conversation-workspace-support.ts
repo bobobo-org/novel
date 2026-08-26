@@ -10,10 +10,24 @@ import type {
 } from "@/lib/novel-ai/domain";
 import type { ConversationPlan } from "@/lib/novel-ai/conversation/planner";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
-import { artifactStory } from "./components/conversation-presentation";
+import { artifactStory, parseRpgChoices } from "./components/conversation-presentation";
 import type { ArtifactView } from "./components/conversation-types";
 
 export const MAX_TRANSIENT_ATTACHMENT_CONTEXT = 24_000;
+
+export type ExistingUserRequest = {
+  sessionId: string;
+  userMessageId: string;
+};
+
+export function latestRpgChoicesFrom(messages: ConversationMessage[]) {
+  for (const message of [...messages].reverse()) {
+    const parsed = parseRpgChoices(message.content);
+    if (parsed) return parsed.envelope ? { message, envelope: parsed.envelope } : null;
+    if (message.role === "assistant" && message.candidateIds.length) break;
+  }
+  return null;
+}
 
 export function errorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {

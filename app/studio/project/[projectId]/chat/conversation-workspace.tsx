@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import {
   useCallback,
   useEffect,
@@ -31,7 +30,6 @@ import {
 } from "@/lib/novel-ai/domain";
 import {
   resolveStoryPlayMode,
-  STORY_PLAY_MODE_LABELS,
 } from "@/lib/novel-ai/domain/play-mode";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
@@ -73,11 +71,7 @@ import {
   loadLearningAwareRpgChatSnapshot,
   parseRpgChoiceSelection,
 } from "@/lib/novel-ai/web/rpg-chat-turn";
-import { MessageComposer } from "./components/message-composer";
-import { MessageTimeline } from "./components/message-timeline";
-import { SessionSidebar } from "./components/session-sidebar";
-import { ConversationShell } from "./components/conversation-shell";
-import { EditMessageCopyDialog } from "./components/edit-message-copy-dialog";
+import { ConversationWorkspaceView } from "./components/conversation-workspace-view";
 import { useConversationSessionController } from "./hooks/use-conversation-session";
 import { useConversationBranchController } from "./hooks/use-conversation-branch";
 import { useConversationAttachmentController } from "./hooks/use-conversation-attachments";
@@ -93,7 +87,6 @@ import { useClosedAiBootstrap } from "./hooks/use-closed-ai-bootstrap";
 import { useSharedLearningSync } from "./hooks/use-shared-learning-sync";
 import {
   artifactStory,
-  parseRpgChoices,
 } from "./components/conversation-presentation";
 import type {
   ArtifactView,
@@ -105,30 +98,13 @@ import {
   artifactType,
   errorCode,
   errorMessage,
+  type ExistingUserRequest,
+  latestRpgChoicesFrom,
   MAX_TRANSIENT_ATTACHMENT_CONTEXT,
   progressLabel,
   resolveArtifactBefore,
   targetStore,
 } from "./conversation-workspace-support";
-import styles from "./conversation.module.css";
-
-const ArtifactDrawer = dynamic(() => import("./components/artifact-drawer"), {
-  loading: () => <p className={styles.emptyNote} role="status">正在載入作品結果……</p>,
-});
-
-type ExistingUserRequest = {
-  sessionId: string;
-  userMessageId: string;
-};
-
-function latestRpgChoicesFrom(messages: ConversationMessage[]) {
-  for (const message of [...messages].reverse()) {
-    const parsed = parseRpgChoices(message.content);
-    if (parsed) return parsed.envelope ? { message, envelope: parsed.envelope } : null;
-    if (message.role === "assistant" && message.candidateIds.length) break;
-  }
-  return null;
-}
 
 export default function ConversationWorkspace({
   projectId,
@@ -1867,13 +1843,6 @@ export default function ConversationWorkspace({
     }));
   }
 
-  const selectedArtifact = drawer?.kind === "artifact"
-    ? artifacts.find((artifact) => artifact.id === drawer.artifactId) ?? null
-    : null;
-  const latestInvocation = invocations.at(-1) ?? null;
-  const canStop = busy && cancellable;
-  const stopLabel = rpgChoicePlanning ? "不等了，改用後備選項" : "停止";
-  const branchPending = branchPendingMessageIds.size > 0;
   const messageActions: ConversationMessageActions = {
     chooseRpgOption: (envelope, messageId, key) => {
       void chooseRpgOption(envelope, messageId, key);
@@ -1906,137 +1875,80 @@ export default function ConversationWorkspace({
     stopGeneration,
   };
 
-  return (
-    <>
-      <ConversationShell
-      projectId={projectId}
-      projectTitle={project?.title ?? "小說專案"}
-      sessionTitle={activeSession?.title ?? "小說專案對話"}
-      chapterTitle={currentChapter?.title ?? null}
-      playModeLabel={fixedPlayMode ? STORY_PLAY_MODE_LABELS[fixedPlayMode] : "尚未確認"}
-      sidebarOpen={sidebarOpen}
-      artifactOpen={artifactOpen}
-      loading={loading}
-      onOpenSidebar={() => setSidebarOpen(true)}
-      onToggleSidebar={() => setSidebarOpen((value) => !value)}
-      onOpenArtifacts={() => setArtifactOpen(true)}
-      onToggleArtifacts={() => setArtifactOpen((value) => !value)}
-      onCloseDrawers={() => {
-        setSidebarOpen(false);
-        setArtifactOpen(false);
-      }}
-      sidebar={(
-        <SessionSidebar
-          projectId={projectId}
-          project={project}
-          sessions={visibleSessions}
-          activeSessionId={activeSessionId}
-          switchingSessionId={switchingSessionId}
-          queuedSessionId={queuedSessionId}
-          search={search}
-          showArchived={showArchived}
-          busy={busy}
-          branchPending={branchPending}
-          open={sidebarOpen}
-          onClose={closeSidebar}
-          onSearchChange={setSearch}
-          onToggleArchived={() => setShowArchived((value) => !value)}
-          onNewSession={() => { void newSession(); }}
-          onChooseSession={(sessionId) => { void chooseSession(sessionId); }}
-          onRenameSession={(session) => { void renameSession(session); }}
-          onArchiveSession={(session) => { void archiveSession(session); }}
-          onDeleteSession={(session) => { void deleteSession(session); }}
-          onExportSummary={() => { void exportActiveConversationSummary(); }}
-        />
-      )}
-      timeline={(
-        <MessageTimeline
-          project={project}
-          projectId={projectId}
-          sessionId={activeSessionId}
-          messages={messages}
-          artifacts={artifacts}
-          invocations={invocations}
-          attachments={attachments}
-          loading={loading}
-          busy={busy}
-          regenerationReady={closedAiRegenerationReady}
-          canStop={canStop}
-          stopLabel={stopLabel}
-          progress={progress}
-          safeError={safeError}
-          retryAvailable={retryAvailable}
-          retryLabel={retryLabel}
-          branchPendingMessageIds={branchPendingMessageIds}
-          dashboardOpenRequest={dashboardOpenRequest}
-          fixedPlayMode={fixedPlayMode}
-          storyState={storyState}
-          worlds={worlds}
-          characters={characters}
-          relationships={relationships}
-          actions={messageActions}
-          onStarter={setDraft}
-          onRetry={() => retryActionRef.current?.()}
-        />
-      )}
-      composer={(
-        <MessageComposer
-          active={Boolean(activeSession)}
-          projectId={projectId}
-          busy={busy}
-          busyReason={branchPending ? "正在準備修改副本；訊息與附件操作已暫停。" : null}
-          busyReasonTestId={branchPending ? "conversation-branch-global-status" : undefined}
-          canStop={canStop}
-          stopLabel={stopLabel}
-          draft={draft}
-          localAttachments={localAttachments}
-          rightsConfirmed={rightsConfirmed}
-          latestInvocation={latestInvocation}
-          closedAiSetup={closedAiSetup}
-          closedAiSetupProgress={closedAiSetupProgress}
-          closedAiSetupBusy={closedAiSetupBusy}
-          closedAiSetupError={closedAiSetupError}
-          closedAiSetupLifecycle={closedAiSetupLifecycle}
-          onDraftChange={setDraft}
-          onFilesSelected={onFilesSelected}
-          onRightsConfirmedChange={setRightsConfirmed}
-          onRetryAttachment={retryLocalAttachment}
-          onRemoveAttachment={removeLocalAttachment}
-          onToggleArtifacts={() => setArtifactOpen((value) => !value)}
-          onStop={stopGeneration}
-          onSend={() => { void sendRequest(); }}
-          onPrepareClosedAi={() => { void prepareClosedAi(); }}
-          onCancelClosedAiSetup={cancelClosedAiSetup}
-        />
-      )}
-        artifactDrawer={artifactOpen ? (
-          <ArtifactDrawer
-          projectId={projectId}
-          selectedArtifact={selectedArtifact}
-          drawer={drawer}
-          artifacts={artifacts}
-          artifactView={artifactView}
-          artifactBefore={artifactBefore}
-          artifactDraft={artifactDraft}
-          invocations={invocations}
-          busy={busy}
-          onClose={() => setArtifactOpen(false)}
-          onDraftChange={setArtifactDraft}
-          onOpenArtifact={(artifact) => { void openArtifact(artifact); }}
-          onApprove={(artifact, editedContent) => { void approveArtifact(artifact, editedContent); }}
-          onReject={(artifact) => { void rejectArtifact(artifact); }}
-          />
-        ) : null}
-      />
-      <EditMessageCopyDialog
-        open={Boolean(editDialog)}
-        value={editDialog?.value ?? ""}
-        sourceContent={editDialog?.sourceContent ?? ""}
-        confirming={editDialog?.confirming ?? false}
-        onChange={updateEditDraft}
-        onCancel={cancelEditMessage}
-        onConfirm={() => { void confirmEditMessage(); }}
-      />
-    </>
-  );
+  return <ConversationWorkspaceView {...{
+    projectId,
+    project,
+    activeSession,
+    currentChapterTitle: currentChapter?.title ?? null,
+    fixedPlayMode,
+    sidebarOpen,
+    setSidebarOpen,
+    artifactOpen,
+    setArtifactOpen,
+    loading,
+    visibleSessions,
+    activeSessionId,
+    switchingSessionId,
+    queuedSessionId,
+    search,
+    setSearch,
+    showArchived,
+    setShowArchived,
+    busy,
+    cancellable,
+    rpgChoicePlanning,
+    closeSidebar,
+    newSession,
+    chooseSession,
+    renameSession,
+    archiveSession,
+    deleteSession,
+    exportActiveConversationSummary,
+    messages,
+    artifacts,
+    invocations,
+    attachments,
+    closedAiRegenerationReady,
+    progress,
+    safeError,
+    retryAvailable,
+    retryLabel,
+    branchPendingMessageIds,
+    dashboardOpenRequest,
+    storyState,
+    worlds,
+    characters,
+    relationships,
+    messageActions,
+    retryActionRef,
+    draft,
+    setDraft,
+    localAttachments,
+    rightsConfirmed,
+    setRightsConfirmed,
+    closedAiSetup,
+    closedAiSetupProgress,
+    closedAiSetupBusy,
+    closedAiSetupError,
+    closedAiSetupLifecycle,
+    onFilesSelected,
+    retryLocalAttachment,
+    removeLocalAttachment,
+    stopGeneration,
+    sendRequest,
+    prepareClosedAi,
+    cancelClosedAiSetup,
+    drawer,
+    artifactView,
+    artifactBefore,
+    artifactDraft,
+    setArtifactDraft,
+    openArtifact,
+    approveArtifact,
+    rejectArtifact,
+    editDialog,
+    updateEditDraft,
+    cancelEditMessage,
+    confirmEditMessage,
+  }} />;
 }

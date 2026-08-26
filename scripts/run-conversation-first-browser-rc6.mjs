@@ -782,6 +782,7 @@ harness.test("browser", "route and component source expose the complete conversa
   );
   const workspaceSource = readFileSync("app/studio/project/[projectId]/chat/conversation-workspace.tsx", "utf8");
   const componentSource = [
+    "conversation-workspace-view.tsx",
     "conversation-shell.tsx",
     "session-sidebar.tsx",
     "message-timeline.tsx",

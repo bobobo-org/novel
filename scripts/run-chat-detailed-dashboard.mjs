@@ -9,6 +9,10 @@ const workspace = readFileSync(
   new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url),
   "utf8",
 );
+const workspaceView = readFileSync(
+  new URL("../app/studio/project/[projectId]/chat/components/conversation-workspace-view.tsx", import.meta.url),
+  "utf8",
+);
 const shell = readFileSync(
   new URL("../app/studio/project/[projectId]/chat/components/conversation-shell.tsx", import.meta.url),
   "utf8",
@@ -38,7 +42,7 @@ const styles = readFileSync(
   "utf8",
 );
 
-assert.match(workspace, /<MessageTimeline/u, "聊天工作台必須實際渲染 MessageTimeline");
+assert.match(workspaceView, /<MessageTimeline/u, "聊天顯示層必須實際渲染 MessageTimeline");
 assert.match(redirect, /\/chat\?mode=play/u, "RPG 入口必須導向實際聊天遊玩路線");
 
 // The project/conversation rail is optional context, not a permanent tax on
