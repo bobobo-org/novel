@@ -887,7 +887,7 @@ test("one story workspace exposes progress while coordinator management keeps ru
     "utf8",
   );
   assert.match(conversation, /onProgress: \(event\) => setProgress\(progressLabel\(event\)\)/u);
-  assert.match(conversation, /closedAiSetup\.readiness\.generationVerifiedBackends > 0/u);
+  assert.match(conversation, /isClosedAiTaskRoutable\(closedAiSetup\)/u);
   assert.match(conversation, /executeStudioClosedAgent/u);
   assert.match(ui, /closed-ai-management-boundary/u);
   assert.doesNotMatch(ui, /executeStudioClosedAgent|commitStudioCandidateToChapter/u);

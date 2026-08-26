@@ -17,11 +17,13 @@ import {
   type NovelProject,
   type ProjectBackup,
   type StoryBible,
+  type StoryState,
   type TimelineEvent,
   type World,
   type WorldRule,
   type WritingTask,
 } from "@/lib/novel-ai/domain";
+import { activeStoryWorlds } from "@/lib/novel-ai/domain/active-story-context";
 import { assertStoryStartedCanonMutationAllowed } from "@/lib/novel-ai/domain/story-started-canon-guard";
 import type { SocialWorldApprovalJournal } from "@/lib/novel-ai/social-world-approval";
 import {
@@ -43,6 +45,7 @@ import {
   CHARACTER_PORTRAIT_THEME_OPTIONS,
   filterCharacterPortraitCatalog,
 } from "@/lib/novel-ai/character-portraits/catalog";
+import { suggestedCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import { prepareCharacterPortraitUpload } from "@/lib/novel-ai/character-portraits/upload";
 import {
   CHARACTER_RPG_ARCHETYPES,
@@ -87,6 +90,7 @@ type Data = {
   rules: WorldRule[];
   timeline: TimelineEvent[];
   bibles: StoryBible[];
+  storyStates: StoryState[];
   tasks: WritingTask[];
   achievements: Achievement[];
   backups: ProjectBackup[];
@@ -424,6 +428,7 @@ export default function ProjectSectionClient({
         rules,
         timeline,
         bibles,
+        storyStates,
         tasks,
         achievements,
         backups,
@@ -437,6 +442,7 @@ export default function ProjectSectionClient({
         repo.list<WorldRule>("worldRules", projectId),
         repo.list<TimelineEvent>("timeline", projectId),
         repo.list<StoryBible>("storyBibles", projectId),
+        repo.list<StoryState>("storyStates", projectId),
         repo.list<WritingTask>("tasks", projectId),
         repo.list<Achievement>("achievements", projectId),
         repo.list<ProjectBackup>("backups", projectId),
@@ -454,6 +460,7 @@ export default function ProjectSectionClient({
         timeline: timeline.sort((left, right) =>
           (left.storyTime ?? left.createdAt).localeCompare(right.storyTime ?? right.createdAt)),
         bibles,
+        storyStates,
         tasks,
         achievements,
         backups: backups.sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
@@ -547,6 +554,9 @@ function SectionBody({
 }) {
   const project = data.project!;
   const storyStarted = data.chapters.some((chapter) => chapter.content.trim().length > 0);
+  const storyBible = data.bibles.find((item) => item.id === project.storyBibleId) ?? data.bibles[0];
+  const storyState = data.storyStates.find((item) => item.id === project.storyStateId) ?? data.storyStates[0];
+  const portraitWorlds = activeStoryWorlds(data.worlds, storyState, storyBible);
   if (section === "characters") {
     return (
       <>
@@ -565,6 +575,7 @@ function SectionBody({
         <CharacterEditor
           project={project}
           worlds={data.worlds}
+          portraitWorlds={portraitWorlds}
           characters={data.characters}
           storyBibles={data.bibles}
           storyStarted={storyStarted}
@@ -702,6 +713,7 @@ function StoryContextWorkspace({
 function CharacterEditor({
   project,
   worlds,
+  portraitWorlds,
   characters,
   storyBibles,
   storyStarted,
@@ -709,6 +721,7 @@ function CharacterEditor({
 }: {
   project: NovelProject;
   worlds: World[];
+  portraitWorlds: World[];
   characters: Character[];
   storyBibles: StoryBible[];
   storyStarted: boolean;
@@ -1526,22 +1539,25 @@ function CharacterEditor({
       </form>
       {characters.length ? (
         <div className="p2DataGrid" data-testid="character-records">
-          {characters.map((item) => (
-            <article key={item.id} data-record-id={item.id} data-revision={item.revision}>
-              {item.portrait ? <CharacterPortraitImage portrait={item.portrait} className="characterRecordPortrait" /> : null}
-              <b>{item.name}</b>
-              <span>{item.lifeStatus === "alive" ? "存活" : item.lifeStatus === "dead" ? "死亡" : "未知"}</span>
-              <p>{item.goal.value || "尚未設定目標"}</p>
-              <small>{item.locationId || "尚未設定位置"}</small>
-              {item.personality.value ? <small>{item.personality.value}</small> : null}
-              {item.privateSecrets?.length ? <small>含作者私人設定</small> : null}
-              {item.rpgProfile ? <small>RPG：{CHARACTER_RPG_ARCHETYPES.find((option) => option.id === item.rpgProfile?.archetype)?.label ?? "自訂配點"} · {characterRpgPointTotal(item.rpgProfile.stats)} 點</small> : null}
-              <div className="p2RecordActions">
-                <button type="button" onClick={() => edit(item)}>編輯</button>
-                <button type="button" className="danger" disabled={storyStarted} title={storyStarted ? "故事開始後不能刪除正式人物；可在首頁移到候場" : undefined} onClick={() => void remove(item)}>刪除</button>
-              </div>
-            </article>
-          ))}
+          {characters.map((item) => {
+            const displayPortrait = suggestedCharacterPortrait({ character: item, project, worlds: portraitWorlds });
+            return (
+              <article key={item.id} data-record-id={item.id} data-revision={item.revision}>
+                <CharacterPortraitImage portrait={displayPortrait} className="characterRecordPortrait" />
+                <b>{item.name}</b>
+                <span>{item.lifeStatus === "alive" ? "存活" : item.lifeStatus === "dead" ? "死亡" : "未知"}</span>
+                <p>{item.goal.value || "尚未設定目標"}</p>
+                <small>{item.locationId || "尚未設定位置"}</small>
+                {item.personality.value ? <small>{item.personality.value}</small> : null}
+                {item.privateSecrets?.length ? <small>含作者私人設定</small> : null}
+                {item.rpgProfile ? <small>RPG：{CHARACTER_RPG_ARCHETYPES.find((option) => option.id === item.rpgProfile?.archetype)?.label ?? "自訂配點"} · {characterRpgPointTotal(item.rpgProfile.stats)} 點</small> : null}
+                <div className="p2RecordActions">
+                  <button type="button" onClick={() => edit(item)}>編輯</button>
+                  <button type="button" className="danger" disabled={storyStarted} title={storyStarted ? "故事開始後不能刪除正式人物；可在首頁移到候場" : undefined} onClick={() => void remove(item)}>刪除</button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : <Empty>目前還沒有角色資料。</Empty>}
     </>

@@ -15,8 +15,11 @@ import {
   type StoryChoiceEffect,
   type StoryState,
   type TimelineEvent,
+  type World,
   type WorldRule,
 } from "@/lib/novel-ai/domain";
+import { activeStoryWorlds } from "@/lib/novel-ai/domain/active-story-context";
+import { suggestedCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import {
   RPG_CHARACTER_LIBRARY_STORAGE_KEY,
   createRpgCharacterTemplate,
@@ -92,6 +95,7 @@ import {
   generateRpgChatTurnCandidate,
   loadRpgChatSnapshot,
   planRpgChatChoices,
+  RPG_CHAT_STORY_AI_TIMEOUT_MS,
   type RpgChatChoicePlan,
   type RpgChatSnapshot,
   type RpgChatTurnCandidate,
@@ -115,6 +119,7 @@ type WorkspaceData = {
   storyBible: StoryBible;
   characters: Character[];
   relationships: CharacterRelationship[];
+  worlds: World[];
   worldRules: WorldRule[];
   lore: LoreEntry[];
   timeline: TimelineEvent[];
@@ -156,7 +161,8 @@ type RpgMutationLine = {
 
 const FORMULA = rpgFormulaExplanation();
 const RULE_STORAGE_PREFIX = "novel:rpg-rules:v2:";
-const RPG_TURN_TIMEOUT_MS = 300_000;
+const RPG_TURN_COMPLETION_GRACE_MS = 5_000;
+const RPG_TURN_TIMEOUT_MS = RPG_CHAT_STORY_AI_TIMEOUT_MS + RPG_TURN_COMPLETION_GRACE_MS;
 
 type PlayModeDashboardCopy = {
   identity: string;
@@ -563,12 +569,13 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     const loadedProject = await repository.get<NovelProject>("projects", projectId);
     if (!loadedProject) throw new Error("找不到這個作品。");
     let project: NovelProject = loadedProject;
-    const [chapters, states, bibles, characters, relationships, worldRules, lore, timeline, acceptedChoices, rpgTurnReceipts] = await Promise.all([
+    const [chapters, states, bibles, characters, relationships, worlds, worldRules, lore, timeline, acceptedChoices, rpgTurnReceipts] = await Promise.all([
       repository.list<Chapter>("chapters", projectId),
       repository.list<StoryState>("storyStates", projectId),
       repository.list<StoryBible>("storyBibles", projectId),
       repository.list<Character>("characters", projectId),
       repository.list<CharacterRelationship>("relationships", projectId),
+      repository.list<World>("worlds", projectId),
       repository.list<WorldRule>("worldRules", projectId),
       repository.list<LoreEntry>("lore", projectId),
       repository.list<TimelineEvent>("timeline", projectId),
@@ -625,6 +632,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       storyBible,
       characters,
       relationships,
+      worlds,
       worldRules,
       lore,
       timeline,
@@ -655,6 +663,12 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
 
   const protagonist = data?.characters.find((character) =>
     data.storyBible.protagonistIds.includes(character.id)) ?? data?.characters[0] ?? null;
+  const activeWorlds = data
+    ? activeStoryWorlds(data.worlds, data.storyState, data.storyBible)
+    : [];
+  const protagonistPortrait = data && protagonist
+    ? suggestedCharacterPortrait({ character: protagonist, project: data.project, worlds: activeWorlds })
+    : null;
   const mingtanPreview = useMemo(() => describeMingtanPresetPreview(), []);
   const storyLanguage = useMemo(() => {
     const value = data?.storyState.worldFlags?.["story.language"];
@@ -1008,7 +1022,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     setTurnDraft("");
     setTurnElapsedSeconds(0);
     setBusy(true);
-    setStatus(`已選擇「${choice.key}｜${choice.title}」；正在產生候選正文，正式 Canon 尚未修改。`);
+    setStatus(`已選擇「${choice.key}｜${choice.title}」；閉端 AI 正在產生完整小說正文，最長等待 180 秒。只有模型實際失敗或逾時才會使用規則後備；正式 Canon 尚未修改。`);
     try {
       const repository = createNovelRepository();
       const snapshot = await loadRpgChatSnapshot(repository, projectId, rules, learningRepository);
@@ -1029,14 +1043,14 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           onProgress: (event) => {
             if (controller.signal.aborted || turnRunIdRef.current !== runId) return;
             const generated = event.generatedCharacters ?? 0;
-            setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}；仍是候選，尚未寫入 Canon。`);
+            setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}；閉端 AI 正文最長等待 180 秒，仍是候選，尚未寫入 Canon。`);
           },
         }),
         new Promise<never>((_resolve, reject) => {
           turnTimeout = window.setTimeout(() => {
             controller.abort();
             reject(Object.assign(
-              new Error("本回合候選產生超過 300 秒，已安全停止；正文與所有數值均維持原狀。"),
+              new Error("閉端 AI 的 180 秒期限已結束，裝置後備仍未在 5 秒內完成；已安全停止，正文與所有數值均維持原狀。"),
               { code: "RPG_AI_TURN_TIMEOUT" },
             ));
           }, RPG_TURN_TIMEOUT_MS);
@@ -1497,7 +1511,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         <section id="rpg-detailed-dashboard" className={styles.dashboard} data-testid="rpg-detailed-dashboard" data-dashboard-expanded={dashboardExpanded ? "true" : "false"}>
           <aside className={styles.leftRail}>
             <article className={styles.characterCard}>
-              <div className={styles.avatar}>{protagonist?.portrait ? <CharacterPortraitImage portrait={protagonist.portrait} className={styles.avatarPortrait} decorative /> : (protagonist?.name ?? "主").slice(0, 1)}</div>
+              <div className={styles.avatar}>{protagonistPortrait ? <CharacterPortraitImage portrait={protagonistPortrait} className={styles.avatarPortrait} decorative /> : (protagonist?.name ?? "主").slice(0, 1)}</div>
               <div><small>{activeMode === "management" ? "創業者／領導者" : activeMode === "cultivation" ? "成長中的命運者" : "流浪冒險者"}</small><h2>{protagonist?.name ?? "未命名主角"}</h2><p>{data.storyState.locationState ?? "位置尚未設定"} · {data.storyState.riskState ?? "風險未知"}</p><small>能力來源：{protagonist?.rpgProfile ? "角色核准配點" : "作品公式種子"}</small></div>
             </article>
 
@@ -1651,7 +1665,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                       <p className={styles.resolutionProgress} role="status" aria-live="polite" data-testid="rpg-resolution-progress">
                         <b>正在產生或提交本回合</b>
                         <span>{status}</span>
-                        <small>已等待 {turnElapsedSeconds} 秒；候選產生完成前不會修改正文或數值。</small>
+                        <small>已等待 {turnElapsedSeconds} 秒；閉端 AI 最長等待 180 秒，只有模型實際失敗或逾時才會使用規則後備。候選完成前不會修改正文或數值。</small>
                       </p>
                     ) : null}
                     {turnDraft ? (

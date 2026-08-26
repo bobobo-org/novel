@@ -19,6 +19,35 @@ export type CreationStorySeed = {
 
 export type CreationStorySeedSource = "closed-ai" | "device-fallback";
 
+/**
+ * A tiny latest-request gate for creation-page AI work. React state updates can
+ * be deferred, so the mode picker invalidates this gate synchronously before
+ * an older provider promise gets a chance to merge into the new mode.
+ */
+export function createCreationStorySeedRequestGate() {
+  let revision = 0;
+  let activeController: AbortController | null = null;
+  return {
+    begin(controller: AbortController) {
+      revision += 1;
+      activeController = controller;
+      return revision;
+    },
+    invalidate(reason: unknown = "CREATE_STORY_SEED_CONTEXT_CHANGED") {
+      revision += 1;
+      const controller = activeController;
+      activeController = null;
+      if (controller && !controller.signal.aborted) controller.abort(reason);
+    },
+    isCurrent(requestRevision: number) {
+      return requestRevision === revision;
+    },
+    complete(requestRevision: number) {
+      if (requestRevision === revision) activeController = null;
+    },
+  };
+}
+
 type StorySeedJson = {
   story?: unknown;
   protagonist?: {

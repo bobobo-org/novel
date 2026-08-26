@@ -1395,8 +1395,7 @@ await test("source-truth", async () => {
   assert.match(workspace, /expectedSourceMessage:\s*currentSourceMessage/u);
   assert.match(workspace, /expectedSourceInvocation:\s*sourceInvocation!/u);
   assert.match(workspace, /sourceCandidateDigest:\s*regenerationSource\.candidateDigest/u);
-  assert.match(workspace, /closedAiSetup\?\.status === "ready"/u);
-  assert.match(workspace, /closedAiSetup\.readiness\.generationVerifiedBackends > 0/u);
+  assert.match(workspace, /isClosedAiTaskRoutable\(closedAiSetup\)/u);
   assert.match(messageRow, /&& regenerationReady/u);
   assert.doesNotMatch(messageRow, /outputDigest === message\.contentDigest/u);
   assert.match(regenerationProof, /input\.artifacts\.length === 0/u);

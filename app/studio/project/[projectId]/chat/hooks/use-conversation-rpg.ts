@@ -400,15 +400,19 @@ export function useConversationRpgController({
         }
         let invocationCompleted = false;
         try {
+          setProgress("閉端 AI 正在依你選定的 A／B／C 分支產生完整小說正文；最長等待 180 秒。只有模型實際失敗或等待滿 180 秒才會使用規則後備。");
           const candidate = await generateRpgChatTurnCandidate({
             snapshot,
             choice: input.choice,
             signal: input.signal,
-            onProgress: (event) => setProgress(rpgProgressLabel(event)),
+            onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 閉端 AI 正文最長等待 180 秒`),
           });
           if (input.signal.aborted) {
             throw Object.assign(new Error("RPG turn cancelled."), { code: "CONVERSATION_CANCELLED" });
           }
+          setProgress(candidate.actualExecutor === "deterministic-rule-fallback"
+            ? "閉端 AI 實際失敗或等待滿 180 秒，才改用規則後備正文；仍是候選，尚未寫入 Canon。"
+            : `閉端 AI 已完成完整小說正文（${candidate.model}）；仍是候選，尚未寫入 Canon。`);
           const currentAssistant = await repository.get<ConversationMessage>("conversationMessages", assistant.id);
           if (!currentAssistant) throw new Error("CONVERSATION_MESSAGE_MISSING");
           invocation = await conversation.updateToolInvocationStatus({

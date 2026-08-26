@@ -1520,7 +1520,11 @@ export function buildRpgChoices(input: {
       causalKnowledgeDigest: input.causalKnowledgeDigest,
     });
     usedEncounterSignatures.add(encounter.signature);
-    const contextualTitle = `${strategyMarkers[strategy]}｜${encounter.title}：${fallbackAction[strategy].title}`;
+    // Lead with the action the reader is actually choosing.  The former copy
+    // put a shared strategy/encounter prefix first, so the 24/100 character
+    // display bounds routinely clipped away the only part that distinguished
+    // A, B and C.
+    const contextualTitle = `${fallbackAction[strategy].title}・${encounter.title}`;
     const pressureLead = factionPressure ? `面對「${factionPressure}」時，` : "";
     const threadLead = unresolvedThread ? `處理「${unresolvedThread}」時，` : "";
     const strategicAnchor = strategy === "resource"
@@ -1532,7 +1536,26 @@ export function buildRpgChoices(input: {
     const anchorLead = strategicAnchor
       ? `${castLead}以「${strategicAnchor}」為本次行動核心，`
       : `${castLead}先承接眼前局勢，`;
-    const contextualDescription = `${anchorLead}承接「${conflictFocus}」，${pressureLead}${threadLead}${fallbackAction[strategy].description}；${encounter.complication}`;
+    const strategyAnchor = Array.from(storyProps[mode][strategy]).slice(0, 28).join("");
+    const strategyOpening: Record<RpgChoiceStrategy, string> = {
+      steady: `${supportingCharacter || protagonist}先封住退路，${protagonist}分開保全「${strategyAnchor}」與目擊證詞，暫緩追擊以換取可核對的證據`,
+      resource: `${protagonist}當場交付「${strategyAnchor}」作為籌碼，向${familyOrFaction || supportingCharacter || "知情者"}換取時間、情報與介入資格`,
+      bold: `${protagonist}越過試探，沿「${strategyAnchor}」直取對手尚未封死的缺口，接受暴露身分與正面衝突的代價`,
+    };
+    const contextualDescription = [
+      strategyOpening[strategy],
+      fallbackAction[strategy].description,
+      encounter.catalyst ?? encounter.telegraph,
+      `${anchorLead}承接「${conflictFocus}」`,
+      pressureLead,
+      threadLead,
+      encounter.complication,
+    ].filter(Boolean).join("；");
+    const contextualBenefit: Record<RpgChoiceStrategy, string> = {
+      steady: `保住可核對的證據與退路；${encounter.aftermath ?? encounter.locationShift}`,
+      resource: `以${storyAsset || availableInventory || "既有資源"}換得時間、情報或承諾；${encounter.reversal ?? encounter.worldAspect}`,
+      bold: `迫使真正阻力提前現身；${encounter.reversal ?? encounter.locationShift}`,
+    };
     const managementInvestment = mode === "management"
       ? managementInvestmentStrategy(worldContext, strategy)
       : null;
@@ -1559,6 +1582,12 @@ export function buildRpgChoices(input: {
       title: boundedText(contextualTitle, 8, 24, "並承擔後果"),
       encounter,
       description: boundedText(contextualDescription, 30, 100, "，結果將由規則引擎先行結算。"),
+      consequenceTeaser: boundedText(
+        contextualBenefit[strategy],
+        12,
+        40,
+        "，並留下可由下一幕承接的變化。",
+      ),
       effect: contextualEffect,
       impactLabels: managementInvestment
         ? [...baseChoice.impactLabels.filter((item) => item !== "公司狀態"), `${managementInvestment.asset.category}資產`].slice(0, 4)

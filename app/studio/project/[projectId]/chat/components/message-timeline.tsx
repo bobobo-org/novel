@@ -9,9 +9,11 @@ import type {
   Character,
   CharacterRelationship,
   NovelProject,
+  StoryBible,
   StoryState,
   World,
 } from "@/lib/novel-ai/domain";
+import { activeStoryWorlds } from "@/lib/novel-ai/domain/active-story-context";
 import {
   isGameStoryPlayMode,
   STORY_PLAY_MODE_LABELS,
@@ -491,6 +493,7 @@ export function MessageTimeline({
   branchPendingMessageIds,
   dashboardOpenRequest,
   fixedPlayMode,
+  storyBible,
   storyState,
   worlds,
   characters,
@@ -518,6 +521,7 @@ export function MessageTimeline({
   branchPendingMessageIds: ReadonlySet<string>;
   dashboardOpenRequest: number;
   fixedPlayMode: StoryPlayModeId | null;
+  storyBible: StoryBible | null;
   storyState: StoryState | null;
   worlds: World[];
   characters: Character[];
@@ -527,6 +531,10 @@ export function MessageTimeline({
   onRetry: () => void;
 }) {
   const gameStory = fixedPlayMode ? isGameStoryPlayMode(fixedPlayMode) : false;
+  const portraitWorlds = useMemo(
+    () => activeStoryWorlds(worlds, storyState, storyBible),
+    [storyBible, storyState, worlds],
+  );
   const starters = gameStory
     ? [
         "繼續目前故事。",
@@ -627,7 +635,7 @@ export function MessageTimeline({
             playDashboard={showDashboard ? <PlayModeDashboard projectId={projectId} playMode={fixedPlayMode} storyState={storyState} openRequest={dashboardOpenRequest} /> : null}
             playDashboardPlacement={showDashboard ? dashboardTarget.placement : null}
             project={project}
-            worlds={worlds}
+            worlds={portraitWorlds}
             characters={characters}
             relationships={relationships}
           />;

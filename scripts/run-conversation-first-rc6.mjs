@@ -79,6 +79,9 @@ import {
   buildRpgChatCustomAction,
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
 import {
+  isClosedAiTaskRoutable,
+} from "../app/studio/project/[projectId]/chat/closed-ai-task-readiness.ts";
+import {
   readRpgProgression,
 } from "../lib/novel-ai/game/progression/rpg-progression.ts";
 import {
@@ -901,8 +904,7 @@ harness.test("contract", "closed regeneration waits for readiness and commits it
   assert.match(finalization, /CONVERSATION_APPROVAL_TARGET_MISSING/u);
   assert.match(finalization, /currentArtifact\?\.status === "candidate"/u);
   assert.match(finalization, /CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE/u);
-  assert.match(workspace, /closedAiSetup\?\.status === "ready"/u);
-  assert.match(workspace, /closedAiSetup\.readiness\.generationVerifiedBackends > 0/u);
+  assert.match(workspace, /isClosedAiTaskRoutable\(closedAiSetup\)/u);
   assert.match(messageRow, /&& regenerationReady/u);
 
   const regeneration = workspace.slice(
@@ -912,6 +914,48 @@ harness.test("contract", "closed regeneration waits for readiness and commits it
   const failure = regeneration.slice(regeneration.lastIndexOf("} catch (error)"));
   assert(failure.indexOf("await loadWorkspace(sessionId)") >= 0);
   assert(failure.indexOf("await loadWorkspace(sessionId)") < failure.indexOf("setSafeError"));
+});
+
+harness.test("contract", "chapter continuation setup follows task route, not any ready backend", () => {
+  const composer = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/components/message-composer.tsx", import.meta.url),
+    "utf8",
+  );
+  const taskReadiness = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/closed-ai-task-readiness.ts", import.meta.url),
+    "utf8",
+  );
+  const unroutable = {
+    runtime: {
+      route: { executionStatus: "not_executed" },
+      plannedBackend: null,
+    },
+  };
+  const unrelatedReadyBackend = {
+    ...unroutable,
+    readiness: { generationVerifiedBackends: 1 },
+  };
+  const routable = {
+    runtime: {
+      route: { executionStatus: "routable" },
+      plannedBackend: "local-ollama",
+    },
+  };
+  assert.equal(isClosedAiTaskRoutable(unrelatedReadyBackend), false);
+  assert.equal(isClosedAiTaskRoutable(routable), true);
+  assert.equal(isClosedAiTaskRoutable({
+    runtime: {
+      route: { executionStatus: "routable" },
+      plannedBackend: null,
+    },
+  }), false);
+  assert.match(taskReadiness, /完整小說正文需要能執行 chapter\.continue 的已驗證閉端模型/u);
+  assert.match(taskReadiness, /route\.executionStatus === "routable"/u);
+  assert.match(taskReadiness, /setup\.runtime\.plannedBackend/u);
+  assert.match(composer, /CHAPTER_CONTINUE_SETUP_REQUIRED_MESSAGE/u);
+  assert.match(composer, /showSetup = Boolean\(closedAiSetup && !taskRoutable\)/u);
+  assert.match(composer, /data-closed-ai-task-routable=\{taskRoutable\}/u);
+  assert.match(composer, /自動協調器設定/u);
 });
 
 harness.test("contract", "story tasks use the automatic coordinator without a user backend picker", () => {

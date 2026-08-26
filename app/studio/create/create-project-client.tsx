@@ -53,6 +53,7 @@ import {
   type ProjectCloneSourceSummary,
 } from "@/lib/novel-ai/repository/project-playmode-clone";
 import {
+  createCreationStorySeedRequestGate,
   creationStorySeedPrompt,
   mergeCreationStorySeed,
   parseCreationStorySeed,
@@ -63,6 +64,13 @@ import PersistenceRecoveryNotice from "../persistence-recovery-notice";
 
 const DRAFT_KEY = "novel_p2_creation_draft";
 const CREATION_AI_DEADLINE_MS = 24_000;
+const MODE_NEUTRAL_STORY_SEED_LABEL = "尚未選定創作／遊玩方式；只產生不綁定玩法的共同故事核心，不替作者選擇玩法";
+const CLOSED_AI_UNAVAILABLE_CODES = new Set([
+  "NO_CLOSED_PROVIDER_AVAILABLE",
+  "CLOSED_AI_EXPLICIT_PROSE_BACKEND_REQUIRED",
+  "AI_LOCAL_PROVIDER_REQUIRED",
+  "LOCAL_PROVIDER_NOT_READY",
+]);
 
 function draftStorageKey(cloneFrom: string | null) {
   return `${DRAFT_KEY}:${cloneFrom ? `clone:${cloneFrom}` : "new"}`;
@@ -399,17 +407,36 @@ function playModeOf(draft: ProjectCreationDraft) {
 function topicContractForCreationDraft(draft: ProjectCreationDraft) {
   const topic = resolveStoryTopic(draft.genreId);
   const playMode = playModeOf(draft);
-  if (!topic || !playMode) return null;
+  if (!topic) return null;
   const contractMode: TopicWorldPlayMode = playMode === "rpg"
     || playMode === "romance"
     || playMode === "management"
     ? playMode
     : "general";
-  return topicWorldContractAt({
+  const contract = topicWorldContractAt({
     seed: `novel-project:${draft.projectId}:procedural-v1`,
     topicId: topic.topicId,
     playMode: contractMode,
   });
+  if (playMode) return contract;
+
+  // A mode-neutral seed may reuse the general contract's topic/era lookup, but
+  // it must not tell the author that General Writing was selected. The author
+  // still owns that decision and the UI keeps it explicitly incomplete.
+  const neutralSummary = contract.displaySummary
+    .split("\n")
+    .filter((line) => !/本作採用|採用「一般章節寫作」/u.test(line))
+    .join("\n");
+  return {
+    ...contract,
+    displaySummary: `${neutralSummary}\n玩法尚未選定；目前只固定題材、時代、制度與不可變世界規則，不預先啟用任何玩法機制。`,
+    playMechanics: {
+      ...contract.playMechanics,
+      label: "玩法尚未選定",
+      dimensions: [],
+      rules: [],
+    },
+  };
 }
 
 function topicWorldFamilyMatrixForCreationDraft(draft: ProjectCreationDraft) {
@@ -725,6 +752,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   const requestId = useRef(crypto.randomUUID());
   const titleInputRef = useRef<HTMLInputElement>(null);
   const seedAssistantControllerRef = useRef<AbortController | null>(null);
+  const seedAssistantRequestGateRef = useRef(createCreationStorySeedRequestGate());
   const storageKey = draftStorageKey(cloneFrom);
 
   useEffect(() => {
@@ -776,7 +804,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   }, [draft, ready, storageKey]);
 
   useEffect(() => () => {
-    seedAssistantControllerRef.current?.abort("CREATE_STORY_SEED_UNMOUNTED");
+    seedAssistantRequestGateRef.current.invalidate("CREATE_STORY_SEED_UNMOUNTED");
   }, []);
 
   function retryCloneSourceRead() {
@@ -881,32 +909,66 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     set({ mode, step: 1 });
   };
 
+  function invalidateAssistedSeedForContextChange() {
+    seedAssistantRequestGateRef.current.invalidate("CREATE_STORY_SEED_CONTEXT_CHANGED");
+  }
+
   const choosePlayMode = (mode: StoryPlayModeId) => {
     if (!requireTitle("選擇創作方式")) return;
-    setAnswer("playMode", mode);
+    if (currentPlayMode !== mode) invalidateAssistedSeedForContextChange();
+    setDraft((current) => {
+      const previousMode = playModeOf(current);
+      const switchingExistingMode = Boolean(previousMode && previousMode !== mode);
+      return {
+        ...current,
+        protagonist: switchingExistingMode
+          ? optionalValue<string>(null, "deferred")
+          : current.protagonist,
+        answers: {
+          ...current.answers,
+          playMode: optionalValue(mode, "user_defined"),
+          ...(previousMode !== mode ? {
+            stageFamily: optionalValue<string>(null, "deferred"),
+          } : {}),
+          ...(switchingExistingMode ? {
+            protagonist: optionalValue<string>(null, "deferred"),
+            cast: optionalValue<string>(null, "deferred"),
+          } : {}),
+        },
+        seedCandidate: switchingExistingMode ? null : current.seedCandidate,
+        updatedAt: new Date().toISOString(),
+      };
+    });
     setMessage(`已選擇「${STORY_PLAY_MODE_LABELS[mode]}」。作品建立後這個玩法會鎖定；若要比較其他玩法，請複製為新作品。`);
   };
 
   const choosePlayStructure = (structure: "general" | "choice") => {
     if (!requireTitle("選擇寫作方式")) return;
+    if (playStructure !== structure) invalidateAssistedSeedForContextChange();
     setDraft((current) => {
-      const existing = selectedStoryPlayMode(current.answers);
+      const existing = playModeOf(current);
       const keepThreeChoiceMode = existing === "rpg" || existing === "romance" || existing === "management";
+      const nextMode = structure === "general" ? "general" : keepThreeChoiceMode ? existing : null;
+      const switchingExistingMode = Boolean(existing && existing !== nextMode);
       return {
         ...current,
         answers: {
           ...current.answers,
           playStructure: optionalValue(structure, "user_defined"),
           playMode: optionalValue(
-            structure === "general" ? "general" : keepThreeChoiceMode ? existing : null,
+            nextMode,
             structure === "general" || keepThreeChoiceMode ? "user_defined" : "deferred",
           ),
           stageFamily: optionalValue<string>(null, "deferred"),
-          protagonist: optionalValue<string>(null, "deferred"),
-          cast: optionalValue<string>(null, "deferred"),
+          ...(switchingExistingMode ? {
+            protagonist: optionalValue<string>(null, "deferred"),
+            cast: optionalValue<string>(null, "deferred"),
+          } : {}),
         },
-        protagonist: optionalValue<string>(null, "deferred"),
-        seedCandidate: null,
+        protagonist: switchingExistingMode
+          ? optionalValue<string>(null, "deferred")
+          : current.protagonist,
+        seedCandidate: switchingExistingMode ? null : current.seedCandidate,
         updatedAt: new Date().toISOString(),
       };
     });
@@ -951,19 +1013,22 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   };
 
   async function applyAssistedSeed() {
-    if (!requireTitle("建立故事雛形")) return;
-    if (!currentPlayMode) {
-      setMessage(playStructure === "choice"
-        ? "請先選擇 RPG 養成、戀愛養成或經營模擬。"
-        : "請先選擇一般章節寫作或三選一互動。");
+    if (!draft.title.trim()) {
+      requireTitle("建立故事雛形");
+      setSeedAssistantSource("尚未開始");
+      setSeedAssistantStatus("請先填寫作品名稱，再由 AI 依作品名稱與題材補齊故事雛形。");
       return;
     }
     if (!draft.genreId) {
       setMessage("請先選擇一個題材方向。閉端 AI 會依該題材的正式世界合約補齊雛形，不會用泛用內容取代世界觀。");
+      setSeedAssistantSource("尚未開始");
+      setSeedAssistantStatus("請先選擇題材方向，再產生與該世界規則一致的故事雛形。");
       return;
     }
     if (seedAssistantBusy) return;
+    const playModePending = !currentPlayMode;
     const controller = new AbortController();
+    const requestRevision = seedAssistantRequestGateRef.current.begin(controller);
     let timedOut = false;
     const deadline = window.setTimeout(() => {
       timedOut = true;
@@ -972,8 +1037,12 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     seedAssistantControllerRef.current = controller;
     setSeedAssistantBusy(true);
     setSeedAssistantSource("");
-    setSeedAssistantStatus("正在由閉端 AI 自動協調器選擇可用算力；最多等待 24 秒，若確認裝置沒有可用模型會立即改用後備。");
-    setMessage("已收到操作，正在建立世界觀、故事起點與多人核心陣容；不會自動建立作品，也不會覆蓋你已填的內容。");
+    setSeedAssistantStatus(playModePending
+      ? "尚未選擇創作／遊玩方式；正在先建立不綁定玩法的共同故事雛形。最多等待 24 秒，若確認裝置沒有可用模型會立即改用後備。"
+      : "正在由閉端 AI 自動協調器選擇可用算力；最多等待 24 秒，若確認裝置沒有可用模型會立即改用後備。");
+    setMessage(playModePending
+      ? "已收到操作，正在補齊共同故事核心；不會替你選擇玩法，也不會自動建立作品。"
+      : "已收到操作，正在建立世界觀、故事起點與多人核心陣容；不會自動建立作品，也不會覆蓋你已填的內容。");
     try {
       const result = await runStudioPreCreationClosedAI({
         projectId: draft.projectId,
@@ -981,7 +1050,9 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         input: creationStorySeedPrompt({
           title: draft.title.trim(),
           language: storyLanguageOf(draft),
-          playModeLabel: STORY_PLAY_MODE_LABELS[currentPlayMode],
+          playModeLabel: currentPlayMode
+            ? STORY_PLAY_MODE_LABELS[currentPlayMode]
+            : MODE_NEUTRAL_STORY_SEED_LABEL,
           topic: topic?.name ?? null,
           existing: draft.seedCandidate ?? buildSeedCandidate(draft),
         }),
@@ -996,11 +1067,18 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         },
         signal: controller.signal,
         onProgress: (event) => {
-          if (!controller.signal.aborted) {
+          if (
+            !controller.signal.aborted
+            && seedAssistantRequestGateRef.current.isCurrent(requestRevision)
+          ) {
             setSeedAssistantStatus(event.label || "閉端 AI 正在整理故事因果、世界觀與核心陣容。");
           }
         },
       });
+      if (
+        controller.signal.aborted
+        || !seedAssistantRequestGateRef.current.isCurrent(requestRevision)
+      ) return;
       const suggestion = parseCreationStorySeed(result.content);
       if (!suggestion) {
         throw Object.assign(new Error("模型輸出未通過故事起點格式檢查。"), {
@@ -1014,9 +1092,14 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       ));
       const source = closedAISeedSource(result.provider);
       setSeedAssistantSource(source);
-      setSeedAssistantStatus("AI 雛形、世界觀與四名核心配角已填入空白欄位；請先閱讀、修改，再自行按下建立作品。");
-      setMessage(`${source}已產生可修改雛形；原有內容完整保留，且尚未建立作品。`);
+      setSeedAssistantStatus(playModePending
+        ? "AI 已填入不綁定玩法的共同故事雛形、世界觀與四名核心配角；請閱讀後親自選擇創作／遊玩方式。"
+        : "AI 雛形、世界觀與四名核心配角已填入空白欄位；請先閱讀、修改，再自行按下建立作品。");
+      setMessage(playModePending
+        ? `${source}已產生共同故事雛形；沒有替你選擇玩法，選定後才能建立作品。`
+        : `${source}已產生可修改雛形；原有內容完整保留，且尚未建立作品。`);
     } catch (error) {
+      if (!seedAssistantRequestGateRef.current.isCurrent(requestRevision)) return;
       const manuallyCancelled = controller.signal.aborted && !timedOut;
       if (manuallyCancelled) {
         setSeedAssistantSource("");
@@ -1035,19 +1118,28 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       const code = timedOut
         ? "CREATE_STORY_SEED_TIMEOUT"
         : String((error as { code?: unknown })?.code ?? "MODEL_NOT_READY");
+      const providerUnavailable = CLOSED_AI_UNAVAILABLE_CODES.has(code);
       setSeedAssistantSource("裝置安全後備（非 AI）");
+      const pendingModeReminder = playModePending
+        ? " 這份雛形不綁定玩法；仍須由你親自選擇創作／遊玩方式。"
+        : "";
       setSeedAssistantStatus(timedOut
-        ? "閉端 AI 等待滿 24 秒仍未完成，已改用裝置後備填入空白欄位。"
-        : `已確認目前裝置沒有可完成此任務的閉端模型，已立即改用裝置後備填入空白欄位（${code}）。`);
+        ? `閉端 AI 等待滿 24 秒仍未完成，已改用裝置後備填入空白欄位。${pendingModeReminder}`
+        : providerUnavailable
+          ? `已確認目前裝置沒有可完成此任務的閉端模型，已立即改用裝置後備填入空白欄位（${code}）。${pendingModeReminder}`
+          : `閉端 AI 未能完成這次雛形，已立即改用裝置後備填入空白欄位（${code}）。${pendingModeReminder}`);
       setMessage(timedOut
-        ? "閉端 AI 已等待滿 24 秒但未完成，因此改用裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。"
-        : "閉端 AI 已嘗試瀏覽器算力與本機 Ollama，但目前裝置沒有可用模型，因此立即改用裝置後備雛形；這不是逾時，你已填的內容仍完整保留，也尚未建立作品。");
+        ? `閉端 AI 已等待滿 24 秒但未完成，因此改用裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`
+        : providerUnavailable
+          ? `閉端 AI 已確認目前裝置沒有可用模型，因此立即改用裝置後備雛形；這不是逾時，你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`
+          : `閉端 AI 執行或輸出檢查未完成（${code}），因此立即改用裝置後備；你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`);
     } finally {
       window.clearTimeout(deadline);
+      seedAssistantRequestGateRef.current.complete(requestRevision);
       if (seedAssistantControllerRef.current === controller) {
         seedAssistantControllerRef.current = null;
+        setSeedAssistantBusy(false);
       }
-      setSeedAssistantBusy(false);
     }
   }
 

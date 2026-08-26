@@ -1,6 +1,25 @@
-import type { Character, CharacterPortraitAsset, NovelProject, World } from "../domain";
+import {
+  makeRecord,
+  optionalValue,
+  type Character,
+  type CharacterPortraitAsset,
+  type NovelProject,
+  type World,
+} from "../domain";
 import { professionWorldContext, type ProfessionWorldContext } from "../game/character-profession";
+import type { SocialMatrixCharacter, StoryOrganizationMember } from "../social-matrix";
 import { CHARACTER_PORTRAIT_CATALOG } from "./catalog";
+
+const CHARACTER_PORTRAIT_BY_ID = new Map(
+  CHARACTER_PORTRAIT_CATALOG.map((portrait) => [portrait.id, portrait] as const),
+);
+const BASE_CHARACTER_PORTRAITS_BY_THEME = new Map<string, CharacterPortraitAsset[]>();
+for (const portrait of CHARACTER_PORTRAIT_CATALOG) {
+  if (portrait.visualVariant?.variant !== 0) continue;
+  const portraits = BASE_CHARACTER_PORTRAITS_BY_THEME.get(portrait.themeId) ?? [];
+  portraits.push(portrait);
+  BASE_CHARACTER_PORTRAITS_BY_THEME.set(portrait.themeId, portraits);
+}
 
 function stableHash(value: string) {
   let hash = 2166136261;
@@ -25,6 +44,14 @@ function characterSignal(character: Character) {
     ...(character.limitations ?? []),
     character.cultivationProfile?.sectRankId,
     character.cultivationProfile?.sectBranchId,
+    ...(character.portrait?.source === "procedural"
+      ? [
+          character.portrait.themeLabel,
+          character.portrait.role,
+          character.portrait.visualDescription,
+          ...character.portrait.traits,
+        ]
+      : []),
   ].filter(Boolean).join("｜");
 }
 
@@ -52,11 +79,62 @@ function portraitTheme(input: {
   return "warm-contemporary";
 }
 
+const NON_DISTINCTIVE_PORTRAIT_TERMS = new Set([
+  "人物",
+  "角色",
+  "成人",
+  "成年",
+  "半身",
+  "肖像",
+  "造型",
+  "變體",
+  "風格",
+]);
+
+function semanticPortraitTokens(value: string) {
+  const normalized = value.normalize("NFKC").toLocaleLowerCase("zh-TW");
+  const tokens = new Set<string>();
+  for (const match of normalized.matchAll(/[\p{Script=Han}]{2,8}|[a-z][a-z0-9-]{2,}/gu)) {
+    const chunk = match[0]!;
+    if (/^[a-z]/u.test(chunk)) {
+      if (!NON_DISTINCTIVE_PORTRAIT_TERMS.has(chunk)) tokens.add(chunk);
+      continue;
+    }
+    for (const size of [4, 3, 2]) {
+      if (chunk.length < size) continue;
+      for (let index = 0; index <= chunk.length - size; index += 1) {
+        const token = chunk.slice(index, index + size);
+        if (!NON_DISTINCTIVE_PORTRAIT_TERMS.has(token)) tokens.add(token);
+      }
+    }
+  }
+  return [...tokens];
+}
+
 function roleScore(portrait: CharacterPortraitAsset, signal: string) {
-  const role = portrait.role.replace(/・.*$/u, "");
-  if (signal.includes(role)) return 100;
-  const chunks = role.match(/[\p{Script=Han}]{2,4}/gu) ?? [];
-  return chunks.reduce((score, chunk) => score + (signal.includes(chunk) ? chunk.length * 5 : 0), 0);
+  const normalizedSignal = signal.normalize("NFKC").toLocaleLowerCase("zh-TW");
+  const role = portrait.role.replace(/・.*$/u, "").normalize("NFKC").toLocaleLowerCase("zh-TW");
+  let score = normalizedSignal.includes(role) ? 120 : 0;
+  for (const token of semanticPortraitTokens(role)) {
+    if (normalizedSignal.includes(token)) score += token.length * 6;
+  }
+  const descriptiveTraits = portrait.traits.filter((trait) => (
+    trait !== portrait.themeLabel
+    && trait !== role
+    && !/^造型變體\s*\d+$/u.test(trait)
+    && !NON_DISTINCTIVE_PORTRAIT_TERMS.has(trait)
+  ));
+  for (const trait of descriptiveTraits) {
+    const normalizedTrait = trait.normalize("NFKC").toLocaleLowerCase("zh-TW");
+    if (normalizedSignal.includes(normalizedTrait)) {
+      score += 28;
+      continue;
+    }
+    for (const token of semanticPortraitTokens(normalizedTrait)) {
+      if (normalizedSignal.includes(token)) score += token.length * 2;
+    }
+  }
+  return score;
 }
 
 export function suggestedCharacterPortrait(input: {
@@ -69,9 +147,7 @@ export function suggestedCharacterPortrait(input: {
   }
   const themeId = portraitTheme(input);
   const signal = characterSignal(input.character);
-  const basePortraits = CHARACTER_PORTRAIT_CATALOG.filter((portrait) => (
-    portrait.themeId === themeId && portrait.visualVariant?.variant === 0
-  ));
+  const basePortraits = BASE_CHARACTER_PORTRAITS_BY_THEME.get(themeId) ?? [];
   const scored = basePortraits
     .map((portrait) => ({ portrait, score: roleScore(portrait, signal) }))
     .sort((left, right) => right.score - left.score);
@@ -82,9 +158,81 @@ export function suggestedCharacterPortrait(input: {
   const seed = [input.project.id, input.character.id, signal, themeId].join("|");
   const base = eligible[stableHash(`${seed}|base`) % eligible.length] ?? CHARACTER_PORTRAIT_CATALOG[0]!;
   const variant = stableHash(`${seed}|variant`) % 100;
-  return CHARACTER_PORTRAIT_CATALOG.find((portrait) => (
-    portrait.id === `${base.id.replace(/-v\d{3}$/u, "")}-v${String(variant + 1).padStart(3, "0")}`
-  )) ?? base;
+  return CHARACTER_PORTRAIT_BY_ID.get(
+    `${base.id.replace(/-v\d{3}$/u, "")}-v${String(variant + 1).padStart(3, "0")}`,
+  ) ?? base;
+}
+
+type PortraitReadySocialMatrixCharacter = SocialMatrixCharacter & Partial<Pick<
+  StoryOrganizationMember,
+  "organizationUnit" | "organizationRank" | "organizationFaction"
+>>;
+
+function socialMatrixPortraitCharacter(
+  projectId: string,
+  character: PortraitReadySocialMatrixCharacter,
+): Character {
+  const base = makeRecord(projectId, "system");
+  const organizationSignals = [
+    character.storyAffinity,
+    character.institutionRole,
+    character.organizationUnit,
+    character.organizationRank,
+    character.organizationFaction,
+    character.familyRole,
+  ].filter((value): value is string => Boolean(value));
+  return {
+    ...base,
+    id: character.characterId,
+    name: character.name,
+    aliases: [],
+    identity: optionalValue(
+      [character.identity, ...organizationSignals].join("；"),
+      "inferred",
+    ),
+    personality: optionalValue(
+      [
+        ...character.personality.traits,
+        character.personality.publicFace,
+        character.personality.privateNeed,
+      ].filter(Boolean).join("；"),
+      "inferred",
+    ),
+    goal: optionalValue(character.goal, "inferred"),
+    lifeStatus: "alive",
+    locationId: character.location || null,
+    age: character.age,
+    ageVerified: false,
+    factionIds: [character.institutionId, character.familyId],
+    values: [
+      ...character.personality.traits,
+      character.pronouns,
+      character.lifeStage,
+      character.familyRole,
+    ],
+    capabilities: [
+      ...character.abilities.specialties,
+      ...organizationSignals,
+    ],
+    limitations: [character.personality.privateNeed],
+  };
+}
+
+export function suggestedSocialMatrixCharacterPortrait(input: {
+  character: PortraitReadySocialMatrixCharacter;
+  approvedCharacter?: Character | null;
+  project: NovelProject;
+  worlds: World[];
+}): CharacterPortraitAsset {
+  const approvedCharacter = input.approvedCharacter?.id === input.character.characterId
+    || input.approvedCharacter?.socialMatrixProfile?.sourceCharacterId === input.character.characterId
+    ? input.approvedCharacter
+    : null;
+  return suggestedCharacterPortrait({
+    character: approvedCharacter ?? socialMatrixPortraitCharacter(input.project.id, input.character),
+    project: input.project,
+    worlds: input.worlds,
+  });
 }
 
 export function characterEraContext(character: Character): ProfessionWorldContext | null {

@@ -12,6 +12,7 @@ import type {
   ConversationToolInvocation,
   LearningImportSession,
   NovelProject,
+  StoryBible,
   StoryState,
   World,
 } from "@/lib/novel-ai/domain";
@@ -102,6 +103,7 @@ export function useConversationSessionController({
 }) {
   const [project, setProject] = useState<NovelProject | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [storyBible, setStoryBible] = useState<StoryBible | null>(null);
   const [storyState, setStoryState] = useState<StoryState | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [relationships, setRelationships] = useState<CharacterRelationship[]>([]);
@@ -266,9 +268,10 @@ export function useConversationSessionController({
     setLoading(true);
     onError(null);
     try {
-      const [loadedProject, loadedChapters, loadedStoryStates, loadedCharacters, loadedRelationships, loadedWorlds] = await Promise.all([
+      const [loadedProject, loadedChapters, loadedStoryBibles, loadedStoryStates, loadedCharacters, loadedRelationships, loadedWorlds] = await Promise.all([
         repository.get<NovelProject>("projects", projectId),
         repository.list<Chapter>("chapters", projectId),
+        repository.list<StoryBible>("storyBibles", projectId),
         repository.list<StoryState>("storyStates", projectId),
         repository.list<Character>("characters", projectId),
         repository.list<CharacterRelationship>("relationships", projectId),
@@ -279,6 +282,9 @@ export function useConversationSessionController({
       }
       const loadedStoryState = loadedStoryStates.find((item) => item.id === loadedProject.storyStateId)
         ?? loadedStoryStates[0]
+        ?? null;
+      const loadedStoryBible = loadedStoryBibles.find((item) => item.id === loadedProject.storyBibleId)
+        ?? loadedStoryBibles[0]
         ?? null;
       if (!loadedStoryState) {
         throw Object.assign(new Error("作品玩法資料無法讀取；系統已停止，沒有把它誤當成一般小說。"), {
@@ -307,6 +313,7 @@ export function useConversationSessionController({
       ) return false;
       setProject(loadedProject);
       setChapters([...loadedChapters].sort((left, right) => left.order - right.order));
+      setStoryBible(loadedStoryBible);
       setStoryState(loadedStoryState);
       setCharacters(loadedCharacters);
       setRelationships(loadedRelationships);
@@ -326,6 +333,7 @@ export function useConversationSessionController({
       return true;
     } catch (error) {
       if (token === requestTokenRef.current) {
+        setStoryBible(null);
         setStoryState(null);
         setCharacters([]);
         setRelationships([]);
@@ -389,6 +397,7 @@ export function useConversationSessionController({
   return {
     project,
     chapters,
+    storyBible,
     storyState,
     characters,
     relationships,

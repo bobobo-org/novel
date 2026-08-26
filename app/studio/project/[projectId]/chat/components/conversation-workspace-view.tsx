@@ -62,6 +62,7 @@ export type ConversationWorkspaceViewProps = {
   retryLabel: TimelineProps["retryLabel"];
   branchPendingMessageIds: TimelineProps["branchPendingMessageIds"];
   dashboardOpenRequest: TimelineProps["dashboardOpenRequest"];
+  storyBible: TimelineProps["storyBible"];
   storyState: TimelineProps["storyState"];
   onStoryStateChanged: (storyState: StoryState) => void;
   worlds: TimelineProps["worlds"];
@@ -183,6 +184,7 @@ export function ConversationWorkspaceView(props: ConversationWorkspaceViewProps)
             branchPendingMessageIds={props.branchPendingMessageIds}
             dashboardOpenRequest={props.dashboardOpenRequest}
             fixedPlayMode={props.fixedPlayMode}
+            storyBible={props.storyBible}
             storyState={props.storyState}
             worlds={props.worlds}
             characters={props.characters}

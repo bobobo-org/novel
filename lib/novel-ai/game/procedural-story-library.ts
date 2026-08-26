@@ -617,12 +617,18 @@ function asCastMember(
   if (contextualMove.endsWith(generatedSuffix)) {
     contextualMove = contextualMove.slice(0, -generatedSuffix.length);
   }
+  const directDialogue: Record<ProceduralCastRole, string> = {
+    catalyst: `「我先去做能證明${character.goal}的那一步。」${character.name}把話說得很快，「若碰到${character.refusalCondition}，我會停下來，不替任何人遮掩。」`,
+    counterforce: `「你可以往前，但別把${character.goal}當成你的籌碼。」${character.name}擋住去路，「${character.refusalCondition}，這條線我不會讓。」`,
+    witness: `「我只交出親眼核對過的部分。」${character.name}按住證物，「先讓我確認${character.goal}；${character.refusalCondition}，我就不會替任何一方背書。」`,
+  };
   return {
     ...character,
     narrativeRole,
     narrativeRoleLabel: contract.label,
     storyFunction: contract.functions[contractIndex],
     proactiveAction: `${character.name}${actionFrame.opening}，${contextualMove}，${actionFrame.ending}。`,
+    directDialogue: directDialogue[narrativeRole],
   };
 }
 

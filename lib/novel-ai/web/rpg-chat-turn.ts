@@ -52,6 +52,7 @@ import {
   PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
   proceduralCharacterTreasureScenarioAt,
   type ProceduralCharacterCandidate,
+  type ProceduralCastRole,
   type ProceduralCausalDimensionId,
 } from "../game/procedural-story-library";
 import {
@@ -92,7 +93,7 @@ import { hasVerifiedExecutedStoryOutput } from "./story-output-quality";
 
 export const RPG_CHAT_TURN_SCHEMA_VERSION = "rpg-chat-turn-v1" as const;
 export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 180_000;
-export const RPG_CHAT_STORY_AI_TIMEOUT_MS = 28_000;
+export const RPG_CHAT_STORY_AI_TIMEOUT_MS = 180_000;
 export const RPG_SHARED_LEARNING_SYNC_WAIT_MS = 350;
 
 export type RpgChatSnapshot = {
@@ -1427,6 +1428,7 @@ function relationshipNarrativeBetween(
 function existingCharacterAsCandidate(
   character: Character | null | undefined,
   fallback: ProceduralCharacterCandidate,
+  narrativeRole: ProceduralCastRole,
 ): ProceduralCharacterCandidate {
   if (!character) return fallback;
   const name = embeddedNarrativeFact(narrativeFact(character.name, fallback.name, 24)) || fallback.name;
@@ -1441,6 +1443,11 @@ function existingCharacterAsCandidate(
     fallback.refusalCondition,
     40,
   ));
+  const directDialogue: Record<ProceduralCastRole, string> = {
+    catalyst: `「我先去做能證明${goal}的那一步。」${name}說，「但我的底線是${limitation}。」`,
+    counterforce: `「你可以試，但別拿${goal}替我作決定。」${name}攔住去路，「我的底線是${limitation}。」`,
+    witness: `「我只交出親眼核對過的部分。」${name}按住證物，「在${goal}以前，我的底線是${limitation}。」`,
+  };
   return {
     ...fallback,
     id: character.id,
@@ -1449,7 +1456,7 @@ function existingCharacterAsCandidate(
     goal,
     refusalCondition: limitation,
     proactiveAction: fallback.proactiveAction.replace(fallback.name, name),
-    directDialogue: `「我願意一起處理，但不會放棄${goal}。」${name}沒有移開視線，「我的底線是：${limitation.replace(/^若/u, "一旦")}。」`,
+    directDialogue: directDialogue[narrativeRole],
     portrait: character.portrait ? {
       baseId: character.portrait.id,
       assetUri: character.portrait.assetUri,
@@ -1475,12 +1482,17 @@ function deterministicTurnContext(snapshot: RpgChatSnapshot) {
   const existingSupporting = snapshot.characters.filter((character) => character.id !== protagonist?.id);
   const inventory = snapshot.progression.inventory.find((item) => item.quantity > 0) ?? null;
   const location = narrativeFact(snapshot.storyState.locationState, "目前場景");
-  const conflict = narrativeFact(
+  const arcGoal = narrativeFact(
     typeof flags["story.arc.goal"] === "string"
       ? String(flags["story.arc.goal"])
       : snapshot.conflict,
     `${snapshot.chapter.title}仍有必須處理的阻力`,
   );
+  // snapshot.conflict already carries the last accepted choice and the tail of
+  // the current chapter. Prefer it for the scene in front of the reader; the
+  // arc goal remains available separately for continuity. Reusing arcGoal here
+  // made every fallback chapter reopen the original problem.
+  const conflict = narrativeFact(snapshot.conflict, arcGoal, 64);
   const turn = Math.max(0, Math.trunc(snapshot.progression.turn));
   const scenario = proceduralCharacterTreasureScenarioAt({
     seed: `${snapshot.project.id}|${snapshot.chapter.id}|${snapshot.playMode}`,
@@ -1502,9 +1514,9 @@ function deterministicTurnContext(snapshot: RpgChatSnapshot) {
   );
   const rotatedProcedural = scenario.cast.members.map((_, index) =>
     scenario.cast.members[(turn + index) % scenario.cast.members.length]);
-  const supporting = existingCharacterAsCandidate(stagedExisting[0], rotatedProcedural[0]);
-  const counterforce = existingCharacterAsCandidate(stagedExisting[1], rotatedProcedural[1]);
-  const witness = existingCharacterAsCandidate(stagedExisting[2], rotatedProcedural[2]);
+  const supporting = existingCharacterAsCandidate(stagedExisting[0], rotatedProcedural[0], "catalyst");
+  const counterforce = existingCharacterAsCandidate(stagedExisting[1], rotatedProcedural[1], "counterforce");
+  const witness = existingCharacterAsCandidate(stagedExisting[2], rotatedProcedural[2], "witness");
   const castAffiliations = {
     supporting: characterNarrativeAffiliation(stagedExisting[0], familyStage.loreById),
     counterforce: characterNarrativeAffiliation(stagedExisting[1], familyStage.loreById),
@@ -1584,6 +1596,7 @@ function deterministicTurnContext(snapshot: RpgChatSnapshot) {
     stageAsset,
     scenario,
     conflict,
+    arcGoal,
     unresolved: narrativeFact(
       typeof flags["story.arc.thread"] === "string"
         ? String(flags["story.arc.thread"])
@@ -1883,7 +1896,7 @@ function finalizeDeterministicRpgStory(input: {
   );
   const paragraphs = input.paragraphs.map((paragraph) =>
     truncateDeterministicParagraph(paragraph, paragraphMaximum, input.language));
-  const padding = input.language === "en"
+  const padding: readonly string[] = input.language === "en"
     ? [
         "Everyone checked the conditions still available before moving again.",
         "That confirmation preserved the cost and did not reset the result.",
@@ -1895,12 +1908,15 @@ function finalizeDeterministicRpgStory(input: {
           "这份确认没有抹去代价，只让后续能够承接已经发生的变化。",
           "门外逐渐逼近的脚步声，让已经发生的变化再也无法被忽略。",
         ]
-      : [
-          "眾人重新核對仍可動用的條件，沒有把願望誤當成已經完成的結果。",
-          "這份確認沒有抹去代價，只讓後續能夠承接已經發生的變化。",
-          "門外逐漸逼近的腳步聲，讓已經發生的變化再也無法被忽略。",
-        ];
-  for (let attempt = 0; deterministicStoryLength(title, paragraphs) < targetMinimum && attempt < 40; attempt += 1) {
+      : [];
+  // Traditional-Chinese prose is authored to the required length by the scene
+  // renderer itself. Repeating three generic sentences until a quota was met
+  // made the fallback read like filler and raised similarity between turns.
+  for (
+    let attempt = 0;
+    padding.length > 0 && deterministicStoryLength(title, paragraphs) < targetMinimum && attempt < 40;
+    attempt += 1
+  ) {
     const indexes = paragraphs
       .map((paragraph, index) => ({ index, length: paragraph.length }))
       .sort((left, right) => left.length - right.length || left.index - right.index);
@@ -1994,6 +2010,7 @@ function buildTraditionalNovelFallback(input: {
     ?? context.stagedOrganizations[0]
     ?? null;
   const causalFrame = buildRpgTurnCausalContract({ snapshot, choice, outcome: resolution.outcome });
+  const dimensions = compactDeterministicCausalDimensions(causalFrame.inferenceDimensions);
   const seed = stableStringify({
     projectId: snapshot.project.id,
     chapterId: snapshot.chapter.id,
@@ -2004,6 +2021,42 @@ function buildTraditionalNovelFallback(input: {
     scenario: context.scenario.id,
     learnedShape: causalFrame.inferenceDimensions,
   });
+  const novelBeat = (value: string) => embeddedNarrativeFact(
+    compactDeterministicCausalDimension(
+      spokenByCharacter(value, protagonist)
+      .replace(/核准規則校準\s*[：:]\s*/gu, "")
+      .replace(/本回合目標是/gu, "")
+      .replace(/本回合/gu, "此刻")
+      .replace(/關係張力來自/gu, "")
+      .replace(/規則引擎/gu, "局勢")
+      .replace(/故事狀態/gu, "眼前局面")
+      .replace(/下一回合/gu, "往後")
+      .replace(/\s+/gu, " ")
+      .trim(),
+      52,
+    ),
+  );
+  // The contract may append approved craft hints to these fields. Those hints
+  // still affect the seed and validation, while the novel itself starts from
+  // the encounter's concrete event sentence so it never prints an instruction
+  // or a clipped list of writing rules as narration.
+  const catalyst = novelBeat(choice.encounter.catalyst ?? dimensions.catalyst);
+  const goal = novelBeat(choice.encounter.goal ?? dimensions.goal);
+  const pressure = novelBeat(choice.encounter.pressure ?? dimensions.pressure);
+  const leverage = novelBeat(choice.encounter.leverage ?? dimensions.leverage);
+  const resourceProp = novelBeat(choice.encounter.resourceProp ?? dimensions.resourceProp);
+  const relationshipTension = novelBeat(
+    choice.encounter.relationshipTension ?? dimensions.relationshipTension,
+  );
+  const cost = novelBeat(choice.encounter.cost ?? dimensions.cost);
+  const deadline = novelBeat(choice.encounter.deadline ?? dimensions.deadline);
+  const reversal = novelBeat(choice.encounter.reversal ?? dimensions.reversal);
+  const aftermath = novelBeat(choice.encounter.aftermath ?? dimensions.aftermath);
+  const nextLocation = narrativeFact(
+    choice.encounter.locationShift.split("・")[0]?.trim(),
+    context.location,
+    32,
+  );
   const weather = chooseDeterministicProse(seed, [
     "窗縫灌進來的風把紙角吹得不停顫動",
     "遠處的鐘聲被雨幕磨得低沉而急促",
@@ -2019,63 +2072,103 @@ function buildTraditionalNovelFallback(input: {
     "外頭人聲忽近忽遠，偶爾夾著車輪或金屬碰撞的聲響",
   ], 1);
   const visiblePressure = chooseDeterministicProse(seed, [
-    "門外傳來第三次催促，等候的人已經失去耐性",
-    "一名陌生人從窗前走過兩次，第二次停得明顯更久",
-    "原本答應保持中立的人先一步撤走，留下的位置立刻被另一方占住",
-    "通往後門的燈忽然熄滅，熟悉的退路因此變得難以判斷",
-    "遠端送來的消息少了一行關鍵內容，卻多出一枚不該出現的印記",
+    "守在外面的人再次催促，聲音已從商量變成命令",
+    "一名陌生人從窗前折返，這次停在能看清桌面的角度",
+    "原本答應中立的人忽然撤走，空出的位置立刻被另一方占住",
+    "後門的燈無聲熄滅，熟悉的退路只剩下一道模糊輪廓",
+    "剛送到的消息少了一行關鍵內容，封口卻多出一枚陌生印記",
   ], 2);
-  const outcomeProse = resolution.outcome === "critical_success"
-    ? `${protagonist}的安排成功得超出預期。眼前難題被推開之餘，一份原本不肯露面的證據也隨之現身；在場的人都看見，這並非幸運憑空降臨，而是先前每一步試探終於連成了線。`
-    : resolution.outcome === "success"
-      ? `${protagonist}的安排成功了。最迫切的危機終於被壓住，然而留在現場的痕跡也證明，事情只是改變了形狀，並沒有因此失去重量。`
-      : resolution.outcome === "partial_success"
-        ? `計畫只完成了一部分，卻已把局面推過無法回頭的界線。${protagonist}保住最重要的一端，另一端則在眾目睽睽下脫手，代價比預想更早落到每個人面前。`
-        : `${protagonist}原先的安排未能成功。阻力在最後一步合攏，把眾人逼回門內；但那次失敗也讓藏在暗處的人露出手勢，至少沒有人再把真正的阻礙認錯。`;
   const allySpeech = spokenByCharacter(ally.directDialogue, protagonist);
-  const allyAction = spokenByCharacter(ally.proactiveAction, protagonist);
   const counterSpeech = spokenByCharacter(counterforce.directDialogue, protagonist);
-  const counterAction = spokenByCharacter(counterforce.proactiveAction, protagonist);
-  const witnessAction = spokenByCharacter(witness.proactiveAction, protagonist);
+  const witnessSpeech = spokenByCharacter(witness.directDialogue, protagonist);
   const allyGroup = context.castAffiliations.supporting.familyLabel
     ?? context.castAffiliations.supporting.factionLabel;
   const counterGroup = context.castAffiliations.counterforce.familyLabel
     ?? context.castAffiliations.counterforce.factionLabel;
   const witnessGroup = context.castAffiliations.witness.familyLabel
     ?? context.castAffiliations.witness.factionLabel;
-  const allyCollectiveBeat = allyGroup
-    ? `${allyGroup}的人先封住側門，把退路留給傷者；`
-    : "";
-  const counterCollectiveBeat = counterGroup
-    ? `${counterGroup}也換下門外哨位，把出入口握在自己手中。`
-    : "";
-  const witnessCollectiveBeat = witnessGroup
-    ? `${witnessGroup}的信使送來兩份互相矛盾的證詞；`
-    : "";
-  const familyCollectiveBeat = context.selectedStageFamily
-    ? `${context.selectedStageFamily.name}沒有置身事外，族中負責接應的人已守在門外；`
-    : "";
-  const organizationPressureBeat = stageOrganization
-    ? `${stageOrganization.kind}「${stageOrganization.name}」派人封住另一端，表面為了${stageOrganization.publicGoal || "維持眼前秩序"}，實際上仍受${stageOrganization.hiddenConflict || stageOrganization.rivals || "未公開的內部爭議"}牽制。`
-    : "";
-  const stageAssetOwnershipBeat = stageAsset
-    ? `${stageAsset.controller ? `${stageAsset.controller}控制此物` : "此物的控制權尚未落定"}，${stageAsset.holder ? `${stageAsset.holder}此刻親自持有` : "持有人仍未現身"}${stageAsset.claimant && stageAsset.claimant !== "無其他聲索者" ? `，${stageAsset.claimant}則當眾提出聲索` : ""}。${stageAsset.storyHook ? narrativeFact(stageAsset.storyHook, "它已被捲入眼前爭端", 70) : "它已被捲入眼前爭端"}`
-    : "";
-  const allyRelationshipBeat = context.castRelationships.supporting
-    ? `兩人之間那段「${embeddedNarrativeFact(context.castRelationships.supporting)}」的舊關係，也因此被迫攤到燈下。`
-    : "";
   const terminalAction = choice.encounter.arcNextAction
     ?? (choice.encounter.arcPhase === "resolution" ? "resolution" : null);
-  const modeOpening = snapshot.playMode === "management"
-    ? `${context.location}裡還亮著最後一盞燈。${weather}。${sensory}。${protagonist}沒有再看那份被改過條件的交付單，而是把它推到桌面中央，當著所有人的面說出要做的事：「${choice.title}，現在開始。」`
+  const embeddedConflict = embeddedNarrativeFact(context.conflict);
+  const embeddedArcGoal = embeddedNarrativeFact(narrativeFact(context.arcGoal, embeddedConflict, 32));
+  const arcProgress = embeddedArcGoal !== embeddedConflict
+    ? `「${embeddedArcGoal}」也因此有了可驗證的進展。`
+    : "";
+  const chosenMove = snapshot.playMode === "management"
+    ? choice.approach === "steady"
+      ? `${protagonist}先停下尚未交付的批次，封存原單並讓經手者留在現場，誰也不能趁亂改寫時間。`
+      : choice.approach === "resource"
+        ? `${protagonist}把${context.inventory}與${context.storyProp}擺上桌，請能簽字的人當面換取一段查證時間。`
+        : `${protagonist}打開會議室的門，要求對方真正能負責的人進來回答，並把撤單風險留在自己名下。`
     : snapshot.playMode === "romance"
-      ? `${context.location}比平常更安靜。${weather}。${sensory}。${protagonist}原本準備好的話到了唇邊，最後只留下最誠實的一句：「我選擇${choice.title}，但答案由你自己決定。」`
-      : `${context.location}的光線被來往人影切成幾段。${weather}。${sensory}。${protagonist}確認退路仍在，才將手按上${context.storyProp}，依照「${choice.title}」邁出第一步。`;
-  const modeAction = snapshot.playMode === "management"
-    ? `${protagonist}只動用眼前已有的${context.inventory}，把人分成兩組：一組查清最早出現異常的環節，另一組守住仍能兌現的承諾。每張單據都必須找到經手者，每個承諾都得有人願意署名。`
-    : snapshot.playMode === "romance"
-      ? `${protagonist}沒有追著解釋，只把${context.inventory}和曾經隱瞞的部分放到兩人都看得見的位置。問題一個接一個說清，沒有替對方預設原諒，也沒有把沉默當成默許。`
-      : `${protagonist}只帶上${context.inventory}，壓低身形沿著既有痕跡前進，先用${context.storyProp}確認方位，再把退路留給身後的人。每個動作都能被看見，也因此無法假裝沒有做過。`;
+      ? choice.approach === "steady"
+        ? `${protagonist}沒有追問答案，只先把能離開的路讓出來，再說清自己願意承擔與不能越過的界線。`
+        : choice.approach === "resource"
+          ? `${protagonist}把${context.storyProp}留在兩人中間，以共同見過的細節換一次不被打斷的坦白。`
+          : `${protagonist}當面指出那句被迴避的話，寧可承受拒絕，也不再讓沉默替任何人作決定。`
+      : choice.approach === "steady"
+        ? `${protagonist}先用${context.inventory}標出能撤退的位置，再把剛出現的痕跡逐一封住，讓追來的人無法抹除。`
+        : choice.approach === "resource"
+          ? `${protagonist}拆開${context.storyProp}可用的一部分作為誘餌，以現有線索換取看清敵方調度的時間。`
+          : `${protagonist}放棄最安全的藏身處，沿著對手剛暴露的破綻逼近，迫使真正下令的人提前現身。`;
+  const opening = chooseDeterministicProse(seed, [
+    `${context.location}的光被來往人影切成幾段。「${embeddedConflict}」已逼到眾人面前。${catalyst}；${weather}，${sensory}。`,
+    `${context.location}裡沒有人先開口。「${embeddedConflict}」再也拖不得。${catalyst}，迫使${protagonist}收回原先盤算；${weather}，${sensory}。`,
+    `${context.location}留下的聲音忽然有了次序。「${embeddedConflict}」就在其中。${catalyst}，${protagonist}只能立刻回應；${weather}，${sensory}。`,
+  ], 4);
+  const actionParagraph = `${protagonist}說出「${choice.title}」後立刻動手。${chosenMove}手邊可用的仍只有${context.inventory}；${leverage}。${resourceProp}。${deadline}`;
+  const allyAction = chooseDeterministicProse(seed, [
+    `${ally.name}搶在爭論前把側門鑰匙交給傷者，自己留在最容易被追問的位置。`,
+    `${ally.name}將散落線索按先後排開，又把最可疑的一件推到燈下，拒絕讓任何人代答。`,
+    `${ally.name}先遣走無關的人，隨後堵住唯一能悄悄離場的窄門，把自己的退路也一併押上。`,
+  ], 5);
+  const allyParagraph = `${allyAction}${allySpeech}${context.castRelationships.supporting ? `兩人那段「${embeddedNarrativeFact(context.castRelationships.supporting)}」的舊關係，第一次有了必須當場兌現的重量。` : `${ally.name}不是來替${protagonist}補位，而是要親手守住${ally.goal}。`}`;
+  const groupActions = [
+    context.selectedStageFamily
+      ? `${context.selectedStageFamily.name}派來接應的人先護住門外傷者，沒有替任何一方搶走決定。`
+      : null,
+    allyGroup ? `${allyGroup}留下兩人看守退路。` : null,
+    counterGroup ? `${counterGroup}換下原本的哨位，把出口握在手中。` : null,
+    witnessGroup ? `${witnessGroup}送到的兩份證詞彼此矛盾，逼得在場者重新查驗。` : null,
+  ].filter((value): value is string => Boolean(value));
+  const groupParagraph = groupActions.length ? groupActions.join("") : null;
+  const assetActors = stageAsset
+    ? [
+        stageAsset.holder
+          ? `${stageAsset.holder}用袖口墊著${treasure.name}，始終沒讓它離開視線。`
+          : `${witness.name}隔著布把${treasure.name}放在眾人之間。`,
+        stageAsset.controller
+          ? `${stageAsset.controller}派來的人守住窗下，等著誰先伸手。`
+          : null,
+        stageAsset.claimant && stageAsset.claimant !== "無其他聲索者"
+          ? `${stageAsset.claimant}的信使遞來封蠟未乾的短箋，限令任何人不得帶走它。`
+          : null,
+      ].filter((value): value is string => Boolean(value)).join("")
+    : `${witness.name}隔著布把${treasure.name}放在眾人之間，先讓每個人看清原有磨損。`;
+  const assetParagraph = `${assetActors}它能${novelBeat(treasure.function || dimensions.resourceProp)}，卻也${novelBeat(treasure.limitation || "不能在沒有見證時啟用")}。${protagonist}只動用已經屬於眾人的部分，沒有憑空添出第二件籌碼。`;
+  const organizationAction = stageOrganization
+    ? `${stageOrganization.name}派來的人堵住另一端，見到${counterforce.name}抬手才停下。`
+    : `${counterforce.name}帶來的人無聲散開，把最容易走的方向封死。`;
+  const counterAction = chooseDeterministicProse(seed, [
+    `${counterforce.name}先踢開藏在桌腳下的空匣，讓一條被忽略的搬運路線露出來。`,
+    `${counterforce.name}抽走最上面那張證詞，當眾指出墨色與其他頁不同。`,
+    `${counterforce.name}把門閂橫在兩人之間，要求先說明失敗會落到誰身上。`,
+  ], 6);
+  const counterParagraph = `${organizationAction}${counterAction}${counterSpeech}${visiblePressure}；${pressure}`;
+  const witnessAction = chooseDeterministicProse(seed, [
+    `${witness.name}從袖中取出一小截封條，缺口恰好能和桌上的殘片咬合。`,
+    `${witness.name}把兩份說法逐字對讀，終於圈出同一個被刻意跳過的時刻。`,
+    `${witness.name}走到窗邊辨認來人的鞋印，回身時已把真正的出入口畫在紙背。`,
+  ], 7);
+  const witnessParagraph = `${witnessAction}${witnessSpeech}${relationshipTension}，因此合作不再只是口頭上的同意。`;
+  const outcomeProse = resolution.outcome === "critical_success"
+    ? `${goal}不只完成，還比預期多保住一項證據。${arcProgress}${protagonist}把前後痕跡連起來時，${reversal}；原本躲在別人身後的決策者，第一次被迫留下能追查的署記。`
+    : resolution.outcome === "success"
+      ? `${goal}終於做成。${arcProgress}${protagonist}守住最迫切的一端，也讓${reversal}；成功沒有抹平分歧，卻把眾人從猜測推到一個不能撤回的事實上。`
+      : resolution.outcome === "partial_success"
+        ? `${goal}只完成最不能放手的一半。${arcProgress}${protagonist}保住證人與痕跡，另一條退路卻當場失效；${reversal}，每個人都得承認局面已越過原來的界線。`
+        : `${goal}在最後一步落空。${arcProgress}${protagonist}沒能保住原先選定的結果，卻藉那次失手看見${reversal}；阻路的人留下真實手勢，失敗因此改變了追查方向。`;
+  const consequenceParagraph = `${cost}不再只是事前警告；${novelBeat(treasure.cost || dimensions.cost)}也在此刻兌現。原本通往${context.location}的安全位置被迫改向${nextLocation}，${aftermath}；這些變化留在現場，也留在人物之間。`;
   const titleImage = chooseDeterministicProse(seed, [
     `${context.location}未熄的燈`,
     `${treasure.name}留下的影子`,
@@ -2083,28 +2176,29 @@ function buildTraditionalNovelFallback(input: {
     `${snapshot.chapter.title}的雨聲`,
     `${ally.name}沒有說完的話`,
   ], 3);
-  const embeddedConflict = embeddedNarrativeFact(context.conflict);
-
-  const paragraphs = [
-    modeOpening,
-    `${familyCollectiveBeat}${allyCollectiveBeat}${allyAction}${allySpeech}${ally.name}把條件說得很清楚。那不是替${protagonist}補位，而是為了${ally.goal}；若這件事被忽略，${ally.name}寧可獨自離開。${allyRelationshipBeat}`,
-    `${treasure.name}就在這時被帶到眾人眼前。${stageAssetOwnershipBeat || treasure.holderRelationship}；它可以${treasure.function}，卻也有不能繞過的缺口：${treasure.limitation}。${protagonist}只查看封口與磨損，沒有把尚未屬於自己的東西收進手中。`,
-    `${counterCollectiveBeat}${organizationPressureBeat}${counterforce.name}沒有等人邀請便插手。${counterAction}${counterSpeech}${visiblePressure}。${counterforce.name}想守住的是${counterforce.goal}，即使合作也不會沿著${protagonist}預先畫好的線走。`,
-    modeAction,
-    `${witnessCollectiveBeat}${witness.name}原本站在光線以外，此刻卻主動改變局面。${witnessAction}隨後，${witness.name}把看見的細節交給兩邊核對，卻扣下最關鍵的一句，要求眾人先證明誰願意承擔後果。`,
-    outcomeProse,
-    `${ally.name}沒有因結果立刻改變立場。${ally.name}先將能保住的部分交給${witness.name}看管，再把${treasure.name}推回原持有人面前。${treasure.cost}，這筆代價落在眾人之間，也讓原本模糊的信任有了明確邊界。`,
-    `直到人聲稍歇，${protagonist}才從散亂痕跡裡辨出「${context.unresolved}」的新線索。它指向${counterforce.name}先前避開的那個位置，也解釋了「${embeddedConflict}」為何會在今天忽然惡化。答案仍不完整，方向卻再也不是原地打轉。`,
-    terminalAction === "archive-ending"
-      ? `${protagonist}最後關上門，讓${titleImage}停在身後。${ally.name}、${counterforce.name}與${witness.name}各自帶走應負的責任，沒有人再把已結束的衝突喚回來；那道關門聲落下後，故事真正安靜了。`
-      : terminalAction === "epilogue"
-        ? `天色慢慢越過${context.location}，${titleImage}也不再催促任何人。三人各自安置留下的傷、承諾與工作，沒有新的危機闖入這幅畫面；即使旅程就停在此處，他們也已經擁有完整的去向。`
-        : terminalAction === "new-arc"
-          ? `${titleImage}在清晨重新顯出輪廓。舊事沒有被推翻，${ally.name}保留的證據卻指向另一個從未回答的問題；${protagonist}帶著已承擔的一切走向新地點，另一段故事由此開始。`
-          : terminalAction === "resolution"
-            ? `${titleImage}終於安定下來。${protagonist}沒有再追逐多餘的勝利，只與三人確認誰留下、誰離開，以及什麼已經不能挽回。當最後一個人走出${context.location}，這段紛爭也抵達了真正的終點。`
-            : `${titleImage}還留在原處，卻已和片刻前不同。門外三聲叩響，新條件已送到門檻；${ally.name}握住尚未交出的證據，${counterforce.name}則伸手攔住${witness.name}。門閂被推開以前，${protagonist}必須決定先相信誰。`,
+  const activeEnding = chooseDeterministicProse(seed, [
+    `${witness.name}把新畫出的路線壓在${treasure.name}下，終點正是${nextLocation}。那裡能解開「${context.unresolved}」，卻只容一組人先抵達；${protagonist}必須在對手收網前決定帶誰同行。`,
+    `${counterforce.name}離開前，把沾著同樣封蠟的碎片留給${protagonist}。碎片證明「${context.unresolved}」已牽動另一處據點；若立刻追去，${ally.name}就得獨自守住眼前成果。`,
+    `${ally.name}在殘頁背面找到一個通往${nextLocation}的舊記號，${witness.name}認出那是對方故意留下的邀請；「${context.unresolved}」終於有了方向，追查與保全卻成了兩條不能同時走完的路。`,
+  ], 8);
+  const endingParagraph = terminalAction === "archive-ending"
+    ? `${protagonist}最後關上門，讓${titleImage}停在身後。「${context.unresolved}」已有不能推翻的答案，${ally.name}、${counterforce.name}與${witness.name}各自帶走應負責任；門扇合攏後，故事真正安靜了。`
+    : terminalAction === "epilogue"
+      ? `天色慢慢越過${context.location}，${titleImage}不再催促任何人。「${context.unresolved}」已被說清，三人各自安置傷痕、承諾與未完成的工作；即使旅程停在此處，他們也已有完整去向。`
+      : terminalAction === "new-arc"
+        ? `${titleImage}在清晨重新顯出輪廓。「${context.unresolved}」已留下答案，${ally.name}保留的證據卻指向另一個從未回答的問題；${protagonist}帶著已承擔的一切走向${nextLocation}，另一段故事由此開始。`
+        : terminalAction === "resolution"
+          ? `${titleImage}終於安定。「${context.unresolved}」有了不能撤回的答案，${protagonist}只與三人確認誰留下、誰離開，以及什麼已不能挽回。最後一個人走出${context.location}時，這段紛爭抵達真正終點。`
+          : activeEnding;
+  const sceneShapes = [
+    [actionParagraph, allyParagraph, groupParagraph, assetParagraph, counterParagraph, witnessParagraph],
+    [counterParagraph, actionParagraph, groupParagraph, allyParagraph, witnessParagraph, assetParagraph],
+    [assetParagraph, witnessParagraph, actionParagraph, allyParagraph, groupParagraph, counterParagraph],
   ];
+  const risingAction = chooseDeterministicProse(seed, sceneShapes, 9).filter(
+    (paragraph): paragraph is string => Boolean(paragraph),
+  );
+  const paragraphs = [opening, ...risingAction, outcomeProse, consequenceParagraph, endingParagraph];
   return finalizeDeterministicRpgStory({ title: `〈${titleImage}〉`, paragraphs, language: "zh-TW" });
 }
 
@@ -2597,9 +2691,18 @@ export async function generateRpgChatTurnCandidate(input: {
     },
     readerSafeCausalContract,
   });
-  const recentAcceptedTexts = input.snapshot.acceptedChoices
-    .slice(0, 8)
-    .map((item) => item.acceptedText);
+  const recentStoryWindows = input.snapshot.chapters
+    .slice(-4)
+    .flatMap((chapter) => {
+      const content = chapter.content.trim();
+      if (!content) return [];
+      const characters = Array.from(content);
+      return [characters.slice(-1_800).join("")];
+    });
+  const recentAcceptedTexts = [
+    ...recentStoryWindows,
+    ...input.snapshot.acceptedChoices.slice(0, 8).map((item) => item.acceptedText),
+  ];
   const baseSeed = (
     input.snapshot.storyState.revision * 1009
     + input.snapshot.progression.turn * 149
@@ -2625,8 +2728,8 @@ export async function generateRpgChatTurnCandidate(input: {
         targetLength: input.snapshot.language === "en" ? 1_700 : 1_600,
         sourceChapterId: input.snapshot.chapter.id,
         sourceRevision: input.snapshot.chapter.revision,
-        qualityMode: "fast",
-        browserComputePolicy: "balanced",
+        qualityMode: "balanced",
+        browserComputePolicy: "quality-first",
         generationOptions: {
           maxTokens: 1_792,
           temperature: attempt === 1 ? 0.72 : 0.66,
@@ -2714,9 +2817,11 @@ export async function generateRpgChatTurnCandidate(input: {
       snapshot: input.snapshot,
       choice: input.choice,
       resolution,
-      failureReason: generationError && typeof generationError === "object" && "code" in generationError
-        ? String((generationError as { code?: unknown }).code ?? "RPG_STORY_AI_UNAVAILABLE")
-        : "RPG_STORY_AI_UNAVAILABLE",
+      failureReason: generationController.signal.aborted && !input.signal?.aborted
+        ? "RPG_STORY_AI_TIMEOUT"
+        : generationError && typeof generationError === "object" && "code" in generationError
+          ? String((generationError as { code?: unknown }).code ?? "RPG_STORY_AI_UNAVAILABLE")
+          : "RPG_STORY_AI_UNAVAILABLE",
     });
   }
   return {

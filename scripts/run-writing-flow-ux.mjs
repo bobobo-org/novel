@@ -16,6 +16,9 @@ const [
   studioPage,
   professional,
   aiPage,
+  readerLayout,
+  creation,
+  globalStyles,
 ] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/write/write-workspace.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/project-navigation.tsx", import.meta.url), "utf8"),
@@ -31,6 +34,9 @@ const [
   readFile(new URL("../app/studio/page.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/professional/professional-client.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/ai/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/domain/reader-layout.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/domain/creation.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
 ]);
 
 const checks = [];
@@ -92,6 +98,26 @@ check("reader has progress, searchable directory and previous-next navigation", 
   assert.match(reader, /章節目錄/u);
   assert.match(reader, /previousChapter/u);
   assert.match(reader, /nextChapter/u);
+});
+
+check("reader uses a wide desktop default without sacrificing narrow screens", () => {
+  assert.match(readerLayout, /READER_CONTENT_WIDTH_LEGACY_DEFAULT = 760/u);
+  assert.match(readerLayout, /READER_CONTENT_WIDTH_DEFAULT = 1_120/u);
+  assert.match(readerLayout, /READER_CONTENT_WIDTH_MAX = 1_480/u);
+  assert.match(readerLayout, /READER_CONTENT_WIDTH_PREFERENCE_VERSION = 1/u);
+  assert.match(reader, /migrateReaderContentWidthPreference\(/u);
+  assert.match(reader, /existingState\[0\]\?\.contentWidthPreferenceVersion/u);
+  assert.match(reader, /max=\{READER_CONTENT_WIDTH_MAX\}/u);
+  assert.equal(
+    (creation.match(/contentWidth:\s*READER_CONTENT_WIDTH_DEFAULT/gu) ?? []).length,
+    2,
+  );
+  assert.match(globalStyles, /\.readerShell\{[^}]*--reader-width:1120px[^}]*overflow-x:clip/u);
+  assert.match(globalStyles, /\.readerArticle\{[^}]*width:min\(var\(--reader-width\),calc\(100% - 36px\)\)[^}]*max-width:100%[^}]*min-width:0/u);
+  assert.match(globalStyles, /@media\(max-width:800px\)[^{]*\{[\s\S]*?\.readerArticle\{width:calc\(100% - 36px\)\}/u);
+  assert.match(globalStyles, /@media\(max-width:520px\)[^{]*\{[\s\S]*?\.readerControls\{display:grid;grid-template-columns:minmax\(0,1fr\)\}/u);
+  assert.match(globalStyles, /\.readerArticle>footer button\{[^}]*min-width:0[^}]*overflow-wrap:anywhere/u);
+  assert.match(globalStyles, /@media\(max-width:520px\)[^{]*\{[\s\S]*?\.readerArticle>footer\{display:grid;grid-template-columns:minmax\(0,1fr\) auto minmax\(0,1fr\)/u);
 });
 
 check("all story generation assistants hand off to project chat", () => {

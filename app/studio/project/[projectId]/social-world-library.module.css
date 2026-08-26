@@ -100,7 +100,7 @@
 .characterGrid, .treasureGrid, .worldGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; padding: 0 2.2rem 2.2rem; }
 .characterCard, .treasureCard { min-width: 0; padding: 1.15rem; border: 1px solid rgba(85, 144, 186, .34); border-radius: 18px; background: linear-gradient(155deg, rgba(19, 49, 78, .95), rgba(8, 28, 49, .96)); box-shadow: 0 12px 28px rgba(0, 0, 0, .2); }
 .characterCard > header { display: flex; gap: .9rem; align-items: center; }
-.characterCard img { width: 82px; height: 82px; flex: 0 0 auto; border: 2px solid rgba(242, 193, 92, .65); border-radius: 22px; object-fit: cover; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+.characterCard .socialCharacterPortrait { width: 82px; height: 82px; flex: 0 0 auto; overflow: hidden; border: 2px solid rgba(242, 193, 92, .65); border-radius: 22px; object-fit: cover; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
 .characterCard header span, .treasureCard header span { color: var(--matrix-aqua); font-size: .72rem; font-weight: 700; }
 .characterCard h5, .treasureCard h5 { margin: .18rem 0; color: #ffe1a0; font-size: 1.3rem; }
 .characterCard header p, .treasureCard header p { margin: 0; color: #9fb6c9; font-size: .78rem; line-height: 1.45; }

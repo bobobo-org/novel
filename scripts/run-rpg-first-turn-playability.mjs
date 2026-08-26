@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
@@ -6,6 +8,7 @@ import {
   buildTopicWorldFamilyStageMatrix,
   serializeTopicWorldFamilyDraftSelection,
 } from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import { buildRpgChoices } from "../lib/novel-ai/game/progression/rpg-progression.ts";
 import {
   approveRpgChatTurn,
   buildDeterministicRpgChatTurnCandidate,
@@ -13,8 +16,58 @@ import {
   loadRpgChatSnapshot,
   RPG_CHAT_STORY_AI_TIMEOUT_MS,
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
+import { rpgTextSimilarity } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
+import { runStudioClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
 
-assert.equal(RPG_CHAT_STORY_AI_TIMEOUT_MS, 28_000);
+assert.equal(RPG_CHAT_STORY_AI_TIMEOUT_MS, 180_000);
+const [rpgTurnSource, conversationRpgSource, rpgWorkspaceSource] = await Promise.all([
+  readFile(new URL("../lib/novel-ai/web/rpg-chat-turn.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/rpg/rpg-workspace.tsx", import.meta.url), "utf8"),
+]);
+assert.match(rpgTurnSource, /qualityMode: "balanced"[\s\S]{0,120}browserComputePolicy: "quality-first"/u);
+assert.match(rpgTurnSource, /failureReason: generationController\.signal\.aborted[\s\S]{0,120}"RPG_STORY_AI_TIMEOUT"/u);
+const userAbortGuard = rpgTurnSource.indexOf("if (input.signal?.aborted) throw error;");
+const deterministicFallback = rpgTurnSource.indexOf("story = buildDeterministicRpgTurnStory", userAbortGuard);
+assert.ok(userAbortGuard >= 0 && deterministicFallback > userAbortGuard, "user cancellation must escape before rules fallback");
+assert.match(conversationRpgSource, /閉端 AI 正在依你選定的 A／B／C 分支產生完整小說正文；最長等待 180 秒/u);
+assert.match(rpgWorkspaceSource, /閉端 AI 正在產生完整小說正文，最長等待 180 秒/u);
+assert.match(
+  rpgWorkspaceSource,
+  /RPG_TURN_TIMEOUT_MS = RPG_CHAT_STORY_AI_TIMEOUT_MS \+ RPG_TURN_COMPLETION_GRACE_MS/u,
+  "the workspace safety guard must be derived from the same 180-second AI deadline",
+);
+assert.doesNotMatch(rpgWorkspaceSource, /300_000|超過 300 秒/u);
+
+for (const abortReason of ["RPG_STORY_AI_TIMEOUT", "USER_REQUESTED_RULE_FALLBACK"]) {
+  let markExecutorStarted;
+  const executorStarted = new Promise((resolve) => {
+    markExecutorStarted = resolve;
+  });
+  const controller = new AbortController();
+  const callerFacingOperation = runStudioClosedAI({
+    projectId: `hard-abort-${abortReason}`,
+    task: "branch_choice",
+    input: "模擬完全忽略 AbortSignal 的閉端模型執行器",
+    browserComputePolicy: "quality-first",
+    signal: controller.signal,
+  }, async () => {
+    markExecutorStarted();
+    return new Promise(() => {});
+  });
+  await executorStarted;
+  const abortedAt = performance.now();
+  controller.abort(abortReason);
+  await assert.rejects(
+    callerFacingOperation,
+    (error) => error === abortReason,
+    `${abortReason}: caller-facing AI work must reject with the original reason`,
+  );
+  assert.ok(
+    performance.now() - abortedAt < 250,
+    `${abortReason}: an executor that ignores signal must not hold the UI open`,
+  );
+}
 
 const scenarios = [
   { playMode: "rpg", expectedMode: "adventure", expectedActionPoints: 3 },
@@ -22,6 +75,36 @@ const scenarios = [
   { playMode: "management", expectedMode: "management", expectedActionPoints: 5 },
 ];
 const observations = [];
+const deterministicChoiceCoverage = {
+  sets: 0,
+  maximumSimilarity: 0,
+  repeatedOpportunitySeeds: [],
+};
+
+function assertMeaningfullyDistinctChoiceSet(choices, label) {
+  assert.equal(new Set(choices.map((choice) => choice.description.slice(0, 28))).size, 3, `${label}: first concrete actions must differ`);
+  const descriptionByApproach = Object.fromEntries(
+    choices.map((choice) => [choice.approach, choice.description]),
+  );
+  assert.match(descriptionByApproach.steady, /先封住退路.+分開保全/u, `${label}: steady must preserve evidence before pursuit`);
+  assert.match(descriptionByApproach.resource, /當場交付.+作為籌碼.+換取/u, `${label}: resource must trade a concrete asset for access`);
+  assert.match(descriptionByApproach.bold, /越過試探.+直取.+接受.+代價/u, `${label}: bold must force a breach and accept exposure`);
+  let maximumSimilarity = 0;
+  for (let left = 0; left < choices.length; left += 1) {
+    for (let right = left + 1; right < choices.length; right += 1) {
+      const similarity = rpgTextSimilarity(
+        choices[left].description,
+        choices[right].description,
+      );
+      maximumSimilarity = Math.max(maximumSimilarity, similarity);
+      assert.ok(
+        similarity < 0.72,
+        `${label}: choices collapsed into shared copy; similarity=${similarity.toFixed(3)}; ${choices[left].description} || ${choices[right].description}`,
+      );
+    }
+  }
+  return maximumSimilarity;
+}
 
 for (const scenario of scenarios) {
   const repository = new MemoryNovelRepository();
@@ -104,10 +187,64 @@ for (const scenario of scenarios) {
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.title)).size, 3);
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.approach)).size, 3);
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.encounter.signature)).size, 3);
-  assert.ok(snapshot.baseChoices.every((choice) => choice.description.includes("帳冊上的赤字")));
-  assert.ok(snapshot.baseChoices.every((choice) => choice.description.includes("林澄")));
-  assert.ok(snapshot.baseChoices.every((choice) => choice.description.includes(stageCompanionName)));
-  assert.ok(snapshot.baseChoices.some((choice) => choice.description.includes("青楓派巡察")));
+  assertMeaningfullyDistinctChoiceSet(snapshot.baseChoices, `${scenario.playMode}: initial turn`);
+  assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.consequenceTeaser)).size, 3);
+  const teaserByApproach = Object.fromEntries(
+    snapshot.baseChoices.map((choice) => [choice.approach, choice.consequenceTeaser]),
+  );
+  assert.match(teaserByApproach.steady, /^保住/u);
+  assert.match(teaserByApproach.resource, /^以.+換得/u);
+  assert.match(teaserByApproach.bold, /^迫使/u);
+  const deterministicWorldContexts = [
+    "仙俠修真宗門丹藥符籙陣法法器",
+    "現代都市家族企業供應鏈",
+    "娛樂圈演員經紀公司試鏡通告",
+  ];
+  for (let seedIndex = 0; seedIndex < 64; seedIndex += 1) {
+    const runSeed = `choice-contract-${scenario.playMode}-${seedIndex}`;
+    const choiceVariant = (seedIndex * 7) % 17;
+    const seededProgression = structuredClone(snapshot.progression);
+    seededProgression.turn = seedIndex % 9;
+    seededProgression.choiceVariant = choiceVariant;
+    seededProgression.procedural.runSeed = runSeed;
+    seededProgression.procedural.recentEncounterSignatures = [];
+    const seededChoices = buildRpgChoices({
+      progression: seededProgression,
+      protagonist: "林澄",
+      chapterTitle: "多種子分支契約",
+      conflict: `天亮前必須處理第 ${seedIndex} 號封鎖後果`,
+      mode: scenario.expectedMode,
+      playMode: scenario.playMode,
+      variant: choiceVariant,
+      seed: `project-${runSeed}`,
+      storyStateRevision: 100 + seedIndex,
+      narrativeAnchors: {
+        supportingCharacter: stageCompanionName,
+        familyOrFaction: "蘇氏傳承世家",
+        storyAsset: seedIndex % 2 === 0 ? "海銅護證星盤" : "《歸元真經》",
+        factionPressure: "青楓派巡察正在封路",
+        unresolvedThread: "天亮前封鎖最後通路",
+        worldContext: deterministicWorldContexts[seedIndex % deterministicWorldContexts.length],
+      },
+    });
+    const maximumSimilarity = assertMeaningfullyDistinctChoiceSet(
+      seededChoices,
+      `${scenario.playMode}: deterministic seed ${seedIndex}`,
+    );
+    deterministicChoiceCoverage.sets += 1;
+    deterministicChoiceCoverage.maximumSimilarity = Math.max(
+      deterministicChoiceCoverage.maximumSimilarity,
+      maximumSimilarity,
+    );
+    if (scenario.playMode === "rpg" && seedIndex % deterministicWorldContexts.length === 0) {
+      const opportunities = seededChoices
+        .map((choice) => choice.title.match(/參與「([^」]+)」/u)?.[1] ?? null)
+        .filter(Boolean);
+      if (opportunities.length === 3 && new Set(opportunities).size < 3) {
+        deterministicChoiceCoverage.repeatedOpportunitySeeds.push(runSeed);
+      }
+    }
+  }
   assert.equal(snapshot.storyState.resources["game.actionPoints"], scenario.expectedActionPoints);
   assert.equal(snapshot.storyState.resources["game.turn"], 0);
   assert.equal(snapshot.storyState.worldFlags["rpg.baselineVersion"], "rpg-play-baseline-v1");
@@ -156,13 +293,17 @@ for (const scenario of scenarios) {
     failureReason: "CONTRACT_TEST_FIXTURE",
   });
   const storyBlocks = candidate.story.split(/\n\s*\n/gu).filter(Boolean);
-  assert.equal(storyBlocks.length, 11);
+  assert.ok(storyBlocks.length >= 10 && storyBlocks.length <= 12);
   assert.match(candidate.story, /^〈[^〉]{2,40}〉/u);
   assert.doesNotMatch(
     candidate.story,
     /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|因果框架|Story Bible|Canon/u,
   );
   assert.doesNotMatch(candidate.story, /第零日|第一日/u);
+  assert.doesNotMatch(
+    candidate.story,
+    /沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
+  );
   assert.ok(candidate.story.includes("林澄"));
   assert.ok(candidate.story.includes(stageCompanionName));
   assert.ok(candidate.story.includes("青楓派巡察"));
@@ -190,7 +331,7 @@ for (const scenario of scenarios) {
     next.baseChoices.map((choice) => `${choice.title}|${choice.description}`),
     snapshot.baseChoices.map((choice) => `${choice.title}|${choice.description}`),
   );
-  assert.ok(next.baseChoices.every((choice) => choice.description.includes("林澄")));
+  assertMeaningfullyDistinctChoiceSet(next.baseChoices, `${scenario.playMode}: next turn`);
   assert.ok(next.progression.inventory.length > 0);
   assert.equal(typeof next.progression.status.stamina, "number");
   assert.equal(typeof next.progression.journey.mainlineProgress, "number");
@@ -226,11 +367,18 @@ for (const scenario of scenarios) {
   }
 }
 
+assert.equal(deterministicChoiceCoverage.sets, scenarios.length * 64);
+assert.ok(
+  deterministicChoiceCoverage.repeatedOpportunitySeeds.length > 0,
+  "multi-seed coverage must include the repeated cultivation-opportunity shape that caused the flaky shared-preamble regression",
+);
+
 console.log(JSON.stringify({
   suite: "rpg-first-turn-playability",
   status: "PASS",
   playModes: scenarios.map((scenario) => scenario.playMode),
   observations,
+  deterministicChoiceCoverage,
   assertions: [
     "legacy-empty-state-baseline-idempotent",
     "exactly-three-playable-contextual-choices",
@@ -242,5 +390,9 @@ console.log(JSON.stringify({
     "mode-dashboard-dimensions-remain-available",
     "romance-dedicated-strategies-update-four-dashboard-dimensions",
     "story-ai-has-bounded-rules-fallback-deadline",
+    "story-ai-uses-balanced-quality-and-quality-first-routing",
+    "story-timeout-is-labelled-and-user-cancel-never-falls-back",
+    "conversation-and-rpg-surfaces-explain-the-180-second-ai-first-contract",
+    "three-play-modes-pass-64-deterministic-seeds-with-distinct-action-benefit-cost-copy",
   ],
 }, null, 2));

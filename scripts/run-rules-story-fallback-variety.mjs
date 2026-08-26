@@ -24,6 +24,7 @@ import {
 } from "../lib/novel-ai/game/procedural-story-library.ts";
 import {
   buildRpgResolutionDirectorPrompt,
+  rpgTextSimilarity,
   validateRpgStoryTurnContract,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 
@@ -47,6 +48,33 @@ assert.throws(
     "zh-TW",
   ),
   /RPG_AI_STORY_UNAPPROVED_REALM_ADVANCEMENT/u,
+);
+
+const quoteClassificationParagraph = "雨勢壓低屋簷，林澄沿著泥痕追到廊下，發現封條已被人換過。他沒有急著伸手，只讓同伴守住出口，自己逐一核對證人的說法與燈影位置。窗邊吹進來的冷風捲起殘紙，對手終於承認搬運路線曾臨時改動，卻拒絕說出下令的人。";
+const properNounReuseStory = Array.from({ length: 10 }, (_, index) => {
+  if (index === 1) return `${quoteClassificationParagraph}林澄把「海銅護證星盤殘片」收進證物袋，另外封上一張新籤。`;
+  if (index === 7) return `${quoteClassificationParagraph}證人再次指向「海銅護證星盤殘片」，確認缺角正是昨夜碰撞留下。`;
+  return quoteClassificationParagraph;
+}).join("\n\n");
+assert.doesNotThrow(
+  () => validateRpgStoryTurnContract(properNounReuseStory, "zh-TW"),
+  "repeated quoted proper nouns are not duplicated character dialogue",
+);
+const duplicatedDialogueStory = properNounReuseStory
+  .replace("林澄把「海銅護證星盤殘片」收進證物袋，另外封上一張新籤。", "林澄沉聲說：「我已核對封條，現在誰也不能帶走證物！」")
+  .replace("證人再次指向「海銅護證星盤殘片」，確認缺角正是昨夜碰撞留下。", "林澄再次警告：「我已核對封條，現在誰也不能帶走證物！」");
+assert.throws(
+  () => validateRpgStoryTurnContract(duplicatedDialogueStory, "zh-TW"),
+  /RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED/u,
+  "identical full utterances still fail the duplicate-voice gate",
+);
+const duplicatedBareDialogueStory = properNounReuseStory
+  .replace("林澄把「海銅護證星盤殘片」收進證物袋，另外封上一張新籤。", "「我不會把證物交給你」")
+  .replace("證人再次指向「海銅護證星盤殘片」，確認缺角正是昨夜碰撞留下。", "「我不會把證物交給你」");
+assert.throws(
+  () => validateRpgStoryTurnContract(duplicatedBareDialogueStory, "zh-TW"),
+  /RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED/u,
+  "terse repeated dialogue without punctuation remains protected",
 );
 
 assert.equal(PROCEDURAL_WORLD_DIRECTOR_VERSION, "procedural-world-director-v2");
@@ -268,12 +296,19 @@ for (const value of [
   assert.ok(value && story.includes(value), `novel fallback prose did not render ${value}`);
 }
 assert.match(story, /「.+」/u, "supporting characters must speak in the novel scene");
-assert.match(story, /蘇氏藥坊[\s\S]{0,260}蘇錦魚[\s\S]{0,220}「我願意一起處理/u, "the allied family character must speak and act");
-assert.match(story, /顧氏航運[\s\S]{0,260}顧行舟[\s\S]{0,220}「我願意一起處理/u, "the rival family character must speak and act");
+assert.match(story, /蘇錦魚[\s\S]{0,180}「我先去做/u, "the allied family character must take a catalyst action and speak");
+assert.match(story, /顧行舟[\s\S]{0,220}「你可以試/u, "the rival family character must obstruct a route and speak from a different stance");
+assert.match(story, /葉聞雪[\s\S]{0,180}「我只交出/u, "the witness must verify evidence and speak from a third stance");
+assert.doesNotMatch(story, /我願意一起處理/u, "three different roles must not share the old generic dialogue stem");
 assert.doesNotMatch(
   story,
   /核准規則|規則校準|規則故事後備|因果維度|因果鏈|本回合|下一回合|回合制|關係張力|狀態收益|狀態修訂|狀態更新|結算結果|下一輪可用|下一次行動|等待下一步|Story Bible|Canon/u,
   "reader-facing prose leaked internal engine or governance wording",
+);
+assert.doesNotMatch(
+  story,
+  /沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
+  "reader-facing prose leaked a data-table sentence or the retired fixed fallback skeleton",
 );
 validateRpgStoryTurnContract(story, "zh-TW");
 
@@ -476,6 +511,7 @@ const protagonistOnlySnapshot = {
 };
 const soloStories = [];
 const soloActors = new Set();
+const soloChoiceKeys = [];
 for (let turn = 0; turn < 4; turn += 1) {
   const turnSnapshot = {
     ...protagonistOnlySnapshot,
@@ -516,10 +552,22 @@ for (let turn = 0; turn < 4; turn += 1) {
   }
   assert.match(soloStory, /「.+」/u);
   assert.doesNotMatch(soloStory, /同行者|核准規則|本回合|下一回合|回合制|關係張力|結算結果/u);
+  assert.doesNotMatch(
+    soloStory,
+    /沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
+  );
   soloStories.push(soloStory);
+  soloChoiceKeys.push(soloChoice.key);
 }
 assert.ok(soloActors.size >= 6, "supporting cast did not rotate across the four-turn story sample");
 assert.equal(new Set(soloStories).size, soloStories.length, "four turns repeated the same novel prose");
+for (let turn = 1; turn < soloStories.length; turn += 1) {
+  assert.notEqual(soloChoiceKeys[turn], soloChoiceKeys[turn - 1], "the sequential sample must exercise a different A/B/C action");
+  assert.ok(
+    rpgTextSimilarity(soloStories[turn - 1], soloStories[turn]) < 0.7,
+    `turn ${turn - 1} and ${turn} remained too similar despite a new event and choice`,
+  );
+}
 
 const soloCandidate = await buildDeterministicRpgChatTurnCandidate({
   snapshot: protagonistOnlySnapshot,

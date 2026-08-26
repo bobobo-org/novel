@@ -4,6 +4,7 @@ import type {
   NovelProject,
   World,
 } from "@/lib/novel-ai/domain";
+import { suggestedCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import { professionWorldContext } from "@/lib/novel-ai/game/character-profession";
 import {
   CULTIVATION_REALMS,
@@ -84,12 +85,11 @@ export default function StoryCharacterReference({
           const knownTechniques = profile
             ? techniques.filter((item) => profile.techniqueIds.includes(item.id))
             : [];
+          const portrait = suggestedCharacterPortrait({ character, project, worlds });
           return (
             <article key={character.id} className={styles.storyCharacterCard}>
               <header>
-                {character.portrait
-                  ? <CharacterPortraitImage portrait={character.portrait} className={styles.storyCharacterPortrait} />
-                  : <span className={styles.storyCharacterInitial} aria-hidden="true">{character.name.slice(0, 1)}</span>}
+                <CharacterPortraitImage portrait={portrait} className={styles.storyCharacterPortrait} />
                 <div><h4>{character.name}</h4><p>{identity}</p></div>
               </header>
               {context !== "modern" && profile ? <dl>

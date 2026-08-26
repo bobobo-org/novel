@@ -10,6 +10,7 @@ import {
   serializeTopicWorldFamilyDraftSelection,
 } from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 import {
+  createCreationStorySeedRequestGate,
   creationStorySeedPrompt,
   mergeCreationStorySeed,
   parseCreationStorySeed,
@@ -41,6 +42,31 @@ assert.ok(parsed, "JSON in a model fence should parse");
 assert.equal(parsed.protagonist, "顧遙");
 assert.match(parsed.worldRule, /取回一段記憶/u);
 assert.equal(parseCreationStorySeed('{"story":"不完整"}'), null, "all five semantic groups are required");
+
+const seedRequestGate = createCreationStorySeedRequestGate();
+const staleRequestController = new AbortController();
+const staleRequestRevision = seedRequestGate.begin(staleRequestController);
+let resolveStaleSeed;
+const staleSeedResult = new Promise((resolve) => {
+  resolveStaleSeed = resolve;
+});
+const mergedSeedResults = [];
+const staleMergeAttempt = staleSeedResult.then((value) => {
+  if (seedRequestGate.isCurrent(staleRequestRevision)) mergedSeedResults.push(value);
+});
+seedRequestGate.invalidate("CREATE_STORY_SEED_CONTEXT_CHANGED"); // The author switches mode while the old model is still running.
+assert.equal(staleRequestController.signal.aborted, true);
+assert.equal(staleRequestController.signal.reason, "CREATE_STORY_SEED_CONTEXT_CHANGED");
+resolveStaleSeed("old-rpg-seed");
+await staleMergeAttempt;
+assert.deepEqual(
+  mergedSeedResults,
+  [],
+  "an in-flight seed from the previous mode must not merge after synchronous invalidation",
+);
+const currentRequestRevision = seedRequestGate.begin(new AbortController());
+assert.equal(seedRequestGate.isCurrent(currentRequestRevision), true);
+assert.equal(seedRequestGate.isCurrent(staleRequestRevision), false);
 
 const draft = createDraft("quick");
 draft.title = "作者保留值";
@@ -146,13 +172,21 @@ assert.match(client, /mergeCreationStorySeed\(current, suggestion, "closed-ai"\)
 assert.match(client, /mergeCreationStorySeed\([\s\S]*"device-fallback"/u, "device template is only an explicit fallback");
 assert.doesNotMatch(client, /立即產生裝置亂數雛形/u, "the old non-AI primary action is removed");
 assert.doesNotMatch(client, /await finish\(\)/u, "AI assistance must not auto-create the project");
+assert.match(client, /玩法尚未選定；目前只固定題材、時代、制度與不可變世界規則/u);
+assert.match(client, /filter\(\(line\) => !\/本作採用\|採用「一般章節寫作」\/u\.test\(line\)\)/u);
+assert.match(client, /if \(currentPlayMode !== mode\) invalidateAssistedSeedForContextChange\(\)/u);
+assert.match(client, /if \(playStructure !== structure\) invalidateAssistedSeedForContextChange\(\)/u);
+assert.match(client, /CREATE_STORY_SEED_CONTEXT_CHANGED/u);
+assert.match(client, /!seedAssistantRequestGateRef\.current\.isCurrent\(requestRevision\)[\s\S]{0,40}\) return/u);
 
 let routedRequest = null;
+const preCreationProgress = [];
 const preCreationResult = await runStudioPreCreationClosedAI({
   projectId: "unpersisted-creation-draft",
   task: "story_seed",
   input: "建立多人故事雛形",
   browserComputePolicy: "balanced",
+  onProgress: (event) => preCreationProgress.push(event),
 }, async (request) => {
   routedRequest = request;
   return {
@@ -188,6 +222,17 @@ assert.equal(preCreationResult.canonicalMutationCount, 0);
 assert.equal(preCreationResult.dataLeftDevice, false);
 assert.equal(preCreationResult.externalRequest, false);
 assert.equal(preCreationResult.status, "completed");
+assert.deepEqual(
+  preCreationProgress.map((event) => event.phase),
+  ["routing", "evaluating"],
+  "the context-free platform path reports the progress milestones it can verify",
+);
+assert.equal(
+  new Set(preCreationProgress.map((event) => event.taskId)).size,
+  1,
+  "pre-creation progress keeps one task identity",
+);
+assert.equal(preCreationProgress.at(-1)?.backendId, "local-ollama");
 
 const fallbackRequests = [];
 const localRetryResult = await runStudioPreCreationClosedAI({
@@ -232,11 +277,61 @@ assert.deepEqual(fallbackRequests[1].context, [], "the local retry keeps the pre
 assert.equal(localRetryResult.provider, "local-ollama");
 assert.equal(localRetryResult.canonicalMutationCount, 0);
 
+const abortedBeforeStart = new AbortController();
+abortedBeforeStart.abort("CREATE_STORY_SEED_PRE_ABORTED");
+let preAbortedExecutorCalled = false;
+await assert.rejects(
+  runStudioPreCreationClosedAI({
+    projectId: "pre-aborted-creation-draft",
+    task: "story_seed",
+    input: "這次操作在開始前已取消",
+    browserComputePolicy: "balanced",
+    signal: abortedBeforeStart.signal,
+  }, async () => {
+    preAbortedExecutorCalled = true;
+    throw new Error("PRE_ABORTED_EXECUTOR_MUST_NOT_RUN");
+  }),
+  (error) => error === "CREATE_STORY_SEED_PRE_ABORTED",
+  "a pre-aborted caller never starts provider work",
+);
+assert.equal(preAbortedExecutorCalled, false);
+
+let markHangingExecutorStarted;
+const hangingExecutorStarted = new Promise((resolve) => {
+  markHangingExecutorStarted = resolve;
+});
+const deadlineController = new AbortController();
+const callerFacingOperation = runStudioPreCreationClosedAI({
+  projectId: "caller-deadline-creation-draft",
+  task: "story_seed",
+  input: "模擬不尊重此次 signal 的共用連線或 provider promise",
+  browserComputePolicy: "balanced",
+  signal: deadlineController.signal,
+}, async () => {
+  markHangingExecutorStarted();
+  return new Promise(() => {});
+});
+await hangingExecutorStarted;
+const abortedAt = performance.now();
+deadlineController.abort("CREATE_STORY_SEED_TIMEOUT");
+await assert.rejects(
+  callerFacingOperation,
+  (error) => error === "CREATE_STORY_SEED_TIMEOUT",
+  "caller abort reason is preserved",
+);
+assert.ok(
+  performance.now() - abortedAt < 250,
+  "caller-facing pre-creation work must settle without waiting for a shared hanging promise",
+);
+
 console.log(JSON.stringify({
   suite: "create-story-seed-ai",
-  passed: 42,
+  passed: 64,
   coordinator: "unified-automatic",
   hardDeadlineMs: 24_000,
+  callerAbortRace: true,
+  progressMilestones: preCreationProgress.length,
   authoredValuesPreserved: true,
   automaticProjectCreation: false,
+  staleModeSeedMergePrevented: true,
 }, null, 2));

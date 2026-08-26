@@ -30,6 +30,7 @@
     "test:studio:rpg-mobile-accessibility": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rpg-xianxia-v3.mjs mobile",
     "test:studio:rpg-v3-all": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-rpg-xianxia-v3.mjs all",
     "test:studio:writing-flow": "node scripts/run-writing-flow-ux.mjs",
+    "test:studio:reader-layout": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-reader-layout.mjs",
     "test:studio:adult-experience": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-adult-experience-director.mjs",
     "test:studio:social-matrix": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-social-matrix-tests.mjs",
     "test:studio:social-world-approval": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-social-world-approval.mjs",

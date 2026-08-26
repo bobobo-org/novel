@@ -101,6 +101,62 @@ let interactiveChoiceWarmModelId: string | null = null;
 let interactiveChoiceWarmedAt = 0;
 let interactiveChoiceWarmPromise: Promise<boolean> | null = null;
 
+function callerAbortReason(signal: AbortSignal) {
+  return signal.reason ?? Object.assign(
+    new Error("The caller aborted the Closed AI operation."),
+    { name: "AbortError", code: "ABORT_ERR" },
+  );
+}
+
+/**
+ * Settle the caller-facing operation as soon as its AbortSignal fires, even
+ * when a shared discovery/connection promise was created by an earlier caller
+ * and therefore cannot be cancelled by this signal. The underlying work still
+ * receives the same signal wherever the provider supports cancellation.
+ */
+function settleOnCallerAbort<T>(
+  signal: AbortSignal | undefined,
+  operation: () => Promise<T>,
+  onLateResolve?: (value: T) => void | Promise<void>,
+): Promise<T> {
+  if (!signal) return operation();
+  if (signal.aborted) return Promise.reject(callerAbortReason(signal));
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(callerAbortReason(signal)));
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    let pending: Promise<T>;
+    try {
+      pending = operation();
+    } catch (error) {
+      finish(() => reject(error));
+      return;
+    }
+    pending.then(
+      (value) => {
+        if (settled) {
+          void Promise.resolve(onLateResolve?.(value)).catch(() => undefined);
+          return;
+        }
+        finish(() => resolve(value));
+      },
+      (error) => finish(() => reject(error)),
+    );
+  });
+}
+
 function studioClosedAIErrorCode(error: unknown) {
   if (!error || typeof error !== "object" || !("code" in error)) return "";
   return String((error as { code?: unknown }).code ?? "");
@@ -283,7 +339,7 @@ export async function discoverStudioClosedAI(
   };
 }
 
-export async function runStudioClosedAI(
+async function runStudioClosedAIUnsettled(
   input: StudioClosedAITaskInput,
   execute?: PlatformExecutor,
 ) {
@@ -433,7 +489,15 @@ export async function runStudioClosedAI(
     };
   }
 
+  if (input.signal?.aborted) throw callerAbortReason(input.signal);
   const startedAt = new Date().toISOString();
+  input.onProgress?.({
+    taskId: requestId,
+    phase: "routing",
+    label: "已完成前置檢查，正在選擇可用的裝置內模型。",
+    percent: 35,
+    occurredAt: startedAt,
+  });
   const result = await execute({
     requestId,
     projectId: input.projectId,
@@ -463,7 +527,20 @@ export async function runStudioClosedAI(
     idempotencyKey: requestId,
     signal: input.signal,
   });
+  if (input.signal?.aborted) throw callerAbortReason(input.signal);
   const completedAt = new Date().toISOString();
+  input.onProgress?.({
+    taskId: requestId,
+    phase: "evaluating",
+    label: "裝置內模型已完成候選，正在檢查執行證明與輸出。",
+    percent: 90,
+    occurredAt: completedAt,
+    backendId: STRICT_LOCAL_PLATFORM_BACKENDS.has(result.providerId as ClosedAIBackendId)
+      ? result.providerId as ClosedAIBackendId
+      : undefined,
+    generatedCharacters: result.outputCharacters ?? result.content.length,
+    generatedTokenEvents: result.generatedTokenEvents ?? 0,
+  });
   if (
     !STRICT_LOCAL_PLATFORM_BACKENDS.has(result.providerId as ClosedAIBackendId)
     || result.externalRequest
@@ -560,6 +637,26 @@ export async function runStudioClosedAI(
 }
 
 /**
+ * Keeps the UI deadline authoritative even when a provider ignores AbortSignal.
+ * A late persisted candidate is rejected because the caller has already moved
+ * on and must never be able to approve that stale result.
+ */
+export function runStudioClosedAI(
+  input: StudioClosedAITaskInput,
+  execute?: PlatformExecutor,
+) {
+  return settleOnCallerAbort(
+    input.signal,
+    () => runStudioClosedAIUnsettled(input, execute),
+    async (lateResult) => {
+      if (lateResult.candidateId) {
+        await rejectStudioClosedAgentCandidate(lateResult.candidateId);
+      }
+    },
+  );
+}
+
+/**
  * Executes an AI-only creation candidate before a canonical project exists.
  *
  * The regular Studio Closed Agent route composes context from the canonical
@@ -572,36 +669,38 @@ export async function runStudioPreCreationClosedAI(
   input: StudioClosedAITaskInput & { task: "story_seed" },
   execute: PlatformExecutor = executePlatformAI,
 ) {
-  if (execute === executePlatformAI) {
-    try {
-      await getStudioClosedAIRuntimeCoordinator().connectLocalAutomatically(input.signal);
-    } catch (error) {
-      if (input.signal?.aborted) throw error;
-      // Local Ollama is optional. The strict-local platform router may still
-      // select an already verified Browser AI runtime; otherwise it fails
-      // truthfully and the create page can offer its explicit device fallback.
+  return settleOnCallerAbort(input.signal, async () => {
+    if (execute === executePlatformAI) {
+      try {
+        await getStudioClosedAIRuntimeCoordinator().connectLocalAutomatically(input.signal);
+      } catch (error) {
+        if (input.signal?.aborted) throw error;
+        // Local Ollama is optional. The strict-local platform router may still
+        // select an already verified Browser AI runtime; otherwise it fails
+        // truthfully and the create page can offer its explicit device fallback.
+      }
     }
-  }
-  try {
-    return await runStudioClosedAI(input, execute);
-  } catch (error) {
-    const mayRetryOnLocalOllama =
-      hasExplicitLocalComputeAuthorization(
-        resolveStudioClosedComputePolicy(input.browserComputePolicy),
-      )
-      && !input.signal?.aborted
-      && BROWSER_TO_LOCAL_RETRY_CODES.has(studioClosedAIErrorCode(error));
-    if (!mayRetryOnLocalOllama) throw error;
+    try {
+      return await runStudioClosedAI(input, execute);
+    } catch (error) {
+      const mayRetryOnLocalOllama =
+        hasExplicitLocalComputeAuthorization(
+          resolveStudioClosedComputePolicy(input.browserComputePolicy),
+        )
+        && !input.signal?.aborted
+        && BROWSER_TO_LOCAL_RETRY_CODES.has(studioClosedAIErrorCode(error));
+      if (!mayRetryOnLocalOllama) throw error;
 
-    // Creation has no canonical project yet, so it uses the context-free
-    // platform executor. When Browser AI explicitly asks for Local Ollama,
-    // preserve that empty-context boundary while locking the retry to the
-    // already authorised device-local backend.
-    return runStudioClosedAI(input, (request) => execute({
-      ...request,
-      preferredProvider: "local-ollama",
-    }));
-  }
+      // Creation has no canonical project yet, so it uses the context-free
+      // platform executor. When Browser AI explicitly asks for Local Ollama,
+      // preserve that empty-context boundary while locking the retry to the
+      // already authorised device-local backend.
+      return runStudioClosedAI(input, (request) => execute({
+        ...request,
+        preferredProvider: "local-ollama",
+      }));
+    }
+  });
 }
 
 export async function regenerateStudioClosedAI(

@@ -15,6 +15,7 @@ import {
 import {
   isCharacterEraCompatible,
   suggestedCharacterPortrait,
+  suggestedSocialMatrixCharacterPortrait,
 } from "../lib/novel-ai/character-portraits/assignment.ts";
 import { CHARACTER_PORTRAIT_CAPACITY } from "../lib/novel-ai/character-portraits/catalog.ts";
 import { composeProjectContext } from "../lib/novel-ai/web/project-context-composer.ts";
@@ -80,6 +81,102 @@ assert.notEqual(
   firstPortrait.id,
   "age is part of the deterministic portrait assignment signal",
 );
+const allyPortrait = suggestedCharacterPortrait({ character: cast[1], project: modernProject, worlds: [modernWorld] });
+assert.notEqual(allyPortrait.id, firstPortrait.id, "different approved character attributes should select a different portrait");
+
+const proceduralPortrait = {
+  ...firstPortrait,
+  id: "portrait:procedural-placeholder",
+  source: "procedural",
+  assetUri: "data:image/svg+xml;charset=utf-8,%3Csvg%3E%3C%2Fsvg%3E",
+  generatedBy: "procedural-story-engine",
+  approvedAt: new Date(0).toISOString(),
+  approvedBy: "user",
+  dataLeftDevice: false,
+};
+const resolvedProceduralPortrait = suggestedCharacterPortrait({
+  character: { ...cast[0], portrait: proceduralPortrait },
+  project: modernProject,
+  worlds: [modernWorld],
+});
+assert.equal(resolvedProceduralPortrait.source, "catalog", "procedural SVG placeholders must resolve to a bundled portrait");
+assert.match(resolvedProceduralPortrait.assetUri, /^\/character-portraits\/atlas-[a-z-]+\.png$/u);
+assert.notEqual(resolvedProceduralPortrait.assetUri, proceduralPortrait.assetUri);
+
+const uploadedPortrait = {
+  ...firstPortrait,
+  id: "portrait:user-upload",
+  source: "upload",
+  assetUri: "data:image/png;base64,LOCAL_USER_IMAGE",
+  atlas: undefined,
+  generatedBy: "user-upload",
+  approvedAt: new Date(0).toISOString(),
+  approvedBy: "user",
+  dataLeftDevice: false,
+};
+assert.equal(
+  suggestedCharacterPortrait({ character: { ...cast[0], portrait: uploadedPortrait }, project: modernProject, worlds: [modernWorld] }),
+  uploadedPortrait,
+  "a user-approved upload must always take priority over automatic assignment",
+);
+
+const corporatePortrait = suggestedCharacterPortrait({
+  character: {
+    ...cast[0],
+    id: "character:corporate-adviser",
+    name: "趙衡",
+    identity: optional("跨國企業風險顧問兼案件調查員"),
+    personality: optional("謹慎、幹練"),
+    capabilities: ["企業風險稽核"],
+  },
+  project: modernProject,
+  worlds: [modernWorld],
+});
+assert.match(corporatePortrait.role, /^企業顧問/u, "approved occupation keywords should receive weighted portrait matching");
+const socialMatrixCandidate = {
+  characterId: "social-character:enterprise-chair",
+  name: "沈雁秋",
+  identity: "現代企業董事長，負責集團風險決策",
+  storyAffinity: "現代 · 企業",
+  institutionId: "institution:enterprise",
+  institutionRole: "董事長",
+  organizationUnit: "董事會",
+  organizationRank: "董事長",
+  organizationFaction: "創辦派",
+  familyId: "family:shen",
+  familyRole: "家主",
+  pronouns: "她",
+  age: 48,
+  lifeStage: "壯年",
+  location: "台北總部",
+  goal: "保住家族企業與員工",
+  personality: {
+    traits: ["沉著", "果斷"],
+    publicFace: "從容掌控會議",
+    privateNeed: "守住家族信任",
+  },
+  abilities: { specialties: ["企業治理", "風險談判"] },
+  portrait: {
+    source: "procedural-original-svg",
+    dataUrl: "data:image/svg+xml;charset=utf-8,GENERIC_SILHOUETTE",
+  },
+};
+const socialCatalogPortrait = suggestedSocialMatrixCharacterPortrait({
+  character: socialMatrixCandidate,
+  project: modernProject,
+  worlds: [modernWorld],
+});
+assert.equal(socialCatalogPortrait.source, "catalog");
+assert.ok(socialCatalogPortrait.atlas, "social-matrix cards must use a local catalog atlas cell");
+assert.match(socialCatalogPortrait.assetUri, /^\/character-portraits\/atlas-[a-z-]+\.png$/u);
+assert.notEqual(socialCatalogPortrait.assetUri, socialMatrixCandidate.portrait.dataUrl);
+assert.ok((socialCatalogPortrait.visualVariant?.variant ?? -1) >= 0);
+assert.ok((socialCatalogPortrait.visualVariant?.variant ?? 100) < 100);
+assert.deepEqual(
+  suggestedSocialMatrixCharacterPortrait({ character: socialMatrixCandidate, project: modernProject, worlds: [modernWorld] }),
+  socialCatalogPortrait,
+  "social-matrix portrait variants must remain deterministic",
+);
 assert.equal(isCharacterEraCompatible({ character: cast[2], project: modernProject, worlds: [modernWorld] }), false);
 assert.equal(isCharacterEraCompatible({ character: cast[0], project: modernProject, worlds: [modernWorld] }), true);
 
@@ -113,6 +210,27 @@ assert.deepEqual(
 
 const alternateWorld = { ...record("world:alternate"), name: optional("遠星"), era: optional("未來"), summary: optional("星際") };
 assert.deepEqual(activeStoryWorlds([modernWorld, alternateWorld], { activeWorldId: alternateWorld.id }, bible).map((item) => item.id), [alternateWorld.id]);
+const inactiveCultivationWorld = {
+  ...record("world:inactive-cultivation"),
+  name: optional("玄霄宗"),
+  era: optional("修仙古代"),
+  summary: optional("宗門、靈根與劍修世界"),
+};
+const activeModernWorlds = activeStoryWorlds(
+  [modernWorld, inactiveCultivationWorld],
+  { activeWorldId: modernWorld.id },
+  bible,
+);
+assert.equal(
+  suggestedCharacterPortrait({ character: cast[0], project: modernProject, worlds: [modernWorld, inactiveCultivationWorld] }).themeId,
+  "xianxia",
+  "an inactive cultivation world can incorrectly dominate an unfiltered portrait assignment",
+);
+assert.equal(
+  suggestedCharacterPortrait({ character: cast[0], project: modernProject, worlds: activeModernWorlds }).themeId,
+  "modern-mystery",
+  "chat portraits must use only the active StoryState/Story Bible world",
+);
 assert.deepEqual(activeStoryWorldRules([
   { id: "rule:one", immutable: true },
   { id: "rule:two", immutable: false },
@@ -328,10 +446,22 @@ assert.match(multiParticipantText, /STAGED_FORMAL_RELATIONSHIP/u);
 assert.doesNotMatch(multiParticipantText, /曜七|OFFSTAGE_PROFILE_SECRET|OFFSTAGE_FORMAL_RELATIONSHIP_SECRET/u);
 assert.equal(multiParticipantComposition.contextSourceSummary.counts.characters, 2);
 
-const [projectSectionSource, homeSource, socialLibrarySource] = await Promise.all([
+const [
+  projectSectionSource,
+  homeSource,
+  socialLibrarySource,
+  chatCharacterSource,
+  rpgWorkspaceSource,
+  messageTimelineSource,
+  conversationSessionSource,
+] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/project-section-client.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/character-relationship-workbench.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/social-world-library.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/chat/components/story-character-reference.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/rpg/rpg-workspace.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/chat/components/message-timeline.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-session.ts", import.meta.url), "utf8"),
 ]);
 assert.match(projectSectionSource, /mutation: existing \? "update-world" : "create-world"/u);
 assert.match(projectSectionSource, /disabled=\{storyStarted && !worldEditingId\}/u);
@@ -351,6 +481,30 @@ assert.doesNotMatch(homeWorldSaveHandler, /assertStoryStartedCanonMutationAllowe
 assert.match(socialLibrarySource, /mode = "reference-only"/u);
 assert.match(socialLibrarySource, /data-library-mode=\{mode\}/u);
 assert.match(socialLibrarySource, /故事內查詢模式/u);
+const socialCharacterGridStart = socialLibrarySource.indexOf('data-testid="social-character-grid"');
+const socialCharacterGridEnd = socialLibrarySource.indexOf('view === "treasures"', socialCharacterGridStart);
+assert.ok(socialCharacterGridStart >= 0 && socialCharacterGridEnd > socialCharacterGridStart);
+const socialCharacterGridSource = socialLibrarySource.slice(socialCharacterGridStart, socialCharacterGridEnd);
+assert.match(socialCharacterGridSource, /suggestedSocialMatrixCharacterPortrait\(\{/u);
+assert.match(socialCharacterGridSource, /<CharacterPortraitImage portrait=\{portrait\} className=\{styles\.socialCharacterPortrait\} \/>/u);
+assert.doesNotMatch(
+  socialCharacterGridSource,
+  /character\.portrait\.dataUrl/u,
+  "the visible social-matrix character grid must not render procedural SVG silhouettes",
+);
+assert.match(chatCharacterSource, /suggestedCharacterPortrait\(\{ character, project, worlds \}\)/u);
+assert.match(chatCharacterSource, /portrait=\{portrait\}/u);
+assert.doesNotMatch(chatCharacterSource, /portrait=\{character\.portrait\}/u, "chat cards must not render procedural placeholders directly");
+assert.match(conversationSessionSource, /repository\.list<StoryBible>\("storyBibles", projectId\)/u);
+assert.match(messageTimelineSource, /activeStoryWorlds\(worlds, storyState, storyBible\)/u);
+assert.match(messageTimelineSource, /worlds=\{portraitWorlds\}/u);
+assert.doesNotMatch(messageTimelineSource, /worlds=\{worlds\}/u, "chat must not pass every project world into portrait assignment");
+assert.match(projectSectionSource, /activeStoryWorlds\(data\.worlds, storyState, storyBible\)/u);
+assert.match(projectSectionSource, /portrait=\{displayPortrait\}/u);
+assert.doesNotMatch(projectSectionSource, /portrait=\{item\.portrait\}/u, "the main character list must resolve procedural placeholders");
+assert.match(rpgWorkspaceSource, /activeStoryWorlds\(data\.worlds, data\.storyState, data\.storyBible\)/u);
+assert.match(rpgWorkspaceSource, /portrait=\{protagonistPortrait\}/u);
+assert.doesNotMatch(rpgWorkspaceSource, /portrait=\{protagonist\.portrait\}/u, "the RPG dashboard must resolve procedural placeholders");
 const worldSaveHandler = projectSectionSource.slice(
   projectSectionSource.indexOf("async function saveWorld"),
   projectSectionSource.indexOf("async function removeWorld"),

@@ -124,14 +124,71 @@ async function createProject(page, title) {
   await page.goto(`${baseUrl}/studio/create`, { waitUntil: "domcontentloaded", timeout: 90_000 });
   await page.getByTestId("canonical-create-flow").waitFor({ state: "visible", timeout: 90_000 });
   await page.getByTestId("p2-project-title").fill(title);
-  await page.getByTestId("create-play-mode-general").click();
   await page.locator('[data-topic-id="classic-topic-009"]').click();
-  await page.getByTestId("create-ai-story-seed").click();
+
+  const generalMode = page.getByTestId("create-play-mode-general");
+  const choiceMode = page.getByTestId("create-play-structure-choice");
+  const creationAssistant = page.locator(".p2CreationAssistant");
+  const assistantButton = creationAssistant.getByTestId("create-ai-story-seed");
+  const assistantStatus = creationAssistant.getByTestId("create-ai-story-seed-status");
+
+  assert.equal(await generalMode.getAttribute("aria-pressed"), "false");
+  assert.equal(await choiceMode.getAttribute("aria-pressed"), "false");
+  assert.equal(await assistantButton.isEnabled(), true, "AI seed must be available before a play mode is chosen");
+
+  await assistantButton.click();
+  await assistantStatus.waitFor({ state: "visible", timeout: 10_000 });
+  assert.ok(
+    (await assistantStatus.innerText()).trim(),
+    "AI seed progress must render beside the assistant action",
+  );
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-testid="create-ai-story-seed"]');
     const status = document.querySelector('[data-testid="create-ai-story-seed-status"]');
-    return Boolean(button && !button.hasAttribute("disabled") && status?.textContent?.trim());
+    return Boolean(
+      button
+      && !button.hasAttribute("disabled")
+      && /已填入|裝置後備[^。]*填入/u.test(status?.textContent ?? ""),
+    );
   }, undefined, { timeout: 90_000 });
+
+  const completedStatus = (await assistantStatus.innerText()).trim();
+  assert.match(completedStatus, /已填入|裝置後備[^。]*填入/u);
+  assert.equal(await generalMode.getAttribute("aria-pressed"), "false");
+  assert.equal(await choiceMode.getAttribute("aria-pressed"), "false");
+  assert.equal(
+    await page.getByTestId("create-three-choice-subtypes").count(),
+    0,
+    "AI assistance must not choose a play structure or subtype for the author",
+  );
+
+  const assistedSeedBeforeMode = {
+    fields: (await page.locator(".p2SeedPreview dd").allTextContents()).map((value) => value.trim()),
+    cast: (await page.locator(".p2CastPreview article").allTextContents()).map((value) => value.trim()),
+  };
+  assert.ok(
+    assistedSeedBeforeMode.fields.length >= 6
+      && assistedSeedBeforeMode.fields.every(Boolean),
+    "AI or the explicit device fallback must complete the visible story seed",
+  );
+  assert.ok(
+    assistedSeedBeforeMode.cast.length >= 5
+      && assistedSeedBeforeMode.cast.every(Boolean),
+    "AI or the explicit device fallback must complete the visible core cast",
+  );
+
+  await generalMode.click();
+  assert.equal(await generalMode.getAttribute("aria-pressed"), "true");
+  assert.equal(await choiceMode.getAttribute("aria-pressed"), "false");
+  const assistedSeedAfterMode = {
+    fields: (await page.locator(".p2SeedPreview dd").allTextContents()).map((value) => value.trim()),
+    cast: (await page.locator(".p2CastPreview article").allTextContents()).map((value) => value.trim()),
+  };
+  assert.deepEqual(
+    assistedSeedAfterMode,
+    assistedSeedBeforeMode,
+    "the author's later play-mode choice must retain the completed assisted seed and cast",
+  );
 
   const stepBar = page.locator(".p2StepBar");
   const next = page.locator(".p2CreatePanel > footer button.gold");

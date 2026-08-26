@@ -15,6 +15,8 @@ import {
   type World,
   type WorldRule,
 } from "@/lib/novel-ai/domain";
+import { activeStoryWorlds } from "@/lib/novel-ai/domain/active-story-context";
+import { suggestedSocialMatrixCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import {
   characterRpgStatsForArchetype,
   createCharacterRpgProfile,
@@ -68,6 +70,7 @@ import {
   type StoryOrganizationMember,
   type StoryOrganizationHierarchyNode,
 } from "@/lib/novel-ai/social-matrix";
+import CharacterPortraitImage from "./character-portrait";
 import styles from "./social-world-library.module.css";
 
 const PAGE_SIZE = 6;
@@ -287,8 +290,18 @@ export default function SocialWorldLibrary({
     conflict: project.coreIdea.value ?? undefined,
   }), [approvedCharacters, project]);
   const [activeStoryState, setActiveStoryState] = useState<StoryState | null>(null);
+  const activeStoryBible = useMemo(
+    () => storyBibles.find((storyBible) => storyBible.id === project.storyBibleId)
+      ?? storyBibles[0]
+      ?? null,
+    [project.storyBibleId, storyBibles],
+  );
+  const portraitWorlds = useMemo(
+    () => activeStoryWorlds(approvedWorlds, activeStoryState, activeStoryBible),
+    [activeStoryBible, activeStoryState, approvedWorlds],
+  );
   const organizationSetting = useMemo(() => {
-    const legacyWorldId = storyBibles.find((storyBible) => storyBible.worldId)?.worldId ?? null;
+    const legacyWorldId = activeStoryBible?.worldId ?? null;
     const activeWorldId = activeStoryState?.activeWorldId === undefined
       ? legacyWorldId
       : activeStoryState.activeWorldId;
@@ -306,7 +319,7 @@ export default function SocialWorldLibrary({
         narrativeStyle: project.narrativeStyle.value,
       },
     });
-  }, [activeStoryState, approvedWorlds, baseContext.genre, project.coreIdea.value, project.narrativeStyle.value, storyBibles]);
+  }, [activeStoryBible, activeStoryState, approvedWorlds, baseContext.genre, project.coreIdea.value, project.narrativeStyle.value]);
   const context = useMemo(() => organizationMatrixContext({
     base: baseContext,
     setting: organizationSetting,
@@ -358,6 +371,16 @@ export default function SocialWorldLibrary({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const seedBackfillStarted = useRef(false);
+  const approvedCharacterBySourceId = useMemo(() => {
+    const result = new Map<string, Character>();
+    for (const character of approvedCharacters) {
+      result.set(character.id, character);
+      if (character.socialMatrixProfile?.sourceCharacterId) {
+        result.set(character.socialMatrixProfile.sourceCharacterId, character);
+      }
+    }
+    return result;
+  }, [approvedCharacters]);
   const approvedIds = useMemo(() => new Set(approvedCharacters.map((character) => character.id)), [approvedCharacters]);
   const approvedSocialIds = useMemo(() => new Set(
     approvedCharacters.map((character) => character.socialMatrixProfile?.sourceCharacterId).filter((id): id is string => Boolean(id)),
@@ -1281,6 +1304,12 @@ export default function SocialWorldLibrary({
           </div>
           <div className={styles.characterGrid} data-testid="social-character-grid">
             {characterItems.map((character) => {
+              const portrait = suggestedSocialMatrixCharacterPortrait({
+                character,
+                approvedCharacter: approvedCharacterBySourceId.get(character.characterId),
+                project,
+                worlds: portraitWorlds,
+              });
               const genealogyPosition = genealogyPositionByCharacterId.get(character.characterId);
               const institutionIndex = Number.parseInt(character.institutionId.split(":").at(-1) ?? "0", 36);
               const familyIndex = Number.parseInt(character.familyId.split(":").at(-1) ?? "0", 36);
@@ -1296,8 +1325,7 @@ export default function SocialWorldLibrary({
               return (
                 <article className={styles.characterCard} key={character.characterId} data-character-id={character.characterId} data-generation-id={genealogyPosition?.generationId} data-parentage-id={genealogyPosition?.parentageId ?? undefined}>
                   <header>
-                    {/* eslint-disable-next-line @next/next/no-img-element -- deterministic local SVG data URL */}
-                    <img src={character.portrait.dataUrl} alt={`${character.name}的原創抽象人物相片`} />
+                    <CharacterPortraitImage portrait={portrait} className={styles.socialCharacterPortrait} />
                     <div><span>{character.abilities.powerTier} · {character.storyAffinity}</span><h5>{character.name}</h5><p>{character.identity}</p></div>
                   </header>
                   <div className={styles.affiliation}>

@@ -8,6 +8,10 @@ import type {
 import { BROWSER_WEBLLM_MODELS } from "@/lib/novel-ai/providers/browser-ai/webllm-model-registry";
 import { useConversationComposer } from "../hooks/use-conversation-composer";
 import type { ClosedAiSetupLifecycle } from "../hooks/use-closed-ai-bootstrap";
+import {
+  CHAPTER_CONTINUE_SETUP_REQUIRED_MESSAGE,
+  isClosedAiTaskRoutable,
+} from "../closed-ai-task-readiness";
 import { AttachmentTray } from "./attachment-tray";
 import type { LocalAttachment } from "./conversation-types";
 import styles from "../conversation.module.css";
@@ -77,10 +81,8 @@ export function MessageComposer({
   const selectedModel = BROWSER_WEBLLM_MODELS.find(
     (model) => model.modelId === closedAiSetup?.selectedModelId,
   );
-  const showSetup = Boolean(
-    closedAiSetup
-    && closedAiSetup.status !== "ready",
-  );
+  const taskRoutable = isClosedAiTaskRoutable(closedAiSetup);
+  const showSetup = Boolean(closedAiSetup && !taskRoutable);
   const downloadMegabytes = closedAiSetup
     ? (closedAiSetup.setup.estimatedDownloadBytes / 1_000_000).toFixed(1)
     : "0.0";
@@ -90,6 +92,8 @@ export function MessageComposer({
       data-testid="conversation-message-composer"
       data-closed-ai-generation-verified-backends={closedAiSetup?.readiness.generationVerifiedBackends ?? 0}
       data-closed-ai-active-backend={closedAiSetup?.readiness.activeBackend ?? "none"}
+      data-closed-ai-task-routable={taskRoutable}
+      data-closed-ai-planned-backend={closedAiSetup?.runtime.plannedBackend ?? "none"}
       data-latest-closed-ai-executor={latestInvocation?.actualExecutor ?? "none"}
       data-closed-ai-setup-busy={closedAiSetupBusy}
       data-closed-ai-external-fallback={closedAiSetup?.readiness.externalFallback ?? false}
@@ -100,7 +104,7 @@ export function MessageComposer({
         <section
           className={styles.closedAiSetupCard}
           data-testid="closed-ai-setup-card"
-          data-status={closedAiSetup?.status}
+          data-status={taskRoutable ? "ready" : "setup_required"}
           data-setup-lifecycle={closedAiSetupLifecycle}
           data-estimated-download-bytes={closedAiSetup?.setup.estimatedDownloadBytes ?? 0}
           aria-busy={closedAiSetupBusy}
@@ -113,10 +117,12 @@ export function MessageComposer({
                 ? "自動協調器準備已取消"
               : closedAiSetupBusy
                 ? "正在準備自動協調器"
-                : "準備閉端 AI 自動協調器"}</h2>
+                : "完整小說正文尚未可用"}</h2>
             <p>{closedAiSetupError
               ?? closedAiSetupProgress?.message
-              ?? closedAiSetup?.safeMessage}</p>
+              ?? (taskRoutable
+                ? closedAiSetup?.safeMessage
+                : CHAPTER_CONTINUE_SETUP_REQUIRED_MESSAGE)}</p>
           </div>
           {selectedModel ? (
             <dl className={styles.closedAiSetupFacts}>

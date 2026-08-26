@@ -105,6 +105,7 @@ import {
   resolveArtifactBefore,
   targetStore,
 } from "./conversation-workspace-support";
+import { isClosedAiTaskRoutable } from "./closed-ai-task-readiness";
 
 export default function ConversationWorkspace({
   projectId,
@@ -152,9 +153,8 @@ export default function ConversationWorkspace({
     resolveRegenerationBackend,
   } = useClosedAiBootstrap(projectId);
   const closedAiRegenerationReady = Boolean(
-    closedAiSetup?.status === "ready"
-    && !closedAiSetupBusy
-    && closedAiSetup.readiness.generationVerifiedBackends > 0,
+    !closedAiSetupBusy
+    && isClosedAiTaskRoutable(closedAiSetup),
   );
   const abortRef = useRef<AbortController | null>(null);
   const runRef = useRef(0);
@@ -169,6 +169,7 @@ export default function ConversationWorkspace({
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const {
     project,
+    storyBible,
     storyState,
     characters,
     relationships,
@@ -1917,6 +1918,7 @@ export default function ConversationWorkspace({
     retryLabel,
     branchPendingMessageIds,
     dashboardOpenRequest,
+    storyBible,
     storyState,
     onStoryStateChanged: setStoryState,
     worlds,

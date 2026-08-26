@@ -234,6 +234,25 @@ function normalized(value: string) {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
+function isLikelySpokenQuotation(value: string, match: RegExpMatchArray) {
+  const quote = match[1] ?? "";
+  // Titles, organisations and named artefacts are routinely wrapped in 「」.
+  // A complete utterance normally carries sentence punctuation; attribution
+  // verbs cover terse dialogue such as 「別動」林澄低聲說.
+  if (/[。！？!?]/u.test(quote)) return true;
+  if (
+    /^(?:我|你|他|她|我們|你們|別|不要|快|請)/u.test(quote)
+    && /(?:要|會|能|願|敢|知道|相信|交|走|來|去|做|給|讓|別|不)/u.test(quote.slice(1))
+  ) return true;
+  const start = match.index ?? 0;
+  const end = start + match[0].length;
+  const before = value.slice(Math.max(0, start - 24), start);
+  const after = value.slice(end, Math.min(value.length, end + 24));
+  const speechVerb = "(?:說|問|答|喊|道|喝道|低聲|沉聲|開口|回應|反駁|提醒|警告|承認|追問|嘆道)";
+  return new RegExp(`${speechVerb}[：:]?\\s*$`, "u").test(before)
+    || new RegExp(`^\\s*(?:，|。|！|？)?[^，。！？\\n]{0,12}${speechVerb}`, "u").test(after);
+}
+
 function parseJsonObject(raw: string) {
   const withoutFence = raw
     .replace(/^\s*```(?:json)?\s*/i, "")
@@ -311,6 +330,7 @@ export function buildRpgChoiceDirectorPrompt(input: {
       "每個 key 已由規則引擎綁定策略，而且 A/B/C 的策略位置會輪替；必須逐項服從 immutableRuleChoices，不可自行假設 A、B、C 的策略。",
       "context.project.fixedPlayMode 只鎖定本回合的操作、數值與結算方式；世界規則與 Lore 已核定的修煉、宗門、家族、丹藥、符籙、陣法、法器或靈草等題材詞仍必須保留。不得憑空引入其他玩法的數值機制。",
       "不得重述前情、不得沿用最近回合標題、不得使用空泛句型。只能重寫 title、description、consequenceTeaser；不得輸出或修改策略、需求、成功率、風險、成本、效果、判定或其他規則欄位。",
+      "三條路線的第一個具體動作、直接介入者、眼前收益與必須承擔的代價都要不同；禁止三張卡共用同一段前情後只替換策略名稱。標題必須先說人物要做什麼，不要先堆疊類型或規則標籤。",
       "不得透露或猜測任何預設回合總數、回合上限、內部故事弧階段、結局條件、門檻或判定機制。若 readerSafeCausalContracts 提供 currentDirections，只能描述當下列出的三個方向，不得解釋它們為何現在出現。",
       "三項要承接具體上下文並導向不同事件與人物反應；若 context.selectedStageFamily、stagedOrganizations、stagedAssets 已提供資料，三項應分別讓具體人物、勢力或資產介入，不能只替換策略形容詞。只輸出 JSON，不要 Markdown。",
       outputLanguageInstruction(input.language),
@@ -407,6 +427,18 @@ export function validateRpgStoryTurnContract(
   if (visibleEngineLanguage.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE");
   }
+  const visibleDatabaseDump = language === "en"
+    ? /(?:database field|record owner|asset controller|contract field)\s*[:=]/iu
+    : /(?:企業集團|題材勢力|家族企業)「[^」]{1,40}」(?:持有|掌握)|(?:拍攝時程|工作合約)\s*[：:]\s*由/u;
+  if (visibleDatabaseDump.test(value)) {
+    throw new Error("RPG_AI_CONTINUATION_DATABASE_DUMP_VISIBLE");
+  }
+  const spokenLines = Array.from(value.matchAll(/「([^」]{8,})」/gu))
+    .filter((match) => isLikelySpokenQuotation(value, match))
+    .map((match) => normalized(match[1]));
+  if (new Set(spokenLines).size !== spokenLines.length) {
+    throw new Error("RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED");
+  }
   const narrativeLength = value.replace(/\s+/gu, "").length;
   const paragraphCount = value
     .split(/\n+/u)
@@ -464,11 +496,14 @@ export function buildRpgResolutionDirectorPrompt(input: {
         ? "The first line must be a concrete literary title enclosed in angle quotation marks, with no round number or game label."
         : "第一行必須是「〈具體場景或事件標題〉」；不可顯示回合數、遊戲標籤，也不可使用「新的冒險」等空話。",
       "開頭要自然承認玩家剛選擇的行動，接著承接最後場景、角色個性、人物關係、世界規則、未解伏筆及最近回合；完整寫出一場有場景、行動、對話、感官、直接後果與新局勢的戲。",
+      "這一幕必須回答或實質改變一個眼前問題，並只留下由本次行動造成的新問題；不可把同一危機改名後重問，也不可再次回到與上一幕相同的門口、證據交換或『先相信誰』。",
       "把 context.stagedFamilies、supportingCharacters 與 relationships 視為會主動改變局勢的上場人物網絡，不可只讓主角自言自語。若既有資料提供至少兩名配角，正文至少讓主角與兩名具名配角登場；兩名配角必須各自採取不同且可見的行動，並由不同人物說出至少兩句推動衝突的對話。",
       "上場家族或派系必須透過成員、信使、資源、承諾、阻攔或旁觀者反應實際介入場景；不可只列家族名稱或把所有人都寫成服從主角的背景板。若既有資料不足兩名配角，可依世界規則創造原創臨時人物補足現場互動，但不得使用真實人物，也不得宣稱臨時人物已成為正式 Canon。",
       "若 context.selectedStageFamily、stagedOrganizations、stagedAssets 已提供資料，必須選用其中至少一個已核定資產，讓其控制勢力、目前持有人與聲索勢力透過行動形成可見因果；不得改名、換持有人或只把資料列成清單。資產的作用、限制與代價要成為場景阻力或解法。",
       "supportingCharacters.hiddenMotivations 只用來塑造角色行為；除非目前證據已揭露，不可讓角色直接說出秘密，也不可把欄位名稱寫入正文。",
       "人物的既有目標、拒絕底線與關係摘要要化成動作、語氣和選擇，不要列人物卡、設定表、家族 ID、派系 ID 或資料庫欄位。",
+      "不同人物必須有不同措辭、句長、態度與談判方式；禁止兩人說出相同台詞，也禁止使用『我可以和你同行，但不是照單全收』之類可任意套人的模板句。",
+      "所有組織、資產與契約資料都要改寫成現場可見的行動或物件反應；禁止出現『企業集團某某持有』『拍攝時程：由……』『工作合約：由……』等資料表式句子。",
       "小說標題後使用 8 到 16 個完整小說段落；不要另加分節標題、編號或小標，避免把同一段拆成只有一句的碎片。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
       "故事要推進到需要玩家決定的自然停頓點，以門被推開、證據被交出、人物要求回答或迫近事件等具體畫面收尾；不要寫『下一回合』『下一輪』『等待下一步』等介面語句，不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",

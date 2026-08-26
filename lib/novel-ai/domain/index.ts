@@ -374,6 +374,7 @@ export type ReaderState = DomainRecord & {
   fontSize: number;
   lineHeight: number;
   contentWidth: number;
+  contentWidthPreferenceVersion?: number;
   paragraphSpacing: number;
   lastReadAt: string | null;
 };
