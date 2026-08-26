@@ -256,6 +256,26 @@ export function useConversationSessionController({
     return commitSessionSnapshot(sessionId, snapshot, token);
   }, [commitSessionSnapshot, readSessionSnapshot]);
 
+  const projectMessageIntoActiveSession = useCallback((
+    sessionId: string,
+    message: ConversationMessage,
+  ) => {
+    if (sessionIntentRef.current.sessionId !== sessionId || message.sessionId !== sessionId) {
+      return false;
+    }
+    setMessages((current) => {
+      const existingIndex = current.findIndex((item) => item.id === message.id);
+      if (existingIndex < 0) {
+        return [...current, message].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      }
+      const next = [...current];
+      if ((next[existingIndex]?.revision ?? 0) > message.revision) return current;
+      next[existingIndex] = message;
+      return next;
+    });
+    return true;
+  }, []);
+
   const loadWorkspace = useCallback(async (
     preferredSessionId = "",
     options: WorkspaceLoadOptions = {},
@@ -420,6 +440,7 @@ export function useConversationSessionController({
     setStoryState,
     loadWorkspace,
     refreshSession,
+    projectMessageIntoActiveSession,
     chooseSession,
     beginSessionIntent,
     queueSessionIntent,

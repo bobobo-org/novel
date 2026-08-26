@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import type {
   ClosedAIBackendId,
 } from "@/lib/novel-ai/closed-agent-os";
@@ -192,6 +193,7 @@ export default function ConversationWorkspace({
     setStoryState,
     loadWorkspace,
     refreshSession,
+    projectMessageIntoActiveSession,
     chooseSession: switchSession,
     beginSessionIntent,
     queueSessionIntent,
@@ -435,7 +437,7 @@ export default function ConversationWorkspace({
             runningMessage: "正在開啟備份回復說明",
             completedMessage: "備份回復說明已開啟，Canon 未修改",
           };
-    await runDeterministicConversationTool({
+    return runDeterministicConversationTool({
       sessionId: input.sessionId,
       parentMessageId: input.userMessage.id,
       ...action,
@@ -482,7 +484,7 @@ export default function ConversationWorkspace({
     userMessage: ConversationMessage;
     signal: AbortSignal;
   }) {
-    await runDeterministicConversationTool({
+    return runDeterministicConversationTool({
       sessionId: input.sessionId,
       parentMessageId: input.userMessage.id,
       idPrefix: "conversation-dashboard-query",
@@ -1241,7 +1243,7 @@ export default function ConversationWorkspace({
         canonicalMutationCount: 0,
         safeProgress: { stage: "candidate", percent: 100, message: "候選已完成，Canon 未修改" },
       });
-      await conversation.updateMessageStatus({
+      const completedMessage = await conversation.updateMessageStatus({
         projectId,
         sessionId: input.sessionId,
         messageId: currentPlaceholder.id,
@@ -1253,7 +1255,7 @@ export default function ConversationWorkspace({
       });
       invocation = await completeInvocation();
       if (artifact) setDrawer({ kind: "artifact", artifactId: artifact.id });
-      return { result, artifact, invocation };
+      return { result, artifact, invocation, message: completedMessage };
     } catch (error) {
       const cancelled = input.signal.aborted;
       const failureEvidence = cancelled
@@ -1375,6 +1377,18 @@ export default function ConversationWorkspace({
     }
     const runId = runRef.current + 1;
     runRef.current = runId;
+    let requestOperationReleased = false;
+    const releaseRequestOperation = () => {
+      if (requestOperationReleased) return;
+      requestOperationReleased = true;
+      operationLockRef.current = false;
+      releaseLease();
+      setCancellable(false);
+      if (runRef.current === runId) {
+        abortRef.current = null;
+        setBusy(false);
+      }
+    };
     const controller = new AbortController();
     abortRef.current?.abort("CONVERSATION_REPLACED");
     abortRef.current = controller;
@@ -1383,6 +1397,7 @@ export default function ConversationWorkspace({
     setSafeError(null);
     if (!existingUserRequest) setDraft("");
     setProgress("正在辨識你的自然語言要求。");
+    let completedResponseMessage: ConversationMessage | null = null;
     try {
       if (plan.executionKind === "learning_import") {
         learningResumeEnabled = true;
@@ -1555,25 +1570,27 @@ export default function ConversationWorkspace({
       }
       await maybeUpdateRollingSummary(sessionId);
       if (plan.executionKind === "repository") {
-        await runRepositoryAction({
+        const completed = await runRepositoryAction({
           plan,
           sessionId,
           userMessage,
           signal: controller.signal,
         });
+        completedResponseMessage = completed.message;
       } else if (plan.executionKind === "query") {
-        await runDashboardQuery({
+        const completed = await runDashboardQuery({
           plan,
           sessionId,
           userMessage,
           signal: controller.signal,
         });
+        completedResponseMessage = completed.message;
       } else if (plan.executionKind === "rpg") {
         const plannedChoice = requestRpgChoices
           ? parseRpgChoiceSelection(content, requestRpgChoices.envelope.plan.choices)
           : null;
         if (plannedChoice && requestRpgChoices) {
-          await executeRpgChoice({
+          const completed = await executeRpgChoice({
             sessionId,
             choice: plannedChoice,
             choicePlanCandidateId: requestRpgChoices.envelope.plan.candidateId,
@@ -1584,6 +1601,7 @@ export default function ConversationWorkspace({
             userMessage,
             signal: controller.signal,
           });
+          completedResponseMessage = completed.message;
         } else if (plan.intent === "rpg_custom_action" && requestRpgChoices) {
           const snapshot = await loadLearningAwareRpgChatSnapshot({
             repository,
@@ -1592,7 +1610,7 @@ export default function ConversationWorkspace({
             ensureSharedLearningReady,
             signal: controller.signal,
           });
-          await executeRpgChoice({
+          const completed = await executeRpgChoice({
             sessionId,
             choice: buildRpgChatCustomAction({ snapshot, action: content }),
             choicePlanCandidateId: requestRpgChoices.envelope.plan.candidateId,
@@ -1603,21 +1621,24 @@ export default function ConversationWorkspace({
             userMessage,
             signal: controller.signal,
           });
+          completedResponseMessage = completed.message;
         } else {
-          await createRpgChoicesMessage({
+          const completed = await createRpgChoicesMessage({
             sessionId,
             parentMessageId: userMessage.id,
             signal: controller.signal,
           });
+          completedResponseMessage = completed.placeholder;
         }
       } else {
-        await runClosedAgent({
+        const completed = await runClosedAgent({
           plan,
           sessionId,
           userMessage,
           preparedAttachments,
           signal: controller.signal,
         });
+        completedResponseMessage = completed.message;
       }
       if (runRef.current === runId) {
         setProgress(plan.approvalRequired
@@ -1625,6 +1646,17 @@ export default function ConversationWorkspace({
           : "閉端 AI 意見已完成；這份回覆沒有採用入口，正式 Canon 維持原狀。");
       }
       if (!existingUserRequest) clearTransientAttachments();
+      if (existingUserRequest) {
+        // Keep terminal persistence, visible continuation and input readiness in
+        // one UI commit. The complete workspace refresh may scan 1000+ messages
+        // and must not leave a durable edit-copy hidden behind a disabled input.
+        flushSync(() => {
+          if (completedResponseMessage) {
+            projectMessageIntoActiveSession(sessionId, completedResponseMessage);
+          }
+          releaseRequestOperation();
+        });
+      }
       await loadWorkspace(sessionId);
     } catch (error) {
       if (runRef.current !== runId) return;
@@ -1656,13 +1688,7 @@ export default function ConversationWorkspace({
       if (!existingUserRequest) clearTransientAttachments();
       await loadWorkspace(sessionId).catch(() => undefined);
     } finally {
-      operationLockRef.current = false;
-      releaseLease();
-      setCancellable(false);
-      if (runRef.current === runId) {
-        abortRef.current = null;
-        setBusy(false);
-      }
+      releaseRequestOperation();
     }
   }
 

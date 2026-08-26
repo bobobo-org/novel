@@ -204,7 +204,7 @@ export function useConversationRpgController({
         canonicalMutationCount: 0,
         safeProgress: { stage: "completed", percent: 100, message: "三條故事路線已完成" },
       });
-      await conversation.updateMessageStatus({
+      const completedMessage = await conversation.updateMessageStatus({
         projectId,
         sessionId: input.sessionId,
         messageId: updated.id,
@@ -214,7 +214,7 @@ export function useConversationRpgController({
         candidateIds: [plan.candidateId],
         toolInvocationIds: updated.toolInvocationIds,
       });
-      return { placeholder, plan, invocation };
+      return { placeholder: completedMessage, plan, invocation };
     } catch (error) {
       const friendlyError = friendlyConversationExecutionError(
         rpgErrorCode(error),
@@ -440,7 +440,7 @@ export function useConversationRpgController({
             safeProgress: { stage: "candidate", percent: 100, message: "完整故事回合已成為候選" },
           });
           invocationCompleted = true;
-          await conversation.updateMessageStatus({
+          const completedMessage = await conversation.updateMessageStatus({
             projectId,
             sessionId: input.sessionId,
             messageId: currentAssistant.id,
@@ -466,7 +466,7 @@ export function useConversationRpgController({
           });
           await rejectStudioClosedAgentCandidate(input.choicePlanCandidateId).catch(() => undefined);
           setDrawer({ kind: "artifact", artifactId: artifact.id });
-          return artifact;
+          return { artifact, message: completedMessage };
         } catch (error) {
           const friendlyError = friendlyConversationExecutionError(
             rpgErrorCode(error),
