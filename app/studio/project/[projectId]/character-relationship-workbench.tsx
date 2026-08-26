@@ -120,8 +120,10 @@ export default function CharacterRelationshipWorkbench({
   const [worldSummary, setWorldSummary] = useState("");
   const [bibleTheme, setBibleTheme] = useState("");
   const [bibleStyle, setBibleStyle] = useState("");
+  const [bibleForeshadowing, setBibleForeshadowing] = useState("");
   const [bibleThreads, setBibleThreads] = useState("");
   const [bibleContradictions, setBibleContradictions] = useState("");
+  const [biblePreferences, setBiblePreferences] = useState("");
   const [selectedRuleId, setSelectedRuleId] = useState("__new__");
   const [ruleTitle, setRuleTitle] = useState("");
   const [ruleDescription, setRuleDescription] = useState("");
@@ -144,8 +146,10 @@ export default function CharacterRelationshipWorkbench({
   function applyBibleForm(storyBible: StoryBible | null) {
     setBibleTheme(storyBible?.theme.value ?? "");
     setBibleStyle(storyBible?.style.value ?? "");
+    setBibleForeshadowing((storyBible?.foreshadowing ?? []).join("\n"));
     setBibleThreads((storyBible?.unresolvedThreads ?? []).join("\n"));
     setBibleContradictions((storyBible?.forbiddenContradictions ?? []).join("\n"));
+    setBiblePreferences((storyBible?.authorPreferences ?? []).join("\n"));
   }
 
   function applyRuleForm(rule: WorldRule | null) {
@@ -462,10 +466,12 @@ export default function CharacterRelationshipWorkbench({
         ...storyBible,
         theme: optionalValue(bibleTheme.trim() || null, bibleTheme.trim() ? "user_defined" : "unset"),
         style: optionalValue(bibleStyle.trim() || null, bibleStyle.trim() ? "user_defined" : "unset"),
+        foreshadowing: textLines(bibleForeshadowing),
         unresolvedThreads: textLines(bibleThreads),
         forbiddenContradictions: textLines(bibleContradictions),
+        authorPreferences: textLines(biblePreferences),
       }, storyBible.revision);
-      await finish("故事主題、文風、未解線索與禁止矛盾已在首頁更新。 ");
+      await finish("Story Bible 已保存；主題、文風、伏筆、未解線索、禁止矛盾與作者偏好已在首頁更新。 ");
     } catch (cause) {
       setMessage(`故事記憶儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
     } finally {
@@ -1006,14 +1012,32 @@ export default function CharacterRelationshipWorkbench({
             <label className="wide">背景摘要<textarea rows={4} value={worldSummary} onChange={(event) => setWorldSummary(event.target.value)} /></label>
             <div><button type="submit" disabled={busy}>{selectedWorldId === "__new__" ? "建立世界" : "儲存世界"}</button>{selectedWorld ? <button type="button" disabled={busy} onClick={() => void removeSelectedWorld()}>刪除世界</button> : null}</div>
           </form>
-          <form onSubmit={saveStoryBible}>
+          <form
+            data-testid="story-bible-editor"
+            data-project-id={project.id}
+            onSubmit={saveStoryBible}
+          >
             <h3>Story Bible</h3>
-            <label>主題<input value={bibleTheme} onChange={(event) => setBibleTheme(event.target.value)} /></label>
-            <label>文風<input value={bibleStyle} onChange={(event) => setBibleStyle(event.target.value)} /></label>
-            <label className="wide">未解線索（每行一項）<textarea rows={4} value={bibleThreads} onChange={(event) => setBibleThreads(event.target.value)} /></label>
-            <label className="wide">禁止矛盾（每行一項）<textarea rows={4} value={bibleContradictions} onChange={(event) => setBibleContradictions(event.target.value)} /></label>
-            <button type="submit" disabled={busy || !storyBible}>儲存 Story Bible</button>
+            <p className="wide">每行一項。只有在首頁按下儲存，才會更新正式 Story Bible。</p>
+            <label>主題<input data-testid="story-bible-theme" value={bibleTheme} onChange={(event) => setBibleTheme(event.target.value)} /></label>
+            <label>敘事風格<input data-testid="story-bible-style" value={bibleStyle} onChange={(event) => setBibleStyle(event.target.value)} /></label>
+            <label className="wide">伏筆（每行一項）<textarea data-testid="story-bible-foreshadowing" rows={4} value={bibleForeshadowing} onChange={(event) => setBibleForeshadowing(event.target.value)} /></label>
+            <label className="wide">未解線索（每行一項）<textarea data-testid="story-bible-unresolved" rows={4} value={bibleThreads} onChange={(event) => setBibleThreads(event.target.value)} /></label>
+            <label className="wide">禁止矛盾（每行一項）<textarea data-testid="story-bible-contradictions" rows={4} value={bibleContradictions} onChange={(event) => setBibleContradictions(event.target.value)} /></label>
+            <label className="wide">作者偏好（每行一項）<textarea data-testid="story-bible-preferences" rows={4} value={biblePreferences} onChange={(event) => setBiblePreferences(event.target.value)} /></label>
+            <button data-testid="story-bible-save" type="submit" disabled={busy || !storyBible}>儲存 Story Bible</button>
           </form>
+          {storyBible ? <article
+            className="characterRelationEmpty"
+            data-testid="story-bible-record"
+            data-project-id={project.id}
+            data-record-id={storyBible.id}
+            data-revision={storyBible.revision}
+          >
+            <h3>目前正式 Story Bible</h3>
+            <p>主題：{storyBible.theme.value || "未設定"}／風格：{storyBible.style.value || "未設定"}</p>
+            <small>版本 {storyBible.revision}</small>
+          </article> : null}
         </div>
         <div>
           <form onSubmit={saveRule}>

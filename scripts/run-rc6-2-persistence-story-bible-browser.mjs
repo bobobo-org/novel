@@ -232,6 +232,23 @@ async function waitForPersistedStoryBible(page, projectId, {
   })}`);
 }
 
+async function waitForStoryBibleEditorValues(page, expectedFields, timeoutMs = 20_000) {
+  const testIds = {
+    theme: "story-bible-theme",
+    style: "story-bible-style",
+    foreshadowing: "story-bible-foreshadowing",
+    unresolved: "story-bible-unresolved",
+    contradictions: "story-bible-contradictions",
+    preferences: "story-bible-preferences",
+  };
+  await page.waitForFunction(({ expectedFields, testIds }) => Object.entries(expectedFields).every(([field, expected]) => {
+    const input = document.querySelector(`[data-testid="${testIds[field]}"]`);
+    return input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement
+      ? input.value === expected
+      : false;
+  }), { expectedFields, testIds }, { timeout: timeoutMs });
+}
+
 async function blockedUpgradeAndRetry(browser) {
   const context = await browser.newContext({ locale: "zh-TW", serviceWorkers: "block" });
   const blockerPage = await context.newPage();
@@ -251,7 +268,7 @@ async function blockedUpgradeAndRetry(browser) {
         request.onerror = () => reject(request.error);
       });
     });
-    await appPage.goto(`${baseUrl}/studio/project/rc6-2-blocked/story-bible`, { waitUntil: "domcontentloaded" });
+    await appPage.goto(`${baseUrl}/studio/project/rc6-2-blocked/tasks`, { waitUntil: "domcontentloaded" });
     const recovery = appPage.getByTestId("indexeddb-recovery");
     await recovery.waitFor({ timeout: 15_000 });
     const reason = await recovery.getAttribute("data-database-error-code");
@@ -275,7 +292,7 @@ async function versionChangeGate(browser) {
   const appPage = await context.newPage();
   const upgrader = await context.newPage();
   try {
-    await appPage.goto(`${baseUrl}/studio/project/rc6-2-version-a/story-bible`, { waitUntil: "networkidle" });
+    await appPage.goto(`${baseUrl}/studio/project/rc6-2-version-a/tasks`, { waitUntil: "networkidle" });
     await appPage.getByRole("heading", { name: "找不到作品" }).waitFor();
     await upgrader.goto(`${baseUrl}/api/release/identity`);
     await upgrader.evaluate(async (version) => {
@@ -287,7 +304,7 @@ async function versionChangeGate(browser) {
       });
       db.close();
     }, INDEXEDDB_DATABASE_VERSION + 1);
-    await appPage.goto(`${baseUrl}/studio/project/rc6-2-version-b/story-bible`, { waitUntil: "domcontentloaded" });
+    await appPage.goto(`${baseUrl}/studio/project/rc6-2-version-b/tasks`, { waitUntil: "domcontentloaded" });
     const recovery = appPage.getByTestId("indexeddb-recovery");
     await recovery.waitFor({ timeout: 15_000 });
     const reason = await recovery.getAttribute("data-database-error-code");
@@ -304,7 +321,7 @@ async function unavailableStorageGate(browser) {
   });
   const page = await context.newPage();
   try {
-    await page.goto(`${baseUrl}/studio/project/rc6-2-unavailable/story-bible`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${baseUrl}/studio/project/rc6-2-unavailable/tasks`, { waitUntil: "domcontentloaded" });
     const recovery = page.getByTestId("indexeddb-recovery");
     await recovery.waitFor({ timeout: 15_000 });
     const safeTruth = await recovery.evaluate((element) => ({
@@ -365,11 +382,15 @@ try {
   check("real IndexedDB readwrite transaction commits and cleans up", transaction.transactionCommitted && transaction.cleanupComplete, transaction);
   check("browser storage quota is available", Number.isFinite(transaction.quota) && transaction.quota > 0, transaction);
 
-  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(firstProjectId)}/story-bible`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(firstProjectId)}/tasks`, { waitUntil: "networkidle" });
   const runtime = page.getByTestId("project-indexeddb-runtime");
   check("fresh project runtime is indexeddb and non-degraded", await runtime.getAttribute("data-persistence-backend") === "indexeddb"
     && await runtime.getAttribute("data-persistence-degraded") === "false"
     && await runtime.getAttribute("data-memory-fallback") === "false");
+  await page.goto(`${baseUrl}/professional?intent=library&projectId=${encodeURIComponent(firstProjectId)}#character-world-memory-home`, { waitUntil: "domcontentloaded" });
+  await page.getByTestId("character-relationship-workbench").waitFor();
+  check("Story Bible Canon editor is hosted on the project home surface", await page.getByTestId("character-relationship-workbench").getAttribute("data-canon-edit-surface") === "home"
+    && await page.getByTestId("story-bible-editor").getAttribute("data-project-id") === firstProjectId);
   const firstValues = {
     theme: "RC6.2 第一作品唯一主題 7f9a",
     style: "第一作品敘事風格",
@@ -388,7 +409,7 @@ try {
   await page.getByTestId("story-bible-contradictions").fill(firstValues.contradictions);
   await page.getByTestId("story-bible-preferences").fill(firstValues.preferences);
   await page.getByTestId("story-bible-save").click();
-  await page.locator('.p2InlineEditor [role="status"]').filter({ hasText: "Story Bible 已保存" }).waitFor();
+  await page.getByRole("status").filter({ hasText: "Story Bible 已保存" }).waitFor();
   const persistedFirstStoryBible = await waitForPersistedStoryBible(page, firstProjectId, {
     afterRevision: initialFirstRevision,
     expectedFields: firstValues,
@@ -398,7 +419,8 @@ try {
     initialFirstRevision,
     firstRevision,
   });
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForStoryBibleEditorValues(page, firstValues);
   check("Story Bible reload restores every edited field", await page.getByTestId("story-bible-theme").inputValue() === firstValues.theme
     && await page.getByTestId("story-bible-style").inputValue() === firstValues.style
     && await page.getByTestId("story-bible-foreshadowing").inputValue() === firstValues.foreshadowing
@@ -406,22 +428,26 @@ try {
     && await page.getByTestId("story-bible-contradictions").inputValue() === firstValues.contradictions
     && await page.getByTestId("story-bible-preferences").inputValue() === firstValues.preferences);
 
-  const conversationLink = page.getByTestId("story-bible-conversation-link");
-  check("Story Bible conversation link is project scoped", await conversationLink.getAttribute("data-project-id") === firstProjectId);
+  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(firstProjectId)}/story-bible`, { waitUntil: "networkidle" });
+  const selectionPage = page.getByTestId("story-stage-selection-page");
+  const selectionSelector = page.getByTestId("story-stage-selector");
+  await selectionSelector.waitFor();
+  check("story route is selection-only and exposes no Story Bible Canon editor", await selectionPage.getAttribute("data-canon-edit-surface") === "story-selection-only"
+    && await selectionSelector.getAttribute("data-canon-edit-surface") === "story-selection-only"
+    && await page.getByTestId("story-bible-editor").count() === 0
+    && await page.getByTestId("story-bible-save").count() === 0
+    && await page.getByTestId("story-bible-theme").count() === 0);
+  check("story route renders the saved Story Bible as read-only", (await page.getByTestId("story-stage-bible-readonly").innerText()).includes(firstValues.theme));
+  const conversationLink = page.locator(`nav[aria-label="作品導覽"] a[href="/studio/project/${encodeURIComponent(firstProjectId)}/chat"]`).first();
+  check("selection-only Story Bible links to the same project chat", await conversationLink.count() === 1);
   await conversationLink.click();
   await page.getByTestId("conversation-first-workspace").waitFor({ timeout: 20_000 });
   check("Story Bible conversation access opens same project", new URL(page.url()).pathname.includes(`/studio/project/${encodeURIComponent(firstProjectId)}/chat`));
-  const composer = page.getByTestId("conversation-message-composer").locator("textarea");
-  await composer.waitFor();
-  const scopedStoryBibleRequest = page.locator('[data-role="user"]')
-    .filter({ hasText: "請讀取這部作品目前的 Story Bible" })
-    .filter({ hasText: "不要直接修改 Canon" });
-  await scopedStoryBibleRequest.first().waitFor({ timeout: 20_000 });
-  check("Story Bible conversation carries a scoped non-mutating request", await scopedStoryBibleRequest.count() > 0);
 
   const secondProjectId = await createProject(page, "RC6.2 Fresh Story Two");
   check("second project has a distinct id", secondProjectId !== firstProjectId, { firstProjectId, secondProjectId });
-  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(secondProjectId)}/story-bible`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}/professional?intent=library&projectId=${encodeURIComponent(secondProjectId)}#character-world-memory-home`, { waitUntil: "domcontentloaded" });
+  await page.getByTestId("story-bible-editor").waitFor();
   check("second project editor does not retain first project state", !(await page.getByTestId("story-bible-theme").inputValue()).includes("第一作品")
     && !(await page.getByTestId("story-bible-foreshadowing").inputValue()).includes("alpha-only")
     && !(await page.locator("body").innerText()).includes(firstValues.foreshadowing));
@@ -439,8 +465,9 @@ try {
     afterRevision: initialSecondRevision,
     expectedFields: secondValues,
   });
-  await page.locator('.p2InlineEditor [role="status"]').filter({ hasText: "Story Bible 已保存" }).waitFor();
-  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("status").filter({ hasText: "Story Bible 已保存" }).waitFor();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForStoryBibleEditorValues(page, secondValues);
   check("second Story Bible reload is exact", await page.getByTestId("story-bible-theme").inputValue() === secondValues.theme
     && await page.getByTestId("story-bible-foreshadowing").inputValue() === secondValues.foreshadowing);
   const isolated = await storyBiblesByProject(page, [firstProjectId, secondProjectId]);
