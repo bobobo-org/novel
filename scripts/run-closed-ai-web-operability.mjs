@@ -1117,7 +1117,9 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
   assert.ok(closedAgentServiceSource.includes("createStudioClosedAgentToolRegistry"));
   assert.ok(closedAgentToolsSource.includes("acceptance-checklist"));
   assert.ok(closedAgentToolsSource.includes("story-context-index"));
-  assert.ok(characterAgentSource.includes("用閉端 AI 深度推演"));
+  assert.ok(characterAgentSource.includes("由真正閉端 AI 試演小說段落"));
+  assert.ok(characterAgentSource.includes("不會拿後備模板冒充"));
+  assert.ok(characterAgentSource.includes("Canonical mutation = 0"));
   assert.ok(characterAgentSource.includes("character.multiAgentSimulation"));
   assert.ok(dramaSource.includes("用閉端 AI 強化改編"));
   assert.ok(dramaSource.includes("drama.episodePlan"));
