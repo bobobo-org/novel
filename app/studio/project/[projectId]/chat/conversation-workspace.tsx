@@ -77,6 +77,7 @@ import { MessageComposer } from "./components/message-composer";
 import { MessageTimeline } from "./components/message-timeline";
 import { SessionSidebar } from "./components/session-sidebar";
 import { ConversationShell } from "./components/conversation-shell";
+import { EditMessageCopyDialog } from "./components/edit-message-copy-dialog";
 import { useConversationSessionController } from "./hooks/use-conversation-session";
 import { useConversationBranchController } from "./hooks/use-conversation-branch";
 import { useConversationAttachmentController } from "./hooks/use-conversation-attachments";
@@ -114,6 +115,20 @@ import styles from "./conversation.module.css";
 const ArtifactDrawer = dynamic(() => import("./components/artifact-drawer"), {
   loading: () => <p className={styles.emptyNote} role="status">正在載入作品結果……</p>,
 });
+
+type ExistingUserRequest = {
+  sessionId: string;
+  userMessageId: string;
+};
+
+function latestRpgChoicesFrom(messages: ConversationMessage[]) {
+  for (const message of [...messages].reverse()) {
+    const parsed = parseRpgChoices(message.content);
+    if (parsed) return parsed.envelope ? { message, envelope: parsed.envelope } : null;
+    if (message.role === "assistant" && message.candidateIds.length) break;
+  }
+  return null;
+}
 
 export default function ConversationWorkspace({
   projectId,
@@ -220,6 +235,10 @@ export default function ConversationWorkspace({
     pendingMessageIds: branchPendingMessageIds,
     isBranchPending,
     editMessage,
+    editDialog,
+    updateEditDraft,
+    cancelEditMessage,
+    confirmEditMessage,
   } = useConversationBranchController({
     projectId,
     conversation,
@@ -316,14 +335,7 @@ export default function ConversationWorkspace({
 
   useEffect(() => () => abortRef.current?.abort("CONVERSATION_UNMOUNTED"), []);
 
-  const latestRpgChoices = (() => {
-    for (const message of [...messages].reverse()) {
-      const parsed = parseRpgChoices(message.content);
-      if (parsed) return parsed.envelope ? { message, envelope: parsed.envelope } : null;
-      if (message.role === "assistant" && message.candidateIds.length) break;
-    }
-    return null;
-  })();
+  const latestRpgChoices = latestRpgChoicesFrom(messages);
 
   async function chooseSession(sessionId: string) {
     if (isBranchPending()) {
@@ -1296,24 +1308,41 @@ export default function ConversationWorkspace({
     }
   }
 
-  async function sendRequest(contentOverride?: string, onAccepted?: () => void) {
+  async function sendRequest(
+    contentOverride?: string,
+    onAccepted?: () => void,
+    existingUserRequest?: ExistingUserRequest,
+  ) {
     const content = (contentOverride ?? draft).trim();
+    const sessionId = existingUserRequest?.sessionId ?? activeSession?.id ?? "";
+    const requestLocalAttachments = existingUserRequest ? [] : localAttachments;
     if (isBranchPending()) {
       setProgress("正在準備修改副本；這次送出沒有啟動，請等待目前操作完成。");
       return;
     }
-    if (!activeSession || busy || operationLockRef.current || (!content && !localAttachments.length)) return;
-    const requestHadAttachments = localAttachments.length > 0;
+    if (!sessionId || busy || operationLockRef.current || (!content && !requestLocalAttachments.length)) return;
+    operationLockRef.current = true;
+    let requestRpgChoices = latestRpgChoices;
+    if (existingUserRequest) {
+      try {
+        requestRpgChoices = latestRpgChoicesFrom(await conversation.listMessages(projectId, sessionId));
+      } catch (error) {
+        operationLockRef.current = false;
+        setSafeError({ code: errorCode(error), message: errorMessage(error) });
+        setProgress("修改副本沒有啟動續寫；可稍後在該副本重試。");
+        return;
+      }
+    }
+    const requestHadAttachments = requestLocalAttachments.length > 0;
     let learningResumeEnabled = false;
-    retryActionRef.current = () => { void sendRequest(content); };
+    retryActionRef.current = () => { void sendRequest(content, undefined, existingUserRequest); };
     setRetryAvailable(true);
     setRetryLabel("重試");
-    operationLockRef.current = true;
     const liveStoryState = project
       ? await repository.get<StoryState>("storyStates", project.storyStateId).catch(() => null)
       : null;
     if (!liveStoryState) {
-      setDraft(content);
+      if (!existingUserRequest) setDraft(content);
       setSafeError({
         code: "CONVERSATION_PLAY_MODE_UNAVAILABLE",
         message: "作品玩法資料無法讀取；系統已停止，沒有把原玩法誤當成一般章節寫作。",
@@ -1324,8 +1353,8 @@ export default function ConversationWorkspace({
     const requestPlayMode = resolveStoryPlayMode(liveStoryState);
     const plan = await planConversationRequest({
       content,
-      attachmentCount: localAttachments.length,
-      hasActiveRpgTurn: Boolean(latestRpgChoices),
+      attachmentCount: requestLocalAttachments.length,
+      hasActiveRpgTurn: Boolean(requestRpgChoices),
       fixedPlayMode: requestPlayMode,
     }).catch((error) => {
       setSafeError({ code: errorCode(error), message: errorMessage(error) });
@@ -1335,8 +1364,8 @@ export default function ConversationWorkspace({
       operationLockRef.current = false;
       return;
     }
-    if (latestRpgChoices && plan.intent === "continue_writing") {
-      setDraft(content);
+    if (requestRpgChoices && plan.intent === "continue_writing") {
+      if (!existingUserRequest) setDraft(content);
       setSafeError({
         code: "RPG_CHOICE_REQUIRED",
         message: "目前回合正在等待路線選擇。請先點選畫面中的其中一條路線，或輸入一個具體的自訂行動；系統不會另開一條一般續寫來繞過本回合。",
@@ -1345,11 +1374,11 @@ export default function ConversationWorkspace({
       operationLockRef.current = false;
       return;
     }
-    if (localAttachments.length && !rightsConfirmed) {
+    if (requestLocalAttachments.length && !rightsConfirmed) {
       const code = plan.executionKind === "learning_import"
         ? "LEARNING_RIGHTS_CONFIRMATION_REQUIRED"
         : "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED";
-      setDraft(content);
+      if (!existingUserRequest) setDraft(content);
       setSafeError({
         code,
         message: "Attachment rights confirmation is required.",
@@ -1358,7 +1387,7 @@ export default function ConversationWorkspace({
       operationLockRef.current = false;
       return;
     }
-    const releaseLease = await acquireConversationLease(projectId, activeSession.id);
+    const releaseLease = await acquireConversationLease(projectId, sessionId);
     if (!releaseLease) {
       operationLockRef.current = false;
       setSafeError({
@@ -1375,12 +1404,12 @@ export default function ConversationWorkspace({
     setCancellable(true);
     setBusy(true);
     setSafeError(null);
-    setDraft("");
+    if (!existingUserRequest) setDraft("");
     setProgress("正在辨識你的自然語言要求。");
     try {
       if (plan.executionKind === "learning_import") {
         learningResumeEnabled = true;
-        if (!localAttachments.length) {
+        if (!requestLocalAttachments.length) {
           throw Object.assign(new Error("請先附加你擁有或獲授權的作品檔案。"), {
             code: "LEARNING_IMPORT_FILES_REQUIRED",
           });
@@ -1391,22 +1420,79 @@ export default function ConversationWorkspace({
           });
         }
         await runAtomicLearningImport({
-          sessionId: activeSession.id,
+          sessionId,
           content,
           signal: controller.signal,
         });
-        await loadWorkspace(activeSession.id);
+        await loadWorkspace(sessionId);
         return;
       }
-      if (localAttachments.length && !rightsConfirmed) {
+      if (requestLocalAttachments.length && !rightsConfirmed) {
         throw Object.assign(new Error("Attachment rights confirmation is required."), {
           code: "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
         });
       }
-      const currentSessionMessages = await conversation.listMessages(projectId, activeSession.id);
-      const currentSessionArtifacts = await conversation.listArtifacts(projectId, activeSession.id);
+      const currentSessionMessages = await conversation.listMessages(projectId, sessionId);
+      const currentSessionArtifacts = await conversation.listArtifacts(projectId, sessionId);
       const last = currentSessionMessages.at(-1) ?? null;
-      const activeRpgChoiceMessage = plan.executionKind === "rpg" ? latestRpgChoices : null;
+      const existingUserMessage = existingUserRequest
+        ? currentSessionMessages.find((message) => message.id === existingUserRequest.userMessageId) ?? null
+        : null;
+      if (existingUserRequest && (
+        !existingUserMessage
+        || existingUserMessage.sessionId !== sessionId
+        || existingUserMessage.role !== "user"
+        || existingUserMessage.status !== "completed"
+        || existingUserMessage.content.trim() !== content
+      )) {
+        throw Object.assign(new Error("修改副本中的訊息已變更；系統沒有重複送出。"), {
+          code: "CONVERSATION_EDIT_COPY_MESSAGE_STALE",
+        });
+      }
+      if (existingUserMessage?.attachmentIds.length) {
+        const branchAttachments = await conversation.listAttachments(projectId, sessionId);
+        const attachmentsById = new Map(branchAttachments.map((attachment) => [attachment.id, attachment]));
+        const attachmentsVerified = existingUserMessage.attachmentIds.every((attachmentId) => {
+          const attachment = attachmentsById.get(attachmentId);
+          return Boolean(
+            attachment
+            && attachment.projectId === projectId
+            && attachment.sessionId === sessionId
+            && attachment.parsingStatus === "completed"
+            && attachment.userConfirmedRights === true
+            && attachment.rightsConfirmationSchemaVersion
+              === "conversation-attachment-rights-confirmation-v1"
+            && attachment.localAnalysisOnly === true
+            && attachment.rawContentRetained === false
+            && !attachment.deletedAt
+          );
+        });
+        retryActionRef.current = null;
+        setRetryAvailable(false);
+        setDraft(existingUserMessage.content);
+        setSafeError({
+          code: attachmentsVerified
+            ? "CONVERSATION_EDIT_COPY_ATTACHMENTS_RESELECT_REQUIRED"
+            : "CONVERSATION_EDIT_COPY_ATTACHMENT_PROOF_INVALID",
+          message: attachmentsVerified
+            ? "附件的名稱、雜湊、權利確認與解析狀態已完整保留在修改副本；但原始內容依隱私設計不會落盤，無法安全重建本次分析。請重新附加原檔後送出，系統不會用空附件假裝續寫。"
+            : "修改副本的附件證明無法通過專案與對話範圍核對；系統已停止自動續寫。請重新附加原檔後送出。",
+        });
+        setProgress("修改副本已建立並保留附件證明；等待你重新附加原檔後再續寫。");
+        return;
+      }
+      const existingResponse = existingUserMessage
+        ? currentSessionMessages.find((message) => (
+          message.role === "assistant"
+          && message.parentMessageId === existingUserMessage.id
+          && !["failed", "cancelled"].includes(message.status)
+        )) ?? null
+        : null;
+      if (existingResponse) {
+        setProgress("修改副本已經開始續寫；沒有啟動第二次回覆。");
+        return;
+      }
+      const activeRpgChoiceMessage = plan.executionKind === "rpg" ? requestRpgChoices : null;
       const rpgAttempts = activeRpgChoiceMessage
         ? currentSessionMessages.filter((message) =>
           message.role === "user"
@@ -1434,15 +1520,15 @@ export default function ConversationWorkspace({
           code: "RPG_CHAT_TURN_ALREADY_CREATED",
         });
       }
-      let userMessage = existingRpgUser ?? await conversation.appendMessage({
+      let userMessage = existingUserMessage ?? existingRpgUser ?? await conversation.appendMessage({
         projectId,
-        sessionId: activeSession.id,
+        sessionId,
         messageId: activeRpgChoiceMessage
-          ? `conversation-rpg-choice:${activeSession.id}:${activeRpgChoiceMessage.message.id}:${rpgAttempts.length + 1}`
+          ? `conversation-rpg-choice:${sessionId}:${activeRpgChoiceMessage.message.id}:${rpgAttempts.length + 1}`
           : undefined,
         role: "user",
         content: content || "請分析我剛附加的檔案。",
-        status: localAttachments.length ? "pending" : "completed",
+        status: requestLocalAttachments.length ? "pending" : "completed",
         parentMessageId: last?.id ?? null,
         sourceMessageId: activeRpgChoiceMessage?.message.id ?? null,
       });
@@ -1451,10 +1537,10 @@ export default function ConversationWorkspace({
         record: ConversationAttachment;
         extraction: ManualLearningFileExtraction;
       }> = [];
-      if (localAttachments.length) {
+      if (requestLocalAttachments.length) {
         try {
           preparedAttachments = await prepareLocalAttachments(
-            activeSession.id,
+            sessionId,
             plan,
             userMessage.id,
             true,
@@ -1468,7 +1554,7 @@ export default function ConversationWorkspace({
           if (currentUserMessage && ["pending", "streaming"].includes(currentUserMessage.status)) {
             await conversation.updateMessageStatus({
               projectId,
-              sessionId: activeSession.id,
+              sessionId,
               messageId: currentUserMessage.id,
               expectedRevision: currentUserMessage.revision,
               status: controller.signal.aborted ? "cancelled" : "failed",
@@ -1490,38 +1576,38 @@ export default function ConversationWorkspace({
           completedAt: new Date().toISOString(),
         }, currentUserMessage.revision);
       }
-      await maybeUpdateRollingSummary(activeSession.id);
+      await maybeUpdateRollingSummary(sessionId);
       if (plan.executionKind === "repository") {
         await runRepositoryAction({
           plan,
-          sessionId: activeSession.id,
+          sessionId,
           userMessage,
           signal: controller.signal,
         });
       } else if (plan.executionKind === "query") {
         await runDashboardQuery({
           plan,
-          sessionId: activeSession.id,
+          sessionId,
           userMessage,
           signal: controller.signal,
         });
       } else if (plan.executionKind === "rpg") {
-        const plannedChoice = latestRpgChoices
-          ? parseRpgChoiceSelection(content, latestRpgChoices.envelope.plan.choices)
+        const plannedChoice = requestRpgChoices
+          ? parseRpgChoiceSelection(content, requestRpgChoices.envelope.plan.choices)
           : null;
-        if (plannedChoice && latestRpgChoices) {
+        if (plannedChoice && requestRpgChoices) {
           await executeRpgChoice({
-            sessionId: activeSession.id,
+            sessionId,
             choice: plannedChoice,
-            choicePlanCandidateId: latestRpgChoices.envelope.plan.candidateId,
-            choiceSourceMessageId: latestRpgChoices.message.id,
-            expectedChapterId: latestRpgChoices.envelope.chapterId,
-            expectedChapterRevision: latestRpgChoices.envelope.chapterRevision,
-            expectedStoryStateRevision: latestRpgChoices.envelope.storyStateRevision,
+            choicePlanCandidateId: requestRpgChoices.envelope.plan.candidateId,
+            choiceSourceMessageId: requestRpgChoices.message.id,
+            expectedChapterId: requestRpgChoices.envelope.chapterId,
+            expectedChapterRevision: requestRpgChoices.envelope.chapterRevision,
+            expectedStoryStateRevision: requestRpgChoices.envelope.storyStateRevision,
             userMessage,
             signal: controller.signal,
           });
-        } else if (plan.intent === "rpg_custom_action" && latestRpgChoices) {
+        } else if (plan.intent === "rpg_custom_action" && requestRpgChoices) {
           const snapshot = await loadLearningAwareRpgChatSnapshot({
             repository,
             projectId,
@@ -1530,19 +1616,19 @@ export default function ConversationWorkspace({
             signal: controller.signal,
           });
           await executeRpgChoice({
-            sessionId: activeSession.id,
+            sessionId,
             choice: buildRpgChatCustomAction({ snapshot, action: content }),
-            choicePlanCandidateId: latestRpgChoices.envelope.plan.candidateId,
-            choiceSourceMessageId: latestRpgChoices.message.id,
-            expectedChapterId: latestRpgChoices.envelope.chapterId,
-            expectedChapterRevision: latestRpgChoices.envelope.chapterRevision,
-            expectedStoryStateRevision: latestRpgChoices.envelope.storyStateRevision,
+            choicePlanCandidateId: requestRpgChoices.envelope.plan.candidateId,
+            choiceSourceMessageId: requestRpgChoices.message.id,
+            expectedChapterId: requestRpgChoices.envelope.chapterId,
+            expectedChapterRevision: requestRpgChoices.envelope.chapterRevision,
+            expectedStoryStateRevision: requestRpgChoices.envelope.storyStateRevision,
             userMessage,
             signal: controller.signal,
           });
         } else {
           await createRpgChoicesMessage({
-            sessionId: activeSession.id,
+            sessionId,
             parentMessageId: userMessage.id,
             signal: controller.signal,
           });
@@ -1550,7 +1636,7 @@ export default function ConversationWorkspace({
       } else {
         await runClosedAgent({
           plan,
-          sessionId: activeSession.id,
+          sessionId,
           userMessage,
           preparedAttachments,
           signal: controller.signal,
@@ -1559,8 +1645,8 @@ export default function ConversationWorkspace({
       if (runRef.current === runId) {
         setProgress("已完成；正式 Canon 只會在你按下採用後修改。");
       }
-      clearTransientAttachments();
-      await loadWorkspace(activeSession.id);
+      if (!existingUserRequest) clearTransientAttachments();
+      await loadWorkspace(sessionId);
     } catch (error) {
       if (runRef.current !== runId) return;
       const safeCode = errorCode(error);
@@ -1571,7 +1657,7 @@ export default function ConversationWorkspace({
       ) {
         retryActionRef.current = null;
         setRetryAvailable(false);
-        setDraft(content);
+        if (!existingUserRequest) setDraft(content);
         setSafeError({
           code: "CONVERSATION_ATTACHMENTS_RESELECT_REQUIRED",
           message: "附件暫存內容已安全釋放。請重新附加原檔後再送出；系統不會在缺少附件時假裝重試分析。",
@@ -1581,15 +1667,15 @@ export default function ConversationWorkspace({
           "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
           "LEARNING_RIGHTS_CONFIRMATION_REQUIRED",
         ].includes(safeCode)) {
-          setDraft(content);
+          if (!existingUserRequest) setDraft(content);
         }
         setSafeError({ code: safeCode, message: errorMessage(error) });
       }
       setProgress(controller.signal.aborted
         ? "已停止；生成中的內容與 Canon 均未修改。"
         : "操作沒有完成；可修正後重試。");
-      clearTransientAttachments();
-      await loadWorkspace(activeSession.id).catch(() => undefined);
+      if (!existingUserRequest) clearTransientAttachments();
+      await loadWorkspace(sessionId).catch(() => undefined);
     } finally {
       operationLockRef.current = false;
       releaseLease();
@@ -1806,7 +1892,13 @@ export default function ConversationWorkspace({
       void regenerateMessage(message);
     },
     editMessage: (message) => {
-      void editMessage(message);
+      void editMessage(message).then((result) => {
+        if (!result?.navigation.branchSelected) return;
+        return sendRequest(result.content, undefined, {
+          sessionId: result.sessionId,
+          userMessageId: result.userMessageId,
+        });
+      });
     },
     retryMessage: (content) => {
       void sendRequest(content);
@@ -1815,7 +1907,8 @@ export default function ConversationWorkspace({
   };
 
   return (
-    <ConversationShell
+    <>
+      <ConversationShell
       projectId={projectId}
       projectTitle={project?.title ?? "小說專案"}
       sessionTitle={activeSession?.title ?? "小說專案對話"}
@@ -1916,8 +2009,8 @@ export default function ConversationWorkspace({
           onCancelClosedAiSetup={cancelClosedAiSetup}
         />
       )}
-      artifactDrawer={artifactOpen ? (
-        <ArtifactDrawer
+        artifactDrawer={artifactOpen ? (
+          <ArtifactDrawer
           projectId={projectId}
           selectedArtifact={selectedArtifact}
           drawer={drawer}
@@ -1932,8 +2025,18 @@ export default function ConversationWorkspace({
           onOpenArtifact={(artifact) => { void openArtifact(artifact); }}
           onApprove={(artifact, editedContent) => { void approveArtifact(artifact, editedContent); }}
           onReject={(artifact) => { void rejectArtifact(artifact); }}
-        />
-      ) : null}
-    />
+          />
+        ) : null}
+      />
+      <EditMessageCopyDialog
+        open={Boolean(editDialog)}
+        value={editDialog?.value ?? ""}
+        sourceContent={editDialog?.sourceContent ?? ""}
+        confirming={editDialog?.confirming ?? false}
+        onChange={updateEditDraft}
+        onCancel={cancelEditMessage}
+        onConfirm={() => { void confirmEditMessage(); }}
+      />
+    </>
   );
 }

@@ -3,6 +3,7 @@ import type {
   Achievement,
   Chapter,
   Character,
+  CharacterRelationship,
   ConversationAttachment,
   ConversationArtifact,
   ConversationMessage,
@@ -20,10 +21,19 @@ import type {
   WritingTask,
 } from "../domain";
 import { NOVEL_DOMAIN_VERSION } from "../domain";
+import {
+  activeStoryCharacters,
+  activeStoryLore,
+  activeStoryRelationships,
+  activeStoryTimeline,
+  activeStoryWorldRules,
+  activeStoryWorlds,
+} from "../domain/active-story-context";
 import type { ClosedAIContextItem } from "../closed-agent-os";
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import type { NovelRepository, NovelStoreName } from "../repository/contracts";
 import { sanitizeRetrievedKnowledge } from "../security/retrieval-content-sanitizer";
+import { isCharacterEraCompatible } from "../character-portraits/assignment";
 
 export const PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION =
   "project-context-composer-v2" as const;
@@ -101,6 +111,7 @@ export type ProjectContextComposerInput = {
   canonId?: string;
   branchId?: string;
   characterId?: string;
+  characterIds?: string[];
   revision?: string | number;
   privacyLevel: ClosedAIContextItem["privacyLevel"];
   tokenBudget?: number;
@@ -197,6 +208,19 @@ function ordered<T extends DomainRecord>(records: T[]) {
       || left.updatedAt.localeCompare(right.updatedAt)
       || left.id.localeCompare(right.id);
   });
+}
+
+function latestByStableKey<T extends DomainRecord>(
+  records: T[],
+  keyFor: (record: T) => string,
+) {
+  const latest = new Map<string, T>();
+  for (const record of ordered(records)) latest.set(keyFor(record), record);
+  return ordered([...latest.values()]);
+}
+
+function relationshipPairKey(fromCharacterId: string, toCharacterId: string) {
+  return [fromCharacterId, toCharacterId].sort().join("::");
 }
 
 function contextSourceError(code: string) {
@@ -543,6 +567,7 @@ export async function composeProjectContext(
     seeds,
     chapters,
     characters,
+    formalRelationships,
     storyBibles,
     worlds,
     worldRules,
@@ -569,6 +594,7 @@ export async function composeProjectContext(
     safeList<ProjectSeed>(input.repository, "projectSeeds", input.projectId),
     safeList<Chapter>(input.repository, "chapters", input.projectId),
     safeList<Character>(input.repository, "characters", input.projectId),
+    safeList<CharacterRelationship>(input.repository, "relationships", input.projectId),
     safeList<StoryBible>(input.repository, "storyBibles", input.projectId),
     safeList<World>(input.repository, "worlds", input.projectId),
     safeList<WorldRule>(input.repository, "worldRules", input.projectId),
@@ -627,9 +653,70 @@ export async function composeProjectContext(
   const activeBranch = branches.find((item) => item.branchId === input.branchId)
     ?? branches.find((item) => item.status === "active")
     ?? null;
-  const selectedCharacters = input.characterId
-    ? characters.filter((item) => item.id === input.characterId)
-    : characters;
+  const stagedWorlds = activeStoryWorlds(worlds, storyState, storyBible);
+  const stagedCharacters = storyState?.activeWorldId !== undefined && stagedWorlds.length === 0
+    ? []
+    : activeStoryCharacters(characters, storyState, storyBible)
+    .filter((character) => isCharacterEraCompatible({
+      character,
+      project,
+      worlds: stagedWorlds,
+    }));
+  const stagedWorldRules = activeStoryWorldRules(worldRules, storyState, storyBible);
+  const stagedLore = activeStoryLore(lore, storyState, storyBible);
+  const stagedTimeline = activeStoryTimeline(timeline, storyState, storyBible);
+  const requestedCharacterIds = new Set([
+    ...(input.characterIds ?? []),
+    ...(input.characterId ? [input.characterId] : []),
+  ].filter(Boolean));
+  const selectedCharacters = requestedCharacterIds.size
+    ? stagedCharacters.filter((item) => requestedCharacterIds.has(item.id))
+    : stagedCharacters;
+  const selectedCharacterIds = new Set(selectedCharacters.map((character) => character.id));
+  const stagedFormalRelationships = activeStoryRelationships(
+    formalRelationships.filter((relationship) => (
+      relationship.schemaVersion === NOVEL_DOMAIN_VERSION
+      && relationship.projectId === input.projectId
+      && !relationship.deletedAt
+      && Number.isSafeInteger(relationship.revision)
+      && relationship.revision >= 1
+    )),
+    selectedCharacters,
+  );
+  const stagedFormalRelationshipValue = {
+    source: "STAGED_CANONICAL_RELATIONSHIPS",
+    relationshipLayer: "formal-canon",
+    stagingRule: "both-endpoints-selected",
+    edges: ordered(stagedFormalRelationships).map((item) => ({
+      relationshipLayer: "formal-canon",
+      ...cleanRecord(item, [
+        "id",
+        "fromCharacterId",
+        "toCharacterId",
+        "kind",
+        "summary",
+        "trust",
+        "revision",
+      ]),
+    })),
+  };
+  const allCharacterIds = new Set(characters.map((character) => character.id));
+  const recordBelongsToSelectedCharacter = (record: unknown) => {
+    const value = record as {
+      characterId?: string;
+      subjectEntityIds?: string[];
+      authorizedCharacterIds?: string[];
+      relatedCharacterIds?: string[];
+    };
+    if (value.characterId) return selectedCharacterIds.has(value.characterId);
+    const referencedCharacterIds = [
+      ...(value.subjectEntityIds ?? []),
+      ...(value.authorizedCharacterIds ?? []),
+      ...(value.relatedCharacterIds ?? []),
+    ].filter((id) => allCharacterIds.has(id));
+    return referencedCharacterIds.length === 0
+      || referencedCharacterIds.some((id) => selectedCharacterIds.has(id));
+  };
 
   if (selectedCharacters.length) {
     addContext(entries, {
@@ -693,7 +780,18 @@ export async function composeProjectContext(
     });
   }
   if (storyBible) {
-    const storyBibleValue = cleanRecord(storyBible, STORY_BIBLE_CONTEXT_FIELDS);
+    const storyBibleValue = {
+      ...cleanRecord(storyBible, STORY_BIBLE_CONTEXT_FIELDS),
+      relationshipIds: stagedFormalRelationships.map((relationship) => relationship.id),
+      currentStage: {
+        characterIds: stagedCharacters.map((character) => character.id),
+        worldIds: stagedWorlds.map((world) => world.id),
+        worldRuleIds: stagedWorldRules.map((rule) => rule.id),
+        loreIds: stagedLore.map((entry) => entry.id),
+        timelineEventIds: stagedTimeline.map((event) => event.id),
+        formalRelationships: stagedFormalRelationshipValue,
+      },
+    };
     const sourceArtifactDigest = await sha256Hex(stableStringify({
       domain: "approved-story-bible-source-artifact-v1",
       value: storyBibleValue,
@@ -716,6 +814,10 @@ export async function composeProjectContext(
           id: storyBible.id,
           projectId: storyBible.projectId,
           revision: storyBible.revision,
+          formalRelationshipRevisions: ordered(stagedFormalRelationships).map((relationship) => ({
+            id: relationship.id,
+            revision: relationship.revision,
+          })),
           sourceArtifactDigest,
         })),
         receiptRequired: true,
@@ -817,45 +919,45 @@ export async function composeProjectContext(
       visibility: "author-only",
     });
   }
-  if (worlds.length) {
+  if (stagedWorlds.length) {
     addContext(entries, {
-      id: `world:${worlds[0].id}`,
+      id: `world:${stagedWorlds[0].id}`,
       kind: "canon",
       source: "WORLD",
-      value: ordered(worlds).map((item) =>
+      value: ordered(stagedWorlds).map((item) =>
         cleanRecord(item, ["id", "name", "era", "summary", "revision"])),
       priority: 86,
       privacyLevel,
     });
   }
-  if (worldRules.length) {
+  if (stagedWorldRules.length) {
     addContext(entries, {
       id: `world-rules:${input.projectId}`,
       kind: "story-bible",
       source: "WORLD_RULES",
-      value: ordered(worldRules).map((item) =>
+      value: ordered(stagedWorldRules).map((item) =>
         cleanRecord(item, ["id", "title", "description", "immutable", "revision"])),
       priority: 91,
       privacyLevel,
     });
   }
-  if (lore.length) {
+  if (stagedLore.length) {
     addContext(entries, {
       id: `lore:${input.projectId}`,
       kind: "story-bible",
       source: "LORE",
-      value: ordered(lore).map((item) =>
+      value: ordered(stagedLore).map((item) =>
         cleanRecord(item, ["id", "kind", "title", "content", "revision"])),
       priority: 80,
       privacyLevel,
     });
   }
-  if (timeline.length) {
+  if (stagedTimeline.length) {
     addContext(entries, {
       id: `timeline:${input.projectId}`,
       kind: "canon",
       source: "TIMELINE",
-      value: ordered(timeline).map((item) =>
+      value: ordered(stagedTimeline).map((item) =>
         cleanRecord(item, [
           "id",
           "chapterId",
@@ -887,6 +989,11 @@ export async function composeProjectContext(
         "timeState",
         "locationState",
         "riskState",
+        "activeCharacterIds",
+        "activeWorldId",
+        "activeWorldRuleIds",
+        "activeLoreIds",
+        "activeTimelineEventIds",
         "revision",
       ]),
       priority: 93,
@@ -955,11 +1062,12 @@ export async function composeProjectContext(
       authorizedCharacterIds?: string[];
     };
     if (value.status && value.status !== "CURRENT") return false;
+    if (!recordBelongsToSelectedCharacter(record)) return false;
     if (value.scope === "AUTHOR_ONLY") return audience === "author";
     if (
-      input.characterId
+      requestedCharacterIds.size
       && value.authorizedCharacterIds?.length
-      && !value.authorizedCharacterIds.includes(input.characterId)
+      && !value.authorizedCharacterIds.some((id) => selectedCharacterIds.has(id))
     ) {
       return false;
     }
@@ -989,22 +1097,18 @@ export async function composeProjectContext(
     });
   }
   const selectedAgentRecords = [
-    ...characterProfiles,
+    ...characterProfiles.filter(recordBelongsToSelectedCharacter),
     ...characterStates.filter((record) =>
-      !input.characterId
-      || (record as unknown as { characterId?: string }).characterId ===
-        input.characterId),
+      recordBelongsToSelectedCharacter(record)),
     ...characterBeliefs.filter((record) =>
-      !input.characterId
-      || (record as unknown as { characterId?: string }).characterId ===
-        input.characterId),
+      recordBelongsToSelectedCharacter(record)),
     ...characterMemories.filter((record) => {
       const memory = record as unknown as {
         characterId?: string;
         approvalStatus?: string;
         visibility?: string;
       };
-      return (!input.characterId || memory.characterId === input.characterId)
+      return recordBelongsToSelectedCharacter(record)
         && memory.approvalStatus === "APPROVED"
         && (memory.visibility !== "AUTHOR_ONLY" || audience === "author");
     }),
@@ -1047,30 +1151,71 @@ export async function composeProjectContext(
       learningFacet: "character-knowledge",
     });
   }
-  const approvedRelationshipEvents = relationshipEvents.filter((record) =>
-    (record as unknown as { status?: string }).status === "APPROVED");
-  if (characterRelationships.length || approvedRelationshipEvents.length) {
+  const selectedCharacterRelationships = latestByStableKey(characterRelationships.filter((record) => {
+    const relationship = record as unknown as {
+      relationshipId?: string;
+      fromCharacterId?: string;
+      toCharacterId?: string;
+    };
+    return Boolean(
+      relationship.fromCharacterId
+      && relationship.toCharacterId
+      && selectedCharacterIds.has(relationship.fromCharacterId)
+      && selectedCharacterIds.has(relationship.toCharacterId),
+    );
+  }), (record) => (
+    (record as unknown as { relationshipId?: string }).relationshipId ?? record.id
+  ));
+  const formalRelationshipByPair = new Map(stagedFormalRelationships.map((relationship) => [
+    relationshipPairKey(relationship.fromCharacterId, relationship.toCharacterId),
+    relationship,
+  ]));
+  const selectedRelationshipIds = new Set(selectedCharacterRelationships.map((record) => (
+    (record as unknown as { relationshipId?: string }).relationshipId
+  )).filter((id): id is string => Boolean(id)));
+  const approvedRelationshipEvents = relationshipEvents.filter((record) => {
+    const event = record as unknown as { status?: string; relationshipId?: string };
+    return event.status === "APPROVED"
+      && Boolean(event.relationshipId && selectedRelationshipIds.has(event.relationshipId));
+  });
+  if (selectedCharacterRelationships.length || approvedRelationshipEvents.length) {
     addContext(entries, {
       id: `character-relationships:${input.projectId}`,
       kind: "memory",
-      source: "APPROVED_CHARACTER_RELATIONSHIPS",
+      source: "CHARACTER_AGENT_PRIVATE_RELATIONSHIP_PROJECTIONS",
       value: {
-        edges: ordered(characterRelationships).map((item) => cleanRecord(item, [
-          "relationshipId",
-          "fromCharacterId",
-          "toCharacterId",
-          "relationshipTypes",
-          "publicStatus",
-          "knownByCharacterIds",
-          "trust",
-          "affection",
-          "fear",
-          "resentment",
-          "loyalty",
-          "conflict",
-          "powerBalance",
-          "revision",
-        ])),
+        relationshipLayer: "private-character-ai-projection",
+        canonicalOverlapPolicy: "overlay-only-no-canon-redefinition",
+        edges: ordered(selectedCharacterRelationships).map((item) => {
+          const relationship = item as unknown as {
+            fromCharacterId: string;
+            toCharacterId: string;
+          };
+          const formal = formalRelationshipByPair.get(relationshipPairKey(
+            relationship.fromCharacterId,
+            relationship.toCharacterId,
+          ));
+          return {
+            relationshipLayer: "private-character-ai-projection",
+            projectionOfFormalRelationshipId: formal?.id ?? null,
+            ...cleanRecord(item, [
+              "relationshipId",
+              "fromCharacterId",
+              "toCharacterId",
+              "relationshipTypes",
+              "publicStatus",
+              "knownByCharacterIds",
+              "trust",
+              "affection",
+              "fear",
+              "resentment",
+              "loyalty",
+              "conflict",
+              "powerBalance",
+              "revision",
+            ]),
+          };
+        }),
         events: ordered(approvedRelationshipEvents).slice(-16).map((item) =>
           cleanRecord(item, [
             "eventId",
@@ -1088,12 +1233,13 @@ export async function composeProjectContext(
       learningFacet: "relationship-event",
     });
   }
-  if (audience === "author" && privateArcs.length) {
+  const selectedPrivateArcs = privateArcs.filter(recordBelongsToSelectedCharacter);
+  if (audience === "author" && selectedPrivateArcs.length) {
     addContext(entries, {
       id: `author-only:private-arcs:${input.characterId ?? "all"}`,
       kind: "author-note",
       source: "AUTHOR_ONLY_PRIVATE_ARCS",
-      value: ordered(privateArcs).map((item) => cleanRecord(item, [
+      value: ordered(selectedPrivateArcs).map((item) => cleanRecord(item, [
         "characterId",
         "title",
         "privateGoal",
@@ -1339,12 +1485,13 @@ export async function composeProjectContext(
     project: 1,
     seeds: seeds.length,
     chapters: chapters.length,
-    characters: characters.length,
+    characters: selectedCharacters.length,
+    formalRelationships: stagedFormalRelationships.length,
     storyBibles: storyBibles.length,
-    worlds: worlds.length,
-    worldRules: worldRules.length,
-    lore: lore.length,
-    timeline: timeline.length,
+    worlds: stagedWorlds.length,
+    worldRules: stagedWorldRules.length,
+    lore: stagedLore.length,
+    timeline: stagedTimeline.length,
     storyStates: storyStates.length,
     acceptedChoices: acceptedChoices.length,
     branches: branches.length,
@@ -1355,7 +1502,7 @@ export async function composeProjectContext(
     characterKnowledge: approvedKnowledge.length,
     characterBeliefs: characterBeliefs.length,
     characterMemories: characterMemories.length,
-    characterRelationships: characterRelationships.length,
+    characterRelationships: selectedCharacterRelationships.length,
     characterRelationshipEvents: approvedRelationshipEvents.length,
     privateArcs: audience === "author" ? privateArcs.length : 0,
     conversationMessages: input.conversationSessionId

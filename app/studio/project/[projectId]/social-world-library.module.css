@@ -33,9 +33,55 @@
 .viewTabs small { display: block; margin-top: .35rem; color: #91a9bd; font-size: .75rem; font-weight: 500; }
 .message { margin: 0 2.2rem 1.1rem; padding: .9rem 1rem; border: 1px solid rgba(100, 225, 206, .35); border-radius: 12px; background: rgba(15, 77, 74, .35); color: #cafff5; line-height: 1.5; }
 
+.settingGate { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .9fr); gap: 1rem; margin: 0 2.2rem 1.2rem; padding: 1.15rem 1.25rem; border: 1px solid rgba(102, 228, 208, .34); border-radius: 17px; background: linear-gradient(135deg, rgba(14, 75, 76, .38), rgba(10, 36, 59, .75)); }
+.settingGate span, .organizationListHeading span, .hierarchyHeading span { color: var(--matrix-aqua); font-size: .68rem; font-weight: 800; letter-spacing: .13em; }
+.settingGate h4, .organizationListHeading h4 { margin: .24rem 0 .4rem; color: #f7ddb0; font-size: 1.25rem; }
+.settingGate p, .organizationListHeading p, .hierarchyHeading p { margin: 0; color: #aebfd0; font-size: .8rem; line-height: 1.55; }
+.settingGate dl { display: grid; gap: .45rem; margin: 0; }
+.settingGate dl div { display: grid; grid-template-columns: 5rem 1fr; gap: .55rem; padding: .5rem .65rem; border-radius: 9px; background: rgba(2, 17, 31, .42); }
+.settingGate dt { color: #e2bd61; font-size: .72rem; }
+.settingGate dd { margin: 0; color: #d6e5ef; font-size: .76rem; line-height: 1.45; }
+
+.organizationBrowser { display: grid; grid-template-columns: minmax(250px, .7fr) minmax(0, 1.8fr); gap: 1rem; padding: 0 2.2rem 1.6rem; }
+.organizationList { display: grid; align-content: start; gap: .55rem; }
+.organizationListHeading { padding: .35rem .25rem .55rem; }
+.organizationList button { display: grid; gap: .2rem; width: 100%; padding: .72rem .8rem; border: 1px solid rgba(91, 148, 189, .34); border-radius: 12px; background: rgba(7, 26, 45, .8); color: #d9e8f3; text-align: left; cursor: pointer; }
+.organizationList button:hover { border-color: rgba(102, 228, 208, .65); }
+.organizationList button.organizationSelected { border-color: var(--matrix-aqua); background: linear-gradient(135deg, rgba(20, 102, 100, .54), rgba(16, 49, 78, .9)); box-shadow: inset 3px 0 0 var(--matrix-aqua); }
+.organizationList button span { color: #72ddca; font-size: .68rem; }
+.organizationList button b { overflow: hidden; color: #ffe0a0; font-size: .95rem; text-overflow: ellipsis; white-space: nowrap; }
+.organizationList button small { color: #91aabe; font-size: .7rem; }
+
+.organizationDetail { min-width: 0; padding: 1.1rem 1.2rem 1.3rem; border: 1px solid rgba(242, 193, 92, .34); border-radius: 18px; background: radial-gradient(circle at 100% 0%, rgba(121, 79, 176, .15), transparent 34%), rgba(8, 28, 49, .82); }
+.organizationDetail > header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.organizationDetail > header span { color: var(--matrix-aqua); font-size: .7rem; font-weight: 750; }
+.organizationDetail > header h4 { margin: .25rem 0 0; color: #ffe1a0; font-size: 1.45rem; }
+.organizationDetail > header > strong { color: #f2c15c; font-size: 1.65rem; text-align: right; }
+.organizationDetail > header > strong small { display: block; color: #9fb5c6; font-size: .68rem; font-weight: 500; }
+.organizationFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; margin: 1rem 0; }
+.organizationFacts div { padding: .62rem .7rem; border-left: 2px solid rgba(99, 226, 207, .52); background: rgba(2, 17, 31, .42); }
+.organizationFacts dt { color: #e2bb5b; font-size: .68rem; }
+.organizationFacts dd { margin: .2rem 0 0; color: #b7cad7; font-size: .76rem; line-height: 1.48; }
+.hierarchyHeading { margin: 1.05rem 0 .65rem; }
+.hierarchyHeading h5 { margin: .2rem 0 .25rem; color: #f0d598; font-size: 1.05rem; }
+.hierarchyTree, .hierarchyTree ul { margin: 0; padding: 0; list-style: none; }
+.hierarchyTree ul { display: grid; gap: .5rem; margin: .5rem 0 0 1.1rem; padding-left: .8rem; border-left: 1px solid rgba(99, 226, 207, .3); }
+.hierarchyBranch { position: relative; min-width: 0; padding: .6rem .7rem; border: 1px solid rgba(87, 140, 178, .27); border-radius: 10px; background: rgba(4, 20, 36, .55); }
+.hierarchyNodeButton { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; width: 100%; padding: .25rem; border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
+.hierarchyNodeButton:hover:not(:disabled) { background: rgba(99, 226, 207, .1); }
+.hierarchyNodeButton:focus-visible { outline: 2px solid var(--matrix-aqua); outline-offset: 2px; }
+.hierarchyNodeButton:disabled { cursor: default; }
+.hierarchyBranch[data-selected="true"] { border-color: var(--matrix-aqua); box-shadow: inset 3px 0 0 var(--matrix-aqua); }
+.hierarchyNodeButton span { color: #69dcc8; font-size: .62rem; font-weight: 800; letter-spacing: .08em; }
+.hierarchyNodeButton b { color: #e9d29a; font-size: .82rem; }
+.hierarchyNodeButton small { margin-left: auto; color: #8fa8ba; font-size: .65rem; }
+.hierarchyBranch > p { display: grid; grid-template-columns: 2.8rem 1fr; gap: .45rem; margin: .42rem 0 0; color: #aebfcd; font-size: .7rem; line-height: 1.45; }
+.hierarchyBranch > p strong { color: #dcb85e; }
+
 .sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1rem 2.2rem; border-top: 1px solid rgba(126, 176, 210, .17); }
 .sectionHeading span { color: var(--matrix-aqua); font-size: .68rem; font-weight: 800; letter-spacing: .13em; }
 .sectionHeading h4 { margin: .22rem 0 0; color: #f7ddb0; font-size: 1.35rem; }
+.clearHierarchyFilter { margin-top: .45rem; padding: .35rem .55rem; border: 1px solid rgba(99, 226, 207, .45); border-radius: 8px; background: rgba(20, 102, 100, .28); color: #bcefe7; font-size: .7rem; cursor: pointer; }
 .pageControls { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; justify-content: flex-end; }
 .pageControls button { padding: .55rem .75rem; border: 1px solid rgba(111, 164, 203, .45); border-radius: 9px; background: #102b47; color: #e5f3ff; cursor: pointer; }
 .pageControls button:disabled { opacity: .4; cursor: default; }
@@ -101,6 +147,7 @@
 
 @media (max-width: 1080px) {
   .capacityGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .organizationBrowser { grid-template-columns: minmax(220px, .75fr) minmax(0, 1.4fr); }
   .characterGrid, .treasureGrid, .worldGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -110,7 +157,12 @@
   .seedBadge { min-width: 0; }
   .capacityGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 1rem; padding-right: 1rem; }
   .materializationNote, .message { margin-left: 1rem; margin-right: 1rem; }
+  .settingGate { grid-template-columns: 1fr; margin-left: 1rem; margin-right: 1rem; }
   .viewTabs { grid-template-columns: 1fr; padding-left: 1rem; padding-right: 1rem; }
+  .organizationBrowser { grid-template-columns: 1fr; padding-left: 1rem; padding-right: 1rem; }
+  .organizationList { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .organizationListHeading { grid-column: 1 / -1; }
+  .organizationFacts { grid-template-columns: 1fr; }
   .characterGrid, .treasureGrid, .worldGrid { grid-template-columns: 1fr; padding-left: 1rem; padding-right: 1rem; }
   .pageControls { justify-content: flex-start; }
 }

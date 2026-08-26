@@ -233,6 +233,17 @@ export type StoryState = DomainRecord & {
   timeState: string | null;
   locationState: string | null;
   riskState: string | null;
+  /**
+   * Optional per-story staging selections.  Undefined preserves legacy
+   * projects (all canonical records remain available); an explicit array is
+   * the author's current on-stage subset.  Protagonists are always restored
+   * by context selectors even if an older client omitted them.
+   */
+  activeCharacterIds?: string[];
+  activeWorldId?: string | null;
+  activeWorldRuleIds?: string[];
+  activeLoreIds?: string[];
+  activeTimelineEventIds?: string[];
   rpgState?: RpgStateV3;
 };
 

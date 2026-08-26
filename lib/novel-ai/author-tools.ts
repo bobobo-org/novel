@@ -6,8 +6,18 @@ import type {
   StoryBible,
   StoryState,
   TimelineEvent,
+  World,
   WorldRule,
 } from "./domain";
+import {
+  activeStoryCharacters,
+  activeStoryRelationships,
+  activeStoryTimeline,
+  activeStoryWorldRules,
+  activeStoryWorlds,
+} from "./domain/active-story-context";
+import { isCharacterEraCompatible } from "./character-portraits/assignment";
+import { evaluateNovelContinuityGate } from "./web/story-output-quality";
 
 export const AUTHOR_TOOL_IDS = ["breakdown", "relay", "batch", "serial"] as const;
 export type AuthorToolId = (typeof AUTHOR_TOOL_IDS)[number];
@@ -21,7 +31,70 @@ export type AuthorToolSnapshot = {
   storyBible: StoryBible | null;
   storyState: StoryState | null;
   timeline: TimelineEvent[];
+  worlds?: World[];
+  offstageCharacterNames?: string[];
 };
+
+export type ClosedAuthorSuggestionValidation = {
+  passed: boolean;
+  missing: Array<
+    | "pacing"
+    | "character_motivation"
+    | "foreshadowing"
+    | "serial_hook"
+    | "readable_prose"
+    | "character_voice"
+    | "dialogue_attribution"
+    | "continuity_anchor"
+    | "active_character"
+    | "offstage_character"
+    | "narrative_scene"
+    | "action_progression"
+    | "sensory_detail"
+    | "report_style"
+    | "causality"
+    | "foreshadowing_sample"
+    | "serial_hook_sample"
+    | "repetition"
+  >;
+};
+
+export function stageAuthorToolSnapshot(snapshot: AuthorToolSnapshot): AuthorToolSnapshot {
+  const activeWorlds = activeStoryWorlds(
+    snapshot.worlds ?? [],
+    snapshot.storyState,
+    snapshot.storyBible,
+  );
+  const characters = snapshot.storyState?.activeWorldId !== undefined && !activeWorlds.length
+    ? []
+    : activeStoryCharacters(
+      snapshot.characters,
+      snapshot.storyState,
+      snapshot.storyBible,
+    ).filter((character) => !activeWorlds.length || isCharacterEraCompatible({
+      character,
+      project: snapshot.project,
+      worlds: activeWorlds,
+    }));
+  return {
+    ...snapshot,
+    characters,
+    offstageCharacterNames: snapshot.characters
+      .filter((character) => !characters.some((active) => active.id === character.id))
+      .map((character) => character.name),
+    relationships: activeStoryRelationships(snapshot.relationships, characters),
+    worldRules: activeStoryWorldRules(
+      snapshot.worldRules,
+      snapshot.storyState,
+      snapshot.storyBible,
+    ),
+    timeline: activeStoryTimeline(
+      snapshot.timeline,
+      snapshot.storyState,
+      snapshot.storyBible,
+    ),
+  };
+}
 
 function text(value: string | null | undefined, fallback = "尚未設定") {
   const normalized = value?.trim();
@@ -55,6 +128,117 @@ function latestChapter(snapshot: AuthorToolSnapshot) {
   return snapshot.chapters.find((chapter) => chapter.id === snapshot.project.activeChapterId)
     ?? orderedChapters(snapshot).at(-1)
     ?? null;
+}
+
+export function buildClosedAuthorSuggestionObjective(
+  snapshot: AuthorToolSnapshot,
+  authorQuestion: string,
+) {
+  const current = latestChapter(snapshot);
+  const request = authorQuestion.trim().slice(0, 4_000)
+    || "請找出目前最影響閱讀連貫性的問題，並提出可以立即採用的修訂方向。";
+  const namedVoices = snapshot.characters
+    .filter((character) => character.name.trim())
+    .slice(0, 8)
+    .map((character) => [
+      character.name,
+      text(character.identity.value),
+      text(character.personality.value),
+      character.voiceStyle
+        ? `語氣正式度 ${character.voiceStyle.formality}、直接度 ${character.voiceStyle.directness}、情緒外顯 ${character.voiceStyle.emotionalExpressiveness}`
+        : "依既有對話與人物設定維持聲線",
+    ].join("｜"));
+
+  return [
+    "你是本作品的閉端小說編輯與共同作者。以下輸出只是一份等待作者採用的候選，不得宣稱已寫入正文、Story Bible、角色資料、世界規則或其他 Canon。",
+    `作者目標／問題：${request}`,
+    `目前作用中章節：${current ? `${current.title}（第 ${current.order} 章）` : "尚無正式章節"}`,
+    "",
+    "必須依目前作品的正式章節、人物、關係、世界規則、Story Bible、時間線與 StoryState 作答；資料不足時明確標示待作者確認，不得自行補成既成事實。",
+    "請用繁體中文依序輸出以下五個標題，缺一不可：",
+    "## 節奏與前後因果",
+    "指出目前章尾承接、場景推進與代價是否連貫，引用一至三個短證據，並給具體修法。",
+    "## 角色動機與聲線",
+    "逐一說明本次最相關角色想要什麼、為何現在行動、會拒絕什麼；建議必須符合既有人物聲線。",
+    "## 伏筆安排",
+    "區分已埋、可在近期推進、暫不應新增的伏筆，說明回收窗口與避免矛盾的方法。",
+    "## 連載鉤子",
+    "提出一個由人物選擇與可見後果自然形成的章尾鉤子；不可只寫抽象危機或『一切才剛開始』。",
+    "## 可直接閱讀的示範改寫／續接",
+    "寫一段至少 350 個繁體中文字的小說正文。第一句直接承接目前作用中章節最後可見的動作、場景或人物反應；至少三個完整段落，包含符合人物聲線的自然對話、可追溯的因果、一項伏筆推進與一個不突兀的連載鉤子。示範正文不得混入分析、清單、狀態面板或工程說明，也不得重述既有章節。",
+    "",
+    "相關人物聲線基準：",
+    ...(namedVoices.length ? namedVoices.map((voice) => `- ${voice}`) : ["- 尚未建立足夠人物聲線；請在候選中標示需要作者確認，不可猜成 Canon。"]),
+    "",
+    "目前章尾（只供承接，不得逐句重寫）：",
+    closingExcerpt(current, 1_400),
+    "",
+    "最後再用一句話重申：這是候選，Canon 寫入為 0。不得用固定規則報告、欄位填字模板或本機規則 fallback 冒充模型完成品。",
+  ].join("\n");
+}
+
+export function validateClosedAuthorSuggestion(
+  content: string,
+  snapshot?: AuthorToolSnapshot,
+): ClosedAuthorSuggestionValidation {
+  const normalized = content.replace(/\r\n?/gu, "\n").trim();
+  const sampleMatch = normalized.match(
+    /(?:^|\n)#{0,3}\s*可直接閱讀的示範(?:改寫|續接|改寫／續接|續接／改寫)?[^\n]*\n([\s\S]*)$/u,
+  );
+  const sample = sampleMatch?.[1]?.trim() ?? "";
+  const missing: ClosedAuthorSuggestionValidation["missing"] = [];
+  if (!/(?:^|\n)#{0,3}\s*節奏與前後因果/u.test(normalized)) missing.push("pacing");
+  if (!/(?:^|\n)#{0,3}\s*角色動機與聲線/u.test(normalized)) missing.push("character_motivation");
+  if (!/(?:^|\n)#{0,3}\s*伏筆安排/u.test(normalized)) missing.push("foreshadowing");
+  if (!/(?:^|\n)#{0,3}\s*連載鉤子/u.test(normalized)) missing.push("serial_hook");
+  const paragraphs = sample
+    .split(/\n\s*\n/gu)
+    .map((value) => value.trim())
+    .filter((value) => value && !/(?:這是候選|Canon\s*寫入|候選內容)/iu.test(value));
+  const proseSample = paragraphs.join("\n\n");
+  const gate = evaluateNovelContinuityGate({
+    prose: proseSample,
+    minimumHanCharacters: 350,
+    minimumParagraphs: 3,
+    minimumDialogueCount: 2,
+    continuityExcerpt: snapshot ? latestChapter(snapshot)?.content ?? "" : "",
+    activeCharacterNames: snapshot?.characters.map((character) => character.name),
+    offstageCharacterNames: snapshot?.offstageCharacterNames,
+  });
+  if (gate.failures.includes("length") || gate.failures.includes("paragraphs")) missing.push("readable_prose");
+  if (gate.failures.includes("dialogue")) missing.push("character_voice");
+  if (gate.failures.includes("dialogue_attribution")) missing.push("dialogue_attribution");
+  if (gate.failures.includes("continuity_anchor")) missing.push("continuity_anchor");
+  if (gate.failures.includes("active_character")) missing.push("active_character");
+  if (gate.failures.includes("offstage_character")) missing.push("offstage_character");
+  if (gate.failures.includes("narrative_scene")) missing.push("narrative_scene");
+  if (gate.failures.includes("action_progression")) missing.push("action_progression");
+  if (gate.failures.includes("sensory_detail")) missing.push("sensory_detail");
+  if (gate.failures.includes("report_style")) missing.push("report_style");
+  if (gate.failures.includes("causality")) missing.push("causality");
+  if (gate.failures.includes("foreshadowing")) missing.push("foreshadowing_sample");
+  if (gate.failures.includes("serial_hook")) missing.push("serial_hook_sample");
+  if (gate.failures.includes("repetition")) missing.push("repetition");
+  return { passed: missing.length === 0, missing };
+}
+
+export function buildClosedAuthorSuggestionHandoff(
+  snapshot: AuthorToolSnapshot,
+  authorQuestion: string,
+  candidate: string,
+) {
+  return [
+    "請在同一作品的故事工作台承接目前作用中章節，依下列『閉端 AI 作者輔助候選』寫出一段新的繁體中文小說正文。",
+    "候選只提供方向，並非已核准 Canon；請重新核對正式人物、世界規則、Story Bible、時間線與 StoryState，不得直接把分析標題寫進小說。",
+    `作者原目標／問題：${text(authorQuestion, "改善目前作品的連貫性與閱讀張力")}`,
+    `作品：${snapshot.project.title}`,
+    "",
+    "--- 作者輔助候選 ---",
+    candidate.trim().slice(0, 6_400),
+    "--- 候選結束 ---",
+    "",
+    "輸出小說正文，從最新章尾之後的新瞬間開始；保留人物聲線、因果與伏筆，讓章尾鉤子由角色選擇的後果自然形成。",
+  ].join("\n").slice(0, 7_900);
 }
 
 function storyStateLines(snapshot: AuthorToolSnapshot) {

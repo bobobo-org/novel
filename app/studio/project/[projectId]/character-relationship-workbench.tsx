@@ -6,10 +6,27 @@ import {
   optionalValue,
   type Character,
   type CharacterRelationship,
+  type DomainRecord,
+  type LoreEntry,
   type NovelProject,
   type StoryBible,
+  type StoryState,
+  type TimelineEvent,
   type World,
+  type WorldRule,
 } from "@/lib/novel-ai/domain";
+import {
+  assertStoryStartedCanonMutationAllowed,
+  explicitCrossEraCanonAuthorization,
+} from "@/lib/novel-ai/domain/story-started-canon-guard";
+import {
+  CHARACTER_PORTRAIT_CAPACITY,
+} from "@/lib/novel-ai/character-portraits/catalog";
+import {
+  isCharacterEraCompatible,
+  suggestedCharacterPortrait,
+  worldEraContext,
+} from "@/lib/novel-ai/character-portraits/assignment";
 import {
   CULTIVATION_PROFESSIONS,
   FUTURE_ORGANIZATION_CATALOG,
@@ -29,6 +46,7 @@ import {
   sectTechniqueCatalog,
 } from "@/lib/novel-ai/game/cultivation-canon";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
+import CharacterPortraitImage from "./character-portrait";
 
 const RELATIONSHIP_KINDS = [
   "兄弟", "姊妹", "兄妹／姊弟", "夫妻", "戀人", "前任", "父子", "父女", "母子", "母女",
@@ -36,24 +54,39 @@ const RELATIONSHIP_KINDS = [
   "恩人", "仇人", "債務", "交易夥伴",
 ] as const;
 
+const CROSS_ERA_SOURCE_LABELS = {
+  project: "專案設定",
+  "story-bible": "Story Bible",
+  "world-rule": "世界規則",
+  "baseline-world": "Story Bible 正式世界",
+} as const;
+
 type WorkbenchData = {
   characters: Character[];
   relationships: CharacterRelationship[];
   storyBibles: StoryBible[];
+  storyStates: StoryState[];
   worlds: World[];
+  worldRules: WorldRule[];
+  lore: LoreEntry[];
+  timeline: TimelineEvent[];
 };
 
 export default function CharacterRelationshipWorkbench({
   project,
   compact = false,
+  storyStarted = false,
   onChanged,
 }: {
   project: NovelProject;
   compact?: boolean;
+  storyStarted?: boolean;
   onChanged?: () => void | Promise<void>;
 }) {
   const repository = useMemo(() => createNovelRepository(), []);
-  const [data, setData] = useState<WorkbenchData>({ characters: [], relationships: [], storyBibles: [], worlds: [] });
+  const [data, setData] = useState<WorkbenchData>({
+    characters: [], relationships: [], storyBibles: [], storyStates: [], worlds: [], worldRules: [], lore: [], timeline: [],
+  });
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [name, setName] = useState("");
   const [profession, setProfession] = useState("");
@@ -70,6 +103,61 @@ export default function CharacterRelationshipWorkbench({
   const [trust, setTrust] = useState("50");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selectedWorldId, setSelectedWorldId] = useState("");
+  const [worldName, setWorldName] = useState("");
+  const [worldEra, setWorldEra] = useState("");
+  const [worldSummary, setWorldSummary] = useState("");
+  const [bibleTheme, setBibleTheme] = useState("");
+  const [bibleStyle, setBibleStyle] = useState("");
+  const [bibleThreads, setBibleThreads] = useState("");
+  const [bibleContradictions, setBibleContradictions] = useState("");
+  const [selectedRuleId, setSelectedRuleId] = useState("__new__");
+  const [ruleTitle, setRuleTitle] = useState("");
+  const [ruleDescription, setRuleDescription] = useState("");
+  const [ruleImmutable, setRuleImmutable] = useState(true);
+  const [selectedLoreId, setSelectedLoreId] = useState("__new__");
+  const [loreKind, setLoreKind] = useState<LoreEntry["kind"]>("custom");
+  const [loreTitle, setLoreTitle] = useState("");
+  const [loreContent, setLoreContent] = useState("");
+  const [selectedTimelineId, setSelectedTimelineId] = useState("__new__");
+  const [timelineTitle, setTimelineTitle] = useState("");
+  const [timelineStoryTime, setTimelineStoryTime] = useState("");
+  const [timelineSummary, setTimelineSummary] = useState("");
+
+  function applyWorldForm(world: World | null) {
+    setWorldName(world?.name.value ?? "");
+    setWorldEra(world?.era.value ?? "");
+    setWorldSummary(world?.summary.value ?? "");
+  }
+
+  function applyBibleForm(storyBible: StoryBible | null) {
+    setBibleTheme(storyBible?.theme.value ?? "");
+    setBibleStyle(storyBible?.style.value ?? "");
+    setBibleThreads((storyBible?.unresolvedThreads ?? []).join("\n"));
+    setBibleContradictions((storyBible?.forbiddenContradictions ?? []).join("\n"));
+  }
+
+  function applyRuleForm(rule: WorldRule | null) {
+    setRuleTitle(rule?.title ?? "");
+    setRuleDescription(rule?.description ?? "");
+    setRuleImmutable(rule?.immutable ?? true);
+  }
+
+  function applyLoreForm(entry: LoreEntry | null) {
+    setLoreKind(entry?.kind ?? "custom");
+    setLoreTitle(entry?.title ?? "");
+    setLoreContent(entry?.content ?? "");
+  }
+
+  function applyTimelineForm(event: TimelineEvent | null) {
+    setTimelineTitle(event?.title ?? "");
+    setTimelineStoryTime(event?.storyTime ?? "");
+    setTimelineSummary(event?.summary ?? "");
+  }
+
+  function textLines(value: string) {
+    return value.split(/\r?\n/u).map((item) => item.trim()).filter(Boolean);
+  }
 
   function applyCharacterForm(character: Character | null) {
     setName(character?.name ?? "");
@@ -88,19 +176,46 @@ export default function CharacterRelationshipWorkbench({
   }
 
   async function load() {
-    const [characters, relationships, storyBibles, worlds] = await Promise.all([
+    const [characters, relationships, storyBibles, storyStates, worlds, worldRules, lore, timeline] = await Promise.all([
       repository.list<Character>("characters", project.id),
       repository.list<CharacterRelationship>("relationships", project.id),
       repository.list<StoryBible>("storyBibles", project.id),
+      repository.list<StoryState>("storyStates", project.id),
       repository.list<World>("worlds", project.id),
+      repository.list<WorldRule>("worldRules", project.id),
+      repository.list<LoreEntry>("lore", project.id),
+      repository.list<TimelineEvent>("timeline", project.id),
     ]);
     const ordered = characters.sort((left, right) => left.name.localeCompare(right.name, "zh-Hant"));
-    const nextSelectedId = selectedCharacterId || ordered[0]?.id || "";
-    setData({ characters: ordered, relationships, storyBibles, worlds });
+    const nextSelectedId = selectedCharacterId && (selectedCharacterId === "__new__" || ordered.some((character) => character.id === selectedCharacterId))
+      ? selectedCharacterId
+      : ordered[0]?.id ?? "__new__";
+    setData({ characters: ordered, relationships, storyBibles, storyStates, worlds, worldRules, lore, timeline });
     setSelectedCharacterId(nextSelectedId);
     applyCharacterForm(ordered.find((character) => character.id === nextSelectedId) ?? null);
     setFromId((current) => current || ordered[0]?.id || "");
     setToId((current) => current || ordered.find((character) => character.id !== (ordered[0]?.id || ""))?.id || "");
+    const storyBible = storyBibles.find((item) => item.id === project.storyBibleId) ?? storyBibles[0] ?? null;
+    const storyState = storyStates.find((item) => item.id === project.storyStateId) ?? storyStates[0] ?? null;
+    const nextWorldId = storyState?.activeWorldId ?? storyBible?.worldId ?? worlds[0]?.id ?? "";
+    setSelectedWorldId(nextWorldId);
+    applyWorldForm(worlds.find((world) => world.id === nextWorldId) ?? worlds[0] ?? null);
+    applyBibleForm(storyBible);
+    const nextRuleId = selectedRuleId !== "__new__" && worldRules.some((rule) => rule.id === selectedRuleId)
+      ? selectedRuleId
+      : worldRules[0]?.id ?? "__new__";
+    setSelectedRuleId(nextRuleId);
+    applyRuleForm(worldRules.find((rule) => rule.id === nextRuleId) ?? null);
+    const nextLoreId = selectedLoreId !== "__new__" && lore.some((entry) => entry.id === selectedLoreId)
+      ? selectedLoreId
+      : lore[0]?.id ?? "__new__";
+    setSelectedLoreId(nextLoreId);
+    applyLoreForm(lore.find((entry) => entry.id === nextLoreId) ?? null);
+    const nextTimelineId = selectedTimelineId !== "__new__" && timeline.some((event) => event.id === selectedTimelineId)
+      ? selectedTimelineId
+      : timeline[0]?.id ?? "__new__";
+    setSelectedTimelineId(nextTimelineId);
+    applyTimelineForm(timeline.find((event) => event.id === nextTimelineId) ?? null);
   }
 
   useEffect(() => {
@@ -109,10 +224,31 @@ export default function CharacterRelationshipWorkbench({
   }, [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedCharacter = data.characters.find((character) => character.id === selectedCharacterId) ?? null;
+  const storyBible = data.storyBibles.find((item) => item.id === project.storyBibleId) ?? data.storyBibles[0] ?? null;
+  const storyState = data.storyStates.find((item) => item.id === project.storyStateId) ?? data.storyStates[0] ?? null;
+  const baselineWorld = storyBible?.worldId
+    ? data.worlds.find((world) => world.id === storyBible.worldId) ?? null
+    : null;
+  const crossEraCanon = explicitCrossEraCanonAuthorization({
+    project,
+    storyBible,
+    worldRules: data.worldRules,
+    baselineWorld,
+  });
 
-  const suggestions = professionSuggestions(project, data.worlds);
-  const worldContext = professionWorldContext(project, data.worlds);
-  const worldSignal = [project.coreIdea.value, ...data.worlds.flatMap((world) => [world.name.value, world.era.value, world.summary.value])].filter(Boolean).join(" ");
+  const selectedWorld = selectedWorldId === "__new__"
+    ? null
+    : data.worlds.find((world) => world.id === selectedWorldId)
+      ?? data.worlds.find((world) => world.id === storyState?.activeWorldId)
+      ?? data.worlds.find((world) => world.id === storyBible?.worldId)
+      ?? data.worlds[0]
+      ?? null;
+  const activeWorlds = selectedWorld ? [selectedWorld] : [];
+  const suggestions = professionSuggestions(project, activeWorlds);
+  const worldContext = selectedWorld
+    ? worldEraContext(selectedWorld)
+    : professionWorldContext(project, []);
+  const worldSignal = [selectedWorld?.name.value, selectedWorld?.era.value, selectedWorld?.summary.value].filter(Boolean).join(" ");
   const managementEra = resolveManagementEra(worldSignal);
   const investmentCatalog = managementInvestmentCatalog(worldSignal);
   const techniques = useMemo(
@@ -126,6 +262,22 @@ export default function CharacterRelationshipWorkbench({
   const selectedTechniqueId = techniqueId || techniques[0]?.id || "";
   const selectedSectBranchId = sectBranchId || sectBranches[0]?.id || "";
   const names = new Map(data.characters.map((character) => [character.id, character.name]));
+  const charactersById = new Map(data.characters.map((character) => [character.id, character]));
+  const compatibleCharacters = data.characters.filter((character) => isCharacterEraCompatible({ character, project, worlds: activeWorlds }));
+  const incompatibleCharacterIds = new Set(data.characters.filter((character) => !compatibleCharacters.includes(character)).map((character) => character.id));
+  const defaultActiveCharacterIds = storyBible?.characterIds.length
+    ? storyBible.characterIds.filter((id) => !incompatibleCharacterIds.has(id))
+    : compatibleCharacters.map((character) => character.id);
+  const activeCharacterIds = new Set(
+    (storyState?.activeCharacterIds ?? defaultActiveCharacterIds)
+      .filter((id) => !incompatibleCharacterIds.has(id)),
+  );
+  for (const protagonistId of storyBible?.protagonistIds ?? []) {
+    if (!incompatibleCharacterIds.has(protagonistId)) activeCharacterIds.add(protagonistId);
+  }
+  const activeWorldRuleIds = new Set(storyState?.activeWorldRuleIds ?? storyBible?.worldRuleIds ?? data.worldRules.map((rule) => rule.id));
+  const activeLoreIds = new Set(storyState?.activeLoreIds ?? storyBible?.loreIds ?? data.lore.map((entry) => entry.id));
+  const activeTimelineEventIds = new Set(storyState?.activeTimelineEventIds ?? storyBible?.timelineEventIds ?? data.timeline.map((event) => event.id));
   const usesCultivationCanon = worldContext === "cultivation"
     || (worldContext === "cross-era" && (
       Boolean(selectedCharacter?.cultivationProfile)
@@ -153,7 +305,375 @@ export default function CharacterRelationshipWorkbench({
       ? "未來企業、星際政體與自治群落"
       : worldContext === "cross-era"
         ? "各時代公司、宗族、勢力與國家"
-        : "現代公司、家族企業、勢力與國家";
+      : "現代公司、家族企業、勢力與國家";
+
+  async function updateStoryStage(
+    patch: Partial<Pick<StoryState,
+      "activeCharacterIds" | "activeWorldId" | "activeWorldRuleIds" | "activeLoreIds" | "activeTimelineEventIds">>,
+    nextMessage: string,
+  ) {
+    if (!storyState) {
+      setMessage("作品缺少 StoryState；上場選擇沒有寫入，也沒有改動正式資料。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const latest = await repository.get<StoryState>("storyStates", storyState.id);
+      if (!latest) throw new Error("STORY_STATE_NOT_FOUND");
+      await repository.put<StoryState>("storyStates", { ...latest, ...patch }, latest.revision);
+      await finish(nextMessage);
+    } catch (cause) {
+      setMessage(`上場設定儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleActiveCharacter(character: Character) {
+    if (incompatibleCharacterIds.has(character.id)) {
+      setMessage(`「${character.name}」的時代屬性與目前故事不相容；請先在世界前提明確設定穿越或跨時代。`);
+      return;
+    }
+    if (storyBible?.protagonistIds.includes(character.id) && activeCharacterIds.has(character.id)) {
+      setMessage("主角必須留在上場名單；可調整其他配角。 ");
+      return;
+    }
+    const next = new Set(activeCharacterIds);
+    if (next.has(character.id)) next.delete(character.id);
+    else next.add(character.id);
+    for (const protagonistId of storyBible?.protagonistIds ?? []) next.add(protagonistId);
+    await updateStoryStage(
+      { activeCharacterIds: [...next] },
+      next.has(character.id)
+        ? `「${character.name}」已加入上場名單；後續續寫與 RPG 會讀取這名人物。`
+        : `「${character.name}」已改為候場；正式人物資料仍完整保留。`,
+    );
+  }
+
+  async function toggleActiveReference(
+    field: "activeWorldRuleIds" | "activeLoreIds" | "activeTimelineEventIds",
+    current: Set<string>,
+    id: string,
+    label: string,
+  ) {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    await updateStoryStage({ [field]: [...next] }, `${label}已${next.has(id) ? "加入" : "移出"}目前故事的上場脈絡。`);
+  }
+
+  async function selectActiveWorld(world: World) {
+    const baseline = baselineWorld ?? data.worlds[0] ?? null;
+    const baselineEra = baseline ? worldEraContext(baseline) : null;
+    const requestedEra = worldEraContext(world);
+    const requiresCrossEraCanon = requestedEra === "cross-era"
+      || Boolean(baseline && baselineEra !== requestedEra);
+    if (requiresCrossEraCanon && !crossEraCanon.authorized) {
+      setMessage(`「${world.name.value ?? "未命名世界"}」不能直接加入：候選世界自稱跨時代不算授權，必須先在既有 Story Bible、世界規則或專案設定中有明確的穿越／跨時代 Canon。`);
+      return;
+    }
+    setSelectedWorldId(world.id);
+    applyWorldForm(world);
+    await updateStoryStage({ activeWorldId: world.id }, `已把「${world.name.value ?? "未命名世界"}」設為目前上場世界。`);
+  }
+
+  async function saveWorld(event: React.FormEvent) {
+    event.preventDefault();
+    const creating = selectedWorldId === "__new__";
+    if (!selectedWorld && !creating) return;
+    if (!worldName.trim()) {
+      setMessage("世界名稱不能留白。");
+      return;
+    }
+    try {
+      assertStoryStartedCanonMutationAllowed({
+        storyStarted,
+        mutation: creating ? "create-world" : "update-world",
+        existingRecord: Boolean(selectedWorld),
+        existingWorldEra: selectedWorld?.era.value,
+        requestedWorldEra: worldEra,
+      });
+    } catch {
+      setMessage(creating
+        ? "故事已有正文；新時代或新世界必須先由穿越／轉換事件建立，不能直接插入正式 Canon。"
+        : "故事已有正文；既有世界的時代已鎖定，不能從首頁任意改寫。 ");
+      return;
+    }
+    setBusy(true);
+    try {
+      const saved = await repository.put<World>("worlds", {
+        ...(selectedWorld ?? makeRecord(project.id, "user")),
+        name: optionalValue(worldName.trim() || null, worldName.trim() ? "user_defined" : "unset"),
+        era: storyStarted && selectedWorld
+          ? selectedWorld.era
+          : optionalValue(worldEra.trim() || null, worldEra.trim() ? "user_defined" : "unset"),
+        summary: optionalValue(worldSummary.trim() || null, worldSummary.trim() ? "user_defined" : "unset"),
+      }, selectedWorld?.revision);
+      if (creating) {
+        for (const bible of data.storyBibles) {
+          if (bible.worldId) continue;
+          await repository.put<StoryBible>("storyBibles", { ...bible, worldId: saved.id }, bible.revision);
+        }
+        if (storyState && !storyState.activeWorldId) {
+          await repository.put<StoryState>("storyStates", { ...storyState, activeWorldId: saved.id }, storyState.revision);
+        }
+        setSelectedWorldId(saved.id);
+      }
+      await finish(storyStarted
+        ? "世界內容已更新；故事開始後的時代已鎖定，沒有被改動。"
+        : creating
+          ? "新世界已在首頁建立；請確認是否設為目前上場世界。"
+          : "世界名稱、時代與背景已在首頁更新。 ");
+      if (creating) setSelectedWorldId(saved.id);
+    } catch (cause) {
+      setMessage(`世界儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSelectedWorld() {
+    if (!selectedWorld || storyStarted) {
+      setMessage("故事開始後不能刪除正式世界或時代。");
+      return;
+    }
+    if (!confirm(`確定刪除世界「${selectedWorld.name.value ?? "未命名世界"}」嗎？`)) return;
+    setBusy(true);
+    try {
+      for (const bible of data.storyBibles) {
+        if (bible.worldId !== selectedWorld.id) continue;
+        await repository.put<StoryBible>("storyBibles", { ...bible, worldId: null }, bible.revision);
+      }
+      if (storyState?.activeWorldId === selectedWorld.id) {
+        await repository.put<StoryState>("storyStates", { ...storyState, activeWorldId: undefined }, storyState.revision);
+      }
+      await repository.remove("worlds", selectedWorld.id);
+      setSelectedWorldId("__new__");
+      applyWorldForm(null);
+      await finish("世界已從正式資料移除。 ");
+      setSelectedWorldId("__new__");
+      applyWorldForm(null);
+    } catch (cause) {
+      setMessage(`世界刪除失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveStoryBible(event: React.FormEvent) {
+    event.preventDefault();
+    if (!storyBible) return;
+    setBusy(true);
+    try {
+      await repository.put<StoryBible>("storyBibles", {
+        ...storyBible,
+        theme: optionalValue(bibleTheme.trim() || null, bibleTheme.trim() ? "user_defined" : "unset"),
+        style: optionalValue(bibleStyle.trim() || null, bibleStyle.trim() ? "user_defined" : "unset"),
+        unresolvedThreads: textLines(bibleThreads),
+        forbiddenContradictions: textLines(bibleContradictions),
+      }, storyBible.revision);
+      await finish("故事主題、文風、未解線索與禁止矛盾已在首頁更新。 ");
+    } catch (cause) {
+      setMessage(`故事記憶儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveRule(event: React.FormEvent) {
+    event.preventDefault();
+    if (!ruleTitle.trim() || !ruleDescription.trim()) {
+      setMessage("世界規則需要名稱與內容。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const existing = data.worldRules.find((rule) => rule.id === selectedRuleId) ?? null;
+      const saved = await repository.put<WorldRule>("worldRules", {
+        ...(existing ?? makeRecord(project.id, "user")),
+        title: ruleTitle.trim(),
+        description: ruleDescription.trim(),
+        immutable: ruleImmutable,
+      }, existing?.revision);
+      if (!existing) {
+        for (const bible of data.storyBibles) {
+          await repository.put<StoryBible>("storyBibles", {
+            ...bible,
+            worldRuleIds: [...new Set([...bible.worldRuleIds, saved.id])],
+          }, bible.revision);
+        }
+        setSelectedRuleId(saved.id);
+      }
+      await finish(existing ? "世界規則已在首頁更新。" : "世界規則已在首頁建立並接入 Story Bible。");
+      if (!existing) setSelectedRuleId(saved.id);
+    } catch (cause) {
+      setMessage(`世界規則儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveLore(event: React.FormEvent) {
+    event.preventDefault();
+    if (!loreTitle.trim() || !loreContent.trim()) {
+      setMessage("故事記憶需要名稱與內容。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const existing = data.lore.find((entry) => entry.id === selectedLoreId) ?? null;
+      const saved = await repository.put<LoreEntry>("lore", {
+        ...(existing ?? makeRecord(project.id, "user")),
+        kind: loreKind,
+        title: loreTitle.trim(),
+        content: loreContent.trim(),
+      }, existing?.revision);
+      if (!existing) {
+        for (const bible of data.storyBibles) {
+          await repository.put<StoryBible>("storyBibles", {
+            ...bible,
+            loreIds: [...new Set([...bible.loreIds, saved.id])],
+          }, bible.revision);
+        }
+        setSelectedLoreId(saved.id);
+      }
+      await finish(existing ? "故事記憶已在首頁更新。" : "故事記憶已在首頁建立並接入 Story Bible。");
+      if (!existing) setSelectedLoreId(saved.id);
+    } catch (cause) {
+      setMessage(`故事記憶儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveTimeline(event: React.FormEvent) {
+    event.preventDefault();
+    if (!timelineTitle.trim() || !timelineSummary.trim()) {
+      setMessage("時間線事件需要名稱與摘要。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const existing = data.timeline.find((item) => item.id === selectedTimelineId) ?? null;
+      const saved = await repository.put<TimelineEvent>("timeline", {
+        ...(existing ?? makeRecord(project.id, "user")),
+        chapterId: existing?.chapterId ?? null,
+        storyTime: timelineStoryTime.trim() || null,
+        title: timelineTitle.trim(),
+        summary: timelineSummary.trim(),
+      }, existing?.revision);
+      if (!existing) {
+        for (const bible of data.storyBibles) {
+          await repository.put<StoryBible>("storyBibles", {
+            ...bible,
+            timelineEventIds: [...new Set([...bible.timelineEventIds, saved.id])],
+          }, bible.revision);
+        }
+        setSelectedTimelineId(saved.id);
+      }
+      await finish(existing ? "時間線事件已在首頁更新。" : "時間線事件已在首頁建立並接入 Story Bible。");
+      if (!existing) setSelectedTimelineId(saved.id);
+    } catch (cause) {
+      setMessage(`時間線儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSelectedRule() {
+    const rule = data.worldRules.find((item) => item.id === selectedRuleId) ?? null;
+    if (!rule) return;
+    if (rule.immutable && storyStarted) {
+      setMessage("故事開始後不可刪除不可違反的世界規則。");
+      return;
+    }
+    if (!confirm(`確定刪除世界規則「${rule.title}」嗎？`)) return;
+    setBusy(true);
+    try {
+      for (const bible of data.storyBibles) {
+        await repository.put<StoryBible>("storyBibles", {
+          ...bible,
+          worldRuleIds: bible.worldRuleIds.filter((id) => id !== rule.id),
+        }, bible.revision);
+      }
+      if (storyState) {
+        await repository.put<StoryState>("storyStates", {
+          ...storyState,
+          activeWorldRuleIds: storyState.activeWorldRuleIds?.filter((id) => id !== rule.id),
+        }, storyState.revision);
+      }
+      await repository.remove("worldRules", rule.id);
+      setSelectedRuleId("__new__");
+      applyRuleForm(null);
+      await finish("世界規則已移除。 ");
+      setSelectedRuleId("__new__");
+      applyRuleForm(null);
+    } catch (cause) {
+      setMessage(`世界規則刪除失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSelectedLore() {
+    const entry = data.lore.find((item) => item.id === selectedLoreId) ?? null;
+    if (!entry || !confirm(`確定刪除故事記憶「${entry.title}」嗎？`)) return;
+    setBusy(true);
+    try {
+      for (const bible of data.storyBibles) {
+        await repository.put<StoryBible>("storyBibles", {
+          ...bible,
+          loreIds: bible.loreIds.filter((id) => id !== entry.id),
+        }, bible.revision);
+      }
+      if (storyState) {
+        await repository.put<StoryState>("storyStates", {
+          ...storyState,
+          activeLoreIds: storyState.activeLoreIds?.filter((id) => id !== entry.id),
+        }, storyState.revision);
+      }
+      await repository.remove("lore", entry.id);
+      setSelectedLoreId("__new__");
+      applyLoreForm(null);
+      await finish("故事記憶已移除。 ");
+      setSelectedLoreId("__new__");
+      applyLoreForm(null);
+    } catch (cause) {
+      setMessage(`故事記憶刪除失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSelectedTimeline() {
+    const event = data.timeline.find((item) => item.id === selectedTimelineId) ?? null;
+    if (!event || !confirm(`確定刪除時間線事件「${event.title}」嗎？`)) return;
+    setBusy(true);
+    try {
+      for (const bible of data.storyBibles) {
+        await repository.put<StoryBible>("storyBibles", {
+          ...bible,
+          timelineEventIds: bible.timelineEventIds.filter((id) => id !== event.id),
+        }, bible.revision);
+      }
+      if (storyState) {
+        await repository.put<StoryState>("storyStates", {
+          ...storyState,
+          activeTimelineEventIds: storyState.activeTimelineEventIds?.filter((id) => id !== event.id),
+        }, storyState.revision);
+      }
+      await repository.remove("timeline", event.id);
+      setSelectedTimelineId("__new__");
+      applyTimelineForm(null);
+      await finish("時間線事件已移除。 ");
+      setSelectedTimelineId("__new__");
+      applyTimelineForm(null);
+    } catch (cause) {
+      setMessage(`時間線刪除失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function finish(nextMessage: string) {
     await load();
@@ -163,22 +683,31 @@ export default function CharacterRelationshipWorkbench({
 
   async function saveCharacter(event: React.FormEvent) {
     event.preventDefault();
-    if (!selectedCharacter) return;
-    const continuityError = professionContinuityError(profession, project, data.worlds);
+    const creating = selectedCharacterId === "__new__";
+    if (!selectedCharacter && !creating) return;
+    if (creating && storyStarted) {
+      setMessage("故事已有正文；請從既有正式人物庫選擇配角上場，避免中途建立沒有事件來源的新能力資料。");
+      return;
+    }
+    if (!name.trim()) {
+      setMessage("人物姓名不能留白。");
+      return;
+    }
+    const continuityError = professionContinuityError(profession, project, activeWorlds);
     if (continuityError) {
       setMessage(continuityError);
       return;
     }
     const normalizedProfession = profession.trim();
     const duplicateProfession = normalizedProfession
-      ? data.characters.find((character) => character.id !== selectedCharacter.id
+      ? data.characters.find((character) => character.id !== selectedCharacter?.id
         && character.identity.value?.trim() === normalizedProfession)
       : null;
     if (duplicateProfession) {
       setMessage(`「${normalizedProfession}」已由${duplicateProfession.name}擔任；請替每位人物安排不同職業或專長。`);
       return;
     }
-    if (usesCultivationCanon) {
+    if (usesCultivationCanon && !storyStarted) {
       const rank = SECT_RANK_CATALOG.find((item) => item.id === sectRankId);
       const realmIndex = CULTIVATION_REALMS.findIndex((item) => item.id === realmId);
       const minimumIndex = CULTIVATION_REALMS.findIndex((item) => item.id === rank?.minimumRealmId);
@@ -195,11 +724,45 @@ export default function CharacterRelationshipWorkbench({
     }
     setBusy(true);
     try {
-      await repository.put<Character>("characters", {
-        ...selectedCharacter,
-        name: name.trim() || selectedCharacter.name,
+      const baseCharacter: Character = selectedCharacter ?? {
+        ...makeRecord(project.id, "user"),
+        name: name.trim(),
+        aliases: [],
+        identity: optionalValue<string>(null, "unset"),
+        personality: optionalValue<string>(null, "unset"),
+        goal: optionalValue<string>(null, "unset"),
+        lifeStatus: "alive",
+        locationId: null,
+        age: null,
+        ageVerified: false,
+        fears: [],
+        privateSecrets: [],
+        factionIds: [],
+        values: [],
+        capabilities: [],
+        limitations: [],
+        portrait: null,
+        rpgProfile: null,
+        dynamicsProfile: null,
+        socialMatrixProfile: null,
+        cultivationProfile: null,
+      };
+      const portrait = suggestedCharacterPortrait({ character: baseCharacter, project, worlds: activeWorlds });
+      const saved = await repository.put<Character>("characters", {
+        ...baseCharacter,
+        name: name.trim() || baseCharacter.name,
         identity: optionalValue(profession.trim() || null, profession.trim() ? "user_defined" : "unset"),
-        cultivationProfile: usesCultivationCanon ? {
+        portrait: baseCharacter.portrait?.source === "upload" || baseCharacter.portrait?.source === "catalog"
+          ? baseCharacter.portrait
+          : {
+              ...portrait,
+              approvedAt: new Date().toISOString(),
+              approvedBy: "user",
+              dataLeftDevice: false,
+            },
+        cultivationProfile: storyStarted
+          ? baseCharacter.cultivationProfile
+          : usesCultivationCanon ? {
           schemaVersion: "character-cultivation-profile-v1",
           spiritRootId,
           realmId,
@@ -208,11 +771,70 @@ export default function CharacterRelationshipWorkbench({
           sectRankId,
           techniqueIds: selectedTechniqueId ? [selectedTechniqueId] : [],
           approvedAt: new Date().toISOString(),
-        } : null,
-      }, selectedCharacter.revision);
-      await finish("人物姓名與職業已寫入正式角色資料，故事工作台會讀到同一筆內容。");
+          } : null,
+      }, selectedCharacter?.revision);
+      if (creating) {
+        for (const bible of data.storyBibles) {
+          if (bible.characterIds.includes(saved.id)) continue;
+          await repository.put<StoryBible>("storyBibles", {
+            ...bible,
+            characterIds: [...bible.characterIds, saved.id],
+          }, bible.revision);
+        }
+        setSelectedCharacterId(saved.id);
+      }
+      await finish(storyStarted
+        ? "人物姓名、身分與屬性配對人像已更新；既有能力、境界與位階保持鎖定。"
+        : creating
+          ? "新人物已在首頁建立並加入正式人物庫；請決定是否讓他上場。"
+          : "人物資料與屬性配對人像已寫入正式角色資料，故事工作台會讀到同一筆內容。");
+      if (creating) setSelectedCharacterId(saved.id);
     } catch (cause) {
       setMessage(`人物儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSelectedCharacter() {
+    if (!selectedCharacter || storyStarted) {
+      setMessage("故事開始後不能刪除正式人物；可將配角移到候場名單。");
+      return;
+    }
+    if (storyBible?.protagonistIds.includes(selectedCharacter.id)) {
+      setMessage("主角不能直接刪除；請先在完整人物設定中更換主角。");
+      return;
+    }
+    if (!confirm(`確定刪除人物「${selectedCharacter.name}」及其尚未進入正文的正式關係嗎？`)) return;
+    setBusy(true);
+    try {
+      const related = data.relationships.filter((relationship) => (
+        relationship.fromCharacterId === selectedCharacter.id
+        || relationship.toCharacterId === selectedCharacter.id
+      ));
+      for (const relationship of related) await repository.remove("relationships", relationship.id);
+      for (const bible of data.storyBibles) {
+        await repository.put<StoryBible>("storyBibles", {
+          ...bible,
+          characterIds: bible.characterIds.filter((id) => id !== selectedCharacter.id),
+          protagonistIds: bible.protagonistIds.filter((id) => id !== selectedCharacter.id),
+          relationshipIds: bible.relationshipIds.filter((id) => !related.some((relationship) => relationship.id === id)),
+        }, bible.revision);
+      }
+      if (storyState) {
+        await repository.put<StoryState>("storyStates", {
+          ...storyState,
+          activeCharacterIds: storyState.activeCharacterIds?.filter((id) => id !== selectedCharacter.id),
+        }, storyState.revision);
+      }
+      await repository.remove("characters", selectedCharacter.id);
+      setSelectedCharacterId("__new__");
+      applyCharacterForm(null);
+      await finish("人物與尚未進入正文的關係已移除。 ");
+      setSelectedCharacterId("__new__");
+      applyCharacterForm(null);
+    } catch (cause) {
+      setMessage(`人物刪除失敗：${cause instanceof Error ? cause.message : "請重試"}`);
     } finally {
       setBusy(false);
     }
@@ -258,6 +880,25 @@ export default function CharacterRelationshipWorkbench({
     if (!confirm(`確定刪除「${names.get(relationship.fromCharacterId)}－${relationship.kind}－${names.get(relationship.toCharacterId)}」嗎？`)) return;
     setBusy(true);
     try {
+      const agentRelationships = await repository.list<DomainRecord & {
+        relationshipId?: string;
+        sourceReferences?: Array<{ entityId?: string; entityType?: string }>;
+      }>("characterRelationships", project.id);
+      const derivedEdges = agentRelationships.filter((edge) => edge.sourceReferences?.some((reference) => (
+        reference.entityType === "relationship" && reference.entityId === relationship.id
+      )));
+      const derivedRelationshipIds = new Set(derivedEdges.flatMap((edge) => [edge.id, edge.relationshipId].filter((id): id is string => Boolean(id))));
+      if (derivedRelationshipIds.size) {
+        const relationshipEvents = await repository.list<DomainRecord & { relationshipId?: string }>("characterRelationshipEvents", project.id);
+        for (const event of relationshipEvents) {
+          if (event.relationshipId && derivedRelationshipIds.has(event.relationshipId)) {
+            await repository.remove("characterRelationshipEvents", event.id);
+          }
+        }
+        for (const edge of derivedEdges) {
+          await repository.remove("characterRelationships", edge.id);
+        }
+      }
       for (const bible of data.storyBibles) {
         if (!bible.relationshipIds.includes(relationship.id)) continue;
         await repository.put<StoryBible>("storyBibles", {
@@ -266,7 +907,7 @@ export default function CharacterRelationshipWorkbench({
         }, bible.revision);
       }
       await repository.remove("relationships", relationship.id);
-      await finish("關係已移除；人物本身與既有正文沒有被刪除。");
+      await finish("正式關係及其角色視角投影已移除；人物本身與既有正文沒有被刪除。");
     } catch (cause) {
       setMessage(`關係刪除失敗：${cause instanceof Error ? cause.message : "請重試"}`);
     } finally {
@@ -274,31 +915,84 @@ export default function CharacterRelationshipWorkbench({
     }
   }
 
+  const selectedPortrait = selectedCharacter
+    ? suggestedCharacterPortrait({ character: selectedCharacter, project, worlds: activeWorlds })
+    : null;
+
   return (
-    <section className="characterRelationWorkbench" data-compact={compact} data-testid="character-relationship-workbench">
+    <section id="character-world-memory-home" className="characterRelationWorkbench" data-compact={compact} data-testid="character-relationship-workbench">
       <header>
-        <div><small>CHARACTER NETWORK · SAME CANON</small><h2>人物、職業與關係網</h2></div>
-        <span>{worldContextLabel} · {data.characters.length} 人 · {data.relationships.length} 條關係</span>
+        <div><small>CHARACTERS · WORLD · MEMORY · SAME CANON</small><h2>首頁正式設定與上場管理</h2></div>
+        <span>{worldContextLabel} · {data.characters.length} 人 · {data.relationships.length} 條關係 · {CHARACTER_PORTRAIT_CAPACITY.toLocaleString("zh-TW")} 種衍生造型</span>
       </header>
-      <p>這裡直接修改正式人物資料。兄弟姊妹、夫妻、師徒、敵人等關係會接入 Story Bible，供續寫、三選一與一致性檢查使用。</p>
-      {data.characters.length ? <div className="characterRelationForms">
+      <p>首頁管理正式人物、世界與 Story Bible；故事中的工作台只選擇誰、哪個世界與哪些記憶要在目前情節上場。人物人像會依時代、身分、年齡、個性與能力從 100 張基礎人像的 100 組可重現造型中配對，不會讓不同人物共用同一張空白卡。</p>
+      <p className="characterCanonLock" data-locked={storyStarted} role="status">
+        {storyStarted
+          ? "故事已開始：能力值、靈根、境界、宗門位階、主修與世界時代已鎖定；仍可補充姓名、身分、背景、關係、Story Bible，並調整配角上場名單。"
+          : "故事尚未正式開始：可在首頁完成能力、時代與人物基礎設定；開始後這些數值會鎖定。"}
+      </p>
+
+      <section className="characterStageManager" aria-labelledby="character-stage-title">
+        <header><div><small>ON-STAGE SELECTION</small><h3 id="character-stage-title">目前故事的上場人物、世界與記憶</h3></div><span>{activeCharacterIds.size} 人上場</span></header>
+        <p>正式人物不會因候場而刪除。未設定穿越／跨時代時，其他時代的人物與世界不能加入目前故事。</p>
+        <p className="characterCanonLock" data-locked={!crossEraCanon.authorized} data-testid="cross-era-canon-authorization">
+          {crossEraCanon.authorized
+            ? `跨時代 Canon 已授權（${crossEraCanon.sources.map((source) => CROSS_ERA_SOURCE_LABELS[source]).join("、")}）；可選擇不同時代的既有正式世界。`
+            : "尚無跨時代 Canon：候選世界即使標示 cross-era／跨時代也不能自行授權，必須由既有 Story Bible、世界規則或專案設定明確建立。"}
+        </p>
+        <div className="characterStageGrid">
+          {data.characters.map((character) => {
+            const portrait = suggestedCharacterPortrait({ character, project, worlds: activeWorlds });
+            const active = activeCharacterIds.has(character.id);
+            const incompatible = incompatibleCharacterIds.has(character.id);
+            const protagonist = storyBible?.protagonistIds.includes(character.id) ?? false;
+            return <button
+              type="button"
+              key={character.id}
+              aria-pressed={active}
+              data-era-compatible={!incompatible}
+              disabled={busy || incompatible}
+              onClick={() => void toggleActiveCharacter(character)}
+              title={incompatible ? "時代不相容；需先設定穿越或跨時代" : undefined}
+            >
+              <CharacterPortraitImage portrait={portrait} decorative />
+              <span><b>{character.name}</b><small>{character.identity.value || "尚未設定身分"}</small><em>{incompatible ? "時代不相容" : protagonist ? "主角 · 固定上場" : active ? "上場中" : "候場"}</em></span>
+            </button>;
+          })}
+        </div>
+        {data.worlds.length ? <div className="characterStageWorlds" aria-label="上場世界">
+          <strong>目前世界</strong>
+          {data.worlds.map((world) => <button type="button" key={world.id} aria-pressed={storyState?.activeWorldId === world.id || (!storyState?.activeWorldId && storyBible?.worldId === world.id)} disabled={busy} onClick={() => void selectActiveWorld(world)}>
+            <b>{world.name.value || "未命名世界"}</b><span>{world.era.value || "時代未設定"}</span>
+          </button>)}
+        </div> : null}
+        <div className="characterStageReferences">
+          <details><summary>上場世界規則（{activeWorldRuleIds.size}/{data.worldRules.length}）</summary>{data.worldRules.map((rule) => <label key={rule.id}><input type="checkbox" checked={activeWorldRuleIds.has(rule.id)} disabled={busy || rule.immutable} onChange={() => void toggleActiveReference("activeWorldRuleIds", activeWorldRuleIds, rule.id, `世界規則「${rule.title}」`)} /><span><b>{rule.title}</b>{rule.immutable ? " · 不可移除" : ""}</span></label>)}</details>
+          <details><summary>上場故事記憶（{activeLoreIds.size}/{data.lore.length}）</summary>{data.lore.map((entry) => <label key={entry.id}><input type="checkbox" checked={activeLoreIds.has(entry.id)} disabled={busy} onChange={() => void toggleActiveReference("activeLoreIds", activeLoreIds, entry.id, `故事記憶「${entry.title}」`)} /><span><b>{entry.title}</b> · {entry.kind}</span></label>)}</details>
+          <details><summary>上場時間線（{activeTimelineEventIds.size}/{data.timeline.length}）</summary>{data.timeline.map((event) => <label key={event.id}><input type="checkbox" checked={activeTimelineEventIds.has(event.id)} disabled={busy} onChange={() => void toggleActiveReference("activeTimelineEventIds", activeTimelineEventIds, event.id, `時間線「${event.title}」`)} /><span><b>{event.title}</b>{event.storyTime ? ` · ${event.storyTime}` : ""}</span></label>)}</details>
+        </div>
+      </section>
+
+      <div className="characterRelationForms">
         <form onSubmit={saveCharacter}>
-          <h3>快速編修人物</h3>
-          <label>人物<select value={selectedCharacterId} onChange={(event) => selectCharacter(event.target.value)}>{data.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
+          <h3>{selectedCharacterId === "__new__" ? "在首頁建立人物" : "快速編修人物"}</h3>
+          {selectedPortrait ? <div className="characterSelectedPortrait wide"><CharacterPortraitImage portrait={selectedPortrait} /><p><b>{selectedPortrait.role}</b><span>{selectedPortrait.themeLabel} · 依目前人物屬性自動配對</span><small>{selectedPortrait.visualDescription}</small></p></div> : null}
+          <label>人物<select value={selectedCharacterId || "__new__"} onChange={(event) => selectCharacter(event.target.value)}><option value="__new__" disabled={storyStarted}>＋ 建立新人物</option>{data.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
           <label>姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label>職業／身分<input list={`profession-${project.id}`} value={profession} onChange={(event) => setProfession(event.target.value)} placeholder={suggestions.slice(0, 4).join("、")} /></label>
           <datalist id={`profession-${project.id}`}>{suggestions.map((item) => <option key={item} value={item} />)}</datalist>
           {usesCultivationCanon ? <>
-            <label>靈根<select value={spiritRootId} onChange={(event) => setSpiritRootId(event.target.value)}>{SPIRIT_ROOT_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.strength}</option>)}</select></label>
-            <label>修仙境界<select value={realmId} onChange={(event) => setRealmId(event.target.value)}>{CULTIVATION_REALMS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label>境界階段<select value={realmStage} onChange={(event) => setRealmStage(event.target.value as typeof realmStage)}>{["初期", "中期", "後期", "圓滿"].map((item) => <option key={item}>{item}</option>)}</select></label>
-            <label>所屬峰／堂／院／谷<select value={selectedSectBranchId} onChange={(event) => setSectBranchId(event.target.value)}>{sectBranches.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.discipline}</option>)}</select></label>
-            <label>宗門位階<select value={sectRankId} onChange={(event) => setSectRankId(event.target.value)}>{SECT_RANK_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label className="wide">主修功法<select value={selectedTechniqueId} onChange={(event) => setTechniqueId(event.target.value)}>{techniques.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.profession}</option>)}</select></label>
+            <label>靈根<select disabled={storyStarted} value={spiritRootId} onChange={(event) => setSpiritRootId(event.target.value)}>{SPIRIT_ROOT_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.strength}</option>)}</select></label>
+            <label>修仙境界<select disabled={storyStarted} value={realmId} onChange={(event) => setRealmId(event.target.value)}>{CULTIVATION_REALMS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>境界階段<select disabled={storyStarted} value={realmStage} onChange={(event) => setRealmStage(event.target.value as typeof realmStage)}>{["初期", "中期", "後期", "圓滿"].map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label>所屬峰／堂／院／谷<select disabled={storyStarted} value={selectedSectBranchId} onChange={(event) => setSectBranchId(event.target.value)}>{sectBranches.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.discipline}</option>)}</select></label>
+            <label>宗門位階<select disabled={storyStarted} value={sectRankId} onChange={(event) => setSectRankId(event.target.value)}>{SECT_RANK_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="wide">主修功法<select disabled={storyStarted} value={selectedTechniqueId} onChange={(event) => setTechniqueId(event.target.value)}>{techniques.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.profession}</option>)}</select></label>
           </> : null}
-          <button disabled={busy} type="submit">儲存人物</button>
+          {selectedCharacter?.rpgProfile ? <div className="characterLockedStats wide" aria-label="正式能力值">{Object.entries(selectedCharacter.rpgProfile.stats).map(([stat, value]) => <span key={stat}><b>{stat.replace("rpg.", "")}</b>{value}</span>)}</div> : null}
+          <div className="wide"><button disabled={busy || (storyStarted && selectedCharacterId === "__new__")} type="submit">{selectedCharacterId === "__new__" ? "建立人物" : "儲存人物"}</button>{selectedCharacter ? <button disabled={busy || storyStarted} type="button" onClick={() => void removeSelectedCharacter()}>刪除人物</button> : null}</div>
         </form>
-        <form onSubmit={saveRelationship}>
+        {data.characters.length >= 2 ? <form onSubmit={saveRelationship}>
           <h3>建立或更新關係</h3>
           <label>人物甲<select value={fromId} onChange={(event) => setFromId(event.target.value)}>{data.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
           <label>關係<select value={kind} onChange={(event) => setKind(event.target.value)}>{RELATIONSHIP_KINDS.map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -306,8 +1000,56 @@ export default function CharacterRelationshipWorkbench({
           <label>信任值（-100～100）<input type="number" min="-100" max="100" value={trust} onChange={(event) => setTrust(event.target.value)} /></label>
           <label className="wide">關係歷史／目前矛盾<input value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="例：同門多年，因掌門繼承問題成為競爭者" /></label>
           <button disabled={busy || data.characters.length < 2} type="submit">儲存關係</button>
-        </form>
-      </div> : <p className="characterRelationEmpty">尚未建立人物。請先到「角色與關係」建立第一位人物，再回此處連接關係。</p>}
+        </form> : <article className="characterRelationEmpty"><h3>人物關係</h3><p>建立至少兩位人物後，即可在首頁連接正式關係。</p></article>}
+      </div>
+
+      <details className="characterHomeCanonEditors" open>
+        <summary>在首頁編修正式世界與 Story Bible</summary>
+        <div>
+          <form onSubmit={saveWorld}>
+            <h3>正式世界</h3>
+            <label>世界<select value={selectedWorldId || "__new__"} onChange={(event) => { const id = event.target.value; setSelectedWorldId(id); applyWorldForm(data.worlds.find((world) => world.id === id) ?? null); }}><option value="__new__" disabled={storyStarted}>＋ 建立新世界</option>{data.worlds.map((world) => <option key={world.id} value={world.id}>{world.name.value || "未命名世界"}</option>)}</select></label>
+            <label>名稱<input value={worldName} onChange={(event) => setWorldName(event.target.value)} /></label>
+            <label>時代<input value={worldEra} disabled={storyStarted} onChange={(event) => setWorldEra(event.target.value)} /></label>
+            <label className="wide">背景摘要<textarea rows={4} value={worldSummary} onChange={(event) => setWorldSummary(event.target.value)} /></label>
+            <div><button type="submit" disabled={busy || (storyStarted && selectedWorldId === "__new__")}>{selectedWorldId === "__new__" ? "建立世界" : "儲存世界"}</button>{selectedWorld ? <button type="button" disabled={busy || storyStarted} onClick={() => void removeSelectedWorld()}>刪除世界</button> : null}</div>
+          </form>
+          <form onSubmit={saveStoryBible}>
+            <h3>Story Bible</h3>
+            <label>主題<input value={bibleTheme} onChange={(event) => setBibleTheme(event.target.value)} /></label>
+            <label>文風<input value={bibleStyle} onChange={(event) => setBibleStyle(event.target.value)} /></label>
+            <label className="wide">未解線索（每行一項）<textarea rows={4} value={bibleThreads} onChange={(event) => setBibleThreads(event.target.value)} /></label>
+            <label className="wide">禁止矛盾（每行一項）<textarea rows={4} value={bibleContradictions} onChange={(event) => setBibleContradictions(event.target.value)} /></label>
+            <button type="submit" disabled={busy || !storyBible}>儲存 Story Bible</button>
+          </form>
+        </div>
+        <div>
+          <form onSubmit={saveRule}>
+            <h3>世界規則</h3>
+            <label>規則<select value={selectedRuleId} onChange={(event) => { const id = event.target.value; setSelectedRuleId(id); applyRuleForm(data.worldRules.find((rule) => rule.id === id) ?? null); }}><option value="__new__">＋ 建立新規則</option>{data.worldRules.map((rule) => <option key={rule.id} value={rule.id}>{rule.title}</option>)}</select></label>
+            <label>名稱<input value={ruleTitle} onChange={(event) => setRuleTitle(event.target.value)} /></label>
+            <label className="wide">內容<textarea rows={4} value={ruleDescription} onChange={(event) => setRuleDescription(event.target.value)} /></label>
+            <label><input type="checkbox" checked={ruleImmutable} onChange={(event) => setRuleImmutable(event.target.checked)} /> 不可違反</label>
+            <div><button type="submit" disabled={busy}>儲存規則</button>{selectedRuleId !== "__new__" ? <button type="button" disabled={busy || (storyStarted && ruleImmutable)} onClick={() => void removeSelectedRule()}>刪除規則</button> : null}</div>
+          </form>
+          <form onSubmit={saveLore}>
+            <h3>故事記憶／Lore</h3>
+            <label>記憶<select value={selectedLoreId} onChange={(event) => { const id = event.target.value; setSelectedLoreId(id); applyLoreForm(data.lore.find((entry) => entry.id === id) ?? null); }}><option value="__new__">＋ 建立新記憶</option>{data.lore.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>
+            <label>類型<select value={loreKind} onChange={(event) => setLoreKind(event.target.value as LoreEntry["kind"])}><option value="location">地點</option><option value="faction">勢力</option><option value="item">物品</option><option value="secret">秘密</option><option value="custom">自訂</option></select></label>
+            <label>名稱<input value={loreTitle} onChange={(event) => setLoreTitle(event.target.value)} /></label>
+            <label className="wide">內容<textarea rows={4} value={loreContent} onChange={(event) => setLoreContent(event.target.value)} /></label>
+            <div><button type="submit" disabled={busy}>儲存記憶</button>{selectedLoreId !== "__new__" ? <button type="button" disabled={busy} onClick={() => void removeSelectedLore()}>刪除記憶</button> : null}</div>
+          </form>
+          <form onSubmit={saveTimeline}>
+            <h3>時間線事件</h3>
+            <label>事件<select value={selectedTimelineId} onChange={(event) => { const id = event.target.value; setSelectedTimelineId(id); applyTimelineForm(data.timeline.find((item) => item.id === id) ?? null); }}><option value="__new__">＋ 建立新事件</option>{data.timeline.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+            <label>名稱<input value={timelineTitle} onChange={(event) => setTimelineTitle(event.target.value)} /></label>
+            <label>故事時間<input value={timelineStoryTime} onChange={(event) => setTimelineStoryTime(event.target.value)} /></label>
+            <label className="wide">摘要<textarea rows={4} value={timelineSummary} onChange={(event) => setTimelineSummary(event.target.value)} /></label>
+            <div><button type="submit" disabled={busy}>儲存事件</button>{selectedTimelineId !== "__new__" ? <button type="button" disabled={busy} onClick={() => void removeSelectedTimeline()}>刪除事件</button> : null}</div>
+          </form>
+        </div>
+      </details>
       {message ? <p className="characterRelationMessage" role="status">{message}</p> : null}
       {usesCultivationCanon ? <details className="cultivationCanonPanel" open={!compact}>
         <summary>查看宗門功法、靈根、境界與位階規則</summary>
@@ -334,11 +1076,14 @@ export default function CharacterRelationshipWorkbench({
         <div>{investmentCatalog.map((item) => <section key={item.id}><h3>{item.name}</h3><p><b>{item.category}</b><span>投入：{item.capital}</span></p><p><b>週期／流動性</b><span>{item.returnCycle}／{item.liquidity}</span></p><p><b>風險</b><span>{item.principalRisk}</span></p><p><b>關係人</b><span>{item.stakeholders}</span></p></section>)}</div>
       </details>
       <div className="characterRelationNetwork" aria-label="目前人物關係">
-        {data.relationships.map((relationship) => <article key={relationship.id}>
-          <b>{names.get(relationship.fromCharacterId) ?? "未命名人物"}</b><span>{relationship.kind}</span><b>{names.get(relationship.toCharacterId) ?? "未命名人物"}</b>
+        {data.relationships.map((relationship) => {
+          const fromCharacter = charactersById.get(relationship.fromCharacterId);
+          const toCharacter = charactersById.get(relationship.toCharacterId);
+          return <article key={relationship.id}>
+          <div className="characterRelationPerson">{fromCharacter ? <CharacterPortraitImage portrait={suggestedCharacterPortrait({ character: fromCharacter, project, worlds: activeWorlds })} decorative /> : null}<b>{names.get(relationship.fromCharacterId) ?? "未命名人物"}</b></div><span>{relationship.kind}</span><div className="characterRelationPerson" data-align="right">{toCharacter ? <CharacterPortraitImage portrait={suggestedCharacterPortrait({ character: toCharacter, project, worlds: activeWorlds })} decorative /> : null}<b>{names.get(relationship.toCharacterId) ?? "未命名人物"}</b></div>
           <p>{relationship.summary}</p><small>信任 {relationship.trust ?? "未設定"}</small>
           <button type="button" disabled={busy} onClick={() => void removeRelationship(relationship)}>移除</button>
-        </article>)}
+        </article>;})}
       </div>
     </section>
   );

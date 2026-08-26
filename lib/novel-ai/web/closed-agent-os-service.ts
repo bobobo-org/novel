@@ -170,6 +170,7 @@ export type ExecuteStudioClosedAgentInput = {
   canonId?: string;
   branchId?: string;
   characterId?: string;
+  characterIds?: string[];
   agentRole?: string;
   promptProfileVersion?: string;
   storyBibleRevision?: string | number;
@@ -406,6 +407,8 @@ export async function executeStudioClosedAgent(
       && !input.conversationSessionId
       && !selectedAttachmentSummaries.length
       && approvedLearningRules.length === 0
+      && !input.characterId
+      && !input.characterIds?.length
       ? await readPrewarmedStudioProjectContext({
         cache: os.cache,
         repository,
@@ -424,6 +427,7 @@ export async function executeStudioClosedAgent(
       canonId: input.canonId,
       branchId: input.branchId,
       characterId: input.characterId,
+      characterIds: input.characterIds,
       revision: input.storyBibleRevision,
       privacyLevel,
       tokenBudget: input.contextTokenBudget,

@@ -1,8 +1,26 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { ConversationMessage, ConversationSession } from "@/lib/novel-ai/domain";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
+
+export type ConversationEditCopyResult = {
+  sessionId: string;
+  userMessageId: string;
+  content: string;
+  navigation: {
+    loaded: boolean;
+    branchSelected: boolean;
+    selectedSessionId: string;
+  };
+};
+
+type PendingEditRequest = {
+  message: ConversationMessage;
+  sessionTitle: string;
+  confirming: boolean;
+  resolve: (result: ConversationEditCopyResult | null) => void;
+};
 
 function editCopyErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
@@ -49,7 +67,15 @@ export function useConversationBranchController({
     messageId: string;
     intentToken: number;
   } | null>(null);
+  const pendingEditRequestRef = useRef<PendingEditRequest | null>(null);
+  const editDraftRef = useRef("");
   const [pendingMessageIds, setPendingMessageIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [editDialog, setEditDialog] = useState<{
+    messageId: string;
+    sourceContent: string;
+    value: string;
+    confirming: boolean;
+  } | null>(null);
 
   const acquire = useCallback((messageId: string, sourceSessionId: string) => {
     if (busy || operationLockRef.current || pendingOperationRef.current) {
@@ -77,21 +103,72 @@ export function useConversationBranchController({
     setPendingMessageIds((current) => current.has(messageId) ? new Set() : current);
   }, [operationLockRef, setBusy]);
 
-  const editMessage = useCallback(async (message: ConversationMessage) => {
+  const editMessage = useCallback((message: ConversationMessage) => {
+    if (busy || operationLockRef.current || pendingOperationRef.current || pendingEditRequestRef.current) {
+      onProgress(pendingEditRequestRef.current
+        ? "修改視窗已開啟；沒有啟動第二個操作。"
+        : "目前另有操作正在執行；請完成後再修改訊息。");
+      return Promise.resolve(null);
+    }
+    editDraftRef.current = message.content;
+    setEditDialog({
+      messageId: message.id,
+      sourceContent: message.content,
+      value: message.content,
+      confirming: false,
+    });
+    onError(null);
+    onProgress("請在視窗中修改內容；確認前不會建立副本。");
+    return new Promise<ConversationEditCopyResult | null>((resolve) => {
+      pendingEditRequestRef.current = {
+        message,
+        sessionTitle: activeSession?.title ?? "對話",
+        confirming: false,
+        resolve,
+      };
+    });
+  }, [activeSession?.title, busy, onError, onProgress, operationLockRef]);
+
+  const updateEditDraft = useCallback((value: string) => {
+    editDraftRef.current = value;
+    setEditDialog((current) => current ? { ...current, value } : current);
+  }, []);
+
+  const cancelEditMessage = useCallback(() => {
+    const pending = pendingEditRequestRef.current;
+    if (!pending || pending.confirming) return;
+    pendingEditRequestRef.current = null;
+    editDraftRef.current = "";
+    setEditDialog(null);
+    onError(null);
+    onProgress("已取消修改；沒有建立副本。");
+    pending.resolve(null);
+  }, [onError, onProgress]);
+
+  const confirmEditMessage = useCallback(async () => {
+    const pending = pendingEditRequestRef.current;
+    if (!pending || pending.confirming) return;
+    const edited = editDraftRef.current.trim();
+    if (!edited) {
+      onError({
+        code: "CONVERSATION_EDIT_COPY_EMPTY",
+        message: "修改內容不能是空白；尚未建立副本。",
+      });
+      return;
+    }
+    const { message } = pending;
     const intentToken = acquire(message.id, message.sessionId);
-    if (intentToken === null) return false;
+    if (intentToken === null) return;
+    pending.confirming = true;
+    setEditDialog((current) => current ? { ...current, confirming: true } : current);
+    let result: ConversationEditCopyResult | null = null;
     try {
-      const edited = window.prompt(
-        "修改訊息會保留原文，並從這裡建立可繼續的副本。",
-        message.content,
-      );
-      if (!edited?.trim() || edited.trim() === message.content.trim()) return false;
       const branched = await conversation.editMessageWithBranch({
         projectId,
         sessionId: message.sessionId,
         messageId: message.id,
-        content: edited.trim(),
-        title: `${activeSession?.title ?? "對話"} · 修改副本`,
+        content: edited,
+        title: `${pending.sessionTitle} · 修改副本`,
       });
       const navigation = await completeBranchNavigation(
         branched.session.id,
@@ -103,15 +180,32 @@ export function useConversationBranchController({
           ? "修改副本已建立，原訊息仍保留在原對話。"
           : "修改副本已建立；已保留你後來選擇的對話。");
       }
-      return navigation.loaded;
+      if (navigation.loaded) {
+        result = {
+          sessionId: branched.session.id,
+          userMessageId: branched.message.id,
+          content: edited,
+          navigation,
+        };
+      }
     } catch (error) {
       await completeBranchNavigation(null, intentToken, message.sessionId).catch(() => undefined);
       onError({ code: editCopyErrorCode(error), message: editCopyErrorMessage(error) });
-      return false;
     } finally {
       release(message.id);
+      if (pendingEditRequestRef.current === pending) {
+        pendingEditRequestRef.current = null;
+        editDraftRef.current = "";
+        setEditDialog(null);
+      }
+      pending.resolve(result);
     }
-  }, [acquire, activeSession?.title, completeBranchNavigation, conversation, onError, onProgress, projectId, release]);
+  }, [acquire, completeBranchNavigation, conversation, onError, onProgress, projectId, release]);
+
+  useEffect(() => () => {
+    pendingEditRequestRef.current?.resolve(null);
+    pendingEditRequestRef.current = null;
+  }, []);
 
   const isBranchPending = useCallback(() => pendingOperationRef.current !== null, []);
 
@@ -119,6 +213,10 @@ export function useConversationBranchController({
     pendingMessageIds,
     isBranchPending,
     editMessage,
+    editDialog,
+    updateEditDraft,
+    cancelEditMessage,
+    confirmEditMessage,
   };
 }
 

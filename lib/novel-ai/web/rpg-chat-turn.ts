@@ -10,8 +10,18 @@ import type {
   StoryBible,
   StoryState,
   TimelineEvent,
+  World,
   WorldRule,
 } from "../domain";
+import {
+  activeStoryCharacters,
+  activeStoryLore,
+  activeStoryRelationships,
+  activeStoryTimeline,
+  activeStoryWorldRules,
+  activeStoryWorlds,
+} from "../domain/active-story-context";
+import { isCharacterEraCompatible } from "../character-portraits/assignment";
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import {
   isGameStoryPlayMode,
@@ -769,12 +779,13 @@ export async function loadRpgChatSnapshot(
       code: "RPG_CHAT_PROJECT_NOT_FOUND",
     });
   }
-  const [chapters, states, bibles, characters, relationships, worldRules, lore, timeline, acceptedChoices, rpgTurnReceipts] = await Promise.all([
+  const [chapters, states, bibles, allCharacters, allRelationships, allWorlds, allWorldRules, allLore, allTimeline, acceptedChoices, rpgTurnReceipts] = await Promise.all([
     repository.list<Chapter>("chapters", projectId),
     repository.list<StoryState>("storyStates", projectId),
     repository.list<StoryBible>("storyBibles", projectId),
     repository.list<Character>("characters", projectId),
     repository.list<CharacterRelationship>("relationships", projectId),
+    repository.list<World>("worlds", projectId),
     repository.list<WorldRule>("worldRules", projectId),
     repository.list<LoreEntry>("lore", projectId),
     repository.list<TimelineEvent>("timeline", projectId),
@@ -791,6 +802,15 @@ export async function loadRpgChatSnapshot(
       code: "RPG_CHAT_CANON_CONTEXT_INCOMPLETE",
     });
   }
+  const worlds = activeStoryWorlds(allWorlds, storyState, storyBible);
+  const characters = storyState.activeWorldId !== undefined && worlds.length === 0
+    ? []
+    : activeStoryCharacters(allCharacters, storyState, storyBible)
+    .filter((character) => isCharacterEraCompatible({ character, project, worlds }));
+  const relationships = activeStoryRelationships(allRelationships, characters);
+  const worldRules = activeStoryWorldRules(allWorldRules, storyState, storyBible);
+  const lore = activeStoryLore(allLore, storyState, storyBible);
+  const timeline = activeStoryTimeline(allTimeline, storyState, storyBible);
   const playMode = resolveStoryPlayMode(storyState);
   const mode = progressionMode(playMode);
   const protagonist = characters.find((character) =>

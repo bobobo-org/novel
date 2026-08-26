@@ -1,0 +1,370 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import {
+  activeStoryCharacters,
+  activeStoryLore,
+  activeStoryRelationships,
+  activeStoryTimeline,
+  activeStoryWorldRules,
+  activeStoryWorlds,
+} from "../lib/novel-ai/domain/active-story-context.ts";
+import {
+  assertStoryStartedCanonMutationAllowed,
+  explicitCrossEraCanonAuthorization,
+} from "../lib/novel-ai/domain/story-started-canon-guard.ts";
+import {
+  isCharacterEraCompatible,
+  suggestedCharacterPortrait,
+} from "../lib/novel-ai/character-portraits/assignment.ts";
+import { CHARACTER_PORTRAIT_CAPACITY } from "../lib/novel-ai/character-portraits/catalog.ts";
+import { composeProjectContext } from "../lib/novel-ai/web/project-context-composer.ts";
+
+const optional = (value) => ({ value, source: value ? "user_defined" : "unset" });
+const record = (id) => ({
+  id,
+  projectId: "project:test",
+  schemaVersion: "novel-domain-v1",
+  revision: 1,
+  parentRevision: null,
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString(),
+  deletedAt: null,
+  provenance: { source: "user" },
+});
+const character = (id, name, identity) => ({
+  ...record(id),
+  name,
+  aliases: [],
+  identity: optional(identity),
+  personality: optional("冷靜、守諾"),
+  goal: optional("保護同伴"),
+  lifeStatus: "alive",
+  locationId: null,
+  capabilities: [identity],
+});
+const modernProject = {
+  ...record("project:test"),
+  title: "都會案件",
+  genrePackId: "modern",
+  genreId: "mystery",
+  subgenreId: null,
+  coreIdea: optional("現代都市中的企業調查"),
+  narrativeStyle: optional("寫實懸疑"),
+};
+const modernWorld = { ...record("world:modern"), name: optional("台北"), era: optional("現代"), summary: optional("都會企業") };
+const cast = [
+  character("character:lead", "林澄", "刑警"),
+  character("character:ally", "周芷", "調查記者"),
+  character("character:future", "曜七", "星艦領航員"),
+];
+const bible = {
+  ...record("bible:test"),
+  protagonistIds: ["character:lead"],
+  characterIds: cast.map((item) => item.id),
+  worldId: modernWorld.id,
+  worldRuleIds: ["rule:one"],
+  loreIds: ["lore:one"],
+  timelineEventIds: ["event:one"],
+};
+
+assert.equal(CHARACTER_PORTRAIT_CAPACITY, 10_000);
+const firstPortrait = suggestedCharacterPortrait({ character: cast[0], project: modernProject, worlds: [modernWorld] });
+assert.equal(firstPortrait.themeId, "modern-mystery");
+assert.deepEqual(
+  suggestedCharacterPortrait({ character: cast[0], project: modernProject, worlds: [modernWorld] }),
+  firstPortrait,
+  "portrait assignment must be deterministic",
+);
+assert.notEqual(
+  suggestedCharacterPortrait({ character: { ...cast[0], age: 48 }, project: modernProject, worlds: [modernWorld] }).id,
+  firstPortrait.id,
+  "age is part of the deterministic portrait assignment signal",
+);
+assert.equal(isCharacterEraCompatible({ character: cast[2], project: modernProject, worlds: [modernWorld] }), false);
+assert.equal(isCharacterEraCompatible({ character: cast[0], project: modernProject, worlds: [modernWorld] }), true);
+
+assert.deepEqual(
+  activeStoryCharacters(cast, { activeCharacterIds: ["character:ally"] }, bible).map((item) => item.id),
+  ["character:lead", "character:ally"],
+  "explicit staging keeps the protagonist and selected supporting cast",
+);
+assert.deepEqual(
+  activeStoryCharacters(cast, {}, bible).map((item) => item.id),
+  cast.map((item) => item.id),
+  "legacy stories retain their Story Bible cast",
+);
+assert.deepEqual(
+  activeStoryCharacters(cast, { activeCharacterIds: [] }, { ...bible, protagonistIds: [] }),
+  [],
+  "an explicit empty cast must remain empty instead of silently selecting the first record",
+);
+assert.deepEqual(
+  activeStoryCharacters(cast, { activeCharacterIds: ["character:stale"] }, { ...bible, protagonistIds: [] }),
+  [],
+  "stale staged IDs must not silently select an unrelated character",
+);
+assert.deepEqual(
+  activeStoryRelationships([
+    { fromCharacterId: "character:lead", toCharacterId: "character:ally" },
+    { fromCharacterId: "character:lead", toCharacterId: "character:future" },
+  ], cast.slice(0, 2)).map((item) => item.toCharacterId),
+  ["character:ally"],
+);
+
+const alternateWorld = { ...record("world:alternate"), name: optional("遠星"), era: optional("未來"), summary: optional("星際") };
+assert.deepEqual(activeStoryWorlds([modernWorld, alternateWorld], { activeWorldId: alternateWorld.id }, bible).map((item) => item.id), [alternateWorld.id]);
+assert.deepEqual(activeStoryWorldRules([
+  { id: "rule:one", immutable: true },
+  { id: "rule:two", immutable: false },
+  { id: "rule:three", immutable: false },
+], { activeWorldRuleIds: ["rule:two"] }, bible).map((item) => item.id), ["rule:one", "rule:two"], "immutable Canon rules always remain active");
+assert.deepEqual(activeStoryLore([{ id: "lore:one" }, { id: "lore:two" }], { activeLoreIds: [] }, bible), []);
+assert.deepEqual(activeStoryTimeline([{ id: "event:one" }, { id: "event:two" }], { activeTimelineEventIds: ["event:two"] }, bible).map((item) => item.id), ["event:two"]);
+
+const storyState = {
+  ...record("state:test"),
+  activeCharacterIds: ["character:lead", "character:ally"],
+  activeWorldId: modernWorld.id,
+  activeWorldRuleIds: [],
+  activeLoreIds: [],
+  activeTimelineEventIds: [],
+};
+const canonicalBible = {
+  ...bible,
+  theme: optional("信任"),
+  style: optional("懸疑"),
+  relationshipIds: ["formal-relationship:lead-ally", "formal-relationship:lead-future"],
+  foreshadowing: [],
+  unresolvedThreads: [],
+  forbiddenContradictions: [],
+  authorPreferences: [],
+};
+
+const requestedCrossEraWorld = {
+  ...record("world:requested-cross-era"),
+  name: optional("自稱時空城"),
+  era: optional("cross-era"),
+  summary: optional("候選世界自稱跨時代"),
+};
+assert.equal(
+  explicitCrossEraCanonAuthorization({
+    project: modernProject,
+    storyBible: canonicalBible,
+    worldRules: [],
+    baselineWorld: modernWorld,
+  }).authorized,
+  false,
+  "a requested cross-era world is not itself Canon authorization",
+);
+assert.equal(isCharacterEraCompatible({ character: cast[2], project: modernProject, worlds: [requestedCrossEraWorld] }), true);
+assert.equal(
+  explicitCrossEraCanonAuthorization({
+    project: modernProject,
+    storyBible: { ...canonicalBible, theme: optional("古今穿越後的信任") },
+    worldRules: [],
+    baselineWorld: modernWorld,
+  }).authorized,
+  true,
+  "an existing Story Bible can explicitly authorize cross-era selection",
+);
+assert.deepEqual(
+  explicitCrossEraCanonAuthorization({
+    project: modernProject,
+    storyBible: { ...canonicalBible, worldRuleIds: ["rule:cross-era"] },
+    worldRules: [{ ...record("rule:cross-era"), title: "時空裂縫", description: "角色可穿越時代", immutable: true }],
+    baselineWorld: modernWorld,
+  }).sources,
+  ["world-rule"],
+);
+assert.equal(
+  explicitCrossEraCanonAuthorization({
+    project: modernProject,
+    storyBible: { ...canonicalBible, worldRuleIds: ["rule:no-cross-era"] },
+    worldRules: [{ ...record("rule:no-cross-era"), title: "禁止穿越", description: "本作不得跨越時代", immutable: true }],
+    baselineWorld: modernWorld,
+  }).authorized,
+  false,
+  "a prohibition mentioning time travel is not authorization",
+);
+assert.deepEqual(
+  explicitCrossEraCanonAuthorization({
+    project: { ...modernProject, coreIdea: optional("現代刑警穿越古代") },
+    storyBible: canonicalBible,
+    worldRules: [],
+    baselineWorld: modernWorld,
+  }).sources,
+  ["project"],
+);
+assert.throws(() => assertStoryStartedCanonMutationAllowed({
+  storyStarted: true,
+  mutation: "create-world",
+}), /STORY_STARTED_NEW_WORLD_LOCKED/u);
+assert.throws(() => assertStoryStartedCanonMutationAllowed({
+  storyStarted: true,
+  mutation: "approve-social-character",
+}), /STORY_STARTED_SOCIAL_CHARACTER_APPROVAL_LOCKED/u);
+assert.throws(() => assertStoryStartedCanonMutationAllowed({
+  storyStarted: true,
+  mutation: "update-world",
+  existingRecord: true,
+  existingWorldEra: "現代",
+  requestedWorldEra: "未來",
+}), /STORY_STARTED_WORLD_ERA_LOCKED/u);
+assert.doesNotThrow(() => assertStoryStartedCanonMutationAllowed({
+  storyStarted: true,
+  mutation: "update-world",
+  existingRecord: true,
+  existingWorldEra: "現代",
+  requestedWorldEra: "現代",
+}));
+
+const composerStores = {
+  projects: [{
+    ...modernProject,
+    storyBibleId: canonicalBible.id,
+    storyStateId: storyState.id,
+    activeChapterId: null,
+    creationMode: "novel",
+    narrativeStyle: optional("繁體中文小說"),
+    adultMode: false,
+  }],
+  storyBibles: [canonicalBible],
+  storyStates: [storyState],
+  worlds: [modernWorld, alternateWorld],
+  characters: cast,
+  relationships: [{
+    ...record("formal-relationship:lead-ally"),
+    fromCharacterId: "character:lead",
+    toCharacterId: "character:ally",
+    kind: "盟友",
+    summary: "STAGED_FORMAL_RELATIONSHIP",
+    trust: 78,
+  }, {
+    ...record("formal-relationship:lead-future"),
+    fromCharacterId: "character:lead",
+    toCharacterId: "character:future",
+    kind: "跨時代聯絡",
+    summary: "OFFSTAGE_FORMAL_RELATIONSHIP_SECRET",
+    trust: 12,
+  }],
+  characterAgentProfiles: [
+    { ...record("profile:lead"), characterId: "character:lead", name: "林澄", identity: "ACTIVE_PROFILE" },
+    { ...record("profile:ally"), characterId: "character:ally", name: "周芷", identity: "ALLY_PARTICIPANT_PROFILE" },
+    { ...record("profile:future"), characterId: "character:future", name: "曜七", identity: "OFFSTAGE_PROFILE_SECRET" },
+  ],
+  characterKnowledge: [{
+    ...record("knowledge:future"),
+    knowledgeId: "knowledge:future",
+    subjectEntityIds: ["character:future"],
+    authorizedCharacterIds: ["character:future"],
+    claim: "OFFSTAGE_KNOWLEDGE_SECRET",
+    status: "CURRENT",
+    scope: "PUBLIC",
+  }],
+  characterRelationships: [{
+    ...record("agent-relationship:lead-ally"),
+    relationshipId: "agent-relationship:lead-ally",
+    fromCharacterId: "character:lead",
+    toCharacterId: "character:ally",
+    relationshipTypes: ["私人信任投影"],
+    publicStatus: "STAGED_PRIVATE_RELATIONSHIP_PROJECTION",
+  }, {
+    ...record("agent-relationship:future"),
+    relationshipId: "agent-relationship:future",
+    fromCharacterId: "character:lead",
+    toCharacterId: "character:future",
+    relationshipTypes: ["跨時代"],
+    publicStatus: "OFFSTAGE_RELATIONSHIP_SECRET",
+  }],
+  characterPrivateArcs: [{
+    ...record("arc:future"),
+    characterId: "character:future",
+    title: "OFFSTAGE_PRIVATE_ARC_SECRET",
+  }],
+};
+const fakeRepository = {
+  kind: "indexeddb",
+  async get(store, id) {
+    return (composerStores[store] ?? []).find((item) => item.id === id) ?? null;
+  },
+  async list(store, projectId) {
+    return (composerStores[store] ?? []).filter((item) => item.projectId === projectId);
+  },
+};
+const composed = await composeProjectContext({
+  repository: fakeRepository,
+  taskType: "novel.continuation",
+  projectId: modernProject.id,
+  privacyLevel: "local-private",
+  tokenBudget: 16_000,
+  audience: "author",
+});
+const composedText = composed.context.map((item) => item.text).join("\n");
+assert.match(composedText, /林澄|ACTIVE_PROFILE/u);
+assert.match(composedText, /STAGED_CANONICAL_RELATIONSHIPS/u);
+assert.match(composedText, /STAGED_FORMAL_RELATIONSHIP/u);
+assert.match(composedText, /formal-canon/u);
+assert.match(composedText, /CHARACTER_AGENT_PRIVATE_RELATIONSHIP_PROJECTIONS/u);
+assert.match(composedText, /private-character-ai-projection/u);
+assert.match(composedText, /formal-relationship:lead-ally/u);
+assert.doesNotMatch(composedText, /formal-relationship:lead-future/u);
+assert.doesNotMatch(composedText, /曜七|OFFSTAGE_PROFILE_SECRET|OFFSTAGE_KNOWLEDGE_SECRET|OFFSTAGE_RELATIONSHIP_SECRET|OFFSTAGE_FORMAL_RELATIONSHIP_SECRET|OFFSTAGE_PRIVATE_ARC_SECRET/u);
+assert.equal(composed.contextSourceSummary.counts.formalRelationships, 1);
+
+const multiParticipantComposition = await composeProjectContext({
+  repository: fakeRepository,
+  taskType: "character.multiAgentSimulation",
+  projectId: modernProject.id,
+  characterId: "character:lead",
+  characterIds: ["character:lead", "character:ally"],
+  privacyLevel: "local-private",
+  tokenBudget: 16_000,
+  audience: "actor",
+});
+const multiParticipantText = multiParticipantComposition.context.map((item) => item.text).join("\n");
+assert.match(multiParticipantText, /林澄|ACTIVE_PROFILE/u);
+assert.match(multiParticipantText, /周芷|ALLY_PARTICIPANT_PROFILE/u);
+assert.match(multiParticipantText, /STAGED_FORMAL_RELATIONSHIP/u);
+assert.doesNotMatch(multiParticipantText, /曜七|OFFSTAGE_PROFILE_SECRET|OFFSTAGE_FORMAL_RELATIONSHIP_SECRET/u);
+assert.equal(multiParticipantComposition.contextSourceSummary.counts.characters, 2);
+
+const [projectSectionSource, homeSource, socialLibrarySource] = await Promise.all([
+  readFile(new URL("../app/studio/project/[projectId]/project-section-client.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/character-relationship-workbench.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/social-world-library.tsx", import.meta.url), "utf8"),
+]);
+assert.match(projectSectionSource, /mutation: existing \? "update-world" : "create-world"/u);
+assert.match(projectSectionSource, /disabled=\{storyStarted && !worldEditingId\}/u);
+assert.match(homeSource, /explicitCrossEraCanonAuthorization/u);
+assert.doesNotMatch(homeSource, /baselineEra === "cross-era" \|\| requestedEra === "cross-era"/u);
+const homeWorldSaveHandler = homeSource.slice(
+  homeSource.indexOf("async function saveWorld"),
+  homeSource.indexOf("async function removeSelectedWorld"),
+);
+assert.ok(homeWorldSaveHandler.indexOf("assertStoryStartedCanonMutationAllowed") < homeWorldSaveHandler.indexOf("repository.put<World>"));
+assert.match(socialLibrarySource, /mutation: "approve-social-character"/u);
+assert.match(socialLibrarySource, /mutation: "approve-world"/u);
+assert.match(socialLibrarySource, /story-started-social-library-lock/u);
+const worldSaveHandler = projectSectionSource.slice(
+  projectSectionSource.indexOf("async function saveWorld"),
+  projectSectionSource.indexOf("async function removeWorld"),
+);
+assert.ok(worldSaveHandler.indexOf("assertStoryStartedCanonMutationAllowed") < worldSaveHandler.indexOf("createNovelRepository"));
+const socialCharacterApprovalHandler = socialLibrarySource.slice(
+  socialLibrarySource.indexOf("async function approveCharacter"),
+  socialLibrarySource.indexOf("async function approveTreasure"),
+);
+assert.ok(socialCharacterApprovalHandler.indexOf("assertStoryStartedCanonMutationAllowed") < socialCharacterApprovalHandler.indexOf("createNovelRepository"));
+const socialWorldApprovalHandler = socialLibrarySource.slice(
+  socialLibrarySource.indexOf("async function approveWorld"),
+  socialLibrarySource.indexOf("function pageControls"),
+);
+assert.ok(socialWorldApprovalHandler.indexOf("assertStoryStartedCanonMutationAllowed") < socialWorldApprovalHandler.indexOf("createNovelRepository"));
+
+console.log(JSON.stringify({
+  status: "PASS",
+  portraitCapacity: CHARACTER_PORTRAIT_CAPACITY,
+  deterministicPortraitId: firstPortrait.id,
+  activeCast: ["character:lead", "character:ally"],
+  eraGate: "modern-blocks-future",
+}, null, 2));

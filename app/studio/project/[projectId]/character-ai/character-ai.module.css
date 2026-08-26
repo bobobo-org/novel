@@ -88,6 +88,13 @@
 .root :global(.simulationTurns) span,.root :global(.simulationTurns) small{color:#9fb0c7}
 .root :global(.simulationTurns) blockquote{margin:10px 0;padding:10px 14px;border-left:2px solid #d0a752;color:#f0ddb1}
 .root :global(.simulationActions){display:flex;gap:8px;flex-wrap:wrap}
+.closedRehearsal{display:grid;gap:13px;margin-top:18px;padding:18px;border:1px solid #6a8a78;border-left:4px solid #63d2aa;background:linear-gradient(145deg,#0b2430,#121b31)}
+.closedRehearsal>header,.closedRehearsal>footer{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.closedRehearsal h3{margin:3px 0;color:#f3d99c}
+.closedRehearsal small,.closedRehearsal>header>span{color:#8ddbc2}
+.closedRehearsal>div{white-space:pre-wrap;color:#e7edf6;font:1rem/1.9 Georgia,"Noto Serif TC","Microsoft JhengHei",serif}
+.closedRehearsal>footer{justify-content:flex-end}
+.closedRehearsal a{display:inline-flex;min-height:42px;align-items:center;padding:9px 13px;border:1px solid #63d2aa;background:#17483c;color:#effff8;text-decoration:none}
 .root :global(.proposalSection){display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
 .root :global(.proposalSection)>article{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;min-width:0;padding:16px;border:1px solid #3b5778;background:#0d1c30}
 .root :global(.proposalSection)>article>*{min-width:0}

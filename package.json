@@ -33,6 +33,8 @@
     "test:studio:adult-experience": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-adult-experience-director.mjs",
     "test:studio:social-matrix": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-social-matrix-tests.mjs",
     "test:studio:social-world-approval": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-social-world-approval.mjs",
+    "test:studio:organization-hierarchy": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-social-organization-hierarchy.mjs",
+    "test:studio:character-staging": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-character-staging-and-portrait.mjs",
     "test:studio:procedural-treasure-library": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-procedural-treasure-library.mjs",
     "test:studio:procedural-world-library": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-procedural-world-library.mjs",
     "test:studio:topic-world-contract": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-topic-world-contract.mjs",

@@ -286,6 +286,7 @@ export default function ProfessionalClient({
           <CharacterRelationshipWorkbench
             project={project}
             compact
+            storyStarted={summary.chapters.some((chapter) => chapter.content.trim().length > 0)}
             onChanged={() => loadSummary(project.id)}
           />
 
@@ -299,8 +300,10 @@ export default function ProfessionalClient({
             </article>
             <article id="world-and-characters">
               <small>CANON & WORLD</small><h2>角色、世界與記憶</h2>
-              <p>管理正式人物、關係、世界規則、Story Bible 與時間線；所有頁面都留在同一作品。</p>
-              <Link href={`${projectRoot}/characters`}>角色與關係</Link>
+              <p>正式人物、能力、世界與 Story Bible 直接在上方首頁編修；故事進行中則選擇目前上場的人物、規則與記憶。</p>
+              <Link href="#character-world-memory-home">在首頁編修與選擇上場內容</Link>
+              <Link href={`${projectRoot}/characters`}>完整角色資料庫</Link>
+              <Link href={`${projectRoot}/character-ai`}>角色視角模擬（非正式 Canon）</Link>
               <Link href={`${projectRoot}/world`}>世界規則</Link>
               <Link href={`${projectRoot}/story-bible`}>故事記憶（伏筆、禁忌與人物關係）</Link>
               <Link href={`${projectRoot}/timeline`}>時間線（事件先後與章節位置）</Link>
@@ -329,9 +332,8 @@ export default function ProfessionalClient({
               <Link href={localAIHref}>本機 AI 安裝與連線</Link>
             </article>
             <article id="extended-creation">
-              <small>EXTENDED CREATION</small><h2>角色 AI 與短劇改編</h2>
-              <p>角色模擬與短劇改編保持候選／核准邊界，不會直接覆寫原作。</p>
-              <Link href={`${projectRoot}/character-ai`}>角色 AI</Link>
+              <small>EXTENDED CREATION</small><h2>小說轉短劇</h2>
+              <p>短劇改編保持候選／核准邊界，不會直接覆寫原作；角色視角模擬已合併回「角色、世界與記憶」。</p>
               <Link href={`${projectRoot}/drama`}>小說轉短劇</Link>
             </article>
             <article id="video-production">

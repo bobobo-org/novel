@@ -22,6 +22,7 @@ import {
   type WorldRule,
   type WritingTask,
 } from "@/lib/novel-ai/domain";
+import { assertStoryStartedCanonMutationAllowed } from "@/lib/novel-ai/domain/story-started-canon-guard";
 import type { SocialWorldApprovalJournal } from "@/lib/novel-ai/social-world-approval";
 import {
   createNovelRepository,
@@ -65,7 +66,6 @@ import CharacterPortraitImage from "./character-portrait";
 import ProjectNavigation from "./project-navigation";
 import { ProjectContextPurpose, ProjectContextSummary, ProjectContextTabs } from "./project-context-tabs";
 import SocialWorldLibrary from "./social-world-library";
-import CharacterRelationshipWorkbench from "./character-relationship-workbench";
 import PersistenceRecoveryNotice from "../../persistence-recovery-notice";
 
 type Section =
@@ -546,6 +546,7 @@ function SectionBody({
   onChanged: () => Promise<void>;
 }) {
   const project = data.project!;
+  const storyStarted = data.chapters.some((chapter) => chapter.content.trim().length > 0);
   if (section === "characters") {
     return (
       <>
@@ -558,10 +559,17 @@ function SectionBody({
           approvalJournals={data.approvalJournals}
           storyBibles={data.bibles}
           approvedWorlds={data.worlds}
+          storyStarted={storyStarted}
           onChanged={onChanged}
         />
-        <CharacterRelationshipWorkbench project={project} onChanged={onChanged} />
-        <CharacterEditor project={project} worlds={data.worlds} characters={data.characters} storyBibles={data.bibles} onChanged={onChanged} />
+        <CharacterEditor
+          project={project}
+          worlds={data.worlds}
+          characters={data.characters}
+          storyBibles={data.bibles}
+          storyStarted={storyStarted}
+          onChanged={onChanged}
+        />
       </>
     );
   }
@@ -578,12 +586,14 @@ function SectionBody({
           storyBibles={data.bibles}
           approvedWorlds={data.worlds}
           initialView="worlds"
+          storyStarted={storyStarted}
           onChanged={onChanged}
         />
         <WorldEditor
           projectId={project.id}
           worlds={data.worlds}
           rules={data.rules}
+          storyStarted={storyStarted}
           onChanged={onChanged}
         />
       </>
@@ -694,12 +704,14 @@ function CharacterEditor({
   worlds,
   characters,
   storyBibles,
+  storyStarted,
   onChanged,
 }: {
   project: NovelProject;
   worlds: World[];
   characters: Character[];
   storyBibles: StoryBible[];
+  storyStarted: boolean;
   onChanged: () => Promise<void>;
 }) {
   const projectId = project.id;
@@ -739,6 +751,8 @@ function CharacterEditor({
   const characterAIFormBeforeRef = useRef<CharacterAIFormSnapshot | null>(null);
   const characterAIRuleVariantRef = useRef(0);
   const characterFormRef = useRef<HTMLFormElement | null>(null);
+  const editingRpgLocked = storyStarted && Boolean(editingId);
+  const creationLocked = storyStarted && !editingId;
   const portraitPageSize = 12;
   const filteredPortraits = useMemo(
     () => filterCharacterPortraitCatalog({ query: portraitQuery, themeId: portraitTheme }),
@@ -796,12 +810,14 @@ function CharacterEditor({
     setSecret(values.secret);
     setFaction(values.faction);
     setValues(values.values);
-    setCapabilities(values.capabilities);
+    if (!editingRpgLocked) setCapabilities(values.capabilities);
     setLimitations(values.limitations);
     setVoiceStyle(values.voiceStyle);
     setIsProtagonist(values.isProtagonist);
-    setRpgArchetype(values.rpgArchetype);
-    setRpgStats({ ...values.rpgStats });
+    if (!editingRpgLocked) {
+      setRpgArchetype(values.rpgArchetype);
+      setRpgStats({ ...values.rpgStats });
+    }
   }
 
   function characterAIDraftAsForm(draft: CharacterAIDraft): CharacterAIFormSnapshot {
@@ -852,6 +868,10 @@ function CharacterEditor({
 
   async function generateCharacterAICandidate() {
     if (characterAIBusy) return;
+    if (creationLocked) {
+      setMessage("故事已有正式正文；不能在角色資料庫臨時生成帶新能力值的人物。請到首頁從既有正式人物庫選擇配角上場。");
+      return;
+    }
     setCharacterAIBusy(true);
     setCharacterAIProgress(null);
     setMessage("閉端 AI 正在讀取作品、人物與世界設定，建立角色與 RPG 能力候選…");
@@ -1142,6 +1162,10 @@ function CharacterEditor({
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    if (creationLocked) {
+      setMessage("故事已有正式正文；不能建立帶新能力值的正式人物。請回首頁從既有人物庫選擇上場角色。");
+      return;
+    }
     if (!name.trim()) {
       setMessage("角色姓名不能留白。");
       return;
@@ -1170,10 +1194,12 @@ function CharacterEditor({
       const repo = createNovelRepository();
       const existing = characters.find((item) => item.id === editingId);
       const base = existing ?? makeRecord(projectId);
-      const rpgProfile = createCharacterRpgProfile({
-        archetype: rpgArchetype,
-        stats: rpgStats,
-      });
+      const rpgProfile = editingRpgLocked && existing?.rpgProfile
+        ? existing.rpgProfile
+        : createCharacterRpgProfile({
+          archetype: rpgArchetype,
+          stats: rpgStats,
+        });
       const savedCharacter = await repo.put<Character>("characters", {
         ...base,
         name: name.trim(),
@@ -1189,7 +1215,9 @@ function CharacterEditor({
         privateSecrets: secret.split(/[、,\n]/).map((item) => item.trim()).filter(Boolean),
         factionIds: faction.split(/[、,\n]/).map((item) => item.trim()).filter(Boolean),
         values: values.split(/[、,\n]/u).map((item) => item.trim()).filter(Boolean),
-        capabilities: capabilities.split(/[、,\n]/u).map((item) => item.trim()).filter(Boolean),
+        capabilities: editingRpgLocked
+          ? existing?.capabilities ?? []
+          : capabilities.split(/[、,\n]/u).map((item) => item.trim()).filter(Boolean),
         limitations: limitations.split(/[、,\n]/u).map((item) => item.trim()).filter(Boolean),
         portrait: portrait ? {
           ...portrait,
@@ -1227,6 +1255,10 @@ function CharacterEditor({
   }
 
   async function remove(item: Character) {
+    if (storyStarted) {
+      setMessage("故事已有正式正文；不能刪除正式人物。請回首頁將配角移到候場名單。");
+      return;
+    }
     if (!confirm(`確定刪除角色「${item.name}」嗎？這不會刪除已寫入的正文。`)) return;
     try {
       const repository = createNovelRepository();
@@ -1324,8 +1356,8 @@ function CharacterEditor({
   return (
     <>
       <div className="p2SectionToolbar">
-        <button type="button" disabled={characterAIBusy} onClick={() => void generateCharacterAICandidate()}>
-          {characterAIBusy ? "閉端 AI 正在設定角色…" : "用閉端 AI 協助角色與能力值"}
+        <button type="button" disabled={characterAIBusy || creationLocked} onClick={() => void generateCharacterAICandidate()}>
+          {characterAIBusy ? "閉端 AI 正在設定角色…" : creationLocked ? "故事已開始：新增能力角色已鎖定" : "用閉端 AI 協助角色與能力值"}
         </button>
         {characterAIBusy ? <button type="button" onClick={() => characterAIControllerRef.current?.abort("USER_CANCELLED")}>停止</button> : null}
       </div>
@@ -1382,7 +1414,9 @@ function CharacterEditor({
         </details>
       </section> : null}
       <form ref={characterFormRef} className="p2InlineEditor" aria-labelledby="character-editor-heading" onSubmit={(event) => void save(event)}>
-        <h3 id="character-editor-heading">{editingId ? "編輯角色" : "建立角色"}</h3>
+        <h3 id="character-editor-heading">{editingId ? "編輯角色" : creationLocked ? "正式角色庫已鎖定" : "建立角色"}</h3>
+        {creationLocked ? <p role="status">故事已有正文；這裡不再建立帶新能力值的人物。若要讓更多角色出場，請回首頁從既有正式人物庫加入上場名單；仍可從下方選擇既有人物，補充不會改變能力的資料。</p> : null}
+        <fieldset className="p2LockedCharacterForm" disabled={creationLocked}>
         <label>角色姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label>別名（以頓號分隔）<input value={aliases} onChange={(event) => setAliases(event.target.value)} /></label>
         <label className="p2Checkbox"><input type="checkbox" checked={isProtagonist} onChange={(event) => setIsProtagonist(event.target.checked)} />設為作品主角與 RPG 玩家角色</label>
@@ -1398,11 +1432,12 @@ function CharacterEditor({
         <label>私人秘密（以頓號分隔）<input value={secret} onChange={(event) => setSecret(event.target.value)} /></label>
         <label>所屬勢力（以頓號分隔）<input value={faction} onChange={(event) => setFaction(event.target.value)} /></label>
         <label>核心價值（以頓號分隔）<input value={values} onChange={(event) => setValues(event.target.value)} placeholder="例：守信、自由、家族" /></label>
-        <label>能力（以頓號分隔）<input value={capabilities} onChange={(event) => setCapabilities(event.target.value)} placeholder="例：劍術、談判、醫術" /></label>
+        <label>能力（以頓號分隔）<input disabled={editingRpgLocked} value={capabilities} onChange={(event) => setCapabilities(event.target.value)} placeholder="例：劍術、談判、醫術" /></label>
         <label>限制與弱點（以頓號分隔）<input value={limitations} onChange={(event) => setLimitations(event.target.value)} placeholder="例：怕水、不能說謊、舊傷" /></label>
         <label>說話節奏<select value={voiceStyle} onChange={(event) => setVoiceStyle(event.target.value as "short" | "mixed" | "long")}><option value="short">簡短直接</option><option value="mixed">自然混合</option><option value="long">完整慎重</option></select></label>
-        <fieldset className="characterRpgSetup p2WideField">
+        <fieldset className="characterRpgSetup p2WideField" disabled={editingRpgLocked}>
           <legend>RPG 初始能力</legend>
+          {editingRpgLocked ? <p role="status">故事已有正式正文；既有角色的能力與 RPG 數值已鎖定，後續變化只能由故事內升級、受傷、裝備或正式事件結算。</p> : null}
           <label>能力原型<select value={rpgArchetype} onChange={(event) => {
             const next = event.target.value as CharacterRpgArchetype;
             setRpgArchetype(next);
@@ -1428,7 +1463,7 @@ function CharacterEditor({
             </div>
             <div>
               <b>{portrait ? portrait.role : "尚未選擇人物相片"}</b>
-              <p>{portrait ? portrait.visualDescription : "可從 100 張基礎美術延伸的 10,000 位原創虛擬人像中選擇，或上傳自己的參考照片。"}</p>
+              <p>{portrait ? portrait.visualDescription : "可從 100 張基礎美術延伸的 10,000 種可重現衍生造型中選擇，或上傳自己的參考照片。"}</p>
               <small>只有核准的外觀描述與特徵標籤會提供給角色 AI；圖片位元不會寫入 AI 提示。</small>
             </div>
           </div>
@@ -1453,10 +1488,10 @@ function CharacterEditor({
             }}>移除人物相片</button> : null}
           </div>
           <details className="characterPortraitCatalog">
-            <summary>開啟 10,000 位原創虛擬人像庫（100 張基礎美術 × 100 種變體）</summary>
+            <summary>開啟 10,000 種可重現衍生造型（100 張基礎美術 × 100 種變體）</summary>
             <div className="characterPortraitFilters">
               <label>搜尋特徵<input type="search" value={portraitQuery} onChange={(event) => { setPortraitQuery(event.target.value); setPortraitPage(0); }} placeholder="題材、身分或氣質" /></label>
-              <label>題材<select value={portraitTheme} onChange={(event) => { setPortraitTheme(event.target.value); setPortraitPage(0); }}><option value="all">全部題材（100）</option>{CHARACTER_PORTRAIT_THEME_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+              <label>題材<select value={portraitTheme} onChange={(event) => { setPortraitTheme(event.target.value); setPortraitPage(0); }}><option value="all">全部題材（10,000 種衍生造型）</option>{CHARACTER_PORTRAIT_THEME_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
             </div>
             <p className="characterPortraitCount">找到 {filteredPortraits.length} 位；第 {safePortraitPage + 1} / {portraitPageCount} 頁</p>
             {visiblePortraits.length ? (
@@ -1486,6 +1521,7 @@ function CharacterEditor({
           <button type="submit">{editingId ? "儲存修改" : "建立角色"}</button>
           {editingId ? <button type="button" className="secondary" onClick={reset}>取消編輯</button> : null}
         </div>
+        </fieldset>
         {message && <p role="status">{message}</p>}
       </form>
       {characters.length ? (
@@ -1502,7 +1538,7 @@ function CharacterEditor({
               {item.rpgProfile ? <small>RPG：{CHARACTER_RPG_ARCHETYPES.find((option) => option.id === item.rpgProfile?.archetype)?.label ?? "自訂配點"} · {characterRpgPointTotal(item.rpgProfile.stats)} 點</small> : null}
               <div className="p2RecordActions">
                 <button type="button" onClick={() => edit(item)}>編輯</button>
-                <button type="button" className="danger" onClick={() => void remove(item)}>刪除</button>
+                <button type="button" className="danger" disabled={storyStarted} title={storyStarted ? "故事開始後不能刪除正式人物；可在首頁移到候場" : undefined} onClick={() => void remove(item)}>刪除</button>
               </div>
             </article>
           ))}
@@ -1516,11 +1552,13 @@ function WorldEditor({
   projectId,
   worlds,
   rules,
+  storyStarted,
   onChanged,
 }: {
   projectId: string;
   worlds: World[];
   rules: WorldRule[];
+  storyStarted: boolean;
   onChanged: () => Promise<void>;
 }) {
   const [worldEditingId, setWorldEditingId] = useState<string | null>(null);
@@ -1553,13 +1591,29 @@ function WorldEditor({
       setMessage("世界名稱不能留白。");
       return;
     }
+    const existing = worlds.find((item) => item.id === worldEditingId);
+    try {
+      assertStoryStartedCanonMutationAllowed({
+        storyStarted,
+        mutation: existing ? "update-world" : "create-world",
+        existingRecord: Boolean(existing),
+        existingWorldEra: existing?.era.value,
+        requestedWorldEra: worldEra,
+      });
+    } catch {
+      setMessage(existing
+        ? "故事已有正文；既有世界時代已鎖定，不能從世界頁任意改寫。"
+        : "故事已有正文；世界頁不能再建立新世界或新時代，請回首頁選擇既有正式世界。 ");
+      return;
+    }
     try {
       const repo = createNovelRepository();
-      const existing = worlds.find((item) => item.id === worldEditingId);
       await repo.put<World>("worlds", {
         ...(existing ?? makeRecord(projectId)),
         name: optionalValue(worldName.trim(), "user_defined"),
-        era: optionalValue(worldEra.trim() || null, worldEra.trim() ? "user_defined" : "unset"),
+        era: storyStarted && existing
+          ? existing.era
+          : optionalValue(worldEra.trim() || null, worldEra.trim() ? "user_defined" : "unset"),
         summary: optionalValue(worldSummary.trim() || null, worldSummary.trim() ? "user_defined" : "unset"),
       }, existing?.revision);
       resetWorld();
@@ -1571,6 +1625,10 @@ function WorldEditor({
   }
 
   async function removeWorld(item: World) {
+    if (storyStarted) {
+      setMessage("故事已有正文，世界與時代不能從其他入口刪除；請先在故事中建立可追溯的轉換事件。");
+      return;
+    }
     if (!confirm(`確定刪除世界「${item.name.value || "未命名世界"}」嗎？世界規則不會一併刪除。`)) return;
     try {
       const repository = createNovelRepository();
@@ -1650,11 +1708,12 @@ function WorldEditor({
       </div>
       <form className="p2InlineEditor" onSubmit={(event) => void saveWorld(event)}>
         <h3>{worldEditingId ? "編輯世界" : "建立世界"}</h3>
-        <label>世界名稱<input required value={worldName} onChange={(event) => setWorldName(event.target.value)} /></label>
-        <label>時代／時期<input value={worldEra} onChange={(event) => setWorldEra(event.target.value)} /></label>
-        <label className="p2WideField">世界摘要<textarea value={worldSummary} onChange={(event) => setWorldSummary(event.target.value)} /></label>
+        <label>世界名稱<input required value={worldName} disabled={storyStarted && !worldEditingId} onChange={(event) => setWorldName(event.target.value)} /></label>
+        <label>時代／時期<input value={worldEra} disabled={storyStarted} onChange={(event) => setWorldEra(event.target.value)} /></label>
+        {storyStarted ? <p role="status">故事已有正文；不能建立新世界，既有世界時代也已鎖定。請回首頁選擇既有正式世界；穿越或世界轉換必須先由可追溯的故事 Canon 建立。</p> : null}
+        <label className="p2WideField">世界摘要<textarea value={worldSummary} disabled={storyStarted && !worldEditingId} onChange={(event) => setWorldSummary(event.target.value)} /></label>
         <div className="p2EditorActions">
-          <button type="submit">{worldEditingId ? "儲存世界修改" : "建立世界"}</button>
+          <button type="submit" disabled={storyStarted && !worldEditingId}>{worldEditingId ? "儲存世界修改" : "故事開始後不可建立世界"}</button>
           {worldEditingId ? <button type="button" className="secondary" onClick={resetWorld}>取消編輯</button> : null}
         </div>
       </form>
@@ -1667,7 +1726,7 @@ function WorldEditor({
               <p>{item.summary.value || "尚未建立世界說明"}</p>
               <div className="p2RecordActions">
                 <button type="button" onClick={() => editWorld(item)}>編輯</button>
-                <button type="button" className="danger" onClick={() => void removeWorld(item)}>刪除</button>
+                <button type="button" className="danger" disabled={storyStarted} title={storyStarted ? "故事開始後不可刪除既有世界" : undefined} onClick={() => void removeWorld(item)}>刪除</button>
               </div>
             </article>
           ))}

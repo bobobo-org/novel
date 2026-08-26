@@ -98,6 +98,8 @@ async function componentContract() {
     const messageTimeline = await read("app/studio/project/[projectId]/chat/components/message-timeline.tsx");
     const conversationTypes = await read("app/studio/project/[projectId]/chat/components/conversation-types.ts");
     const editController = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-branch.ts");
+    const editDialog = await read("app/studio/project/[projectId]/chat/components/edit-message-copy-dialog.tsx");
+    const conversationRepository = await read("lib/novel-ai/conversation/repository.ts");
     for (const file of componentFiles) {
       const absolute = path.join(chatRoot, "components", file);
       const source = await fs.readFile(absolute, "utf8");
@@ -121,8 +123,27 @@ async function componentContract() {
     assert.match(messageRow, /data-conversation-action="edit-message-copy"/u);
     assert.match(messageRow, /修改此訊息（保留原文）/u);
     assert.match(editController, /conversation\.editMessageWithBranch\(/u);
-    assert.match(editController, /window\.prompt\([\s\S]*?message\.content/u, "editing must seed the copy dialog with the original message");
+    assert.doesNotMatch(editController, /window\.prompt\(/u, "editing must use the controlled copy dialog instead of a native prompt");
+    assert.match(editController, /sourceContent:\s*message\.content/u, "editing must seed the controlled dialog with the original message");
+    assert.match(workspace, /<EditMessageCopyDialog/u);
+    assert.match(editDialog, /role="dialog"[\s\S]*?aria-modal="true"/u);
+    assert.match(editDialog, /確認並在副本重試/u);
     assert.doesNotMatch(editController, /conversation\.branchSession\(/u, "the controller must not retain a generic branch-only path");
+    assert.match(conversationRepository, /private async copyMessageAttachments\(/u);
+    assert.match(
+      conversationRepository,
+      /\.\.\.source,[\s\S]*?id:\s*copyId,[\s\S]*?sessionId:\s*input\.targetSessionId/u,
+      "branch attachment records must receive new IDs and the target session scope while retaining source proof",
+    );
+    assert.match(
+      conversationRepository,
+      /sourceMessageId:\s*source\.id,[\s\S]*?attachmentIds,/u,
+      "copied branch messages must reference the copied attachment IDs",
+    );
+    assert.match(workspace, /existingUserMessage\?\.attachmentIds\.length/u);
+    assert.match(workspace, /CONVERSATION_EDIT_COPY_ATTACHMENTS_RESELECT_REQUIRED/u);
+    assert.match(workspace, /原始內容依隱私設計不會落盤/u);
+    assert.match(workspace, /系統不會用空附件假裝續寫/u);
     assert.match(workspace, /setDashboardOpenRequest\(\(request\) => request \+ 1\)/u);
     assert.doesNotMatch(
       workspace,

@@ -309,6 +309,62 @@ export class ConversationRepositoryService {
     return session;
   }
 
+  private async copyMessageAttachments(input: {
+    projectId: string;
+    sourceSessionId: string;
+    targetSessionId: string;
+    attachmentIds: readonly string[];
+    attachmentIdMap: Map<string, string>;
+    createdAttachmentIds: string[];
+  }) {
+    const copiedIds: string[] = [];
+    for (const sourceAttachmentId of [...new Set(input.attachmentIds)]) {
+      const existingCopyId = input.attachmentIdMap.get(sourceAttachmentId);
+      if (existingCopyId) {
+        copiedIds.push(existingCopyId);
+        continue;
+      }
+      const source = await this.repository.get<ConversationAttachment>(
+        "conversationAttachments",
+        sourceAttachmentId,
+      );
+      if (
+        !source
+        || source.projectId !== input.projectId
+        || source.sessionId !== input.sourceSessionId
+        || source.deletedAt
+        || source.localAnalysisOnly !== true
+        || source.rawContentRetained !== false
+      ) {
+        throw new RepositoryOperationError("CONVERSATION_BRANCH_ATTACHMENT_SCOPE_MISMATCH");
+      }
+      const copiedAt = new Date().toISOString();
+      const copyId = crypto.randomUUID();
+      const copy = await this.repository.put<ConversationAttachment>(
+        "conversationAttachments",
+        {
+          ...source,
+          id: copyId,
+          sessionId: input.targetSessionId,
+          createdAt: copiedAt,
+          updatedAt: copiedAt,
+          revision: 1,
+          parentRevision: null,
+          deletedAt: null,
+          provenance: {
+            ...source.provenance,
+            actor: "author",
+            createdAt: copiedAt,
+          },
+        },
+      );
+      input.attachmentIdMap.set(sourceAttachmentId, copy.id);
+      input.createdAttachmentIds.push(copy.id);
+      copiedIds.push(copy.id);
+    }
+    return copiedIds;
+  }
+
   async createSession(input: CreateConversationSessionInput) {
     await this.requireProject(input.projectId);
     const id = input.sessionId ?? crypto.randomUUID();
@@ -1011,10 +1067,20 @@ export class ConversationRepositoryService {
       branchedFromMessageId: input.fromMessageId,
     });
     const createdMessageIds: string[] = [];
+    const createdAttachmentIds: string[] = [];
     const messageIdMap = new Map<string, string>();
+    const attachmentIdMap = new Map<string, string>();
     try {
       for (const source of sourceMessages.slice(0, endIndex + 1)) {
         const messageId = crypto.randomUUID();
+        const attachmentIds = await this.copyMessageAttachments({
+          projectId: input.projectId,
+          sourceSessionId: sourceSession.id,
+          targetSessionId: branch.id,
+          attachmentIds: source.attachmentIds,
+          attachmentIdMap,
+          createdAttachmentIds,
+        });
         const copied = await this.appendMessage({
           projectId: input.projectId,
           sessionId: branch.id,
@@ -1024,6 +1090,7 @@ export class ConversationRepositoryService {
           status: source.status === "streaming" || source.status === "pending" ? "cancelled" : source.status,
           parentMessageId: source.parentMessageId ? messageIdMap.get(source.parentMessageId) ?? null : null,
           sourceMessageId: source.id,
+          attachmentIds,
         });
         messageIdMap.set(source.id, copied.id);
         createdMessageIds.push(copied.id);
@@ -1034,6 +1101,9 @@ export class ConversationRepositoryService {
       };
     } catch (error) {
       for (const messageId of createdMessageIds) await this.repository.remove("conversationMessages", messageId);
+      for (const attachmentId of createdAttachmentIds) {
+        await this.repository.remove("conversationAttachments", attachmentId);
+      }
       const current = await this.requireSession(input.projectId, branch.id, true);
       await this.deleteSession(input.projectId, current.id, current.revision);
       throw error;
@@ -1069,17 +1139,45 @@ export class ConversationRepositoryService {
           }),
           messages: [] as ConversationMessage[],
         };
-    const previous = branch.messages.at(-1) ?? null;
-    const message = await this.appendMessage({
-      projectId: input.projectId,
-      sessionId: branch.session.id,
-      role: "user",
-      content: input.content,
-      status: "completed",
-      parentMessageId: previous?.id ?? null,
-      sourceMessageId: source.id,
-    });
-    return { session: await this.requireSession(input.projectId, branch.session.id), message };
+    const createdAttachmentIds: string[] = [];
+    try {
+      const attachmentIds = await this.copyMessageAttachments({
+        projectId: input.projectId,
+        sourceSessionId: sourceSession.id,
+        targetSessionId: branch.session.id,
+        attachmentIds: source.attachmentIds,
+        attachmentIdMap: new Map<string, string>(),
+        createdAttachmentIds,
+      });
+      const previous = branch.messages.at(-1) ?? null;
+      const message = await this.appendMessage({
+        projectId: input.projectId,
+        sessionId: branch.session.id,
+        role: "user",
+        content: input.content,
+        status: "completed",
+        parentMessageId: previous?.id ?? null,
+        sourceMessageId: source.id,
+        attachmentIds,
+      });
+      return { session: await this.requireSession(input.projectId, branch.session.id), message };
+    } catch (error) {
+      const [branchMessages, branchAttachments] = await Promise.all([
+        this.listMessages(input.projectId, branch.session.id).catch(() => []),
+        this.listAttachments(input.projectId, branch.session.id).catch(() => []),
+      ]);
+      for (const message of branchMessages) {
+        await this.repository.remove("conversationMessages", message.id).catch(() => undefined);
+      }
+      for (const attachment of branchAttachments) {
+        await this.repository.remove("conversationAttachments", attachment.id).catch(() => undefined);
+      }
+      const current = await this.requireSession(input.projectId, branch.session.id, true).catch(() => null);
+      if (current && current.status !== "deleted") {
+        await this.deleteSession(input.projectId, current.id, current.revision).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   async prepareRegeneration(input: {

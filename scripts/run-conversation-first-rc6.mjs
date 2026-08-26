@@ -1334,6 +1334,86 @@ harness.test("branching", "branching preserves the source history with new immut
   assert.equal((await service.listMessages(projectId, session.id)).length, 2);
 });
 
+harness.test("branching", "edit-copy preserves attachment proof with new IDs bound to the branch session", async () => {
+  const { service, repository, projectId } = await setup();
+  const session = await service.createSession({ projectId, title: "Attachment source" });
+  const attachment = await repository.put("conversationAttachments", {
+    ...record(`attachment:${crypto.randomUUID()}`, projectId),
+    conversationSchemaVersion: "conversation-attachment-v1",
+    sessionId: session.id,
+    displayName: "owned-reference.txt",
+    safeSourceAlias: "owned-reference.txt",
+    format: "txt",
+    byteLength: 1_024,
+    contentHash: await sha256Hex("branch attachment content"),
+    rightsBasis: "user_supplied_local_analysis",
+    rightsEvidenceHash: await sha256Hex("composer-local-analysis-only"),
+    userConfirmedRights: true,
+    rightsConfirmationSchemaVersion:
+      CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_SCHEMA_VERSION,
+    localAnalysisOnly: true,
+    rawContentRetained: false,
+    parsingStatus: "completed",
+    warnings: ["Safe parser warning retained."],
+  });
+  const source = await service.appendMessage({
+    projectId,
+    sessionId: session.id,
+    role: "user",
+    content: "請依附件調整這一幕。",
+    attachmentIds: [attachment.id],
+  });
+  const sourceResponse = await service.appendMessage({
+    projectId,
+    sessionId: session.id,
+    role: "assistant",
+    content: "原附件分析候選。",
+    parentMessageId: source.id,
+  });
+  const copiedHistory = await service.branchSession({
+    projectId,
+    sourceSessionId: session.id,
+    fromMessageId: sourceResponse.id,
+  });
+  const copiedHistoryAttachment = (await service.listAttachments(
+    projectId,
+    copiedHistory.session.id,
+  ))[0];
+  assert(copiedHistoryAttachment);
+  assert.notEqual(copiedHistoryAttachment.id, attachment.id);
+  assert.equal(copiedHistoryAttachment.sessionId, copiedHistory.session.id);
+  assert.deepEqual(copiedHistory.messages[0].attachmentIds, [copiedHistoryAttachment.id]);
+  assert.equal(copiedHistory.messages[1].parentMessageId, copiedHistory.messages[0].id);
+
+  const edited = await service.editMessageWithBranch({
+    projectId,
+    sessionId: session.id,
+    messageId: source.id,
+    content: "請依附件調整這一幕，並加強因果。",
+  });
+  const branchAttachments = await service.listAttachments(projectId, edited.session.id);
+  assert.equal(branchAttachments.length, 1);
+  const copiedAttachment = branchAttachments[0];
+  assert.notEqual(copiedAttachment.id, attachment.id);
+  assert.equal(copiedAttachment.sessionId, edited.session.id);
+  assert.deepEqual(edited.message.attachmentIds, [copiedAttachment.id]);
+  assert.equal(copiedAttachment.contentHash, attachment.contentHash);
+  assert.equal(copiedAttachment.rightsBasis, attachment.rightsBasis);
+  assert.equal(copiedAttachment.rightsEvidenceHash, attachment.rightsEvidenceHash);
+  assert.equal(copiedAttachment.userConfirmedRights, true);
+  assert.equal(
+    copiedAttachment.rightsConfirmationSchemaVersion,
+    CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_SCHEMA_VERSION,
+  );
+  assert.equal(copiedAttachment.parsingStatus, "completed");
+  assert.equal(copiedAttachment.localAnalysisOnly, true);
+  assert.equal(copiedAttachment.rawContentRetained, false);
+  assert.deepEqual(copiedAttachment.warnings, attachment.warnings);
+  assert.equal((await service.listMessages(projectId, edited.session.id)).length, 1);
+  assert.deepEqual(source.attachmentIds, [attachment.id]);
+  assert.equal((await service.listAttachments(projectId, session.id)).length, 1);
+});
+
 harness.test("branching", "regeneration creates distinct task, candidate and message IDs without overwriting", async () => {
   const state = await setupClosedApprovalFixture({ cacheHit: false });
   const prepare = () => state.service.prepareRegeneration({

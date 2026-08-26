@@ -1383,6 +1383,122 @@
   backdrop-filter: blur(3px);
 }
 
+.editCopyBackdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  background: rgba(2, 7, 14, 0.78);
+  backdrop-filter: blur(7px);
+}
+
+.editCopyDialog {
+  width: min(100%, 680px);
+  max-height: min(88dvh, 760px);
+  overflow: auto;
+  border: 1px solid rgba(116, 219, 195, 0.34);
+  border-radius: 18px;
+  color: #f4f6fb;
+  background:
+    linear-gradient(145deg, rgba(19, 31, 49, 0.98), rgba(8, 14, 24, 0.99));
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
+}
+
+.editCopyHeader {
+  padding: 20px 22px 13px;
+  border-bottom: 1px solid rgba(157, 178, 211, 0.16);
+}
+
+.editCopyHeader span {
+  color: #74dbc3;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+}
+
+.editCopyHeader h2 {
+  margin: 6px 0 0;
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+}
+
+.editCopyForm {
+  display: grid;
+  gap: 12px;
+  padding: 18px 22px 22px;
+}
+
+.editCopyForm p {
+  margin: 0;
+  color: #bac7d8;
+  line-height: 1.65;
+}
+
+.editCopyForm label {
+  color: #dce7ef;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.editCopyForm textarea {
+  width: 100%;
+  min-height: 168px;
+  resize: vertical;
+  padding: 12px 13px;
+  border: 1px solid rgba(157, 178, 211, 0.24);
+  border-radius: 12px;
+  outline: 0;
+  color: #f4f6fb;
+  background: rgba(5, 12, 22, 0.9);
+  line-height: 1.65;
+}
+
+.editCopyForm textarea:focus {
+  border-color: rgba(116, 219, 195, 0.72);
+  box-shadow: 0 0 0 3px rgba(116, 219, 195, 0.13);
+}
+
+.editCopyForm textarea:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.editCopyForm .editCopyHint {
+  color: #f1bf76;
+  font-size: 0.82rem;
+}
+
+.editCopyActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding-top: 4px;
+}
+
+.editCopyActions button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid rgba(157, 178, 211, 0.24);
+  border-radius: 10px;
+  color: #f4f6fb;
+  background: rgba(33, 46, 67, 0.78);
+  cursor: pointer;
+}
+
+.editCopyActions .editCopyConfirm {
+  border-color: transparent;
+  color: #061510;
+  background: linear-gradient(135deg, #8be8cf, #4cc9aa);
+  font-weight: 850;
+}
+
+.editCopyActions button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+  opacity: 0.56;
+}
+
 .emptyNote {
   color: var(--muted);
   text-align: center;

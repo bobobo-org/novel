@@ -9,10 +9,12 @@ import {
   type CharacterRelationship,
   type LoreEntry,
   type NovelProject,
+  type StoryState,
   type StoryBible,
   type World,
   type WorldRule,
 } from "@/lib/novel-ai/domain";
+import { assertStoryStartedCanonMutationAllowed } from "@/lib/novel-ai/domain/story-started-canon-guard";
 import {
   characterRpgStatsForArchetype,
   createCharacterRpgProfile,
@@ -47,10 +49,18 @@ import {
 } from "@/lib/novel-ai/social-world-approval";
 import {
   approveSocialCharacterCandidate,
+  buildStoryOrganizationBlueprints,
+  buildStoryOrganizationDirectory,
+  cultivationProfileForOrganizationMember,
   createSocialCharacterCandidate,
   DeterministicSocialMatrix,
+  organizationMatrixContext,
+  organizationMemberPage,
+  resolveActiveWorldOrganizationSetting,
   type ApprovedSocialCharacter,
   type SocialMatrixCharacter,
+  type StoryOrganizationMember,
+  type StoryOrganizationHierarchyNode,
 } from "@/lib/novel-ai/social-matrix";
 import styles from "./social-world-library.module.css";
 
@@ -113,6 +123,44 @@ function personalityProfile(character: SocialMatrixCharacter | ApprovedSocialCha
     approvedAt,
     approvedBy: "user",
   };
+}
+
+function OrganizationHierarchyBranch({
+  branch,
+  selectedNodeId,
+  onSelect,
+}: {
+  branch: StoryOrganizationHierarchyNode;
+  selectedNodeId: string | null;
+  onSelect: (nodeId: string) => void;
+}) {
+  const selectable = branch.kind !== "asset" && branch.currentMemberCount > 0;
+  return (
+    <li className={styles.hierarchyBranch} data-node-kind={branch.kind} data-selected={selectedNodeId === branch.nodeId}>
+      <button
+        type="button"
+        className={styles.hierarchyNodeButton}
+        aria-pressed={selectedNodeId === branch.nodeId}
+        disabled={!selectable}
+        data-testid={`filter-hierarchy-${branch.nodeId}`}
+        onClick={() => onSelect(branch.nodeId)}
+      >
+        <span>{branch.kind === "asset" ? "資產" : branch.kind === "rank" ? "位階" : branch.kind === "command" ? "決策" : "單位"}</span>
+        <b>{branch.label}</b>
+        {branch.memberCapacity > 0 ? <small>在籍 {formatNumber(branch.currentMemberCount)}／上限 {formatNumber(branch.memberCapacity)}</small> : null}
+      </button>
+      {branch.roles.length ? <p><strong>職位</strong>{branch.roles.join("・")}</p> : null}
+      {branch.assets.length ? <p><strong>資源</strong>{branch.assets.join("・")}</p> : null}
+      {branch.children.length ? <ul>{branch.children.map((child) => (
+        <OrganizationHierarchyBranch
+          branch={child}
+          key={child.nodeId}
+          selectedNodeId={selectedNodeId}
+          onSelect={onSelect}
+        />
+      ))}</ul> : null}
+    </li>
+  );
 }
 
 function treasureLoreContent(treasure: ProceduralTreasureRecord) {
@@ -201,6 +249,7 @@ export default function SocialWorldLibrary({
   storyBibles,
   approvedWorlds = [],
   initialView = "characters",
+  storyStarted = false,
   onChanged,
 }: {
   project: NovelProject;
@@ -210,24 +259,68 @@ export default function SocialWorldLibrary({
   storyBibles: StoryBible[];
   approvedWorlds?: World[];
   initialView?: LibraryView;
+  storyStarted?: boolean;
   onChanged: () => Promise<void>;
 }) {
   const seed = useMemo(
     () => resolveProjectProceduralRootSeed(project),
     [project],
   );
-  const context = useMemo(() => ({
+  const organizationSeed = `${seed}|story-organization-directory-v1`;
+  const baseContext = useMemo(() => ({
     genre: [project.genrePackId, project.genreId, project.subgenreId].filter(Boolean).join("／"),
     playMode: "三選一互動",
     storyTags: [project.narrativeStyle.value, project.coreIdea.value].filter((value): value is string => Boolean(value)),
     protagonist: approvedCharacters[0]?.name ?? project.title,
     conflict: project.coreIdea.value ?? undefined,
   }), [approvedCharacters, project]);
+  const [activeStoryState, setActiveStoryState] = useState<StoryState | null>(null);
+  const organizationSetting = useMemo(() => {
+    const legacyWorldId = storyBibles.find((storyBible) => storyBible.worldId)?.worldId ?? null;
+    const activeWorldId = activeStoryState?.activeWorldId === undefined
+      ? legacyWorldId
+      : activeStoryState.activeWorldId;
+    return resolveActiveWorldOrganizationSetting({
+      activeWorldId,
+      worlds: approvedWorlds.map((world) => ({
+        id: world.id,
+        name: world.name.value,
+        era: world.era.value,
+        summary: world.summary.value,
+      })),
+      fallback: {
+        genre: baseContext.genre,
+        coreIdea: project.coreIdea.value,
+        narrativeStyle: project.narrativeStyle.value,
+      },
+    });
+  }, [activeStoryState, approvedWorlds, baseContext.genre, project.coreIdea.value, project.narrativeStyle.value, storyBibles]);
+  const context = useMemo(() => organizationMatrixContext({
+    base: baseContext,
+    setting: organizationSetting,
+  }), [baseContext, organizationSetting]);
+  const organizationBlueprints = useMemo(() => buildStoryOrganizationBlueprints({
+    seed: organizationSeed,
+    setting: organizationSetting,
+  }), [organizationSeed, organizationSetting]);
   const matrix = useMemo(() => new DeterministicSocialMatrix({
-    seed,
+    seed: organizationSeed,
     context,
+    institutionCount: organizationBlueprints.length,
+    institutionProfiles: organizationBlueprints,
     cacheLimit: 96,
-  }), [context, seed]);
+  }), [context, organizationBlueprints, organizationSeed]);
+  const organizations = useMemo(() => buildStoryOrganizationDirectory({
+    seed: organizationSeed,
+    setting: organizationSetting,
+    blueprints: organizationBlueprints,
+    institutions: organizationBlueprints.map((_, index) => matrix.getInstitution(index)),
+  }), [matrix, organizationBlueprints, organizationSeed, organizationSetting]);
+  const organizationTreasureLibrary = useMemo(() => new ProceduralTreasureLibrary({
+    storySeed: organizationSeed,
+    context,
+    maxCacheEntries: 96,
+  }), [context, organizationSeed]);
   const treasureLibrary = useMemo(() => new ProceduralTreasureLibrary({
     storySeed: seed,
     context,
@@ -235,6 +328,10 @@ export default function SocialWorldLibrary({
   }), [context, seed]);
   const worldTopics = useMemo(() => listProceduralWorldTopics(), []);
   const [view, setView] = useState<LibraryView>(initialView);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState(
+    organizations[0]?.organizationId ?? "",
+  );
+  const [selectedHierarchyNodeId, setSelectedHierarchyNodeId] = useState<string | null>(null);
   const [characterPage, setCharacterPage] = useState(0);
   const [treasurePage, setTreasurePage] = useState(0);
   const [worldPage, setWorldPage] = useState(0);
@@ -259,12 +356,35 @@ export default function SocialWorldLibrary({
       .filter((journal) => journal.status === "in_progress")
       .map((journal) => `${journal.approvalKind}:${journal.sourceId}`),
   ), [approvalJournals]);
-  const characterPageCount = Math.ceil(CHARACTER_CAPACITY / PAGE_SIZE);
+  const selectedOrganization = organizations.find((organization) => (
+    organization.organizationId === selectedOrganizationId
+  )) ?? organizations[0];
   const treasurePageCount = Math.ceil(TREASURE_CAPACITY / PAGE_SIZE);
-  const characterItems = useMemo(() => matrix.listCharacters({
-    cursor: `characters:${characterPage * PAGE_SIZE}`,
-    limit: PAGE_SIZE,
-  }).items, [characterPage, matrix]);
+  const selectedHierarchyNode = useMemo(() => {
+    if (!selectedOrganization || !selectedHierarchyNodeId) return null;
+    const visit = (branch: StoryOrganizationHierarchyNode): StoryOrganizationHierarchyNode | null => {
+      if (branch.nodeId === selectedHierarchyNodeId) return branch;
+      for (const child of branch.children) {
+        const match = visit(child);
+        if (match) return match;
+      }
+      return null;
+    };
+    return visit(selectedOrganization.hierarchy);
+  }, [selectedHierarchyNodeId, selectedOrganization]);
+  const effectiveHierarchyNodeId = selectedHierarchyNode?.nodeId ?? null;
+  const characterResult = useMemo(() => selectedOrganization
+    ? organizationMemberPage({
+        matrix,
+        organization: selectedOrganization,
+        page: characterPage,
+        pageSize: PAGE_SIZE,
+        hierarchyNodeId: effectiveHierarchyNodeId,
+      })
+    : { items: [], nextCursor: null, total: 0 }, [characterPage, effectiveHierarchyNodeId, matrix, selectedOrganization]);
+  const characterItems = characterResult.items;
+  const selectedMemberTotal = characterResult.total;
+  const characterPageCount = Math.max(1, Math.ceil(selectedMemberTotal / PAGE_SIZE));
   const treasureItems = useMemo(() => treasureLibrary.page(treasurePage, PAGE_SIZE).items, [treasureLibrary, treasurePage]);
   const worldResult = useMemo(() => proceduralWorldPage({
     seed,
@@ -274,6 +394,26 @@ export default function SocialWorldLibrary({
     context,
   }), [context, seed, worldPage, worldTopicId]);
   const worldItems = worldResult.items;
+
+  useEffect(() => {
+    let cancelled = false;
+    const repository = createNovelRepository();
+    const loadStoryState = async () => {
+      const direct = project.storyStateId
+        ? await repository.get<StoryState>("storyStates", project.storyStateId)
+        : null;
+      const state = direct ?? (await repository.list<StoryState>("storyStates", project.id))
+        .sort((left, right) => right.revision - left.revision)[0]
+        ?? null;
+      if (!cancelled) setActiveStoryState(state);
+    };
+    void loadStoryState().catch(() => {
+      if (!cancelled) setActiveStoryState(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [project]);
 
   useEffect(() => {
     if (project.proceduralRootSeed?.trim() || seedBackfillStarted.current) return;
@@ -370,7 +510,7 @@ export default function SocialWorldLibrary({
       .map((relationship) => relationship.id);
   }
 
-  async function approveCharacter(character: SocialMatrixCharacter) {
+  async function approveCharacter(character: StoryOrganizationMember) {
     const approvalKey = `character:${character.characterId}`;
     const linkedInEveryBible = storyBibles.every((storyBible) =>
       storyBible.characterIds.includes(character.characterId));
@@ -383,9 +523,22 @@ export default function SocialWorldLibrary({
       setMessage(`「${character.name}」已經是這部作品的正式角色。`);
       return;
     }
+    try {
+      assertStoryStartedCanonMutationAllowed({
+        storyStarted,
+        mutation: "approve-social-character",
+      });
+    } catch {
+      setMessage("故事已有正文；此處只能瀏覽組織名冊，不能再核准新正式角色、能力或持有鏈。請回首頁從既有正式人物中選擇上場角色。");
+      return;
+    }
     setBusyId(character.characterId);
     setMessage(`正在核准「${character.name}」及其持有鏈……`);
     try {
+      const characterOrganization = organizations.find((organization) => (
+        organization.organizationId === character.institutionId
+      ));
+      if (!characterOrganization) throw new Error("STORY_ORGANIZATION_MEMBERSHIP_MISSING");
       const repository = createNovelRepository();
       const proceduralRootSeed = await ensureProjectProceduralRootSeed(
         repository,
@@ -412,8 +565,9 @@ export default function SocialWorldLibrary({
         approvedAt: now,
       });
       const archetype = suggestCharacterRpgArchetype([
-        canonicalRecord.identity,
-        canonicalRecord.institutionRole,
+        character.identity,
+        character.organizationRank,
+        character.organizationUnit,
         ...canonicalRecord.abilities.specialties,
       ]);
       const base = makeRecord(project.id, "user");
@@ -426,7 +580,7 @@ export default function SocialWorldLibrary({
         },
         name: canonicalRecord.name,
         aliases: [],
-        identity: optionalValue(canonicalRecord.identity, "ai_accepted"),
+        identity: optionalValue(character.identity, "ai_accepted"),
         personality: optionalValue(
           `${canonicalRecord.personality.traits.join("、")}；${canonicalRecord.personality.publicFace}。內在需要：${canonicalRecord.personality.privateNeed}`,
           "ai_accepted",
@@ -438,10 +592,16 @@ export default function SocialWorldLibrary({
         ageVerified: false,
         fears: [`失去${canonicalRecord.personality.privateNeed}`],
         privateSecrets: [canonicalRecord.secret],
-        factionIds: [canonicalRecord.institutionId, canonicalRecord.familyId],
+        factionIds: [
+          canonicalRecord.institutionId,
+          canonicalRecord.familyId,
+          character.hierarchyNodeId,
+          `${canonicalRecord.institutionId}:faction:${character.organizationFaction}`,
+        ],
         values: canonicalRecord.personality.traits,
         capabilities: [
           ...canonicalRecord.abilities.specialties,
+          `${character.organizationUnit}／${character.organizationRank}`,
           ...topAbilities(canonicalRecord).map((ability) => `${ability.label} ${ability.value}`),
         ],
         limitations: [`情緒波動 ${canonicalRecord.personality.volatility}/100`, canonicalRecord.personality.privateNeed],
@@ -452,7 +612,7 @@ export default function SocialWorldLibrary({
           assetDigest: approval.payloadFingerprint,
           themeId: canonicalRecord.storyAffinity,
           themeLabel: "本作原創程序化人像",
-          role: canonicalRecord.institutionRole,
+          role: character.organizationRank,
           visualDescription: canonicalRecord.portrait.description,
           traits: canonicalRecord.personality.traits,
           generatedBy: "procedural-story-engine",
@@ -465,7 +625,11 @@ export default function SocialWorldLibrary({
           stats: characterRpgStatsForArchetype(archetype),
           approvedAt: now,
         }),
-        dynamicsProfile: personalityProfile(canonicalRecord),
+        dynamicsProfile: personalityProfile({
+          ...canonicalRecord,
+          identity: character.identity,
+          institutionRole: character.organizationRank,
+        }),
         socialMatrixProfile: {
           schemaVersion: "novel-social-matrix-v1",
           sourceCharacterId: canonicalRecord.characterId,
@@ -478,6 +642,11 @@ export default function SocialWorldLibrary({
           approvedAt: now,
           approvedBy: "user",
         },
+        cultivationProfile: cultivationProfileForOrganizationMember({
+          organization: characterOrganization,
+          member: character,
+          approvedAt: now,
+        }),
         voiceStyle: {
           formality: canonicalRecord.personality.caution,
           directness: Math.max(10, 100 - canonicalRecord.personality.caution),
@@ -508,7 +677,7 @@ export default function SocialWorldLibrary({
 
       const loreIds: string[] = [];
       for (const possession of canonicalRecord.possessions) {
-        const treasure = treasureLibrary.at(possession.treasureOrdinal);
+        const treasure = organizationTreasureLibrary.at(possession.treasureOrdinal);
         const { lore } = await ensureTreasureLore(
           repository,
           project.id,
@@ -568,7 +737,7 @@ export default function SocialWorldLibrary({
         [savedCharacter.id, ...loreIds, ...relationshipIds, ...updatedBibleIds],
         true,
       );
-      setMessage(`已核准「${canonicalRecord.name}」：正式角色、人像、能力、派系／家族來源 ID 與目前列出的 ${loreIds.length} 件持有物已保存；其他人物與寶物仍維持按需產生。`);
+      setMessage(`已核准「${canonicalRecord.name}」：${characterOrganization.name}／${character.organizationUnit}／${character.organizationRank}身分、派系、人像、能力${characterOrganization.archetype === "sect" ? "與修煉檔案" : ""}及目前列出的 ${loreIds.length} 件持有物已保存；其他人物與寶物仍維持按需產生。`);
       await onChanged();
     } catch (cause) {
       setMessage(`核准失敗：${cause instanceof Error ? cause.message : "請重試"}`);
@@ -665,6 +834,15 @@ export default function SocialWorldLibrary({
       && !pendingApprovals.has(approvalKey)
     ) {
       setMessage(`「${world.title}」已經是這部作品的正式世界。`);
+      return;
+    }
+    try {
+      assertStoryStartedCanonMutationAllowed({
+        storyStarted,
+        mutation: "approve-world",
+      });
+    } catch {
+      setMessage("故事已有正文；世界資料庫只能瀏覽，不能再核准新正式世界或新時代。請回首頁選擇既有正式世界。");
       return;
     }
     setBusyId(world.id);
@@ -813,7 +991,7 @@ export default function SocialWorldLibrary({
   function pageControls(kind: LibraryView) {
     const page = kind === "characters" ? characterPage : kind === "treasures" ? treasurePage : worldPage;
     const capacity = kind === "characters"
-      ? CHARACTER_CAPACITY
+      ? selectedMemberTotal
       : kind === "treasures"
         ? TREASURE_CAPACITY
         : worldResult.totalItems;
@@ -823,7 +1001,7 @@ export default function SocialWorldLibrary({
         ? treasurePageCount
         : Math.ceil(worldResult.totalItems / PAGE_SIZE);
     const setPage = kind === "characters" ? setCharacterPage : kind === "treasures" ? setTreasurePage : setWorldPage;
-    const label = kind === "characters" ? "人物" : kind === "treasures" ? "寶物" : "世界";
+    const label = kind === "characters" ? "組織人物" : kind === "treasures" ? "寶物" : "世界";
     return (
       <div className={styles.pageControls} aria-label={`${label}資料庫分頁`}>
         <button type="button" onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}>上一批</button>
@@ -872,11 +1050,92 @@ export default function SocialWorldLibrary({
       </div>
 
       {message ? <div className={styles.message} role="status" data-testid="social-library-status">{message}</div> : null}
+      {storyStarted ? (
+        <div className={styles.message} role="status" data-testid="story-started-social-library-lock">
+          故事已有正文：組織與世界資料庫仍可查閱，但不能在這裡新增正式角色、能力、持有鏈或世界。請回作品首頁，從既有正式人物與世界中選擇上場內容。
+        </div>
+      ) : null}
 
       {view === "characters" ? (
         <>
+          <section className={styles.settingGate} data-testid="organization-setting-gate" data-era={organizationSetting.era}>
+            <div>
+              <span>STEP 1 · ERA &amp; BACKGROUND</span>
+              <h4>先依故事時代與背景選組織</h4>
+              <p>本區只建立符合目前作品脈絡的組織；人物要先隸屬一個組織，才會按需出現在下方名冊。</p>
+            </div>
+            <dl>
+              <div><dt>時代</dt><dd>{organizationSetting.eraLabel}</dd></div>
+              <div><dt>背景</dt><dd>{organizationSetting.backgroundLabel}</dd></div>
+              <div><dt>依據世界</dt><dd>{organizationSetting.sourceWorldId ? `目前上場世界（${organizationSetting.sourceWorldId}）` : "尚未指定上場世界，使用作品背景"}</dd></div>
+              <div><dt>跨時代</dt><dd>{organizationSetting.allowsCrossEra ? "作品已明示，可查看多時代組織" : "未啟用；不混入其他時代"}</dd></div>
+            </dl>
+          </section>
+
+          <section className={styles.organizationBrowser} aria-labelledby="organization-browser-title">
+            <div className={styles.organizationList} role="listbox" aria-label="符合時代與背景的組織">
+              <div className={styles.organizationListHeading}>
+                <span>STEP 2 · ORGANIZATION</span>
+                <h4 id="organization-browser-title">選擇組織</h4>
+                <p>每個組織最多一萬人，規模由作品種子固定；不會為了湊數灌滿。</p>
+              </div>
+              {organizations.map((organization) => {
+                const selected = organization.organizationId === selectedOrganization?.organizationId;
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    className={selected ? styles.organizationSelected : undefined}
+                    data-testid={`select-organization-${organization.institutionIndex}`}
+                    key={organization.organizationId}
+                    onClick={() => {
+                      setSelectedOrganizationId(organization.organizationId);
+                      setSelectedHierarchyNodeId(null);
+                      setCharacterPage(0);
+                    }}
+                  >
+                    <span>{organization.kindLabel} · {organization.eraLabel} · {organization.sizeLabel}</span>
+                    <b>{organization.name}</b>
+                    <small>在籍 {formatNumber(organization.currentMemberCount)}／上限 {formatNumber(organization.memberCapacity)} 人</small>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedOrganization ? (
+              <article className={styles.organizationDetail} data-testid="selected-organization" data-organization-id={selectedOrganization.organizationId}>
+                <header>
+                  <div><span>{selectedOrganization.kindLabel} · {selectedOrganization.eraLabel} · {selectedOrganization.sizeLabel}組織</span><h4>{selectedOrganization.name}</h4></div>
+                  <strong>{formatNumber(selectedOrganization.currentMemberCount)}<small>人在籍／上限 {formatNumber(selectedOrganization.memberCapacity)}</small></strong>
+                </header>
+                <dl className={styles.organizationFacts}>
+                  <div><dt>據點</dt><dd>{selectedOrganization.territory}</dd></div>
+                  <div><dt>內部準則</dt><dd>{selectedOrganization.doctrine}</dd></div>
+                  <div><dt>公開目標</dt><dd>{selectedOrganization.publicGoal}</dd></div>
+                  <div><dt>內部矛盾</dt><dd>{selectedOrganization.hiddenConflict}</dd></div>
+                </dl>
+                <div className={styles.hierarchyHeading}><span>STEP 3 · HIERARCHY FILTER</span><h5>點選階層查看人物</h5><p>可直接查峰、堂、內外門、房系、事業群或部門；每個節點同時顯示實際在籍與編制上限。</p></div>
+                <ul className={styles.hierarchyTree} data-testid="organization-hierarchy-tree">
+                  <OrganizationHierarchyBranch
+                    branch={selectedOrganization.hierarchy}
+                    selectedNodeId={selectedHierarchyNodeId}
+                    onSelect={(nodeId) => {
+                      setSelectedHierarchyNodeId(nodeId);
+                      setCharacterPage(0);
+                    }}
+                  />
+                </ul>
+              </article>
+            ) : null}
+          </section>
+
           <div className={styles.sectionHeading}>
-            <div><span>CHARACTER NETWORK</span><h4>本作人物候選</h4></div>
+            <div>
+              <span>STEP 4 · MEMBERS ON DEMAND</span>
+              <h4>{selectedOrganization?.name ?? "組織"}人物名冊{selectedHierarchyNode ? ` · ${selectedHierarchyNode.label}` : ""}</h4>
+              {selectedHierarchyNode ? <button type="button" className={styles.clearHierarchyFilter} onClick={() => { setSelectedHierarchyNodeId(null); setCharacterPage(0); }}>查看全組織</button> : null}
+            </div>
             {pageControls("characters")}
           </div>
           <div className={styles.characterGrid} data-testid="social-character-grid">
@@ -899,7 +1158,13 @@ export default function SocialWorldLibrary({
                     <img src={character.portrait.dataUrl} alt={`${character.name}的原創抽象人物相片`} />
                     <div><span>{character.abilities.powerTier} · {character.storyAffinity}</span><h5>{character.name}</h5><p>{character.identity}</p></div>
                   </header>
-                  <div className={styles.affiliation}><span>{institution.kind}</span><strong>{institution.name}</strong><span>家族</span><strong>{family.name}</strong></div>
+                  <div className={styles.affiliation}>
+                    <span>{selectedOrganization?.kindLabel ?? institution.kind}</span><strong>{institution.name}</strong>
+                    <span>峰堂／部門</span><strong>{character.organizationUnit}</strong>
+                    <span>位階／職位</span><strong>{character.organizationRank}</strong>
+                    <span>派系／房系</span><strong>{character.organizationFaction}</strong>
+                    <span>家族／團隊</span><strong>{family.name}</strong>
+                  </div>
                   <p className={styles.goal}><b>人物目標</b>{character.goal}</p>
                   <div className={styles.traits}>{character.personality.traits.map((trait) => <span key={trait}>{trait}</span>)}</div>
                   <div className={styles.abilities}>{topAbilities(character).map((ability) => <div key={ability.label}><span>{ability.label}</span><meter min="0" max="100" value={ability.value}>{ability.value}</meter><b>{ability.value}</b></div>)}</div>
@@ -907,11 +1172,11 @@ export default function SocialWorldLibrary({
                   <button
                     type="button"
                     className={styles.approveButton}
-                    disabled={isApproved || busyId !== null}
+                    disabled={isApproved || storyStarted || busyId !== null}
                     onClick={() => void approveCharacter(character)}
                     data-testid={`approve-social-character-${character.populationIndex}`}
                   >
-                    {isApproved ? "已核准為正式角色" : busyId === character.characterId ? "正在核准持有鏈…" : "核准角色與持有鏈"}
+                    {isApproved ? "已核准為正式角色" : storyStarted ? "故事開始後請由首頁選擇既有人物" : busyId === character.characterId ? "正在核准持有鏈…" : "核准角色與持有鏈"}
                   </button>
                 </article>
               );
@@ -940,7 +1205,7 @@ export default function SocialWorldLibrary({
                   <button
                     type="button"
                     className={styles.approveButton}
-                    disabled={isApproved || busyId !== null}
+                    disabled={isApproved || storyStarted || busyId !== null}
                     onClick={() => void approveTreasure(treasure)}
                     data-testid={`approve-treasure-${treasure.ordinal}`}
                   >
@@ -1016,7 +1281,7 @@ export default function SocialWorldLibrary({
                     onClick={() => void approveWorld(world)}
                     data-testid={`approve-world-${world.globalOrdinal}`}
                   >
-                    {isApproved ? "已核准為正式世界" : busyId === world.id ? "正在核准世界與規則…" : "核准世界與五條規則"}
+                    {isApproved ? "已核准為正式世界" : storyStarted ? "故事開始後請由首頁選擇既有世界" : busyId === world.id ? "正在核准世界與規則…" : "核准世界與五條規則"}
                   </button>
                 </article>
               );

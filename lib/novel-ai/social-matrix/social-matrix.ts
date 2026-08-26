@@ -44,6 +44,22 @@ type SocialDisplayGenre =
   | "mystery"
   | "general";
 
+export type SocialMatrixInstitutionProfile = {
+  kind: SocialInstitutionKind;
+  name: string;
+  roles?: readonly string[];
+};
+
+export type DeterministicSocialMatrixInput = {
+  seed: string;
+  context?: ProceduralStoryContext;
+  populationSize?: number;
+  institutionCount?: number;
+  familyCount?: number;
+  cacheLimit?: number;
+  institutionProfiles?: readonly SocialMatrixInstitutionProfile[];
+};
+
 type SocialDisplayVocabulary = {
   institutionNames: readonly string[];
   institutionKinds: readonly SocialInstitutionKind[];
@@ -552,25 +568,35 @@ export class DeterministicSocialMatrix {
   readonly familyCount: number;
   readonly cacheLimit: number;
   readonly context: ProceduralStoryContext | undefined;
+  readonly institutionProfiles: readonly SocialMatrixInstitutionProfile[] | undefined;
   private readonly cache = new Map<number, SocialMatrixCharacter>();
   private cacheHits = 0;
   private cacheMisses = 0;
   private cacheEvictions = 0;
 
-  constructor(input: { seed: string; context?: ProceduralStoryContext; populationSize?: number; institutionCount?: number; familyCount?: number; cacheLimit?: number }) {
+  constructor(input: DeterministicSocialMatrixInput) {
     const seed = input.seed.trim();
     if (!seed) throw new Error("SOCIAL_MATRIX_SEED_REQUIRED");
     const populationSize = input.populationSize ?? PROCEDURAL_CHARACTER_CAPACITY;
     if (!Number.isInteger(populationSize) || populationSize < 1 || populationSize > PROCEDURAL_CHARACTER_CAPACITY) throw new Error("SOCIAL_MATRIX_POPULATION_INVALID");
-    const institutionCount = input.institutionCount ?? Math.min(256, populationSize);
+    const institutionCount = input.institutionCount
+      ?? input.institutionProfiles?.length
+      ?? Math.min(256, populationSize);
     const familyCount = input.familyCount ?? Math.min(4096, populationSize);
     if (!Number.isInteger(institutionCount) || institutionCount < 1 || institutionCount > populationSize) throw new Error("SOCIAL_MATRIX_INSTITUTION_COUNT_INVALID");
     if (!Number.isInteger(familyCount) || familyCount < 1 || familyCount > populationSize) throw new Error("SOCIAL_MATRIX_FAMILY_COUNT_INVALID");
+    if (input.institutionProfiles && input.institutionProfiles.length !== institutionCount) throw new Error("SOCIAL_MATRIX_INSTITUTION_PROFILE_COUNT_INVALID");
+    if (input.institutionProfiles?.some((profile) => !profile.name.trim() || profile.roles?.some((role) => !role.trim()))) throw new Error("SOCIAL_MATRIX_INSTITUTION_PROFILE_INVALID");
     const cacheLimit = input.cacheLimit ?? 256;
     if (!Number.isInteger(cacheLimit) || cacheLimit < 0 || cacheLimit > 2048) throw new Error("SOCIAL_MATRIX_CACHE_LIMIT_INVALID");
     this.seed = seed;
     this.seedTag = proceduralCharacterAt({ seed, ordinal: 0, context: input.context }).id.split("-")[1];
     this.context = input.context ? structuredClone(input.context) : undefined;
+    this.institutionProfiles = input.institutionProfiles?.map((profile) => ({
+      ...profile,
+      name: profile.name.trim(),
+      roles: profile.roles?.map((role) => role.trim()),
+    }));
     this.populationSize = populationSize;
     this.institutionCount = institutionCount;
     this.familyCount = familyCount;
@@ -619,6 +645,7 @@ export class DeterministicSocialMatrix {
     const random = seededRandom(`${this.seed}:institution:${index}`);
     const vocabulary = socialDisplayVocabulary(this.context);
     const nativeVocabulary = socialNativeVocabulary(this.context);
+    const institutionProfile = this.institutionProfiles?.[index];
     const allies = new Set<number>();
     const rivals = new Set<number>();
     while (allies.size < Math.min(2, this.institutionCount - 1)) {
@@ -632,8 +659,9 @@ export class DeterministicSocialMatrix {
     return deepFreeze({
       institutionId,
       institutionIndex: index,
-      kind: itemAt(vocabulary.institutionKinds, random),
-      name: `${itemAt(vocabulary.institutionNames, random)}・${visibleNameAddress(index, 2)}${nativeVocabulary.institutionUnit}`,
+      kind: institutionProfile?.kind ?? itemAt(vocabulary.institutionKinds, random),
+      name: institutionProfile?.name
+        ?? `${itemAt(vocabulary.institutionNames, random)}・${visibleNameAddress(index, 2)}${nativeVocabulary.institutionUnit}`,
       territory: itemAt(vocabulary.territories, random),
       doctrine: itemAt(vocabulary.doctrines, random),
       influence: 20 + Math.floor(random() * 81),
@@ -897,7 +925,12 @@ export class DeterministicSocialMatrix {
       influence: withVariation(charisma * 0.65 + will * 0.2 + creativity * 0.15),
     };
     const statTotal = Object.values(stats).reduce((sum, value) => sum + value, 0);
-    const institutionRole = uniqueItems(nativeVocabulary.roles, random, 2).join("／");
+    const institutionRoles = this.institutionProfiles?.[institutionIndex]?.roles;
+    const institutionRole = uniqueItems(
+      institutionRoles?.length ? institutionRoles : nativeVocabulary.roles,
+      random,
+      2,
+    ).join("／");
     const location = this.context?.location?.trim() || itemAt(nativeVocabulary.locations, random);
     const possessionPage = this.listCharacterPossessions(index, { limit: 4 });
     return deepFreeze({

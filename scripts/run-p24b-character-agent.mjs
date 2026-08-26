@@ -80,7 +80,7 @@ globalThis.indexedDB = indexedDB;
 globalThis.IDBKeyRange = IDBKeyRange;
 
 const suite = process.argv[2] ?? "all";
-const evidenceDir = process.env.P24B_EVIDENCE_DIR || "C:\\dev\\novel-p24b-character-agent-evidence";
+const evidenceDir = process.env.P24B_EVIDENCE_DIR || "D:\\dev\\novel-p24b-character-agent-evidence";
 const tests = [];
 const results = [];
 function test(category, name, run) { tests.push({ category, name, run }); }
@@ -994,11 +994,11 @@ function registerUiTests() {
   const css = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/character-ai/character-ai.module.css"), "utf8");
   const navigation = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/project-navigation.tsx"), "utf8");
   const requiredText = [
-    "角色 AI", "角色正在思考", "角色只能使用他知道的資訊", "角色知道什麼", "角色不知道什麼",
-    "角色信念", "角色語氣", "角色關係", "私人故事線", "私人模擬場景",
-    "選擇角色", "參與角色", "回合數", "開始私人模擬", "暫停", "繼續", "取消",
-    "重新產生", "轉為候選", "接受", "拒絕", "這段內容尚未套用",
-    "發現角色設定衝突", "這個秘密角色目前不知道", "版本已更新，請重新產生",
+    "角色視角模擬", "私人試演", "角色只能使用他知道的資訊", "角色知道什麼", "角色不知道什麼",
+    "角色信念", "角色語氣", "角色關係", "私人故事線", "私人場景試演",
+    "選擇角色", "參與角色（只列目前上場且時代相容）", "規則試算回合數", "規則邊界試算（非 AI）", "暫停", "繼續", "取消",
+    "重新試算候選", "轉為候選", "到首頁人工核准正式變更", "放棄", "這段內容尚未套用",
+    "發現角色設定衝突", "這個秘密角色目前不知道", "不再由此頁寫入 Canon",
   ];
   for (const value of requiredText) test("ui", `UI contains ${value}`, () => assert(source.includes(value)));
   test("ui", "project navigation groups Character AI under people and world", () => {
@@ -1015,6 +1015,10 @@ function registerUiTests() {
   test("ui", "UI does not label raw prompt", () => assert(!source.includes(">raw prompt<")));
   test("ui", "UI does not display idempotency key", () => assert(!source.includes("idempotencyKey}")));
   test("ui", "UI does not display raw JSON", () => assert(!source.includes("<pre>{JSON.stringify")));
+  test("ui", "multi-character closed rehearsal passes every staged participant to the composer", () => {
+    assert.match(source, /characterIds:\s*participantCharacters\.map\(\(character\) => character\.id\)/u);
+    assert.match(source, /requestedParticipantIds = new Set\(\[selectedCharacter\.id, \.\.\.participantIds\]\)/u);
+  });
 }
 
 const registrations = {
