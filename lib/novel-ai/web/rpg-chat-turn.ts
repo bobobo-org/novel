@@ -1444,9 +1444,9 @@ function existingCharacterAsCandidate(
     40,
   ));
   const directDialogue: Record<ProceduralCastRole, string> = {
-    catalyst: `「我先去做能證明${goal}的那一步。」${name}說，「但我的底線是${limitation}。」`,
-    counterforce: `「你可以試，但別拿${goal}替我作決定。」${name}攔住去路，「我的底線是${limitation}。」`,
-    witness: `「我只交出親眼核對過的部分。」${name}按住證物，「在${goal}以前，我的底線是${limitation}。」`,
+    catalyst: `「我先去做能證明${goal}的那一步，但${limitation}是我不會跨過的界線。」${name}說。`,
+    counterforce: `「你可以試，但別拿${goal}替我作決定；只要碰到${limitation}，我就會攔下你。」${name}擋住去路。`,
+    witness: `「我只交出親眼核對過的部分；在${goal}以前，我不會越過${limitation}。」${name}按住證物。`,
   };
   return {
     ...fallback,

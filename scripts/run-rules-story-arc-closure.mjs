@@ -7,6 +7,10 @@ import {
   serializeTopicWorldFamilyDraftSelection,
 } from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 import {
+  proceduralEncounterAt,
+  proceduralEncounterCombinationSpace,
+} from "../lib/novel-ai/game/procedural-world-director.ts";
+import {
   STORY_ENDING_CONTRACT_VERSION,
   STORY_POST_ENDING_ACTIONS,
   evaluateStoryEnding,
@@ -32,11 +36,31 @@ const expectedPhases = ["setup", "escalation", "escalation", "reversal", "revers
 const observations = [];
 const INTERNAL_PROMPT_KEY_RE = /"(?:arcHorizon|arcPhase|arcStartTurn|arcLocalTurn|arcKey|arcResolved|arcResolutionKind|arcNextAction|persistentArc|readerDisclosure|endingReachable|endingOptionsRequired|mayRevealEndingConditions|mayRevealPresetHorizon|horizon|phase)"\s*:/iu;
 const INTERNAL_PROMPT_VALUE_RE = /(?:internal[\s_-]*)?(?:arc[\s_-]*)?horizon|(?:arc[\s_-]*phase)|(?:結局|結案|完結|收束)(?:的)?(?:條件|門檻|判定|檢查|清單|觸發規則|證據要求)|(?:預設|上限|最晚|剩下)[^。！？\n]{0,12}(?:\d{1,3}|[一二三四五六七八九十百兩]+)\s*(?:個)?回合/iu;
+const PREMATURE_VISIBLE_ENDING_RE = /第\s*8\s*回合|八回合|結案|結局|完成目標|承擔代價|帶著後果離場|閱讀尾聲|開啟續篇|封存結局/u;
+const FIXED_PROJECT_IDS = {
+  rpg: "22222222-2222-4222-8222-222222222221",
+  romance: "22222222-2222-4222-8222-222222222222",
+  management: "22222222-2222-4222-8222-222222222223",
+};
+let deterministicUuidCounter = 0;
+globalThis.crypto.randomUUID = () => {
+  deterministicUuidCounter += 1;
+  const suffix = deterministicUuidCounter.toString(16).padStart(12, "0");
+  return `00000000-0000-4000-8000-${suffix}`;
+};
 function assertReaderSafePromptData(value, label) {
   const serialized = JSON.stringify(value);
   assert.doesNotMatch(serialized, INTERNAL_PROMPT_KEY_RE, `${label} leaked an internal planning key`);
   assert.doesNotMatch(serialized, INTERNAL_PROMPT_VALUE_RE, `${label} leaked internal planning prose`);
 }
+
+const clueFragmentEncounter = proceduralEncounterAt(
+  "adventure",
+  (proceduralEncounterCombinationSpace("adventure") / 9) * 3,
+);
+assert.match(clueFragmentEncounter.aftermath, /還不能拼出真相/u);
+assert.doesNotMatch(clueFragmentEncounter.aftermath, PREMATURE_VISIBLE_ENDING_RE);
+assert.match("核心目標已完成，故事在此正式結案。", PREMATURE_VISIBLE_ENDING_RE);
 
 assert.throws(
   () => parseRpgChoiceDirectorOutput(JSON.stringify({
@@ -113,6 +137,7 @@ assert.deepEqual(falseEndingSignals.ignoredNonEndingSignals, [
 for (const playMode of scenarios) {
   const repository = new MemoryNovelRepository();
   const draft = createDraft("quick");
+  draft.projectId = FIXED_PROJECT_IDS[playMode];
   draft.title = `八回合結案-${playMode}`;
   draft.genrePackId = "pack-6";
   draft.genreId = "classic-topic-009";
@@ -247,7 +272,7 @@ for (const playMode of scenarios) {
       );
       assert.doesNotMatch(
         visibleChoices,
-        /第\s*8\s*回合|八回合|結案|結局|完成目標|承擔代價|帶著後果離場|閱讀尾聲|開啟續篇|封存結局/u,
+        PREMATURE_VISIBLE_ENDING_RE,
       );
     } else {
       assert.equal(causalContract.persistentArc.readerDisclosure.stage, "closure-now");
@@ -389,7 +414,7 @@ for (const playMode of scenarios) {
     failureReason: "ARC_EPILOGUE_CONTRACT_TEST",
   });
   fallbackTimes.push(epilogueCandidate.executionReceipt.fallbackGenerationMs);
-  assert.match(epilogueCandidate.story, /沒有新的危機|完整的去向|旅程就停在此處/u);
+  assert.match(epilogueCandidate.story, /沒有新的危機|完整(?:的)?去向|旅程(?:就)?停在此處/u);
   assert.doesNotMatch(
     epilogueCandidate.story,
     /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
