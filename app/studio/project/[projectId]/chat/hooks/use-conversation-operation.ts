@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, type MutableRefObject } from "react";
+import { flushSync } from "react-dom";
 import type {
   ConversationClosedAgentCacheOriginProof,
   ConversationExecutionReceipt,
@@ -11,6 +12,39 @@ import type { NovelRepository } from "@/lib/novel-ai/repository";
 import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-transaction";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
 import { assertConversationPlannerToolAllowed } from "@/lib/novel-ai/conversation/tool-registry";
+
+export function createConversationRequestCompletion(input: {
+  runId: number;
+  runRef: MutableRefObject<number>;
+  operationLockRef: MutableRefObject<boolean>;
+  abortRef: MutableRefObject<AbortController | null>;
+  releaseLease: () => void;
+  setCancellable: (value: boolean) => void;
+  setBusy: (value: boolean) => void;
+  projectMessage: (message: ConversationMessage) => boolean;
+}) {
+  let released = false;
+  let completedMessage: ConversationMessage | null = null;
+  const release = () => {
+    if (released) return;
+    released = true;
+    input.operationLockRef.current = false;
+    input.releaseLease();
+    input.setCancellable(false);
+    if (input.runRef.current === input.runId) {
+      input.abortRef.current = null;
+      input.setBusy(false);
+    }
+  };
+  return {
+    capture: (message: ConversationMessage) => { completedMessage = message; },
+    revealAndRelease: () => flushSync(() => {
+      if (completedMessage) input.projectMessage(completedMessage);
+      release();
+    }),
+    release,
+  };
+}
 
 export async function acquireConversationLease(projectId: string, sessionId: string) {
   if (typeof navigator === "undefined" || !navigator.locks) return () => undefined;

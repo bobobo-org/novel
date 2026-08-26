@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
 import type {
   ClosedAIBackendId,
 } from "@/lib/novel-ai/closed-agent-os";
@@ -25,8 +24,6 @@ import {
   type ConversationSummary,
   type ConversationToolInvocation,
   type LearningImportSession,
-  type NovelProject,
-  type StoryBible,
   type StoryState,
 } from "@/lib/novel-ai/domain";
 import {
@@ -58,7 +55,6 @@ import {
   ConversationRepositoryService,
 } from "@/lib/novel-ai/conversation/repository";
 import type { ManualLearningFileExtraction } from "@/lib/novel-ai/web/manual-learning-import-preparation";
-import { conversationCanonRevisionDigest } from "@/lib/novel-ai/web/project-context-composer";
 import {
   executeStudioClosedAgent,
   rejectStudioClosedAgentCandidate,
@@ -81,11 +77,13 @@ import { useConversationRpgController } from "./hooks/use-conversation-rpg";
 import { useConversationLearningCoordinatorLoader } from "./hooks/use-conversation-learning-loader";
 import {
   acquireConversationLease,
+  createConversationRequestCompletion,
   toExecutionReceipt,
   useConversationOperationController,
 } from "./hooks/use-conversation-operation";
 import { useClosedAiBootstrap } from "./hooks/use-closed-ai-bootstrap";
 import { useSharedLearningSync } from "./hooks/use-shared-learning-sync";
+import { useConversationSummaryController } from "./hooks/use-conversation-summary";
 import {
   artifactStory,
 } from "./components/conversation-presentation";
@@ -95,7 +93,6 @@ import type {
   DrawerPayload,
 } from "./components/conversation-types";
 import {
-  activeChapter,
   artifactType,
   errorCode,
   errorMessage,
@@ -129,6 +126,11 @@ export default function ConversationWorkspace({
     learningRepository,
   );
   const ensureSharedLearningReady = useSharedLearningSync(projectId, learningRepository);
+  const { currentCanonRevisionDigest, maybeUpdateRollingSummary } = useConversationSummaryController({
+    projectId,
+    repository,
+    conversation,
+  });
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [cancellable, setCancellable] = useState(false);
@@ -353,59 +355,6 @@ export default function ConversationWorkspace({
     if (!window.confirm(`刪除「${session.title}」？這只刪除對話，不會刪除小說 Canon。`)) return;
     await conversation.deleteSession(projectId, session.id, session.revision);
     await loadWorkspace();
-  }
-
-  async function currentCanonRevisionDigest() {
-    const loadedProject = await repository.get<NovelProject>("projects", projectId);
-    if (!loadedProject) throw new Error("CONVERSATION_PROJECT_NOT_FOUND");
-    const [loadedChapters, storyBible, storyState] = await Promise.all([
-      repository.list<Chapter>("chapters", projectId),
-      repository.get<StoryBible>("storyBibles", loadedProject.storyBibleId),
-      repository.get<StoryState>("storyStates", loadedProject.storyStateId),
-    ]);
-    return conversationCanonRevisionDigest({
-      project: loadedProject,
-      activeChapter: activeChapter(loadedProject, loadedChapters),
-      storyBible,
-      storyState,
-    });
-  }
-
-  async function maybeUpdateRollingSummary(sessionId: string) {
-    const sessionMessages = await conversation.listMessages(projectId, sessionId);
-    const olderMessages = sessionMessages.slice(0, Math.max(0, sessionMessages.length - 12));
-    if (olderMessages.length < 6) return null;
-    const canonRevisionDigest = await currentCanonRevisionDigest();
-    const existing = (await repository.list<ConversationSummary>("conversationSummaries", projectId))
-      .find((summary) => summary.sessionId === sessionId && !summary.invalidatedAt && !summary.deletedAt);
-    if (
-      existing
-      && existing.canonRevisionDigest === canonRevisionDigest
-      && existing.sourceMessageIds.length === olderMessages.length
-      && existing.sourceMessageIds.every((id, index) => id === olderMessages[index]?.id)
-    ) {
-      return existing;
-    }
-    const excerpts = olderMessages.slice(-18).map((message) => {
-      const label = message.role === "user"
-        ? "使用者"
-        : message.role === "assistant"
-          ? "助手候選"
-          : "工具狀態";
-      const compact = message.content.replace(/\s+/gu, " ").trim().slice(0, 260);
-      return `${label}：${compact}`;
-    });
-    return conversation.upsertSummary({
-      projectId,
-      sessionId,
-      sourceMessageIds: olderMessages.map((message) => message.id),
-      content: [
-        `這是同一小說專案、同一 Session 較早 ${olderMessages.length} 則訊息的非 Canon 滾動摘要。`,
-        "未採用的助手內容只代表候選，不得當成正式作品事實。",
-        ...excerpts,
-      ].join("\n").slice(0, 6_000),
-      canonRevisionDigest,
-    });
   }
 
   async function runRepositoryAction(input: {
@@ -1377,18 +1326,16 @@ export default function ConversationWorkspace({
     }
     const runId = runRef.current + 1;
     runRef.current = runId;
-    let requestOperationReleased = false;
-    const releaseRequestOperation = () => {
-      if (requestOperationReleased) return;
-      requestOperationReleased = true;
-      operationLockRef.current = false;
-      releaseLease();
-      setCancellable(false);
-      if (runRef.current === runId) {
-        abortRef.current = null;
-        setBusy(false);
-      }
-    };
+    const requestCompletion = createConversationRequestCompletion({
+      runId,
+      runRef,
+      operationLockRef,
+      abortRef,
+      releaseLease,
+      setCancellable,
+      setBusy,
+      projectMessage: (message) => projectMessageIntoActiveSession(sessionId, message),
+    });
     const controller = new AbortController();
     abortRef.current?.abort("CONVERSATION_REPLACED");
     abortRef.current = controller;
@@ -1397,7 +1344,6 @@ export default function ConversationWorkspace({
     setSafeError(null);
     if (!existingUserRequest) setDraft("");
     setProgress("正在辨識你的自然語言要求。");
-    let completedResponseMessage: ConversationMessage | null = null;
     try {
       if (plan.executionKind === "learning_import") {
         learningResumeEnabled = true;
@@ -1576,7 +1522,7 @@ export default function ConversationWorkspace({
           userMessage,
           signal: controller.signal,
         });
-        completedResponseMessage = completed.message;
+        requestCompletion.capture(completed.message);
       } else if (plan.executionKind === "query") {
         const completed = await runDashboardQuery({
           plan,
@@ -1584,7 +1530,7 @@ export default function ConversationWorkspace({
           userMessage,
           signal: controller.signal,
         });
-        completedResponseMessage = completed.message;
+        requestCompletion.capture(completed.message);
       } else if (plan.executionKind === "rpg") {
         const plannedChoice = requestRpgChoices
           ? parseRpgChoiceSelection(content, requestRpgChoices.envelope.plan.choices)
@@ -1601,7 +1547,7 @@ export default function ConversationWorkspace({
             userMessage,
             signal: controller.signal,
           });
-          completedResponseMessage = completed.message;
+          requestCompletion.capture(completed.message);
         } else if (plan.intent === "rpg_custom_action" && requestRpgChoices) {
           const snapshot = await loadLearningAwareRpgChatSnapshot({
             repository,
@@ -1621,14 +1567,14 @@ export default function ConversationWorkspace({
             userMessage,
             signal: controller.signal,
           });
-          completedResponseMessage = completed.message;
+          requestCompletion.capture(completed.message);
         } else {
           const completed = await createRpgChoicesMessage({
             sessionId,
             parentMessageId: userMessage.id,
             signal: controller.signal,
           });
-          completedResponseMessage = completed.placeholder;
+          requestCompletion.capture(completed.placeholder);
         }
       } else {
         const completed = await runClosedAgent({
@@ -1638,7 +1584,7 @@ export default function ConversationWorkspace({
           preparedAttachments,
           signal: controller.signal,
         });
-        completedResponseMessage = completed.message;
+        requestCompletion.capture(completed.message);
       }
       if (runRef.current === runId) {
         setProgress(plan.approvalRequired
@@ -1647,15 +1593,7 @@ export default function ConversationWorkspace({
       }
       if (!existingUserRequest) clearTransientAttachments();
       if (existingUserRequest) {
-        // Keep terminal persistence, visible continuation and input readiness in
-        // one UI commit. The complete workspace refresh may scan 1000+ messages
-        // and must not leave a durable edit-copy hidden behind a disabled input.
-        flushSync(() => {
-          if (completedResponseMessage) {
-            projectMessageIntoActiveSession(sessionId, completedResponseMessage);
-          }
-          releaseRequestOperation();
-        });
+        requestCompletion.revealAndRelease();
       }
       await loadWorkspace(sessionId);
     } catch (error) {
@@ -1688,7 +1626,7 @@ export default function ConversationWorkspace({
       if (!existingUserRequest) clearTransientAttachments();
       await loadWorkspace(sessionId).catch(() => undefined);
     } finally {
-      releaseRequestOperation();
+      requestCompletion.release();
     }
   }
 
