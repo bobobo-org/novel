@@ -1278,7 +1278,10 @@ export function validateRpgOutcomeNarrative(
       ? ["complete failure", "nothing was achieved", "entirely failed"]
       : ["徹底失敗", "彻底失败", "一無所獲", "一无所获", "完全落空"])
   ) throw new Error("RPG_AI_STORY_OUTCOME_MISMATCH");
-  const claimsRealmAdvancement = /(?:突破|晉升|晋升|踏入|升至|升到).{0,12}(?:境|期|真仙|金丹|元嬰|元婴|築基|筑基)/u.test(story);
+  const claimsRealmAdvancement = (
+    /(?:突破|晉升|晋升|踏入|升至|升到)(?:到了|進入|进入|成為|成为|了|至|到|入|為|为)?(?:煉體|炼体|煉氣|炼气|練氣|练气|開脈|开脉|築基|筑基|金丹|元嬰|元婴|化神|煉虛|炼虚|返虛|返虚|合體|合体|大乘|渡劫|真仙|天仙|玄仙|金仙|仙王|仙帝)(?:境|期)?/u.test(story)
+    || /(?:突破|晉升|晋升|踏入|升至|升到)(?:到了|進入|进入|成為|成为|了|至|到|入|為|为)?(?:修為|修为|境界|下一(?:個|个)?境|更高(?:的)?境|新境|階位|阶位|等級|等级|層次|层次)/u.test(story)
+  );
   if (claimsRealmAdvancement && !resolution.settlement.realmChange?.breakthrough) {
     throw new Error("RPG_AI_STORY_UNAPPROVED_REALM_ADVANCEMENT");
   }

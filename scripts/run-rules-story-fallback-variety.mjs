@@ -30,6 +30,25 @@ import {
 const modes = ["adventure", "cultivation", "management"];
 const spaces = Object.fromEntries(modes.map((mode) => [mode, proceduralEncounterCombinationSpace(mode)]));
 
+const noRealmChangeResolution = {
+  outcome: "success",
+  effect: { resourceChanges: {} },
+  settlement: { realmChange: null },
+};
+assert.doesNotThrow(() => validateRpgOutcomeNarrative(
+  "眾人突破封鎖，進入秘境查證線索。",
+  noRealmChangeResolution,
+  "zh-TW",
+));
+assert.throws(
+  () => validateRpgOutcomeNarrative(
+    "他當場突破築基境，氣息隨之暴漲。",
+    noRealmChangeResolution,
+    "zh-TW",
+  ),
+  /RPG_AI_STORY_UNAPPROVED_REALM_ADVANCEMENT/u,
+);
+
 assert.equal(PROCEDURAL_WORLD_DIRECTOR_VERSION, "procedural-world-director-v2");
 assert.deepEqual(spaces, {
   adventure: 377_487_360,

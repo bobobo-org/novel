@@ -342,6 +342,8 @@ jobs:
             pnpm test:studio:project-playmode-clone
             pnpm test:studio:project-context-navigation
             pnpm test:ai:author-tools
+            pnpm test:studio:organization-hierarchy
+            pnpm test:studio:character-staging
             node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-conversation-rpg-dashboard-presentation.mjs
           } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/conversation-gates.log"
 

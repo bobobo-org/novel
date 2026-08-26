@@ -776,6 +776,10 @@ async function seedRpgPresentationFixture(page, projectId) {
 
 harness.test("browser", "route and component source expose the complete conversation-first contract", () => {
   const pageSource = readFileSync("app/studio/project/[projectId]/chat/page.tsx", "utf8");
+  const handoffSource = readFileSync(
+    "app/studio/project/[projectId]/chat/conversation-handoff-workspace.tsx",
+    "utf8",
+  );
   const workspaceSource = readFileSync("app/studio/project/[projectId]/chat/conversation-workspace.tsx", "utf8");
   const componentSource = [
     "conversation-shell.tsx",
@@ -803,7 +807,8 @@ harness.test("browser", "route and component source expose the complete conversa
   const cssSource = readFileSync("app/studio/project/[projectId]/chat/conversation.module.css", "utf8");
   const manualLearningGateSource = readFileSync("scripts/run-rc6-manual-learning.mjs", "utf8");
   const browserRunnerSource = readFileSync("scripts/run-conversation-first-browser-rc6.mjs", "utf8");
-  assert.match(pageSource, /ConversationWorkspace/u);
+  assert.match(pageSource, /ConversationHandoffWorkspace/u);
+  assert.match(handoffSource, /ConversationWorkspace/u);
   assert.match(
     browserRunnerSource,
     /scripts\/generate-release-provenance\.mjs/u,

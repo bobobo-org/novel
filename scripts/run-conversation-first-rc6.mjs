@@ -827,7 +827,7 @@ harness.test("contract", "attachment rights confirmation precedes message, parse
     "utf8",
   );
   const rightsGate = workspace.indexOf(
-    "if (localAttachments.length && !rightsConfirmed)",
+    "if (requestLocalAttachments.length && !rightsConfirmed)",
   );
   const planStart = workspace.lastIndexOf(
     "const plan = await planConversationRequest",
@@ -842,7 +842,7 @@ harness.test("contract", "attachment rights confirmation precedes message, parse
     rightsGate,
   );
   const messageWrite = workspace.indexOf(
-    "let userMessage = existingRpgUser ?? await conversation.appendMessage",
+    "let userMessage = existingUserMessage ?? existingRpgUser ?? await conversation.appendMessage",
   );
   const parserStart = workspace.indexOf(
     "preparedAttachments = await prepareLocalAttachments(",
