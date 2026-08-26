@@ -504,7 +504,10 @@ await test("unified story navigation absorbs RPG and offline updates cannot pin 
   assert.match(globalCss, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/u);
   assert.match(workspace, /規則先結算 → 產生候選正文 → 你核准才原子寫入/u);
   assert.match(workspace, /data-testid="rpg-resolution-progress"/u);
-  assert.match(workspace, /const RPG_TURN_TIMEOUT_MS = 300_000/u);
+  assert.match(
+    workspace,
+    /const RPG_TURN_TIMEOUT_MS = RPG_CHAT_STORY_AI_TIMEOUT_MS \+ RPG_TURN_COMPLETION_GRACE_MS/u,
+  );
   assert.match(workspace, /signal: controller\.signal/u);
   assert.match(workspace, /data-testid="rpg-live-draft"/u);
   assert.match(workspace, /data-testid="rpg-cancel-turn"/u);
@@ -519,7 +522,7 @@ await test("unified story navigation absorbs RPG and offline updates cannot pin 
     navigation: "one story workbench with RPG mode and compatibility redirect",
     mobileMenu: "four-column non-overflow grid",
     approval: "explicit, cancellable, and mutation-free until completion",
-    turnRuntime: "single streamed generation with a 300-second ceiling",
+    turnRuntime: "single streamed generation with a 180-second AI ceiling and bounded fallback finalization",
     updateStrategy: "commit-and-digest cache identity with network-first application code",
   };
 });
