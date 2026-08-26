@@ -15,11 +15,20 @@ import {
   type ProceduralTreasureRarity,
 } from "./procedural-treasure-classification";
 import {
+  proceduralTreasureVisualAt,
+  type ProceduralTreasureVisual,
+} from "./procedural-treasure-visual";
+import {
+  proceduralTreasureEraDisplayName,
+  proceduralTreasureEraTaxonomyAt,
+  type ProceduralTreasureEraTaxonomy,
+} from "./procedural-treasure-era";
+import {
   DeterministicSocialMatrix,
   type SocialMatrixCharacter,
 } from "../social-matrix";
 
-export const PROCEDURAL_TREASURE_LIBRARY_VERSION = "procedural-treasure-library-v3" as const;
+export const PROCEDURAL_TREASURE_LIBRARY_VERSION = "procedural-treasure-library-v4" as const;
 export const PROCEDURAL_TREASURE_MATERIALIZATION_POLICY =
   "indexed-on-demand-bounded-lru" as const;
 export const PROCEDURAL_TREASURE_PAGE_MAX = 100;
@@ -89,6 +98,7 @@ export type ProceduralTreasureRecord = {
   subtype: string;
   rarity: ProceduralTreasureRarity;
   rarityLabel: string;
+  era: ProceduralTreasureEraTaxonomy;
   storyAffinity: string;
   abilities: [ProceduralTreasureAbility, ProceduralTreasureAbility];
   limitation: string;
@@ -96,6 +106,7 @@ export type ProceduralTreasureRecord = {
   storyHook: string;
   visualSeed: string;
   visualDescription: string;
+  visual: ProceduralTreasureVisual;
   holder: ProceduralTreasureStakeholder;
   stakeholders: [
     ProceduralTreasureStakeholder,
@@ -129,7 +140,7 @@ type TreasureKindDefinition = {
 const TREASURE_KINDS: readonly TreasureKindDefinition[] = [
   {
     id: "pill",
-    label: "丹藥／藥丸",
+    label: "丹藥",
     subtypes: ["療傷丹", "破境丸", "解毒散", "養魂露", "洗髓膏", "續脈丹"],
     abilityNames: ["續脈", "清毒", "聚氣", "定魂", "護心", "洗髓"],
     effects: [
@@ -157,7 +168,7 @@ const TREASURE_KINDS: readonly TreasureKindDefinition[] = [
   },
   {
     id: "talisman",
-    label: "符",
+    label: "符籙",
     subtypes: ["護身符", "傳訊符", "鎮魂符", "遁行符", "鑑真符", "封息符"],
     abilityNames: ["護身", "傳訊", "鑑真", "匿蹤", "封息", "示警"],
     effects: [
@@ -168,6 +179,34 @@ const TREASURE_KINDS: readonly TreasureKindDefinition[] = [
     ],
     activations: ["撕開符角並說明用途", "由兩名見證者同時按印", "在符紙寫下可核對的目標"],
     costs: ["符紙使用一次即焚毀", "使用者必須留下真名或等價憑證", "下一次同類術式的效果會減弱"],
+  },
+  {
+    id: "artifact",
+    label: "法寶",
+    subtypes: ["飛行法寶", "防護法寶", "儲物法寶", "偵測法寶", "鎮魂法寶", "時序法寶"],
+    abilityNames: ["御空", "納物", "映真", "鎮魂", "護主", "定時"],
+    effects: [
+      "在已勘定的兩處地點間縮短一次移動，但不能越過尚未理解的世界邊界",
+      "封存一批有清冊的物資，取用與轉移都會留下持有人印記",
+      "顯示一個物件最近一次被改動的殘影，但不替人物判定真偽或動機",
+      "替一名同伴穩定失控的神識，效果結束後仍須面對造成失控的原因",
+    ],
+    activations: ["由認主者注入可辨識靈息", "完成器靈要求的一項短期承諾", "在兩名見證者面前解除封印"],
+    costs: ["器靈會記錄並拒絕下一次相反命令", "啟動後需以同階靈材修復核心", "持有人會暫時暴露所在方位"],
+  },
+  {
+    id: "herb",
+    label: "藥草",
+    subtypes: ["續命靈芝", "凝露草", "洗髓藤", "養魂花", "避毒苔", "地脈參"],
+    abilityNames: ["續生", "凝露", "洗髓", "養魂", "避毒", "固本"],
+    effects: [
+      "延緩一項正在惡化的傷勢，為尋找真正療法爭取有限時間",
+      "作為丹方主藥提升一次煉製穩定度，不能取代缺少的其他材料",
+      "清除體內一種已辨識雜質，但會同時削弱短期體力",
+      "保存一縷受損神識，讓當事人保留自主回應能力",
+    ],
+    activations: ["依採集時辰現採現用", "由藥師辨認體質後炮製", "以同源靈泉浸泡一夜"],
+    costs: ["採摘後產地三年內不再生長同株", "使用者會短暫失去一項感官敏銳度", "必須放棄另一味相衝藥材"],
   },
   {
     id: "formation",
@@ -182,6 +221,48 @@ const TREASURE_KINDS: readonly TreasureKindDefinition[] = [
     ],
     activations: ["依序校準四個陣眼", "由三個不同立場共同啟陣", "先完成地形與能量稽核"],
     costs: ["啟動後一個陣眼永久失效", "陣內所有勢力都會得知啟動者", "維持期間會持續消耗稀缺材料"],
+  },
+  {
+    id: "armor",
+    label: "護具",
+    subtypes: ["護心鏡", "靈甲", "法袍", "戰靴", "護腕", "魂盾"],
+    abilityNames: ["護心", "卸力", "避煞", "疾行", "穩手", "守魂"],
+    effects: [
+      "分散一次正面衝擊，傷害不會消失而是轉為可處理的磨損",
+      "阻隔一種已辨識環境危害，無法同時防禦未知威脅",
+      "讓穿戴者完成一次撤離或救援動作，但不提供額外攻擊優勢",
+      "固定持有人的神識邊界，使外來干擾留下可追查痕跡",
+    ],
+    activations: ["完整穿戴並調整護印", "承認要保護的對象後啟動", "由鍛造者完成一次現場校準"],
+    costs: ["護具會承受永久耐久損耗", "效果期間行動速度下降", "使用後必須卸下修整一個重要節點"],
+  },
+  {
+    id: "material",
+    label: "煉器材料",
+    subtypes: ["星紋鐵", "地火晶", "寒髓玉", "雷擊木", "空冥砂", "萬年獸骨"],
+    abilityNames: ["承紋", "導火", "鎮寒", "引雷", "納空", "續骨"],
+    effects: [
+      "替一件器物承載新的法紋，但會占用原本有限的核心位置",
+      "把不穩定能量導向可觀測出口，不能創造額外能量",
+      "修補一次結構性破損，修補痕跡與材料來源會永久保留",
+      "作為鍛造關鍵媒介解鎖一種工藝路線，成果仍取決於製作者能力",
+    ],
+    activations: ["經三次淬鍊後嵌入器胚", "與相容材料完成配比驗證", "由持有人公開材料來源"],
+    costs: ["材料在成器時完全消耗", "失敗會污染同爐其他材料", "必須留下鍛造者與出資者的共同印記"],
+  },
+  {
+    id: "manual",
+    label: "功法",
+    subtypes: ["劍訣", "心法", "身法", "煉體術", "神識篇", "丹符要訣"],
+    abilityNames: ["悟劍", "凝神", "踏影", "淬體", "觀心", "通藝"],
+    effects: [
+      "提供一條可反覆練習的招式路線，不能直接取代實戰與時間",
+      "改善一次修行中的氣息控制，仍受人物既有境界與體質限制",
+      "揭示功法前後層次的因果要求，未完成前置便無法跳級",
+      "讓人物辨認自身修煉偏差，是否改變仍由本人決定",
+    ],
+    activations: ["逐章完成前置練習並留下心得", "由同門見證第一次運功", "在安全場域完成一次完整周天"],
+    costs: ["修習期間不能兼練一門相衝主功法", "每進一層都要完成一項現實承諾", "錯誤運功會留下可追蹤的偏差"],
   },
   {
     id: "special-opportunity",
@@ -467,9 +548,25 @@ export function proceduralTreasureRecordAt(input: {
     storySeed,
     treasureOrdinal: input.ordinal,
   });
-  const definition = TREASURE_KINDS.find(
+  const ancientDefinition = TREASURE_KINDS.find(
     (candidate) => candidate.id === classification.kind,
   )!;
+  const era = proceduralTreasureEraTaxonomyAt({
+    storySeed,
+    ordinal: input.ordinal,
+    kind: classification.kind,
+    context: input.context,
+    ancient: ancientDefinition,
+  });
+  const definition: TreasureKindDefinition = {
+    id: classification.kind,
+    label: era.label,
+    subtypes: era.subtypes,
+    abilityNames: era.abilityNames,
+    effects: era.effects,
+    activations: era.activations,
+    costs: era.costs,
+  };
   const base = proceduralTreasureAt({
     seed: storySeed,
     ordinal: input.ordinal,
@@ -504,6 +601,13 @@ export function proceduralTreasureRecordAt(input: {
   const subtype = definition.subtypes[
     hashText(`${storySeed}|subtype|${input.ordinal}`) % definition.subtypes.length
   ];
+  const name = proceduralTreasureEraDisplayName({
+    storySeed,
+    ordinal: input.ordinal,
+    sourceEra: era.sourceEra,
+    subtype,
+    ancientName: base.name,
+  });
   const primaryAbility = abilityFor({
     storySeed,
     ordinal: input.ordinal,
@@ -531,13 +635,13 @@ export function proceduralTreasureRecordAt(input: {
     matrix: socialMatrix,
     role: "claimant",
     character: claimantCharacter,
-    relationship: `對${base.name}提出獨立聲索，並要求先完成證據查驗`,
+    relationship: `對${name}提出獨立聲索，並要求先完成證據查驗`,
   });
   const witness = stakeholderFor({
     matrix: socialMatrix,
     role: "witness",
     character: witnessCharacter,
-    relationship: `保存${base.name}每次轉移與啟用的後果紀錄`,
+    relationship: `保存${name}每次轉移與啟用的後果紀錄`,
   });
   const cost = `${definition.costs[
     hashText(`${storySeed}|cost|${input.ordinal}`) % definition.costs.length
@@ -545,7 +649,7 @@ export function proceduralTreasureRecordAt(input: {
   const limitation = `${base.limitation}；${supportAbility.activation}`;
   const causalDimensions = enrichCausalDimensions({
     original: [],
-    name: base.name,
+    name,
     holder,
     claimant,
     holderCharacter,
@@ -556,7 +660,18 @@ export function proceduralTreasureRecordAt(input: {
     cost,
     storyLocation: input.context?.location?.trim() || holderCharacter.location,
   });
-  const storyHook = `${holder.characterName}帶著${classification.rarityLabel}${subtype}「${base.name}」在${input.context?.location?.trim() || "局勢交界處"}現身。${holder.relationship}；${claimant.characterName}代表${claimant.factionName}提出相反聲索。${primaryAbility.name}可以${primaryAbility.effect}，但${cost}。`;
+  const storyHook = `${holder.characterName}帶著${era.isCrossEra ? `${era.sourceEraLabel}跨時代` : ""}${classification.rarityLabel}${subtype}「${name}」在${input.context?.location?.trim() || "局勢交界處"}現身。${holder.relationship}；${claimant.characterName}代表${claimant.factionName}提出相反聲索。${primaryAbility.name}可以${primaryAbility.effect}，但${cost}。`;
+  const visual = proceduralTreasureVisualAt({
+    storySeed,
+    treasureId: base.id,
+    ordinal: input.ordinal,
+    kind: definition.id,
+    subtype,
+    rarity: classification.rarity,
+    era: era.sourceEra,
+    eraLabel: era.sourceEraLabel,
+    isCrossEra: era.isCrossEra,
+  });
 
   return {
     schemaVersion: PROCEDURAL_TREASURE_LIBRARY_VERSION,
@@ -564,19 +679,23 @@ export function proceduralTreasureRecordAt(input: {
     id: base.id,
     ordinal: input.ordinal,
     fictional: true,
-    name: base.name,
+    name,
     kind: definition.id,
     kindLabel: definition.label,
     subtype,
     rarity: classification.rarity,
     rarityLabel: classification.rarityLabel,
+    era,
     storyAffinity: base.storyAffinity,
     abilities: [primaryAbility, supportAbility],
     limitation,
     cost,
     storyHook,
     visualSeed: base.visualSeed,
-    visualDescription: `${base.visualDescription} 類型為${definition.label}／${subtype}，稀有度為${classification.rarityLabel}。`,
+    visualDescription: era.sourceEra === "ancient"
+      ? `${base.visualDescription} 類型為${definition.label}／${subtype}，稀有度為${classification.rarityLabel}。`
+      : `${era.sourceEraLabel}${definition.label}「${name}」的原創器物圖像；以${base.visualSeed}固定外殼、接口、標籤、磨損與${classification.rarityLabel}辨識色，不重製現實品牌或既有作品道具。`,
+    visual,
     holder,
     stakeholders: [holder, claimant, witness],
     causalDimensions,

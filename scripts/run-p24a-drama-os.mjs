@@ -27,7 +27,7 @@ import { CAPABILITY_REGISTRY } from "../lib/novel-ai/capabilities/capability-reg
 import { PlatformRouterError, resolvePlatformProvider } from "../lib/novel-ai/router/platform-router.ts";
 
 const suite = process.argv[2] ?? "all";
-const evidenceDir = process.env.P24A_EVIDENCE_DIR || "C:\\dev\\novel-p24a-drama-os-core-evidence";
+const evidenceDir = process.env.P24A_EVIDENCE_DIR || path.resolve("artifacts", "p24a-ci");
 const tests = [];
 const results = [];
 function test(name, run) { tests.push({ name, run }); }
@@ -530,7 +530,7 @@ function registerSecurityTests() {
 function registerUiTests() {
   const source = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/drama/drama-workspace.tsx"), "utf8");
   const css = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/drama/drama.module.css"), "utf8");
-  const requiredText = ["小說轉短劇", "真正影片生成尚未連接", "生成 MP4（尚未連接）", "下載 JSON 交接資料（非影片）", "來源章節", "目標長度", "播放方式", "一般線性短劇", "互動短劇", "單集規劃", "情緒曲線", "主要衝突", "開場 Hook", "結尾懸念", "集尾互動選項", "一般短劇不顯示 ABC", "風險提示", "接受並建立改編版本", "再產生一份", "放棄", "查看技術資訊"];
+  const requiredText = ["小說轉短劇", "Seedance 2.5 已安裝，但尚未可送件", "送出 Seedance 2.5 測試工作", "下載 JSON 交接資料（非影片）", "資料將離開本機", "可能依 BytePlus 當時費率收費", "來源章節", "目標長度", "播放方式", "一般線性短劇", "互動短劇", "單集規劃", "情緒曲線", "主要衝突", "開場 Hook", "結尾懸念", "集尾互動選項", "一般短劇不顯示 ABC", "風險提示", "接受並建立改編版本", "再產生一份", "放棄", "查看技術資訊"];
   for (const value of requiredText) test(`UI contains ${value}`, () => assert(source.includes(value)));
   test("technical information is collapsed", () => assert(source.includes("<details className=\"dramaTechnical\">")));
   test("UI displays canonical mutation count", () => assert(source.includes("candidate.canonicalMutation")));
@@ -542,7 +542,16 @@ function registerUiTests() {
   test("grid tracks allow shrinking", () => assert(css.includes("minmax(0,1fr)")));
   test("engineering provider IDs are not visible labels", () => assert(!source.includes(">deterministic-local<")));
   test("ABC choices render only for interactive playback", () => assert(source.includes('candidatePlaybackMode === "interactive"')));
-  test("video handoff never claims a connected provider", () => assert(source.includes('providerExecution: "not_connected"')));
+  test("video handoff names the installed server contract without claiming execution", () => {
+    assert(source.includes('providerExecution: "not_connected"'));
+    assert(source.includes('installedAdapters: ["byteplus-las-seedance-2.5-server-contract"]'));
+  });
+  test("video submission requires runtime, approval, consent and cost confirmation", () => {
+    assert(source.includes("videoRuntimeReady"));
+    assert(source.includes("candidate?.project.status === \"approved\""));
+    assert(source.includes("externalVideoConsent"));
+    assert(source.includes("videoCostConfirmed"));
+  });
 }
 
 const registrations = { core: registerCoreTests, projection: registerProjectionTests, pacing: registerPacingTests, branch: registerBranchTests, migration: registerMigrationTests, compatibility: registerCompatibilityTests, security: registerSecurityTests, ui: registerUiTests };

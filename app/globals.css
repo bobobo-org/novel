@@ -346,9 +346,10 @@ nav.p2UnifiedProjectNav{grid-template-columns:repeat(3,minmax(0,1fr))!important}
 .characterStageReferences{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.characterStageReferences details{padding:10px;border:1px solid #3a5675;border-radius:9px;background:#081829}.characterStageReferences summary{cursor:pointer;color:#efd28d}.characterStageReferences label{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:start;margin-top:8px;color:#adc0d4;font-size:12px}.characterStageReferences input{width:auto;margin-top:3px}
 .characterSelectedPortrait{display:grid;grid-template-columns:82px 1fr;gap:12px;align-items:center;padding:10px;border:1px solid #405f7e;border-radius:10px;background:#081827}.characterSelectedPortrait .characterPortraitImage{width:82px;height:104px;border-radius:8px}.characterSelectedPortrait p{display:grid;gap:4px;margin:0}.characterSelectedPortrait b{color:#f0d390}.characterSelectedPortrait span,.characterSelectedPortrait small{color:#9fb4ca;line-height:1.5}.characterLockedStats{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px solid #534b6d;border-radius:8px;background:#15172a}.characterLockedStats span{display:flex;gap:6px;padding:4px 7px;border-radius:999px;background:#28324a;color:#e9d49d;font-size:11px}.characterLockedStats b{color:#91cfc5}
 .characterHomeCanonEditors{margin-top:12px;padding:12px;border:1px solid #496483;border-radius:12px;background:#08182a}.characterHomeCanonEditors>summary{cursor:pointer;color:#f0d18a;font-weight:800}.characterHomeCanonEditors>div{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.characterHomeCanonEditors form{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:14px;border:1px solid #354f6f;border-radius:10px;background:#071524}.characterHomeCanonEditors h3,.characterHomeCanonEditors .wide{grid-column:1/-1}.characterHomeCanonEditors h3{margin:0;color:#e9cd8a}.characterHomeCanonEditors label{display:grid;gap:5px;color:#aebfd2;font-size:12px}.characterHomeCanonEditors input,.characterHomeCanonEditors select,.characterHomeCanonEditors textarea{width:100%;min-width:0;padding:9px;border:1px solid #496987;border-radius:7px;background:#061321;color:#f3f8ff}.characterHomeCanonEditors button{justify-self:start;padding:9px 12px;border:1px solid #5dcab6;border-radius:8px;background:#164f4d;color:#effffb}
+.characterHomeStats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px;border:1px solid #496987;border-radius:9px;background:#071524}.characterHomeStats label{display:grid;grid-template-columns:1fr 72px;align-items:center;gap:8px}.characterHomeStats input{width:72px}.characterHomeStats p{grid-column:1/-1;margin:0;color:#f1ba65}.characterHomeStats p[data-valid="true"]{color:#72d9c2}
 .characterRelationPerson{display:flex;align-items:center;gap:7px;min-width:0}.characterRelationPerson[data-align="right"]{flex-direction:row-reverse;text-align:right}.characterRelationPerson .characterPortraitImage{flex:0 0 auto;width:44px;height:56px;border-radius:7px}.characterRelationPerson b{overflow:hidden;text-overflow:ellipsis}
 @media(max-width:1100px){.professionalActionGroups{grid-template-columns:1fr 1fr}.professionalProjectHero{grid-template-columns:1fr}.p2WritingAIProfiles,.p2WritingAIToolGroup{grid-template-columns:1fr}.p2WritingAIToolGroup button:last-child{grid-column:auto}.characterRelationNetwork{grid-template-columns:1fr 1fr}.characterStageReferences{grid-template-columns:1fr 1fr}}
-@media(max-width:700px){.professionalModern{padding:10px}.professionalModernHeader{align-items:stretch;flex-direction:column;padding:20px}.professionalModernStatus{min-width:0}.professionalProjectPicker{align-items:stretch;flex-direction:column}.professionalProjectPicker select{width:100%;min-width:0}.professionalProjectPicker span{margin-left:0}.professionalActionGroups{grid-template-columns:1fr}.professionalProjectHero{padding:22px}.professionalProjectHero dl{grid-template-columns:1fr 1fr}.professionalHeroActions{display:grid}.professionalModernTop a{flex:0 0 auto}.characterRelationWorkbench>header,.characterStageManager>header{align-items:flex-start;flex-direction:column}.characterRelationForms,.characterRelationNetwork,.characterStageReferences,.characterHomeCanonEditors>div{grid-template-columns:1fr}.characterRelationForms form,.characterHomeCanonEditors form{grid-template-columns:1fr}.characterRelationForms h3,.characterRelationForms .wide,.characterHomeCanonEditors h3,.characterHomeCanonEditors .wide{grid-column:auto}}
+@media(max-width:700px){.professionalModern{padding:10px}.professionalModernHeader{align-items:stretch;flex-direction:column;padding:20px}.professionalModernStatus{min-width:0}.professionalProjectPicker{align-items:stretch;flex-direction:column}.professionalProjectPicker select{width:100%;min-width:0}.professionalProjectPicker span{margin-left:0}.professionalActionGroups{grid-template-columns:1fr}.professionalProjectHero{padding:22px}.professionalProjectHero dl{grid-template-columns:1fr 1fr}.professionalHeroActions{display:grid}.professionalModernTop a{flex:0 0 auto}.characterRelationWorkbench>header,.characterStageManager>header{align-items:flex-start;flex-direction:column}.characterRelationForms,.characterRelationNetwork,.characterStageReferences,.characterHomeCanonEditors>div{grid-template-columns:1fr}.characterRelationForms form,.characterHomeCanonEditors form{grid-template-columns:1fr}.characterRelationForms h3,.characterRelationForms .wide,.characterHomeCanonEditors h3,.characterHomeCanonEditors .wide{grid-column:auto}.characterHomeStats{grid-template-columns:1fr 1fr}.characterHomeStats p{grid-column:1/-1}}
 
 /* One canonical creation flow: title -> immutable play mode -> story seeds. */
 .p2PlayModeGate{display:grid;max-width:1220px;margin:18px auto;padding:20px;border:1px solid rgba(104,220,199,.45);border-radius:16px;background:linear-gradient(135deg,rgba(8,51,54,.64),rgba(16,27,55,.95));box-shadow:0 18px 44px rgba(0,0,0,.2)}
@@ -407,3 +408,25 @@ nav.p2UnifiedProjectNav{grid-template-columns:repeat(3,minmax(0,1fr))!important}
 .p2LockedCharacterForm {
   display: contents;
 }
+
+.professionalSocialLibrary {
+  max-width: 1480px;
+  margin: 14px auto 0;
+  padding: 0 14px 14px;
+  border: 1px solid rgba(91, 213, 194, .42);
+  border-radius: 18px;
+  background: linear-gradient(150deg, rgba(10, 31, 49, .98), rgba(6, 20, 35, .98));
+}
+.professionalSocialLibrary > summary {
+  padding: 17px 4px;
+  color: #f2d793;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.professionalSocialLibrary > p {
+  margin: 0 4px 12px;
+  color: #a8bacd;
+  line-height: 1.65;
+}
+.professionalSocialLibrary > [data-testid="social-world-library"] { margin-top: 0; }

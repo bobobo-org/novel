@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
+import { access, readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
+import { fileURLToPath } from "node:url";
 import {
   PROCEDURAL_TREASURE_CLASSIFICATION_VERSION,
+  PROCEDURAL_TREASURE_KIND_DEFINITIONS,
   proceduralTreasureClassificationAt,
 } from "../lib/novel-ai/game/procedural-treasure-classification.ts";
+import {
+  PROCEDURAL_TREASURE_ERA_VERSION,
+  resolveProceduralTreasureStoryEra,
+} from "../lib/novel-ai/game/procedural-treasure-era.ts";
+import {
+  PROCEDURAL_TREASURE_VISUAL_VARIANTS_PER_ASSET,
+  PROCEDURAL_TREASURE_VISUAL_VERSION,
+  proceduralTreasureVisualAt,
+} from "../lib/novel-ai/game/procedural-treasure-visual.ts";
 import {
   PROCEDURAL_CAUSAL_DIMENSIONS,
   PROCEDURAL_RELATIONSHIP_SCENARIO_CAPACITY,
@@ -40,11 +52,18 @@ const context = {
   conflict: "三個勢力同時追查失落陣眼",
 };
 
-assert.equal(PROCEDURAL_TREASURE_LIBRARY_VERSION, "procedural-treasure-library-v3");
+assert.equal(PROCEDURAL_TREASURE_LIBRARY_VERSION, "procedural-treasure-library-v4");
 assert.equal(
   PROCEDURAL_TREASURE_CLASSIFICATION_VERSION,
-  "procedural-treasure-classification-v1",
+  "procedural-treasure-classification-v2",
 );
+assert.equal(PROCEDURAL_TREASURE_ERA_VERSION, "procedural-treasure-era-v1");
+assert.equal(PROCEDURAL_TREASURE_VISUAL_VERSION, "procedural-treasure-visual-v1");
+assert.equal(PROCEDURAL_TREASURE_VISUAL_VARIANTS_PER_ASSET, 96);
+assert.equal(PROCEDURAL_TREASURE_KIND_DEFINITIONS.length, 10);
+assert.deepEqual(new Set(PROCEDURAL_TREASURE_KIND_DEFINITIONS.map((item) => item.id)), new Set([
+  "weapon", "artifact", "talisman", "pill", "herb", "formation", "armor", "material", "manual", "special-opportunity",
+]));
 assert.equal(PROCEDURAL_TREASURE_OWNERSHIP_VERSION, "procedural-treasure-ownership-v1");
 assert.equal(PROCEDURAL_TREASURE_MATERIALIZATION_POLICY, "indexed-on-demand-bounded-lru");
 assert.equal(PROCEDURAL_TREASURE_CAPACITY, 100_000);
@@ -78,6 +97,12 @@ assert.ok(first.cost.length > 18);
 assert.ok(first.limitation.length > 18);
 assert.ok(first.storyHook.includes(first.name));
 assert.ok(first.storyHook.includes(first.holder.characterName));
+assert.equal(first.era.storyEra, "ancient");
+assert.equal(first.era.sourceEra, "ancient");
+assert.equal(first.era.isCrossEra, false);
+assert.equal(first.visual.baseAsset, `/item-icons/${first.kind}.png`);
+assert.equal(first.visual.variant >= 0 && first.visual.variant < 96, true);
+assert.equal(first.visual.era, first.era.sourceEra);
 assert.equal(first.stakeholders.length, 3);
 assert.equal(new Set(first.stakeholders.map((entry) => entry.characterId)).size, 3);
 assert.equal(first.causalDimensions.length, 10);
@@ -192,15 +217,109 @@ const socialPossession = matrix.listCharacterPossessions(first.holder.population
 );
 assert.ok(socialPossession);
 assert.equal(socialPossession.treasureRef, first.id);
-const expectedSocialKinds = first.kind === "pill"
-  ? ["丹藥", "藥丸"]
-  : [{
-      weapon: "武器",
-      talisman: "符籙",
-      formation: "陣法",
-      "special-opportunity": "特殊機緣",
-    }[first.kind]];
+const expectedSocialKinds = [{
+  weapon: "武器",
+  artifact: "法寶",
+  talisman: "符籙",
+  pill: "丹藥",
+  herb: "藥草",
+  formation: "陣法",
+  armor: "護具",
+  material: "煉器材料",
+  manual: "功法",
+  "special-opportunity": "特殊機緣",
+}[first.kind]];
 assert.ok(expectedSocialKinds.includes(socialPossession.kind));
+
+const repoRoot = fileURLToPath(new URL("../", import.meta.url));
+const visuals = PROCEDURAL_TREASURE_KIND_DEFINITIONS.map((definition, ordinal) => proceduralTreasureVisualAt({
+  storySeed,
+  treasureId: `visual-${definition.id}`,
+  ordinal,
+  kind: definition.id,
+  rarity: ordinal % 2 ? "common" : "legendary",
+  era: "modern",
+  eraLabel: "現代",
+  isCrossEra: false,
+}));
+assert.equal(new Set(visuals.map((visual) => visual.baseAsset)).size, 8);
+assert.ok(visuals.every((visual) => visual.baseAsset.startsWith("/item-icons/modern-")));
+assert.ok(visuals.every((visual) => visual.assetCount === 18 && visual.variantsPerAsset === 96 && visual.assetTheme === "modern"));
+assert.deepEqual(visuals, PROCEDURAL_TREASURE_KIND_DEFINITIONS.map((definition, ordinal) => proceduralTreasureVisualAt({
+  storySeed,
+  treasureId: `visual-${definition.id}`,
+  ordinal,
+  kind: definition.id,
+  rarity: ordinal % 2 ? "common" : "legendary",
+  era: "modern",
+  eraLabel: "現代",
+  isCrossEra: false,
+})));
+for (const visual of visuals) {
+  await access(`${repoRoot}public${visual.baseAsset}`);
+}
+const ancientVisuals = PROCEDURAL_TREASURE_KIND_DEFINITIONS.map((definition, ordinal) => proceduralTreasureVisualAt({
+  storySeed,
+  treasureId: `ancient-visual-${definition.id}`,
+  ordinal,
+  kind: definition.id,
+  rarity: "rare",
+  era: "ancient",
+  eraLabel: "古代／修行",
+  isCrossEra: false,
+}));
+assert.equal(new Set(ancientVisuals.map((visual) => visual.baseAsset)).size, 10);
+assert.ok(ancientVisuals.every((visual) => visual.assetTheme === "ancient" && !visual.baseAsset.includes("modern-")));
+for (let index = 0; index < ancientVisuals.length; index += 1) {
+  assert.notEqual(ancientVisuals[index].baseAsset, visuals[index].baseAsset);
+  await access(`${repoRoot}public${ancientVisuals[index].baseAsset}`);
+}
+
+const modernContext = { ...context, genre: "現代企業懸疑", storyTags: ["當代城市"] };
+assert.deepEqual(resolveProceduralTreasureStoryEra(modernContext), {
+  era: "modern",
+  eraLabel: "現代",
+  allowsCrossEra: false,
+});
+const modernMatrix = new DeterministicSocialMatrix({ seed: `${storySeed}-modern`, context: modernContext, cacheLimit: 0 });
+const modernRecords = Array.from({ length: 10 }, (_, ordinal) => proceduralTreasureRecordAt({
+  storySeed: `${storySeed}-modern`,
+  ordinal,
+  context: modernContext,
+  socialMatrix: modernMatrix,
+}));
+assert.equal(new Set(modernRecords.map((record) => record.kind)).size, 10);
+assert.ok(modernRecords.every((record) => record.era.sourceEra === "modern" && !record.era.isCrossEra));
+assert.ok(modernRecords.every((record) => /^[\p{Script=Han}A-Za-z／ ]+ [A-Z]{2}-\d{4}$/u.test(record.name)));
+assert.ok(modernRecords.some((record) => /槍械|防衛/u.test(record.kindLabel)));
+assert.ok(modernRecords.some((record) => /電子|晶片|實驗/u.test(record.kindLabel)));
+assert.ok(modernRecords.some((record) => /醫藥/u.test(record.kindLabel)));
+assert.ok(modernRecords.some((record) => /載具/u.test(record.kindLabel)));
+assert.ok(modernRecords.some((record) => /文件|憑證/u.test(record.kindLabel)));
+
+const crossEraContext = { ...modernContext, storyTags: ["現代城市", "穿越"] };
+const crossEraMatrix = new DeterministicSocialMatrix({ seed: `${storySeed}-cross`, context: crossEraContext, cacheLimit: 0 });
+const crossEraRecords = Array.from({ length: 44 }, (_, ordinal) => proceduralTreasureRecordAt({
+  storySeed: `${storySeed}-cross`,
+  ordinal,
+  context: crossEraContext,
+  socialMatrix: crossEraMatrix,
+}));
+assert.ok(crossEraRecords.some((record) => record.era.isCrossEra));
+assert.ok(crossEraRecords.every((record) => record.era.sourceEra === "modern" || record.era.compatibilityGate === "explicit-cross-era"));
+
+const socialWorldSource = await readFile(`${repoRoot}app/studio/project/[projectId]/social-world-library.tsx`, "utf8");
+assert.match(socialWorldSource, /data-visual-variant/u);
+assert.match(socialWorldSource, /data-badge="rarity"/u);
+assert.match(socialWorldSource, /data-badge="era"/u);
+assert.match(socialWorldSource, /mode = "reference-only"/u);
+assert.match(socialWorldSource, /if \(!ensureHomeEdit\("核准寶物與持有人關係"\)\) return;/u);
+const professionalSource = await readFile(`${repoRoot}app/professional/professional-client.tsx`, "utf8");
+assert.match(professionalSource, /data-testid="professional-social-world-library"/u);
+assert.match(professionalSource, /mode="home-edit"/u);
+for (const store of ["characters", "lore", "operationJournal", "storyBibles", "worlds"]) {
+  assert.ok(professionalSource.includes(`"${store}"`), `Professional home summary must load ${store}`);
+}
 
 // Prove the forward/reverse ownership contract exhaustively on a small prime
 // capacity, then sample all boundary regions of the production 100k space.
@@ -290,7 +409,7 @@ for (let ordinal = 0; ordinal < 100; ordinal += 1) {
 }
 assert.deepEqual(
   [...kinds].sort(),
-  ["formation", "pill", "special-opportunity", "talisman", "weapon"],
+  ["armor", "artifact", "formation", "herb", "manual", "material", "pill", "special-opportunity", "talisman", "weapon"],
 );
 assert.equal(holderIds.size, 100);
 

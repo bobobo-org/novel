@@ -1,5 +1,5 @@
 import CharacterAgentWorkspace from "../character-ai/character-agent-workspace";
-import Client from "../project-section-client";
+import StoryStageSelectionPage from "../story-stage-selection-page";
 
 export default async function Page({
   params,
@@ -14,5 +14,5 @@ export default async function Page({
     return <CharacterAgentWorkspace projectId={projectId} />;
   }
   const view = requestedView === "world" ? "world" : "characters";
-  return <Client projectId={projectId} section={view} />;
+  return <StoryStageSelectionPage projectId={projectId} focus={view} />;
 }

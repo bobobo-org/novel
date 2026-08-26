@@ -12,6 +12,8 @@ const [
   progressRoute,
   legacyTimelineRoute,
   legacyStoryBibleRoute,
+  stageSelectionPage,
+  stageSelector,
 ] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/project-navigation.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/project-context-tabs.tsx", import.meta.url), "utf8"),
@@ -23,6 +25,8 @@ const [
   readFile(new URL("../app/studio/project/[projectId]/progress/page.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/timeline/page.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/story-bible/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/story-stage-selection-page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/story-stage-selector.tsx", import.meta.url), "utf8"),
 ]);
 
 const checks = [];
@@ -59,21 +63,24 @@ check("active author tool keeps URL and visible tool in sync", () => {
   assert.match(authorTools, /activeHref=\{`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/author-tools\?tool=/u);
 });
 
-check("story context keeps both views and reports the Canon boundary", () => {
+check("story context keeps both selection-only views and reports the Canon boundary", () => {
   assert.match(contextTabs, /label: "時間線"/u);
   assert.match(contextTabs, /label: "故事記憶"/u);
-  assert.match(sections, /function StoryContextWorkspace/u);
-  assert.match(sections, /<TimelineEditor/u);
-  assert.match(sections, /<StoryBibleEditor/u);
-  assert.match(contextTabs, /data-testid="story-context-summary"/u);
-  assert.match(sections, /AI 檢查與整理只會建立候選/u);
-  assert.match(sections, /不會冒充已完成未經核准/u);
+  assert.match(contextTabs, /唯讀事件與上場選擇/u);
+  assert.match(contextTabs, /唯讀 Canon 與上場記憶/u);
+  assert.match(stageSelectionPage, /data-canon-edit-surface="story-selection-only"/u);
+  assert.match(stageSelector, /Story Bible 與上場記憶/u);
+  assert.match(stageSelector, /activeTimelineEventIds/u);
 });
 
-check("new story-context route selects a view while old deep links still render", () => {
+check("new story-context route and old deep links all render selection-only surfaces", () => {
   assert.match(storyContextRoute, /requestedView === "story-bible"/u);
-  assert.match(legacyTimelineRoute, /section="timeline"/u);
-  assert.match(legacyStoryBibleRoute, /section="story-bible"/u);
+  assert.match(storyContextRoute, /StoryStageSelectionPage/u);
+  assert.doesNotMatch(storyContextRoute, /project-section-client/u);
+  assert.match(legacyTimelineRoute, /focus="timeline"/u);
+  assert.match(legacyStoryBibleRoute, /focus="story-bible"/u);
+  assert.doesNotMatch(legacyTimelineRoute, /project-section-client/u);
+  assert.doesNotMatch(legacyStoryBibleRoute, /project-section-client/u);
 });
 
 check("people and world share one entry with three clear views", () => {
@@ -82,6 +89,8 @@ check("people and world share one entry with three clear views", () => {
   assert.match(contextTabs, /label: "世界設定"/u);
   assert.match(peopleWorldRoute, /requestedView === "character-ai"/u);
   assert.match(peopleWorldRoute, /requestedView === "world"/u);
+  assert.match(peopleWorldRoute, /StoryStageSelectionPage/u);
+  assert.doesNotMatch(peopleWorldRoute, /project-section-client/u);
   assert.match(characterAI, /context="people-world" active="character-ai"/u);
 });
 

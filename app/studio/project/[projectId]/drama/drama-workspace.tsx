@@ -27,6 +27,19 @@ type WorkspaceData = {
 
 type DramaPlaybackMode = "linear" | "interactive";
 
+type VideoRuntimeHealth = {
+  configured: boolean;
+  model: string;
+  credentialConfigured: boolean;
+  jobStoreConfigured: boolean;
+  artifactStoreConfigured: boolean;
+};
+
+type VideoRuntimeState = {
+  loading: boolean;
+  health: VideoRuntimeHealth | null;
+};
+
 const FORMAT_LABELS: Record<DramaFormatProfileId, string> = {
   DRAMA_60_SECONDS: "60 秒強節奏短劇",
   DRAMA_90_SECONDS: "90 秒完整微弧線",
@@ -53,6 +66,10 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
   const [candidate, setCandidate] = useState<DramaProjectionPackage | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("選擇目標長度後，建立一份不會直接改動原作的短劇候選。");
+  const [videoRuntime, setVideoRuntime] = useState<VideoRuntimeState>({ loading: true, health: null });
+  const [externalVideoConsent, setExternalVideoConsent] = useState(false);
+  const [videoCostConfirmed, setVideoCostConfirmed] = useState(false);
+  const [videoBusy, setVideoBusy] = useState(false);
 
   const load = useCallback(async () => {
     const repository = repositoryRef.current ?? createNovelRepository();
@@ -74,6 +91,40 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
   useEffect(() => {
     void load().catch((error) => setMessage(plainError(error)));
   }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/media/video/health", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as Partial<VideoRuntimeHealth>;
+        if (!response.ok
+          || typeof payload.configured !== "boolean"
+          || typeof payload.model !== "string"
+          || typeof payload.credentialConfigured !== "boolean"
+          || typeof payload.jobStoreConfigured !== "boolean"
+          || typeof payload.artifactStoreConfigured !== "boolean") {
+          throw new Error("VIDEO_HEALTH_INVALID");
+        }
+        setVideoRuntime({
+          loading: false,
+          health: {
+            configured: payload.configured,
+            model: payload.model,
+            credentialConfigured: payload.credentialConfigured,
+            jobStoreConfigured: payload.jobStoreConfigured,
+            artifactStoreConfigured: payload.artifactStoreConfigured,
+          },
+        });
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setVideoRuntime({ loading: false, health: null });
+        setMessage(error instanceof Error && error.message === "VIDEO_HEALTH_INVALID"
+          ? "影片服務狀態無法驗證；本次不會送出外部工作。"
+          : "無法讀取影片服務狀態；本次不會送出外部工作。");
+      });
+    return () => controller.abort();
+  }, []);
 
   async function generate() {
     if (!data || busy) return;
@@ -118,6 +169,8 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
         allCharactersConfirmedAdult: !data.project.adultMode,
         resourceBudget: { maxSourceChars: 500_000, maxEpisodes: 12, maxScenes: 72, timeoutMs: 30_000 },
       });
+      setExternalVideoConsent(false);
+      setVideoCostConfirmed(false);
       setCandidate(result);
       setCandidatePlaybackMode(playbackMode);
       setMessage(playbackMode === "interactive"
@@ -152,6 +205,78 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
       setMessage(plainError(error));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function submitVideoGeneration() {
+    if (!candidate || !data || candidate.project.status !== "approved") {
+      setMessage("請先核准短劇改編，再準備 Seedance 2.5 工作。");
+      return;
+    }
+    if (!videoRuntime.health?.configured) {
+      setMessage("Seedance 2.5 尚未完成永久工作儲存與伺服器端設定；本次沒有送出工作。");
+      return;
+    }
+    if (!externalVideoConsent || !videoCostConfirmed) {
+      setMessage("請先確認資料會離開本機，以及外部供應商可能收費。");
+      return;
+    }
+    if (data.project.adultMode) {
+      setMessage("第一階段不會把成人內容送往 Seedance 2.5。");
+      return;
+    }
+    const firstScene = candidate.scenes[0];
+    if (!firstScene) {
+      setMessage("核准改編沒有可供影片化的場景。");
+      return;
+    }
+    setVideoBusy(true);
+    try {
+      const response = await fetch("/api/media/video/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schemaVersion: "seedance-video-submit-v1",
+          idempotencyKey: `seedance:${candidate.project.dramaProjectId}:${candidate.project.revision}:first-shot`,
+          projectId: data.project.id,
+          approvedDrama: {
+            dramaProjectId: candidate.project.dramaProjectId,
+            storyId: candidate.project.storyId,
+            revision: candidate.project.revision,
+            status: candidate.project.status,
+            sourceStoryRevision: candidate.project.sourceStoryRevision,
+            sourceStoryBibleVersion: candidate.project.sourceStoryBibleVersion,
+            projectionOutputHash: candidate.project.projectionTrace.outputHash,
+          },
+          mediaPrompt: [
+            `把「${data.project.title}」的核准改編製作成一段 8 秒測試鏡頭。`,
+            firstScene.visualAction,
+            ...firstScene.continuityConstraints.map((constraint) => constraint.description),
+          ].join("\n"),
+          durationSeconds: 8,
+          resolution: "720p",
+          ratio: "16:9",
+          adultNamespace: "general",
+          externalConsent: true,
+          costConfirmed: true,
+        }),
+      });
+      const payload = await response.json().catch(() => null) as null | {
+        jobId?: string;
+        status?: string;
+        code?: string;
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload?.message || "影片工作沒有建立；沒有產生 MP4。");
+      }
+      setMessage(payload?.jobId
+        ? `Seedance 工作 ${payload.jobId} 已建立（${payload.status ?? "queued"}）；完成前不會顯示 MP4。`
+        : "影片工作已建立；完成與成品驗證前不會顯示 MP4。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "影片工作沒有建立；沒有產生 MP4。");
+    } finally {
+      setVideoBusy(false);
     }
   }
 
@@ -190,7 +315,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
       exportedAt: new Date().toISOString(),
       playbackMode: mode,
       providerExecution: "not_connected",
-      installedAdapters: [],
+      installedAdapters: ["byteplus-las-seedance-2.5-server-contract"],
       suggestedProviderFamilies: ["Seedance", "Runway", "Sora", "Veo"],
       generatedVideo: false,
       artifactMimeType: null,
@@ -220,6 +345,13 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
     () => candidate ? getDramaFormatProfile(candidate.project.formatProfile) : null,
     [candidate],
   );
+  const videoRuntimeReady = videoRuntime.health?.configured === true;
+  const videoCanSubmit = videoRuntimeReady
+    && candidate?.project.status === "approved"
+    && !data?.project.adultMode
+    && externalVideoConsent
+    && videoCostConfirmed
+    && !videoBusy;
 
   if (!data) return <main className="p2ProjectShell"><p role="status">{message}</p></main>;
   return (
@@ -291,17 +423,45 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
             <footer className="dramaActions">
               <button className="gold" disabled={busy || candidate.project.status === "approved" || Boolean(evaluation?.blockingIssueCount)} onClick={() => void approve()}>{candidate.project.status === "approved" ? "已核准改編" : "接受並建立改編版本"}</button>
               <button disabled={busy} onClick={() => void generate()}>再產生一份</button>
-              <button disabled={busy} onClick={() => { setCandidate(null); setCandidatePlaybackMode(null); setMessage("已放棄畫面上的候選；正式作品沒有變更。"); }}>放棄</button>
+              <button disabled={busy} onClick={() => {
+                setExternalVideoConsent(false);
+                setVideoCostConfirmed(false);
+                setCandidate(null);
+                setCandidatePlaybackMode(null);
+                setMessage("已放棄畫面上的候選；正式作品沒有變更。");
+              }}>放棄</button>
             </footer>
             <details className="dramaTechnical"><summary>查看技術資訊</summary><dl><div><dt>執行方式</dt><dd>本機規則式戲劇規劃</dd></div><div><dt>正式小說寫入</dt><dd>{candidate.canonicalMutation}</dd></div><div><dt>來源版本</dt><dd>{candidate.project.sourceStoryRevision}</dd></div><div><dt>目標秒數</dt><dd>{candidateProfile?.targetDurationSeconds}</dd></div><div><dt>Hook 時限</dt><dd>{candidateProfile?.openingHookDeadlineSeconds}</dd></div><div><dt>衝突間隔</dt><dd>{candidateProfile?.conflictIntervalSeconds}</dd></div><div><dt>轉折間隔</dt><dd>{candidateProfile?.reversalIntervalSeconds}</dd></div><div><dt>最低 Payoff</dt><dd>{candidateProfile?.minimumPayoffCount}</dd></div><div><dt>搜尋前文紀錄</dt><dd>{candidate.project.projectionTrace.retrievalTraceId}</dd></div><div><dt>內容指紋</dt><dd>{candidate.project.projectionTrace.outputHash}</dd></div></dl></details>
           </>
         )}
         <section id="video-production" className="dramaVideoPipeline">
-          <div><small>VIDEO RUNTIME STATUS</small><h2>真正影片生成尚未連接</h2><p>目前不會送出影片工作，也不會產生 MP4。真正流程需要伺服器端影片供應商、成本確認、進度輪詢、失敗重試、受控儲存與 MP4 驗證；API 密鑰不能放在瀏覽器。</p></div>
-          <ol><li>目前只有本系統 JSON 交接資料，不能當成影片成品。</li><li>沒有已安裝或已授權的 Seedance、Runway、Sora 或 Veo 執行介面。</li><li>選定供應商並完成伺服器設定後，才會開放真正的「生成 MP4」。</li></ol>
-          <button type="button" disabled>生成 MP4（尚未連接）</button>
+          <div>
+            <small>BYTEPLUS LAS · VIDEO RUNTIME STATUS</small>
+            <h2>{videoRuntime.loading
+              ? "正在確認 Seedance 2.5 連接狀態"
+              : videoRuntimeReady
+                ? "Seedance 2.5 已具備安全送件條件"
+                : "Seedance 2.5 已安裝，但尚未可送件"}</h2>
+            <p>模型：{videoRuntime.health?.model ?? "dreamina-seedance-2-5-260628"}。API 金鑰只由伺服器讀取；瀏覽器只會收到是否完成各項設定的布林值，不會收到密鑰。</p>
+          </div>
+          <ol>
+            <li>伺服器憑證：{videoRuntime.health?.credentialConfigured ? "已設定" : "未設定或不在允許清單"}；永久工作儲存：{videoRuntime.health?.jobStoreConfigured ? "已設定" : "尚未設定"}；私有成品驗證儲存：{videoRuntime.health?.artifactStoreConfigured ? "已設定" : "尚未設定"}。</li>
+            <li>第一階段每次只準備 8 秒、720p、16:9 的核准場景測試鏡頭，不代表完整短劇。</li>
+            <li>必須先核准改編、同意資料離開本機並確認外部費用；完成後仍要通過 MP4 驗證才能稱為影片成品。</li>
+          </ol>
+          <div className="dramaVideoConsents">
+            <label><input type="checkbox" checked={externalVideoConsent} disabled={videoBusy || candidate?.project.status !== "approved"} onChange={(event) => setExternalVideoConsent(event.target.checked)} />我同意核准場景、連續性要求與提示詞會送往 BytePlus，資料將離開本機。</label>
+            <label><input type="checkbox" checked={videoCostConfirmed} disabled={videoBusy || candidate?.project.status !== "approved"} onChange={(event) => setVideoCostConfirmed(event.target.checked)} />我知道 Seedance 工作可能依 BytePlus 當時費率收費，並確認要建立這次 8 秒測試工作。</label>
+          </div>
+          <button type="button" disabled={!videoCanSubmit} onClick={() => void submitVideoGeneration()}>{videoBusy ? "正在建立工作……" : "送出 Seedance 2.5 測試工作"}</button>
           <button type="button" disabled={busy || candidate?.project.status !== "approved"} onClick={downloadVideoProductionPackage}>下載 JSON 交接資料（非影片）</button>
-          <small>{candidate?.project.status === "approved" ? "改編已核准；目前仍只能下載 JSON，不會產生影片。" : "先建立並核准短劇候選，才可下載非影片的交接資料。"}</small>
+          <small>{candidate?.project.status !== "approved"
+            ? "先建立並核准短劇候選，才可下載非影片的交接資料或準備外部工作。"
+            : data.project.adultMode
+              ? "第一階段不會把成人內容送往 Seedance；仍可下載不會執行的 JSON 交接資料。"
+              : videoRuntimeReady
+                ? "完成兩項確認後才可送件；按一下只會建立一個可追蹤工作，不會立即宣稱已有 MP4。"
+                : "目前仍可下載 JSON；影片按鈕會保持停用，也不會呼叫付費供應商。"}</small>
         </section>
       </section>
     </main>

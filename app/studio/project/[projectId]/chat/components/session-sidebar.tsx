@@ -80,12 +80,13 @@ export function SessionSidebar({
       </div>
       <div className={styles.sessionList}>
         {sessions.map((session) => (
-          <div className={styles.sessionRow} data-active={session.id === activeSessionId} data-switching={session.id === switchingSessionId} data-queued={session.id === queuedSessionId} key={session.id} data-session-id={session.id}>
+          <div className={styles.sessionRow} data-active={session.id === activeSessionId} data-switching={session.id === switchingSessionId} data-queued={session.id === queuedSessionId} key={session.id} data-session-id={session.id} data-testid={session.id === activeSessionId ? "conversation-active-session" : undefined}>
             <button
               className={styles.sessionButton}
               type="button"
               disabled={(busy && !branchPending) || session.id === switchingSessionId || session.id === queuedSessionId}
               aria-busy={session.id === switchingSessionId || session.id === queuedSessionId}
+              aria-current={session.id === activeSessionId ? "true" : undefined}
               onClick={() => onChooseSession(session.id)}
             >
               {session.id === queuedSessionId

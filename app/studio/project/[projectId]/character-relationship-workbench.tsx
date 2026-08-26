@@ -6,6 +6,8 @@ import {
   optionalValue,
   type Character,
   type CharacterRelationship,
+  type CharacterRpgArchetype,
+  type CharacterRpgStatKey,
   type DomainRecord,
   type LoreEntry,
   type NovelProject,
@@ -15,10 +17,7 @@ import {
   type World,
   type WorldRule,
 } from "@/lib/novel-ai/domain";
-import {
-  assertStoryStartedCanonMutationAllowed,
-  explicitCrossEraCanonAuthorization,
-} from "@/lib/novel-ai/domain/story-started-canon-guard";
+import { explicitCrossEraCanonAuthorization } from "@/lib/novel-ai/domain/story-started-canon-guard";
 import {
   CHARACTER_PORTRAIT_CAPACITY,
 } from "@/lib/novel-ai/character-portraits/catalog";
@@ -38,6 +37,16 @@ import {
 } from "@/lib/novel-ai/game/character-profession";
 import { managementInvestmentCatalog, resolveManagementEra } from "@/lib/novel-ai/game/management-investments";
 import { CULTIVATION_OPPORTUNITIES } from "@/lib/novel-ai/game/cultivation-opportunities";
+import {
+  CHARACTER_RPG_ARCHETYPES,
+  CHARACTER_RPG_POINT_BUDGET,
+  CHARACTER_RPG_STAT_LABELS,
+  CHARACTER_RPG_STAT_MAX,
+  CHARACTER_RPG_STAT_MIN,
+  characterRpgPointTotal,
+  characterRpgStatsForArchetype,
+  createCharacterRpgProfile,
+} from "@/lib/novel-ai/game/character-rpg-profile";
 import {
   CULTIVATION_REALMS,
   SECT_RANK_CATALOG,
@@ -75,12 +84,10 @@ type WorkbenchData = {
 export default function CharacterRelationshipWorkbench({
   project,
   compact = false,
-  storyStarted = false,
   onChanged,
 }: {
   project: NovelProject;
   compact?: boolean;
-  storyStarted?: boolean;
   onChanged?: () => void | Promise<void>;
 }) {
   const repository = useMemo(() => createNovelRepository(), []);
@@ -90,6 +97,10 @@ export default function CharacterRelationshipWorkbench({
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [name, setName] = useState("");
   const [profession, setProfession] = useState("");
+  const [rpgArchetype, setRpgArchetype] = useState<CharacterRpgArchetype>("balanced");
+  const [rpgStats, setRpgStats] = useState<Record<CharacterRpgStatKey, number>>(
+    () => characterRpgStatsForArchetype("balanced"),
+  );
   const [spiritRootId, setSpiritRootId] = useState("root.mixed");
   const [realmId, setRealmId] = useState("realm.qi-refining");
   const [realmStage, setRealmStage] = useState<"初期" | "中期" | "後期" | "圓滿">("初期");
@@ -162,6 +173,9 @@ export default function CharacterRelationshipWorkbench({
   function applyCharacterForm(character: Character | null) {
     setName(character?.name ?? "");
     setProfession(character?.identity.value ?? "");
+    const nextArchetype = character?.rpgProfile?.archetype ?? "balanced";
+    setRpgArchetype(nextArchetype);
+    setRpgStats(character?.rpgProfile?.stats ?? characterRpgStatsForArchetype(nextArchetype));
     setSpiritRootId(character?.cultivationProfile?.spiritRootId ?? "root.mixed");
     setRealmId(character?.cultivationProfile?.realmId ?? "realm.qi-refining");
     setRealmStage(character?.cultivationProfile?.realmStage ?? "初期");
@@ -385,28 +399,12 @@ export default function CharacterRelationshipWorkbench({
       setMessage("世界名稱不能留白。");
       return;
     }
-    try {
-      assertStoryStartedCanonMutationAllowed({
-        storyStarted,
-        mutation: creating ? "create-world" : "update-world",
-        existingRecord: Boolean(selectedWorld),
-        existingWorldEra: selectedWorld?.era.value,
-        requestedWorldEra: worldEra,
-      });
-    } catch {
-      setMessage(creating
-        ? "故事已有正文；新時代或新世界必須先由穿越／轉換事件建立，不能直接插入正式 Canon。"
-        : "故事已有正文；既有世界的時代已鎖定，不能從首頁任意改寫。 ");
-      return;
-    }
     setBusy(true);
     try {
       const saved = await repository.put<World>("worlds", {
         ...(selectedWorld ?? makeRecord(project.id, "user")),
         name: optionalValue(worldName.trim() || null, worldName.trim() ? "user_defined" : "unset"),
-        era: storyStarted && selectedWorld
-          ? selectedWorld.era
-          : optionalValue(worldEra.trim() || null, worldEra.trim() ? "user_defined" : "unset"),
+        era: optionalValue(worldEra.trim() || null, worldEra.trim() ? "user_defined" : "unset"),
         summary: optionalValue(worldSummary.trim() || null, worldSummary.trim() ? "user_defined" : "unset"),
       }, selectedWorld?.revision);
       if (creating) {
@@ -419,11 +417,9 @@ export default function CharacterRelationshipWorkbench({
         }
         setSelectedWorldId(saved.id);
       }
-      await finish(storyStarted
-        ? "世界內容已更新；故事開始後的時代已鎖定，沒有被改動。"
-        : creating
-          ? "新世界已在首頁建立；請確認是否設為目前上場世界。"
-          : "世界名稱、時代與背景已在首頁更新。 ");
+      await finish(creating
+        ? "新世界已在首頁建立；請確認是否設為目前上場世界。"
+        : "世界名稱、時代與背景已在首頁更新。故事內只會讀取這份正式設定。 ");
       if (creating) setSelectedWorldId(saved.id);
     } catch (cause) {
       setMessage(`世界儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
@@ -433,10 +429,7 @@ export default function CharacterRelationshipWorkbench({
   }
 
   async function removeSelectedWorld() {
-    if (!selectedWorld || storyStarted) {
-      setMessage("故事開始後不能刪除正式世界或時代。");
-      return;
-    }
+    if (!selectedWorld) return;
     if (!confirm(`確定刪除世界「${selectedWorld.name.value ?? "未命名世界"}」嗎？`)) return;
     setBusy(true);
     try {
@@ -583,10 +576,6 @@ export default function CharacterRelationshipWorkbench({
   async function removeSelectedRule() {
     const rule = data.worldRules.find((item) => item.id === selectedRuleId) ?? null;
     if (!rule) return;
-    if (rule.immutable && storyStarted) {
-      setMessage("故事開始後不可刪除不可違反的世界規則。");
-      return;
-    }
     if (!confirm(`確定刪除世界規則「${rule.title}」嗎？`)) return;
     setBusy(true);
     try {
@@ -685,10 +674,6 @@ export default function CharacterRelationshipWorkbench({
     event.preventDefault();
     const creating = selectedCharacterId === "__new__";
     if (!selectedCharacter && !creating) return;
-    if (creating && storyStarted) {
-      setMessage("故事已有正文；請從既有正式人物庫選擇配角上場，避免中途建立沒有事件來源的新能力資料。");
-      return;
-    }
     if (!name.trim()) {
       setMessage("人物姓名不能留白。");
       return;
@@ -707,7 +692,7 @@ export default function CharacterRelationshipWorkbench({
       setMessage(`「${normalizedProfession}」已由${duplicateProfession.name}擔任；請替每位人物安排不同職業或專長。`);
       return;
     }
-    if (usesCultivationCanon && !storyStarted) {
+    if (usesCultivationCanon) {
       const rank = SECT_RANK_CATALOG.find((item) => item.id === sectRankId);
       const realmIndex = CULTIVATION_REALMS.findIndex((item) => item.id === realmId);
       const minimumIndex = CULTIVATION_REALMS.findIndex((item) => item.id === rank?.minimumRealmId);
@@ -752,6 +737,10 @@ export default function CharacterRelationshipWorkbench({
         ...baseCharacter,
         name: name.trim() || baseCharacter.name,
         identity: optionalValue(profession.trim() || null, profession.trim() ? "user_defined" : "unset"),
+        rpgProfile: createCharacterRpgProfile({
+          archetype: rpgArchetype,
+          stats: rpgStats,
+        }),
         portrait: baseCharacter.portrait?.source === "upload" || baseCharacter.portrait?.source === "catalog"
           ? baseCharacter.portrait
           : {
@@ -760,9 +749,7 @@ export default function CharacterRelationshipWorkbench({
               approvedBy: "user",
               dataLeftDevice: false,
             },
-        cultivationProfile: storyStarted
-          ? baseCharacter.cultivationProfile
-          : usesCultivationCanon ? {
+        cultivationProfile: usesCultivationCanon ? {
           schemaVersion: "character-cultivation-profile-v1",
           spiritRootId,
           realmId,
@@ -783,11 +770,9 @@ export default function CharacterRelationshipWorkbench({
         }
         setSelectedCharacterId(saved.id);
       }
-      await finish(storyStarted
-        ? "人物姓名、身分與屬性配對人像已更新；既有能力、境界與位階保持鎖定。"
-        : creating
-          ? "新人物已在首頁建立並加入正式人物庫；請決定是否讓他上場。"
-          : "人物資料與屬性配對人像已寫入正式角色資料，故事工作台會讀到同一筆內容。");
+      await finish(creating
+        ? "新人物已在首頁建立並加入正式人物庫；請決定是否讓他上場。"
+        : "人物、能力值、境界與屬性配對人像已在首頁更新；故事內只會讀取並選擇這筆正式資料。");
       if (creating) setSelectedCharacterId(saved.id);
     } catch (cause) {
       setMessage(`人物儲存失敗：${cause instanceof Error ? cause.message : "請重試"}`);
@@ -797,10 +782,7 @@ export default function CharacterRelationshipWorkbench({
   }
 
   async function removeSelectedCharacter() {
-    if (!selectedCharacter || storyStarted) {
-      setMessage("故事開始後不能刪除正式人物；可將配角移到候場名單。");
-      return;
-    }
+    if (!selectedCharacter) return;
     if (storyBible?.protagonistIds.includes(selectedCharacter.id)) {
       setMessage("主角不能直接刪除；請先在完整人物設定中更換主角。");
       return;
@@ -920,16 +902,14 @@ export default function CharacterRelationshipWorkbench({
     : null;
 
   return (
-    <section id="character-world-memory-home" className="characterRelationWorkbench" data-compact={compact} data-testid="character-relationship-workbench">
+    <section id="character-world-memory-home" className="characterRelationWorkbench" data-compact={compact} data-canon-edit-surface="home" data-testid="character-relationship-workbench">
       <header>
         <div><small>CHARACTERS · WORLD · MEMORY · SAME CANON</small><h2>首頁正式設定與上場管理</h2></div>
         <span>{worldContextLabel} · {data.characters.length} 人 · {data.relationships.length} 條關係 · {CHARACTER_PORTRAIT_CAPACITY.toLocaleString("zh-TW")} 種衍生造型</span>
       </header>
       <p>首頁管理正式人物、世界與 Story Bible；故事中的工作台只選擇誰、哪個世界與哪些記憶要在目前情節上場。人物人像會依時代、身分、年齡、個性與能力從 100 張基礎人像的 100 組可重現造型中配對，不會讓不同人物共用同一張空白卡。</p>
-      <p className="characterCanonLock" data-locked={storyStarted} role="status">
-        {storyStarted
-          ? "故事已開始：能力值、靈根、境界、宗門位階、主修與世界時代已鎖定；仍可補充姓名、身分、背景、關係、Story Bible，並調整配角上場名單。"
-          : "故事尚未正式開始：可在首頁完成能力、時代與人物基礎設定；開始後這些數值會鎖定。"}
+      <p className="characterCanonLock" data-locked="false" role="status">
+        首頁是正式設定的唯一編修區：無論故事是否已開始，都可修改人物、能力值、世界、Story Bible、規則、記憶與時間線；故事內只能選擇上場內容，不能改寫這些正式數值。
       </p>
 
       <section className="characterStageManager" aria-labelledby="character-stage-title">
@@ -977,20 +957,32 @@ export default function CharacterRelationshipWorkbench({
         <form onSubmit={saveCharacter}>
           <h3>{selectedCharacterId === "__new__" ? "在首頁建立人物" : "快速編修人物"}</h3>
           {selectedPortrait ? <div className="characterSelectedPortrait wide"><CharacterPortraitImage portrait={selectedPortrait} /><p><b>{selectedPortrait.role}</b><span>{selectedPortrait.themeLabel} · 依目前人物屬性自動配對</span><small>{selectedPortrait.visualDescription}</small></p></div> : null}
-          <label>人物<select value={selectedCharacterId || "__new__"} onChange={(event) => selectCharacter(event.target.value)}><option value="__new__" disabled={storyStarted}>＋ 建立新人物</option>{data.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
+          <label>人物<select value={selectedCharacterId || "__new__"} onChange={(event) => selectCharacter(event.target.value)}><option value="__new__">＋ 建立新人物</option>{data.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
           <label>姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label>職業／身分<input list={`profession-${project.id}`} value={profession} onChange={(event) => setProfession(event.target.value)} placeholder={suggestions.slice(0, 4).join("、")} /></label>
           <datalist id={`profession-${project.id}`}>{suggestions.map((item) => <option key={item} value={item} />)}</datalist>
+          <label className="wide">能力配置<select value={rpgArchetype} onChange={(event) => {
+            const next = event.target.value as CharacterRpgArchetype;
+            setRpgArchetype(next);
+            setRpgStats((current) => characterRpgStatsForArchetype(next, current));
+          }}>{CHARACTER_RPG_ARCHETYPES.map((item) => <option key={item.id} value={item.id}>{item.label}｜{item.description}</option>)}</select></label>
+          <div className="characterHomeStats wide" aria-label="首頁正式能力值編修">
+            {(Object.entries(CHARACTER_RPG_STAT_LABELS) as Array<[CharacterRpgStatKey, string]>).map(([key, label]) => <label key={key}>{label}<input type="number" min={CHARACTER_RPG_STAT_MIN} max={CHARACTER_RPG_STAT_MAX} step="1" value={rpgStats[key]} onChange={(event) => {
+              const value = Number(event.target.value);
+              setRpgArchetype("custom");
+              setRpgStats((current) => ({ ...current, [key]: value }));
+            }} /></label>)}
+            <p data-valid={characterRpgPointTotal(rpgStats) === CHARACTER_RPG_POINT_BUDGET}>合計 {characterRpgPointTotal(rpgStats)} / {CHARACTER_RPG_POINT_BUDGET} 點</p>
+          </div>
           {usesCultivationCanon ? <>
-            <label>靈根<select disabled={storyStarted} value={spiritRootId} onChange={(event) => setSpiritRootId(event.target.value)}>{SPIRIT_ROOT_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.strength}</option>)}</select></label>
-            <label>修仙境界<select disabled={storyStarted} value={realmId} onChange={(event) => setRealmId(event.target.value)}>{CULTIVATION_REALMS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label>境界階段<select disabled={storyStarted} value={realmStage} onChange={(event) => setRealmStage(event.target.value as typeof realmStage)}>{["初期", "中期", "後期", "圓滿"].map((item) => <option key={item}>{item}</option>)}</select></label>
-            <label>所屬峰／堂／院／谷<select disabled={storyStarted} value={selectedSectBranchId} onChange={(event) => setSectBranchId(event.target.value)}>{sectBranches.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.discipline}</option>)}</select></label>
-            <label>宗門位階<select disabled={storyStarted} value={sectRankId} onChange={(event) => setSectRankId(event.target.value)}>{SECT_RANK_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label className="wide">主修功法<select disabled={storyStarted} value={selectedTechniqueId} onChange={(event) => setTechniqueId(event.target.value)}>{techniques.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.profession}</option>)}</select></label>
+            <label>靈根<select value={spiritRootId} onChange={(event) => setSpiritRootId(event.target.value)}>{SPIRIT_ROOT_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.strength}</option>)}</select></label>
+            <label>修仙境界<select value={realmId} onChange={(event) => setRealmId(event.target.value)}>{CULTIVATION_REALMS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>境界階段<select value={realmStage} onChange={(event) => setRealmStage(event.target.value as typeof realmStage)}>{["初期", "中期", "後期", "圓滿"].map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label>所屬峰／堂／院／谷<select value={selectedSectBranchId} onChange={(event) => setSectBranchId(event.target.value)}>{sectBranches.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.discipline}</option>)}</select></label>
+            <label>宗門位階<select value={sectRankId} onChange={(event) => setSectRankId(event.target.value)}>{SECT_RANK_CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="wide">主修功法<select value={selectedTechniqueId} onChange={(event) => setTechniqueId(event.target.value)}>{techniques.map((item) => <option key={item.id} value={item.id}>{item.name}｜{item.profession}</option>)}</select></label>
           </> : null}
-          {selectedCharacter?.rpgProfile ? <div className="characterLockedStats wide" aria-label="正式能力值">{Object.entries(selectedCharacter.rpgProfile.stats).map(([stat, value]) => <span key={stat}><b>{stat.replace("rpg.", "")}</b>{value}</span>)}</div> : null}
-          <div className="wide"><button disabled={busy || (storyStarted && selectedCharacterId === "__new__")} type="submit">{selectedCharacterId === "__new__" ? "建立人物" : "儲存人物"}</button>{selectedCharacter ? <button disabled={busy || storyStarted} type="button" onClick={() => void removeSelectedCharacter()}>刪除人物</button> : null}</div>
+          <div className="wide"><button disabled={busy} type="submit">{selectedCharacterId === "__new__" ? "建立人物" : "儲存人物"}</button>{selectedCharacter ? <button disabled={busy} type="button" onClick={() => void removeSelectedCharacter()}>刪除人物</button> : null}</div>
         </form>
         {data.characters.length >= 2 ? <form onSubmit={saveRelationship}>
           <h3>建立或更新關係</h3>
@@ -1008,11 +1000,11 @@ export default function CharacterRelationshipWorkbench({
         <div>
           <form onSubmit={saveWorld}>
             <h3>正式世界</h3>
-            <label>世界<select value={selectedWorldId || "__new__"} onChange={(event) => { const id = event.target.value; setSelectedWorldId(id); applyWorldForm(data.worlds.find((world) => world.id === id) ?? null); }}><option value="__new__" disabled={storyStarted}>＋ 建立新世界</option>{data.worlds.map((world) => <option key={world.id} value={world.id}>{world.name.value || "未命名世界"}</option>)}</select></label>
+            <label>世界<select value={selectedWorldId || "__new__"} onChange={(event) => { const id = event.target.value; setSelectedWorldId(id); applyWorldForm(data.worlds.find((world) => world.id === id) ?? null); }}><option value="__new__">＋ 建立新世界</option>{data.worlds.map((world) => <option key={world.id} value={world.id}>{world.name.value || "未命名世界"}</option>)}</select></label>
             <label>名稱<input value={worldName} onChange={(event) => setWorldName(event.target.value)} /></label>
-            <label>時代<input value={worldEra} disabled={storyStarted} onChange={(event) => setWorldEra(event.target.value)} /></label>
+            <label>時代<input value={worldEra} onChange={(event) => setWorldEra(event.target.value)} /></label>
             <label className="wide">背景摘要<textarea rows={4} value={worldSummary} onChange={(event) => setWorldSummary(event.target.value)} /></label>
-            <div><button type="submit" disabled={busy || (storyStarted && selectedWorldId === "__new__")}>{selectedWorldId === "__new__" ? "建立世界" : "儲存世界"}</button>{selectedWorld ? <button type="button" disabled={busy || storyStarted} onClick={() => void removeSelectedWorld()}>刪除世界</button> : null}</div>
+            <div><button type="submit" disabled={busy}>{selectedWorldId === "__new__" ? "建立世界" : "儲存世界"}</button>{selectedWorld ? <button type="button" disabled={busy} onClick={() => void removeSelectedWorld()}>刪除世界</button> : null}</div>
           </form>
           <form onSubmit={saveStoryBible}>
             <h3>Story Bible</h3>
@@ -1030,7 +1022,7 @@ export default function CharacterRelationshipWorkbench({
             <label>名稱<input value={ruleTitle} onChange={(event) => setRuleTitle(event.target.value)} /></label>
             <label className="wide">內容<textarea rows={4} value={ruleDescription} onChange={(event) => setRuleDescription(event.target.value)} /></label>
             <label><input type="checkbox" checked={ruleImmutable} onChange={(event) => setRuleImmutable(event.target.checked)} /> 不可違反</label>
-            <div><button type="submit" disabled={busy}>儲存規則</button>{selectedRuleId !== "__new__" ? <button type="button" disabled={busy || (storyStarted && ruleImmutable)} onClick={() => void removeSelectedRule()}>刪除規則</button> : null}</div>
+            <div><button type="submit" disabled={busy}>儲存規則</button>{selectedRuleId !== "__new__" ? <button type="button" disabled={busy} onClick={() => void removeSelectedRule()}>刪除規則</button> : null}</div>
           </form>
           <form onSubmit={saveLore}>
             <h3>故事記憶／Lore</h3>

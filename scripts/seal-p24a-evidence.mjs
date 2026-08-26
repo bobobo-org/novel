@@ -4,7 +4,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 const repoRoot = process.cwd();
-const evidenceDir = process.env.P24A_EVIDENCE_DIR || "C:\\dev\\novel-p24a-drama-os-core-evidence";
+const evidenceDir = process.env.P24A_EVIDENCE_DIR || path.resolve(repoRoot, "artifacts", "p24a-ci");
 const productCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
 const generatedAt = new Date().toISOString();
 

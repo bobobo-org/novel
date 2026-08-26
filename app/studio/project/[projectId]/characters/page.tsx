@@ -1,1 +1,6 @@
-import Client from "../project-section-client"; export default async function Page({params}:{params:Promise<{projectId:string}>}){const {projectId}=await params;return <Client projectId={projectId} section="characters"/>}
+import StoryStageSelectionPage from "../story-stage-selection-page";
+
+export default async function Page({ params }: { params: Promise<{ projectId: string }> }) {
+  const { projectId } = await params;
+  return <StoryStageSelectionPage projectId={projectId} focus="characters" />;
+}

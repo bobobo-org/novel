@@ -337,14 +337,20 @@ assert.match(projectSectionSource, /mutation: existing \? "update-world" : "crea
 assert.match(projectSectionSource, /disabled=\{storyStarted && !worldEditingId\}/u);
 assert.match(homeSource, /explicitCrossEraCanonAuthorization/u);
 assert.doesNotMatch(homeSource, /baselineEra === "cross-era" \|\| requestedEra === "cross-era"/u);
+assert.match(homeSource, /data-canon-edit-surface="home"/u);
+assert.match(homeSource, /無論故事是否已開始，都可修改人物、能力值、世界、Story Bible、規則、記憶與時間線/u);
+assert.match(homeSource, /createCharacterRpgProfile\(\{/u);
+assert.match(homeSource, /aria-label="首頁正式能力值編修"/u);
+assert.doesNotMatch(homeSource, /storyStarted/u, "home Canon editor must not inherit story-started locks");
 const homeWorldSaveHandler = homeSource.slice(
   homeSource.indexOf("async function saveWorld"),
   homeSource.indexOf("async function removeSelectedWorld"),
 );
-assert.ok(homeWorldSaveHandler.indexOf("assertStoryStartedCanonMutationAllowed") < homeWorldSaveHandler.indexOf("repository.put<World>"));
-assert.match(socialLibrarySource, /mutation: "approve-social-character"/u);
-assert.match(socialLibrarySource, /mutation: "approve-world"/u);
-assert.match(socialLibrarySource, /story-started-social-library-lock/u);
+assert.ok(homeWorldSaveHandler.indexOf("repository.put<World>") >= 0);
+assert.doesNotMatch(homeWorldSaveHandler, /assertStoryStartedCanonMutationAllowed/u);
+assert.match(socialLibrarySource, /mode = "reference-only"/u);
+assert.match(socialLibrarySource, /data-library-mode=\{mode\}/u);
+assert.match(socialLibrarySource, /故事內查詢模式/u);
 const worldSaveHandler = projectSectionSource.slice(
   projectSectionSource.indexOf("async function saveWorld"),
   projectSectionSource.indexOf("async function removeWorld"),
@@ -354,12 +360,17 @@ const socialCharacterApprovalHandler = socialLibrarySource.slice(
   socialLibrarySource.indexOf("async function approveCharacter"),
   socialLibrarySource.indexOf("async function approveTreasure"),
 );
-assert.ok(socialCharacterApprovalHandler.indexOf("assertStoryStartedCanonMutationAllowed") < socialCharacterApprovalHandler.indexOf("createNovelRepository"));
+assert.ok(socialCharacterApprovalHandler.indexOf("ensureHomeEdit") < socialCharacterApprovalHandler.indexOf("createNovelRepository"));
+const socialTreasureApprovalHandler = socialLibrarySource.slice(
+  socialLibrarySource.indexOf("async function approveTreasure"),
+  socialLibrarySource.indexOf("async function approveWorld"),
+);
+assert.ok(socialTreasureApprovalHandler.indexOf("ensureHomeEdit") < socialTreasureApprovalHandler.indexOf("createNovelRepository"));
 const socialWorldApprovalHandler = socialLibrarySource.slice(
   socialLibrarySource.indexOf("async function approveWorld"),
   socialLibrarySource.indexOf("function pageControls"),
 );
-assert.ok(socialWorldApprovalHandler.indexOf("assertStoryStartedCanonMutationAllowed") < socialWorldApprovalHandler.indexOf("createNovelRepository"));
+assert.ok(socialWorldApprovalHandler.indexOf("ensureHomeEdit") < socialWorldApprovalHandler.indexOf("createNovelRepository"));
 
 console.log(JSON.stringify({
   status: "PASS",

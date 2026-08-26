@@ -1619,7 +1619,9 @@ export default function ConversationWorkspace({
         });
       }
       if (runRef.current === runId) {
-        setProgress("已完成；正式 Canon 只會在你按下採用後修改。");
+        setProgress(plan.approvalRequired
+          ? "已完成；正式 Canon 只會在你按下採用後修改。"
+          : "閉端 AI 意見已完成；這份回覆沒有採用入口，正式 Canon 維持原狀。");
       }
       if (!existingUserRequest) clearTransientAttachments();
       await loadWorkspace(sessionId);
@@ -1916,6 +1918,7 @@ export default function ConversationWorkspace({
     branchPendingMessageIds,
     dashboardOpenRequest,
     storyState,
+    onStoryStateChanged: setStoryState,
     worlds,
     characters,
     relationships,

@@ -14,6 +14,7 @@ export function ConversationShell({
   artifactOpen,
   loading,
   sidebar,
+  storyStage,
   timeline,
   composer,
   artifactDrawer,
@@ -32,6 +33,7 @@ export function ConversationShell({
   artifactOpen: boolean;
   loading: boolean;
   sidebar: ReactNode;
+  storyStage: ReactNode;
   timeline: ReactNode;
   composer: ReactNode;
   artifactDrawer: ReactNode;
@@ -82,6 +84,7 @@ export function ConversationShell({
               <button className={styles.quietButton} type="button" onClick={onToggleArtifacts}>候選與核准</button>
             </div>
           </header>
+          {storyStage}
           {timeline}
           {composer}
         </section>

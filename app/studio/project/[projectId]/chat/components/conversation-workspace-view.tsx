@@ -3,6 +3,8 @@
 import dynamic from "next/dynamic";
 import type { ComponentProps, Dispatch, MutableRefObject, SetStateAction } from "react";
 import { STORY_PLAY_MODE_LABELS } from "@/lib/novel-ai/domain/play-mode";
+import type { StoryState } from "@/lib/novel-ai/domain";
+import StoryStageSelector from "../../story-stage-selector";
 import { ConversationShell } from "./conversation-shell";
 import { EditMessageCopyDialog } from "./edit-message-copy-dialog";
 import { MessageComposer } from "./message-composer";
@@ -61,6 +63,7 @@ export type ConversationWorkspaceViewProps = {
   branchPendingMessageIds: TimelineProps["branchPendingMessageIds"];
   dashboardOpenRequest: TimelineProps["dashboardOpenRequest"];
   storyState: TimelineProps["storyState"];
+  onStoryStateChanged: (storyState: StoryState) => void;
   worlds: TimelineProps["worlds"];
   characters: TimelineProps["characters"];
   relationships: TimelineProps["relationships"];
@@ -148,6 +151,16 @@ export function ConversationWorkspaceView(props: ConversationWorkspaceViewProps)
             onDeleteSession={(session) => { void props.deleteSession(session); }}
             onExportSummary={() => { void props.exportActiveConversationSummary(); }}
           />
+        )}
+        storyStage={(
+          <details className={styles.storyStageDisclosure} data-testid="conversation-story-stage-selector">
+            <summary>選擇上場人物、世界與記憶</summary>
+            <StoryStageSelector
+              projectId={props.projectId}
+              compact
+              onChanged={props.onStoryStateChanged}
+            />
+          </details>
         )}
         timeline={(
           <MessageTimeline

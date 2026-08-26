@@ -5,7 +5,14 @@ import {
   buildStoryOrganizationDirectory,
   cultivationProfileForOrganizationMember,
   DeterministicSocialMatrix,
+  FAMILY_GENEALOGY_SEARCH_SCAN_MAX,
+  FAMILY_GENEALOGY_VERSION,
+  familyGenealogyBranches,
+  familyGenealogyGenerationPage,
+  familyGenealogyPositionAt,
+  familyGenealogySearchPage,
   organizationMatrixContext,
+  organizationMemberAtOffset,
   organizationMemberPage,
   organizationMembershipForOffset,
   resolveActiveWorldOrganizationSetting,
@@ -126,6 +133,63 @@ const familyText = flattenHierarchy(family.hierarchy)
 for (const required of ["家主", "族長", "族老", "繼承人", "房系", "支脈", "嫡系", "旁支", "家臣"]) {
   assert.ok(familyText.includes(required), `family hierarchy is missing ${required}`);
 }
+
+assert.equal(FAMILY_GENEALOGY_VERSION, "family-genealogy-v1");
+const virtualClanSize = 10_000;
+const genealogyOrganizationId = "organization:genealogy-contract";
+const parentageSources = new Set();
+for (let memberOffset = 0; memberOffset < virtualClanSize; memberOffset += 1) {
+  const position = familyGenealogyPositionAt({
+    organizationId: genealogyOrganizationId,
+    memberCount: virtualClanSize,
+    memberOffset,
+  });
+  assert.match(position.generationId, /:genealogy:generation:\d+$/u);
+  assert.match(position.branchId, /:genealogy:branch:\d+$/u);
+  assert.ok(position.parentMemberOffsets.every((parentOffset) => parentOffset < memberOffset));
+  assert.ok(position.childMemberOffsets.every((childOffset) => childOffset > memberOffset || position.lineageRole === "spouse"));
+  if (position.parentageId) {
+    assert.equal(position.lineageRole, "bloodline");
+    assert.equal(parentageSources.has(position.parentageId), false, "each person has exactly one unique parentage source");
+    parentageSources.add(position.parentageId);
+  }
+  if (position.spouseMemberOffset !== null) {
+    const spouse = familyGenealogyPositionAt({
+      organizationId: genealogyOrganizationId,
+      memberCount: virtualClanSize,
+      memberOffset: position.spouseMemberOffset,
+    });
+    assert.equal(spouse.spouseMemberOffset, memberOffset);
+    assert.equal(spouse.marriageId, position.marriageId);
+    assert.equal(spouse.generation, position.generation);
+  }
+}
+assert.equal(parentageSources.size, Math.ceil(virtualClanSize / 2) - 1);
+const genealogyBranches = familyGenealogyBranches({ organizationId: genealogyOrganizationId, memberCount: virtualClanSize });
+assert.deepEqual(genealogyBranches.map((branch) => branch.label), ["長房", "二房", "三房"]);
+const firstBranchSecondGeneration = familyGenealogyGenerationPage({
+  organizationId: genealogyOrganizationId,
+  memberCount: virtualClanSize,
+  generation: 2,
+  branchCoupleIndex: 1,
+  page: 0,
+  pageSize: 6,
+});
+assert.equal(firstBranchSecondGeneration.positions.length, 6);
+assert.ok(firstBranchSecondGeneration.positions.every((position) => position.generation === 2 && position.branchLabel === "長房"));
+const boundedSearch = familyGenealogySearchPage({
+  organizationId: genealogyOrganizationId,
+  memberCount: virtualClanSize,
+  query: "person 17",
+  scanLimit: 180,
+  resolve: (memberOffset) => ({ text: `person ${memberOffset}`, value: memberOffset }),
+});
+assert.ok(boundedSearch.scanned <= FAMILY_GENEALOGY_SEARCH_SCAN_MAX);
+assert.ok(boundedSearch.items.length > 0);
+assert.ok(boundedSearch.nextCursor !== null);
+
+const familyFounder = organizationMemberAtOffset({ matrix: cultivation.matrix, organization: family, memberOffset: 0 });
+assert.equal(familyFounder.institutionId, family.organizationId);
 
 const enterprise = cultivation.directory.find((entry) => entry.archetype === "enterprise");
 assert.ok(enterprise);
@@ -251,6 +315,9 @@ assert.match(socialWorldSource, /character\.organizationRank/u);
 assert.match(socialWorldSource, /cultivationProfileForOrganizationMember/u);
 assert.match(socialWorldSource, /beginSocialWorldApproval/u);
 assert.match(socialWorldSource, /checkpointSocialWorldApproval/u);
+assert.match(socialWorldSource, /data-testid="family-genealogy"/u);
+assert.match(socialWorldSource, /data-materialization="lazy-paged"/u);
+assert.match(socialWorldSource, /familyGenealogySearchPage/u);
 
 console.log(JSON.stringify({
   status: "PASS",

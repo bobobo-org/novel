@@ -649,6 +649,67 @@ export function buildStoryOrganizationDirectory(input: {
   }).filter((organization) => storyOrganizationEraCompatible(input.setting, organization.era));
 }
 
+/**
+ * Resolves exactly one organization member without enumerating the remaining
+ * roster. This is the primitive used by paged directories and genealogy views
+ * so a ten-thousand-person organization stays virtual until a row is opened.
+ */
+export function organizationMemberAtOffset(input: {
+  matrix: DeterministicSocialMatrix;
+  organization: StoryOrganizationDirectoryEntry;
+  memberOffset: number;
+}): StoryOrganizationMember {
+  const memberOffset = Math.floor(input.memberOffset);
+  if (
+    !Number.isSafeInteger(memberOffset)
+    || memberOffset < 0
+    || memberOffset >= input.organization.currentMemberCount
+  ) {
+    throw new Error("STORY_ORGANIZATION_MEMBER_OFFSET_OUT_OF_RANGE");
+  }
+  const source = input.matrix.listInstitutionMembers(input.organization.institutionIndex, {
+    cursor: `institution-${input.organization.institutionIndex}:${memberOffset}`,
+    limit: 1,
+  }).items[0];
+  if (!source) throw new Error("STORY_ORGANIZATION_MEMBER_SOURCE_MISSING");
+  const membership = organizationMembershipForOffset(input.organization, memberOffset);
+  const specialistLocation = [
+    ["丹堂", "丹堂藥圃"],
+    ["符堂", "藏符閣"],
+    ["陣堂", "護山陣眼"],
+    ["劍峰", "主峰劍坪"],
+    ["董事", "總部董事會議室"],
+    ["營運", "營運中心"],
+    ["研發", "研發工坊"],
+    ["家主", "祖宅議事廳"],
+    ["嫡系", "祖宅內院"],
+    ["旁支", "支脈別院"],
+  ].find(([signal]) => membership.hierarchyPathLabels.some((label) => label.includes(signal!)))?.[1];
+  const locationPools: Record<StoryOrganizationArchetype, readonly string[]> = {
+    sect: ["主峰議事殿", "傳功閣", "試煉臺", "外門院"],
+    family: ["祖宅議事廳", "家祠", "藏書樓", "支脈別院"],
+    enterprise: ["總部決策層", "營運中心", "產品部", "區域事業群"],
+    government: ["中樞議事廳", "地方署衙", "檔案庫", "外勤駐點"],
+    academy: ["講堂", "研究院", "藏書館", "實作工坊"],
+    guild: ["盟會議事廳", "情報站", "公共會所", "外勤據點"],
+  };
+  const locationPool = locationPools[input.organization.archetype];
+  const organizationLocation = specialistLocation
+    ?? locationPool[socialMatrixHash(`${input.organization.organizationId}:member-location:${memberOffset}`) % locationPool.length]!;
+  return {
+    ...source,
+    ...membership,
+    storyAffinity: `${input.organization.eraLabel} · ${input.organization.kindLabel}`,
+    location: `${input.organization.territory} · ${organizationLocation}`,
+    portrait: {
+      ...source.portrait,
+      description: `${input.organization.eraLabel}${input.organization.kindLabel}人物；${membership.organizationUnit}的${membership.organizationRank}，採固定原創抽象人像。`,
+    },
+    institutionRole: membership.organizationRank,
+    identity: `${input.organization.name}的${membership.organizationRank}，隸屬${membership.organizationUnit}（${membership.organizationFaction}），目前常駐${input.organization.territory}的${organizationLocation}`,
+  };
+}
+
 export function organizationMemberPage(input: {
   matrix: DeterministicSocialMatrix;
   organization: StoryOrganizationDirectoryEntry;
@@ -658,69 +719,65 @@ export function organizationMemberPage(input: {
 }): SocialMatrixPage<StoryOrganizationMember> {
   const page = Math.max(0, Math.floor(input.page));
   const pageSize = Math.min(100, Math.max(1, Math.floor(input.pageSize)));
-  const matchingMemberOffsets = Array.from(
-    { length: input.organization.currentMemberCount },
-    (_, memberOffset) => memberOffset,
-  ).filter((memberOffset) => {
-    if (!input.hierarchyNodeId || input.hierarchyNodeId === input.organization.hierarchy.nodeId) return true;
-    return organizationMembershipForOffset(input.organization, memberOffset)
-      .hierarchyPathIds.includes(input.hierarchyNodeId);
-  });
   const filteredOffset = page * pageSize;
-  if (filteredOffset >= matchingMemberOffsets.length) {
-    return { items: [], nextCursor: null, total: matchingMemberOffsets.length };
+  const usesWholeOrganization = !input.hierarchyNodeId
+    || input.hierarchyNodeId === input.organization.hierarchy.nodeId;
+  let total = input.organization.currentMemberCount;
+  let pageMemberOffsets: number[];
+  if (usesWholeOrganization) {
+    const end = Math.min(total, filteredOffset + pageSize);
+    pageMemberOffsets = filteredOffset >= total
+      ? []
+      : Array.from({ length: end - filteredOffset }, (_, index) => filteredOffset + index);
+  } else {
+    let rotatedBoundary = 0;
+    const matchingIntervals = membershipQuotas(
+      input.organization.hierarchy,
+      input.organization.currentMemberCount,
+      input.organization.organizationId,
+    ).flatMap((entry) => {
+      const start = rotatedBoundary;
+      rotatedBoundary += entry.count;
+      const path = hierarchyPath(input.organization.hierarchy, entry.leaf.nodeId);
+      return path?.some((node) => node.nodeId === input.hierarchyNodeId)
+        ? [{ start, count: entry.count }]
+        : [];
+    });
+    total = matchingIntervals.reduce((sum, interval) => sum + interval.count, 0);
+    const requestedEnd = Math.min(total, filteredOffset + pageSize);
+    const rotation = socialMatrixHash(`${input.organization.organizationId}:member-rotation`)
+      % input.organization.currentMemberCount;
+    pageMemberOffsets = [];
+    let matchingBoundary = 0;
+    for (const interval of matchingIntervals) {
+      const intervalResultStart = matchingBoundary;
+      const intervalResultEnd = matchingBoundary + interval.count;
+      matchingBoundary = intervalResultEnd;
+      if (intervalResultEnd <= filteredOffset || intervalResultStart >= requestedEnd) continue;
+      const localStart = Math.max(0, filteredOffset - intervalResultStart);
+      const localEnd = Math.min(interval.count, requestedEnd - intervalResultStart);
+      for (let local = localStart; local < localEnd; local += 1) {
+        const rotatedOffset = interval.start + local;
+        pageMemberOffsets.push((
+          rotatedOffset
+          - rotation
+          + input.organization.currentMemberCount
+        ) % input.organization.currentMemberCount);
+      }
+    }
   }
-  const pageMemberOffsets = matchingMemberOffsets.slice(filteredOffset, filteredOffset + pageSize);
-  const items = pageMemberOffsets.map((memberOffset) => {
-    const source = input.matrix.listInstitutionMembers(input.organization.institutionIndex, {
-      cursor: `institution-${input.organization.institutionIndex}:${memberOffset}`,
-      limit: 1,
-    }).items[0];
-    if (!source) throw new Error("STORY_ORGANIZATION_MEMBER_SOURCE_MISSING");
-    const membership = organizationMembershipForOffset(input.organization, memberOffset);
-    const specialistLocation = [
-      ["丹堂", "丹堂藥圃"],
-      ["符堂", "藏符閣"],
-      ["陣堂", "護山陣眼"],
-      ["劍峰", "主峰劍坪"],
-      ["董事", "總部董事會議室"],
-      ["營運", "營運中心"],
-      ["研發", "研發工坊"],
-      ["家主", "祖宅議事廳"],
-      ["嫡系", "祖宅內院"],
-      ["旁支", "支脈別院"],
-    ].find(([signal]) => membership.hierarchyPathLabels.some((label) => label.includes(signal!)))?.[1];
-    const locationPools: Record<StoryOrganizationArchetype, readonly string[]> = {
-      sect: ["主峰議事殿", "傳功閣", "試煉臺", "外門院"],
-      family: ["祖宅議事廳", "家祠", "藏書樓", "支脈別院"],
-      enterprise: ["總部決策層", "營運中心", "產品部", "區域事業群"],
-      government: ["中樞議事廳", "地方署衙", "檔案庫", "外勤駐點"],
-      academy: ["講堂", "研究院", "藏書館", "實作工坊"],
-      guild: ["盟會議事廳", "情報站", "公共會所", "外勤據點"],
-    };
-    const locationPool = locationPools[input.organization.archetype];
-    const organizationLocation = specialistLocation
-      ?? locationPool[socialMatrixHash(`${input.organization.organizationId}:member-location:${memberOffset}`) % locationPool.length]!;
-    return {
-      ...source,
-      ...membership,
-      storyAffinity: `${input.organization.eraLabel} · ${input.organization.kindLabel}`,
-      location: `${input.organization.territory} · ${organizationLocation}`,
-      portrait: {
-        ...source.portrait,
-        description: `${input.organization.eraLabel}${input.organization.kindLabel}人物；${membership.organizationUnit}的${membership.organizationRank}，採固定原創抽象人像。`,
-      },
-      institutionRole: membership.organizationRank,
-      identity: `${input.organization.name}的${membership.organizationRank}，隸屬${membership.organizationUnit}（${membership.organizationFaction}），目前常駐${input.organization.territory}的${organizationLocation}`,
-    };
-  });
+  const items = pageMemberOffsets.map((memberOffset) => organizationMemberAtOffset({
+    matrix: input.matrix,
+    organization: input.organization,
+    memberOffset,
+  }));
   const end = filteredOffset + items.length;
   return {
     items,
-    nextCursor: end < matchingMemberOffsets.length
+    nextCursor: end < total
       ? `organization-${input.organization.institutionIndex}:${end}`
       : null,
-    total: matchingMemberOffsets.length,
+    total,
   };
 }
 

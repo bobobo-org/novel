@@ -215,16 +215,18 @@ await test("characters include rich social, ability, possession, and original po
       storySeed: matrix.seed,
       treasureOrdinal: item.treasureOrdinal,
     });
-    if (classification.kind === "pill") {
-      assert.ok(["丹藥", "藥丸"].includes(item.kind));
-    } else {
-      assert.equal(item.kind, ({
-        weapon: "武器",
-        talisman: "符籙",
-        formation: "陣法",
-        "special-opportunity": "特殊機緣",
-      })[classification.kind]);
-    }
+    assert.equal(item.kind, ({
+      weapon: "武器",
+      artifact: "法寶",
+      talisman: "符籙",
+      pill: "丹藥",
+      herb: "藥草",
+      formation: "陣法",
+      armor: "護具",
+      material: "煉器材料",
+      manual: "功法",
+      "special-opportunity": "特殊機緣",
+    })[classification.kind]);
     assert.equal(item.rarity, ({
       common: "常見",
       uncommon: "稀有",

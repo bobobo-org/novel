@@ -16,13 +16,13 @@ type ContextTab = {
 
 const CONTEXT_TABS: Record<"story" | "people-world" | "ai" | "progress", ContextTab[]> = {
   story: [
-    { view: "timeline", label: "時間線", hint: "事件順序與章節連結" },
-    { view: "story-bible", label: "故事記憶", hint: "伏筆、線索與 Canon" },
+    { view: "timeline", label: "時間線", hint: "唯讀事件與上場選擇" },
+    { view: "story-bible", label: "故事記憶", hint: "唯讀 Canon 與上場記憶" },
   ],
   "people-world": [
-    { view: "characters", label: "角色資料", hint: "人物設定與能力" },
-    { view: "character-ai", label: "角色視角 AI", hint: "私人思考與待核准候選" },
-    { view: "world", label: "世界設定", hint: "背景與正式規則" },
+    { view: "characters", label: "角色資料", hint: "唯讀人物與上場選擇" },
+    { view: "character-ai", label: "角色視角 AI", hint: "私人思考，不修改 Canon" },
+    { view: "world", label: "世界設定", hint: "唯讀背景與上場規則" },
   ],
   ai: [
     { view: "closed-ai", label: "AI 協調", hint: "模型連線、診斷與任務協調" },

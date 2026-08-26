@@ -32,6 +32,7 @@
 .viewTabs button[aria-selected="true"] { border-color: var(--matrix-aqua); background: linear-gradient(135deg, rgba(25, 102, 104, .52), rgba(19, 55, 86, .75)); box-shadow: inset 0 -3px 0 var(--matrix-aqua); }
 .viewTabs small { display: block; margin-top: .35rem; color: #91a9bd; font-size: .75rem; font-weight: 500; }
 .message { margin: 0 2.2rem 1.1rem; padding: .9rem 1rem; border: 1px solid rgba(100, 225, 206, .35); border-radius: 12px; background: rgba(15, 77, 74, .35); color: #cafff5; line-height: 1.5; }
+.modeNotice { margin: 0 2.2rem 1.1rem; padding: .78rem 1rem; border-left: 3px solid var(--matrix-gold); background: rgba(94, 68, 15, .28); color: #f4ddb0; font-size: .82rem; line-height: 1.55; }
 
 .settingGate { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .9fr); gap: 1rem; margin: 0 2.2rem 1.2rem; padding: 1.15rem 1.25rem; border: 1px solid rgba(102, 228, 208, .34); border-radius: 17px; background: linear-gradient(135deg, rgba(14, 75, 76, .38), rgba(10, 36, 59, .75)); }
 .settingGate span, .organizationListHeading span, .hierarchyHeading span { color: var(--matrix-aqua); font-size: .68rem; font-weight: 800; letter-spacing: .13em; }
@@ -77,10 +78,19 @@
 .hierarchyNodeButton small { margin-left: auto; color: #8fa8ba; font-size: .65rem; }
 .hierarchyBranch > p { display: grid; grid-template-columns: 2.8rem 1fr; gap: .45rem; margin: .42rem 0 0; color: #aebfcd; font-size: .7rem; line-height: 1.45; }
 .hierarchyBranch > p strong { color: #dcb85e; }
+.genealogyControls { padding: .05rem 0 .35rem; }
+.genealogySearch { display: flex; align-items: end; gap: .5rem; flex-wrap: wrap; margin: .75rem 0; }
+.genealogySearch label { display: grid; flex: 1 1 260px; gap: .28rem; color: #9db4c6; font-size: .7rem; }
+.genealogySearch input, .generationSelect select { min-height: 2.35rem; padding: .52rem .65rem; border: 1px solid rgba(99, 226, 207, .36); border-radius: 9px; background: rgba(4, 20, 36, .82); color: #e8f5ff; }
+.genealogySearch button, .genealogyBranches button { min-height: 2.35rem; padding: .52rem .7rem; border: 1px solid rgba(99, 226, 207, .4); border-radius: 9px; background: rgba(16, 58, 77, .8); color: #cceee8; cursor: pointer; }
+.genealogyBranches { display: flex; gap: .45rem; flex-wrap: wrap; }
+.genealogyBranches button[aria-pressed="true"] { border-color: #f2c15c; background: rgba(116, 77, 11, .66); color: #ffe3a3; }
+.generationSelect { display: grid; grid-template-columns: auto minmax(150px, 240px); align-items: center; gap: .55rem; margin-top: .7rem; color: #d8bb6c; font-size: .75rem; }
 
 .sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1rem 2.2rem; border-top: 1px solid rgba(126, 176, 210, .17); }
 .sectionHeading span { color: var(--matrix-aqua); font-size: .68rem; font-weight: 800; letter-spacing: .13em; }
 .sectionHeading h4 { margin: .22rem 0 0; color: #f7ddb0; font-size: 1.35rem; }
+.sectionHeading > div > small { display: block; max-width: 650px; margin-top: .32rem; color: #91aabe; font-size: .7rem; line-height: 1.45; }
 .clearHierarchyFilter { margin-top: .45rem; padding: .35rem .55rem; border: 1px solid rgba(99, 226, 207, .45); border-radius: 8px; background: rgba(20, 102, 100, .28); color: #bcefe7; font-size: .7rem; cursor: pointer; }
 .pageControls { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; justify-content: flex-end; }
 .pageControls button { padding: .55rem .75rem; border: 1px solid rgba(111, 164, 203, .45); border-radius: 9px; background: #102b47; color: #e5f3ff; cursor: pointer; }
@@ -97,6 +107,15 @@
 .affiliation { display: grid; grid-template-columns: auto 1fr; gap: .28rem .55rem; margin: 1rem 0; padding: .7rem; border-radius: 11px; background: rgba(2, 16, 30, .42); font-size: .78rem; }
 .affiliation span { color: #849db2; }
 .affiliation strong { color: #d4e5f2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kinshipSummary { display: grid; gap: .32rem; margin: .75rem 0; padding: .72rem; border: 1px solid rgba(213, 170, 76, .34); border-radius: 11px; background: rgba(77, 49, 11, .2); }
+.kinshipSummary > span { color: #6fe1cd; font-size: .68rem; }
+.kinshipSummary > strong { color: #f0d596; font-size: .82rem; }
+.kinshipSummary > small { overflow-wrap: anywhere; color: #8fa8bb; font-size: .62rem; }
+.kinshipSummary > button { justify-self: start; padding: .38rem .55rem; border: 1px solid rgba(99, 226, 207, .36); border-radius: 8px; background: rgba(17, 67, 72, .5); color: #c7f4ec; cursor: pointer; }
+.kinshipSummary dl { display: grid; gap: .35rem; margin: .25rem 0 0; }
+.kinshipSummary dl div { display: grid; grid-template-columns: 3rem 1fr; gap: .45rem; padding: .4rem .5rem; border-radius: 8px; background: rgba(2, 17, 31, .4); }
+.kinshipSummary dt { color: #ddb95f; font-size: .68rem; }
+.kinshipSummary dd { margin: 0; color: #c6d7e3; font-size: .72rem; line-height: 1.45; }
 .goal { min-height: 4.4rem; margin: .75rem 0; color: #c9d8e5; font-size: .86rem; line-height: 1.6; }
 .goal b { display: block; color: #f2c15c; font-size: .72rem; }
 .traits { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .85rem; }
@@ -111,8 +130,20 @@
 .approveButton { width: 100%; margin-top: 1rem; padding: .78rem 1rem; border: 1px solid #d4a63e; border-radius: 11px; background: linear-gradient(135deg, #936413, #c48e22); color: #fff7dc; font-weight: 800; cursor: pointer; }
 .approveButton:disabled { border-color: rgba(103, 157, 147, .45); background: rgba(47, 101, 94, .55); color: #bbe7df; cursor: default; }
 
-.treasureCard { position: relative; overflow: hidden; }
-.treasureCard::before { content: ""; position: absolute; width: 110px; height: 110px; top: -55px; right: -42px; border-radius: 50%; background: radial-gradient(circle, rgba(238, 188, 75, .22), transparent 70%); }
+.treasureCard { position: relative; overflow: hidden; border-color: var(--treasure-border, rgba(85, 144, 186, .34)); background: radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--treasure-element-primary, #66e4d0) 18%, transparent), transparent 32%), linear-gradient(155deg, var(--treasure-frame-bg, rgba(19, 49, 78, .95)), rgba(8, 28, 49, .97)); box-shadow: 0 14px 34px var(--treasure-glow, rgba(0, 0, 0, .2)); }
+.treasureCard::before { content: ""; position: absolute; width: 150px; height: 150px; top: -62px; right: -52px; border-radius: 50%; background: radial-gradient(circle, var(--treasure-element-primary, rgba(238, 188, 75, .22)), transparent 70%); opacity: .2; }
+.treasurePresentation { position: relative; z-index: 1; display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: .9rem; }
+.treasureImageFrame { position: relative; display: grid; place-items: center; width: 112px; height: 112px; overflow: hidden; border: 2px solid var(--treasure-border, #8095a5); border-radius: 20px; background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--treasure-element-primary) 30%, transparent), transparent 65%), var(--treasure-frame-bg, #19303f); box-shadow: inset 0 0 24px var(--treasure-glow), 0 8px 22px rgba(0, 0, 0, .3); }
+.treasureImageFrame img { width: 104px; height: 104px; object-fit: contain; filter: brightness(var(--treasure-brightness, 1)) saturate(var(--treasure-saturation, 1)) hue-rotate(var(--treasure-hue, 0deg)); transform: translate(var(--treasure-offset-x, 0), var(--treasure-offset-y, 0)) rotate(var(--treasure-rotation, 0deg)) scale(var(--treasure-scale-x, 1), var(--treasure-scale-y, 1)); }
+.treasureImageFrame > span { position: absolute; padding: .18rem .34rem; border-radius: 999px; background: rgba(3, 15, 27, .86); font-size: .56rem; font-weight: 800; }
+.treasureElementBadge { right: .3rem; bottom: .3rem; border: 1px solid var(--treasure-element-primary, #66e4d0); color: var(--treasure-element-primary, #bfeee7); }
+.treasureEraBadge { top: .3rem; left: .3rem; max-width: calc(100% - .6rem); overflow: hidden; border: 1px solid var(--treasure-border, #8095a5); color: var(--treasure-badge-text, #fff); text-overflow: ellipsis; white-space: nowrap; }
+.treasureBadges { display: flex; gap: .35rem; flex-wrap: wrap; }
+.treasureBadges span { padding: .24rem .48rem; border: 1px solid var(--treasure-border, #8095a5); border-radius: 999px; font-size: .66rem; }
+.treasureBadges span[data-badge="type"] { color: var(--treasure-element-primary, #66e4d0); background: color-mix(in srgb, var(--treasure-element-secondary, #17394b) 34%, transparent); }
+.treasureBadges span[data-badge="rarity"] { color: var(--treasure-badge-text, #fff); background: var(--treasure-badge-bg, #334552); }
+.treasureBadges span[data-badge="era"] { color: #dceaf4; background: rgba(34, 54, 75, .8); }
+.treasureCard[data-cross-era="true"] { outline: 2px dashed var(--treasure-element-primary, #f2c15c); outline-offset: -5px; }
 .treasureCard > p { min-height: 7rem; color: #c2d2df; font-size: .86rem; line-height: 1.65; }
 .treasureCard dl { display: grid; gap: .55rem; }
 .treasureCard dl div { padding: .65rem .7rem; border-radius: 10px; background: rgba(2, 17, 31, .45); }
@@ -156,7 +187,7 @@
   .hero, .sectionHeading { align-items: stretch; flex-direction: column; padding-left: 1rem; padding-right: 1rem; }
   .seedBadge { min-width: 0; }
   .capacityGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 1rem; padding-right: 1rem; }
-  .materializationNote, .message { margin-left: 1rem; margin-right: 1rem; }
+  .materializationNote, .message, .modeNotice { margin-left: 1rem; margin-right: 1rem; }
   .settingGate { grid-template-columns: 1fr; margin-left: 1rem; margin-right: 1rem; }
   .viewTabs { grid-template-columns: 1fr; padding-left: 1rem; padding-right: 1rem; }
   .organizationBrowser { grid-template-columns: 1fr; padding-left: 1rem; padding-right: 1rem; }
@@ -164,5 +195,8 @@
   .organizationListHeading { grid-column: 1 / -1; }
   .organizationFacts { grid-template-columns: 1fr; }
   .characterGrid, .treasureGrid, .worldGrid { grid-template-columns: 1fr; padding-left: 1rem; padding-right: 1rem; }
+  .treasurePresentation { grid-template-columns: 96px minmax(0, 1fr); }
+  .treasureImageFrame { width: 96px; height: 96px; }
+  .treasureImageFrame img { width: 90px; height: 90px; }
   .pageControls { justify-content: flex-start; }
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   makeRecord,
   optionalValue,
@@ -14,7 +15,6 @@ import {
   type World,
   type WorldRule,
 } from "@/lib/novel-ai/domain";
-import { assertStoryStartedCanonMutationAllowed } from "@/lib/novel-ai/domain/story-started-canon-guard";
 import {
   characterRpgStatsForArchetype,
   createCharacterRpgProfile,
@@ -24,6 +24,7 @@ import {
   ProceduralTreasureLibrary,
   type ProceduralTreasureRecord,
 } from "@/lib/novel-ai/game/procedural-treasure-library";
+import { proceduralTreasureVisualCssVariables } from "@/lib/novel-ai/game/procedural-treasure-visual";
 import {
   listProceduralWorldTopics,
   PROCEDURAL_WORLD_CAPACITY,
@@ -54,6 +55,11 @@ import {
   cultivationProfileForOrganizationMember,
   createSocialCharacterCandidate,
   DeterministicSocialMatrix,
+  familyGenealogyBranches,
+  familyGenealogyGenerationPage,
+  familyGenealogyPositionAt,
+  familyGenealogySearchPage,
+  organizationMemberAtOffset,
   organizationMatrixContext,
   organizationMemberPage,
   resolveActiveWorldOrganizationSetting,
@@ -70,12 +76,14 @@ const TREASURE_CAPACITY = 100_000;
 const SCENARIO_CAPACITY = 1_000_000;
 
 type LibraryView = "characters" | "treasures" | "worlds";
+export type SocialWorldLibraryMode = "home-edit" | "reference-only";
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-TW").format(value);
 }
 
 function randomPage(capacity: number) {
+  if (!Number.isFinite(capacity) || capacity <= PAGE_SIZE) return 0;
   const pageCount = Math.ceil(capacity / PAGE_SIZE);
   const buffer = new Uint32Array(1);
   crypto.getRandomValues(buffer);
@@ -170,6 +178,7 @@ function treasureLoreContent(treasure: ProceduralTreasureRecord) {
   return [
     treasure.storyHook,
     `類型：${treasure.kindLabel}／${treasure.subtype}；稀有度：${treasure.rarityLabel}`,
+    `時代：${treasure.era.sourceEraLabel}；相容性：${treasure.era.isCrossEra ? "作品已明示跨時代" : "符合目前故事時代"}`,
     `能力：${treasure.abilities.map((ability) => `${ability.name}（${ability.effect}）`).join("；")}`,
     `限制：${treasure.limitation}`,
     `代價：${treasure.cost}`,
@@ -250,6 +259,7 @@ export default function SocialWorldLibrary({
   approvedWorlds = [],
   initialView = "characters",
   storyStarted = false,
+  mode = "reference-only",
   onChanged,
 }: {
   project: NovelProject;
@@ -260,8 +270,10 @@ export default function SocialWorldLibrary({
   approvedWorlds?: World[];
   initialView?: LibraryView;
   storyStarted?: boolean;
+  mode?: SocialWorldLibraryMode;
   onChanged: () => Promise<void>;
 }) {
+  const canEditCanon = mode === "home-edit";
   const seed = useMemo(
     () => resolveProjectProceduralRootSeed(project),
     [project],
@@ -332,6 +344,13 @@ export default function SocialWorldLibrary({
     organizations[0]?.organizationId ?? "",
   );
   const [selectedHierarchyNodeId, setSelectedHierarchyNodeId] = useState<string | null>(null);
+  const [familyBranchCoupleIndex, setFamilyBranchCoupleIndex] = useState<1 | 2 | 3 | null>(null);
+  const [familyGeneration, setFamilyGeneration] = useState(0);
+  const [familyPage, setFamilyPage] = useState(0);
+  const [familySearchInput, setFamilySearchInput] = useState("");
+  const [familySearchQuery, setFamilySearchQuery] = useState("");
+  const [familySearchCursor, setFamilySearchCursor] = useState(0);
+  const [selectedGenealogyOffset, setSelectedGenealogyOffset] = useState<number | null>(null);
   const [characterPage, setCharacterPage] = useState(0);
   const [treasurePage, setTreasurePage] = useState(0);
   const [worldPage, setWorldPage] = useState(0);
@@ -359,6 +378,48 @@ export default function SocialWorldLibrary({
   const selectedOrganization = organizations.find((organization) => (
     organization.organizationId === selectedOrganizationId
   )) ?? organizations[0];
+  const selectedOrganizationIsFamily = selectedOrganization?.archetype === "family";
+  const familyBranches = useMemo(() => selectedOrganizationIsFamily && selectedOrganization
+    ? familyGenealogyBranches({
+        organizationId: selectedOrganization.organizationId,
+        memberCount: selectedOrganization.currentMemberCount,
+      })
+    : [], [selectedOrganization, selectedOrganizationIsFamily]);
+  const maxFamilyGeneration = useMemo(() => selectedOrganizationIsFamily && selectedOrganization
+    ? familyGenealogyPositionAt({
+        organizationId: selectedOrganization.organizationId,
+        memberCount: selectedOrganization.currentMemberCount,
+        memberOffset: selectedOrganization.currentMemberCount - 1,
+      }).generation
+    : 0, [selectedOrganization, selectedOrganizationIsFamily]);
+  const familyGenerationPage = useMemo(() => selectedOrganizationIsFamily && selectedOrganization
+    ? familyGenealogyGenerationPage({
+        organizationId: selectedOrganization.organizationId,
+        memberCount: selectedOrganization.currentMemberCount,
+        generation: familyGeneration,
+        branchCoupleIndex: familyBranchCoupleIndex,
+        page: familyPage,
+        pageSize: PAGE_SIZE,
+      })
+    : null, [familyBranchCoupleIndex, familyGeneration, familyPage, selectedOrganization, selectedOrganizationIsFamily]);
+  const familySearchResult = useMemo(() => {
+    if (!selectedOrganizationIsFamily || !selectedOrganization || !familySearchQuery) return null;
+    return familyGenealogySearchPage({
+      organizationId: selectedOrganization.organizationId,
+      memberCount: selectedOrganization.currentMemberCount,
+      query: familySearchQuery,
+      cursor: familySearchCursor,
+      resultLimit: PAGE_SIZE,
+      scanLimit: 180,
+      resolve: (memberOffset) => {
+        const member = organizationMemberAtOffset({ matrix, organization: selectedOrganization, memberOffset });
+        return {
+          text: `${member.name} ${member.identity} ${member.organizationRank} ${member.organizationFaction}`,
+          value: member,
+        };
+      },
+    });
+  }, [familySearchCursor, familySearchQuery, matrix, selectedOrganization, selectedOrganizationIsFamily]);
   const treasurePageCount = Math.ceil(TREASURE_CAPACITY / PAGE_SIZE);
   const selectedHierarchyNode = useMemo(() => {
     if (!selectedOrganization || !selectedHierarchyNodeId) return null;
@@ -373,7 +434,7 @@ export default function SocialWorldLibrary({
     return visit(selectedOrganization.hierarchy);
   }, [selectedHierarchyNodeId, selectedOrganization]);
   const effectiveHierarchyNodeId = selectedHierarchyNode?.nodeId ?? null;
-  const characterResult = useMemo(() => selectedOrganization
+  const characterResult = useMemo(() => selectedOrganization && !selectedOrganizationIsFamily
     ? organizationMemberPage({
         matrix,
         organization: selectedOrganization,
@@ -381,10 +442,34 @@ export default function SocialWorldLibrary({
         pageSize: PAGE_SIZE,
         hierarchyNodeId: effectiveHierarchyNodeId,
       })
-    : { items: [], nextCursor: null, total: 0 }, [characterPage, effectiveHierarchyNodeId, matrix, selectedOrganization]);
-  const characterItems = characterResult.items;
-  const selectedMemberTotal = characterResult.total;
-  const characterPageCount = Math.max(1, Math.ceil(selectedMemberTotal / PAGE_SIZE));
+    : { items: [], nextCursor: null, total: 0 }, [characterPage, effectiveHierarchyNodeId, matrix, selectedOrganization, selectedOrganizationIsFamily]);
+  const genealogyEntries = useMemo(() => {
+    if (!selectedOrganizationIsFamily || !selectedOrganization) return [];
+    if (familySearchResult) return familySearchResult.items.map((item) => ({
+      character: item.value,
+      position: item.position,
+    }));
+    return (familyGenerationPage?.positions ?? []).map((position) => ({
+      character: organizationMemberAtOffset({
+        matrix,
+        organization: selectedOrganization,
+        memberOffset: position.memberOffset,
+      }),
+      position,
+    }));
+  }, [familyGenerationPage, familySearchResult, matrix, selectedOrganization, selectedOrganizationIsFamily]);
+  const genealogyPositionByCharacterId = useMemo(() => new Map(
+    genealogyEntries.map((entry) => [entry.character.characterId, entry.position]),
+  ), [genealogyEntries]);
+  const characterItems = selectedOrganizationIsFamily
+    ? genealogyEntries.map((entry) => entry.character)
+    : characterResult.items;
+  const selectedMemberTotal = selectedOrganizationIsFamily
+    ? familySearchResult?.items.length ?? familyGenerationPage?.total ?? 0
+    : characterResult.total;
+  const characterPageCount = selectedOrganizationIsFamily
+    ? Math.max(1, familyGenerationPage?.totalPages ?? 1)
+    : Math.max(1, Math.ceil(selectedMemberTotal / PAGE_SIZE));
   const treasureItems = useMemo(() => treasureLibrary.page(treasurePage, PAGE_SIZE).items, [treasureLibrary, treasurePage]);
   const worldResult = useMemo(() => proceduralWorldPage({
     seed,
@@ -510,7 +595,14 @@ export default function SocialWorldLibrary({
       .map((relationship) => relationship.id);
   }
 
+  function ensureHomeEdit(action: string) {
+    if (canEditCanon) return true;
+    setMessage(`目前是故事內唯讀資料庫，不能${action}。請回作品首頁編修或核准正式設定；故事中只能選擇上場內容。`);
+    return false;
+  }
+
   async function approveCharacter(character: StoryOrganizationMember) {
+    if (!ensureHomeEdit("核准角色、能力或持有鏈")) return;
     const approvalKey = `character:${character.characterId}`;
     const linkedInEveryBible = storyBibles.every((storyBible) =>
       storyBible.characterIds.includes(character.characterId));
@@ -521,15 +613,6 @@ export default function SocialWorldLibrary({
       && !pendingApprovals.has(approvalKey)
     ) {
       setMessage(`「${character.name}」已經是這部作品的正式角色。`);
-      return;
-    }
-    try {
-      assertStoryStartedCanonMutationAllowed({
-        storyStarted,
-        mutation: "approve-social-character",
-      });
-    } catch {
-      setMessage("故事已有正文；此處只能瀏覽組織名冊，不能再核准新正式角色、能力或持有鏈。請回首頁從既有正式人物中選擇上場角色。");
       return;
     }
     setBusyId(character.characterId);
@@ -747,6 +830,7 @@ export default function SocialWorldLibrary({
   }
 
   async function approveTreasure(treasure: ProceduralTreasureRecord) {
+    if (!ensureHomeEdit("核准寶物與持有人關係")) return;
     const approvalKey = `treasure:${treasure.id}`;
     const linkedInEveryBible = storyBibles.every((storyBible) =>
       storyBible.loreIds.includes(treasure.id));
@@ -823,6 +907,7 @@ export default function SocialWorldLibrary({
   }
 
   async function approveWorld(world: ProceduralWorld) {
+    if (!ensureHomeEdit("核准世界、時代或規則")) return;
     const approvalKey = `world:${world.id}`;
     const expectedRuleIds = world.rules.map((rule) => rule.id);
     const linkedInEveryBible = storyBibles.every((storyBible) =>
@@ -834,15 +919,6 @@ export default function SocialWorldLibrary({
       && !pendingApprovals.has(approvalKey)
     ) {
       setMessage(`「${world.title}」已經是這部作品的正式世界。`);
-      return;
-    }
-    try {
-      assertStoryStartedCanonMutationAllowed({
-        storyStarted,
-        mutation: "approve-world",
-      });
-    } catch {
-      setMessage("故事已有正文；世界資料庫只能瀏覽，不能再核准新正式世界或新時代。請回首頁選擇既有正式世界。");
       return;
     }
     setBusyId(world.id);
@@ -989,31 +1065,40 @@ export default function SocialWorldLibrary({
   }
 
   function pageControls(kind: LibraryView) {
-    const page = kind === "characters" ? characterPage : kind === "treasures" ? treasurePage : worldPage;
+    const page = kind === "characters"
+      ? selectedOrganizationIsFamily ? familyPage : characterPage
+      : kind === "treasures" ? treasurePage : worldPage;
     const capacity = kind === "characters"
       ? selectedMemberTotal
       : kind === "treasures"
         ? TREASURE_CAPACITY
         : worldResult.totalItems;
-    const pageCount = kind === "characters"
+    const pageCount = Math.max(1, kind === "characters"
       ? characterPageCount
       : kind === "treasures"
         ? treasurePageCount
-        : Math.ceil(worldResult.totalItems / PAGE_SIZE);
-    const setPage = kind === "characters" ? setCharacterPage : kind === "treasures" ? setTreasurePage : setWorldPage;
+        : Math.ceil(worldResult.totalItems / PAGE_SIZE));
+    const setPage = kind === "characters"
+      ? selectedOrganizationIsFamily ? setFamilyPage : setCharacterPage
+      : kind === "treasures" ? setTreasurePage : setWorldPage;
     const label = kind === "characters" ? "組織人物" : kind === "treasures" ? "寶物" : "世界";
     return (
       <div className={styles.pageControls} aria-label={`${label}資料庫分頁`}>
         <button type="button" onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}>上一批</button>
-        <span>第 {formatNumber(page * PAGE_SIZE + 1)}–{formatNumber(Math.min((page + 1) * PAGE_SIZE, capacity))} 筆</span>
-        <button type="button" onClick={() => setPage(randomPage(capacity))}>換一批</button>
+        <span>第 {formatNumber(capacity ? page * PAGE_SIZE + 1 : 0)}–{formatNumber(Math.min((page + 1) * PAGE_SIZE, capacity))} 筆</span>
+        <button type="button" onClick={() => setPage(randomPage(capacity))} disabled={capacity <= PAGE_SIZE}>換一批</button>
         <button type="button" onClick={() => setPage(Math.min(pageCount - 1, page + 1))} disabled={page >= pageCount - 1}>下一批</button>
       </div>
     );
   }
 
   return (
-    <section className={styles.library} data-testid="social-world-library">
+    <section
+      className={styles.library}
+      data-testid="social-world-library"
+      data-library-mode={mode}
+      data-story-started={storyStarted}
+    >
       <div className={styles.hero}>
         <div>
           <span className={styles.eyebrow}>STORY SOCIETY MATRIX · 同一作品種子</span>
@@ -1041,7 +1126,7 @@ export default function SocialWorldLibrary({
         </button>
         <button type="button" role="tab" aria-selected={view === "treasures"} onClick={() => setView("treasures")}>
           寶物、持有人與十因果
-          <small>丹藥 · 武器 · 符 · 陣法 · 特殊機緣</small>
+          <small>武器 · 法寶 · 符籙 · 丹藥 · 藥草 · 陣法 · 護具 · 材料 · 功法 · 機緣</small>
         </button>
         <button type="button" role="tab" aria-selected={view === "worlds"} onClick={() => setView("worlds")}>
           218 類題材世界庫
@@ -1050,11 +1135,11 @@ export default function SocialWorldLibrary({
       </div>
 
       {message ? <div className={styles.message} role="status" data-testid="social-library-status">{message}</div> : null}
-      {storyStarted ? (
-        <div className={styles.message} role="status" data-testid="story-started-social-library-lock">
-          故事已有正文：組織與世界資料庫仍可查閱，但不能在這裡新增正式角色、能力、持有鏈或世界。請回作品首頁，從既有正式人物與世界中選擇上場內容。
-        </div>
-      ) : null}
+      <div className={styles.modeNotice} role="status" data-testid="social-library-mode-notice">
+        {canEditCanon
+          ? `首頁正式設定模式：${storyStarted ? "作品雖已有正文，仍可在首頁編修或核准角色、能力、世界與寶物；故事工作台只會選擇上場內容。" : "可在這裡編修與核准正式資料。"}`
+          : "故事內查詢模式：可搜尋、檢視並選擇上場內容，但所有核准與正式數值寫入都會被處理程序拒絕；請回作品首頁編修。"}
+      </div>
 
       {view === "characters" ? (
         <>
@@ -1093,6 +1178,13 @@ export default function SocialWorldLibrary({
                       setSelectedOrganizationId(organization.organizationId);
                       setSelectedHierarchyNodeId(null);
                       setCharacterPage(0);
+                      setFamilyBranchCoupleIndex(null);
+                      setFamilyGeneration(0);
+                      setFamilyPage(0);
+                      setFamilySearchInput("");
+                      setFamilySearchQuery("");
+                      setFamilySearchCursor(0);
+                      setSelectedGenealogyOffset(null);
                     }}
                   >
                     <span>{organization.kindLabel} · {organization.eraLabel} · {organization.sizeLabel}</span>
@@ -1115,17 +1207,60 @@ export default function SocialWorldLibrary({
                   <div><dt>公開目標</dt><dd>{selectedOrganization.publicGoal}</dd></div>
                   <div><dt>內部矛盾</dt><dd>{selectedOrganization.hiddenConflict}</dd></div>
                 </dl>
-                <div className={styles.hierarchyHeading}><span>STEP 3 · HIERARCHY FILTER</span><h5>點選階層查看人物</h5><p>可直接查峰、堂、內外門、房系、事業群或部門；每個節點同時顯示實際在籍與編制上限。</p></div>
-                <ul className={styles.hierarchyTree} data-testid="organization-hierarchy-tree">
-                  <OrganizationHierarchyBranch
-                    branch={selectedOrganization.hierarchy}
-                    selectedNodeId={selectedHierarchyNodeId}
-                    onSelect={(nodeId) => {
-                      setSelectedHierarchyNodeId(nodeId);
-                      setCharacterPage(0);
-                    }}
-                  />
-                </ul>
+                {selectedOrganizationIsFamily ? (
+                  <section className={styles.genealogyControls} data-testid="family-genealogy" data-materialization="lazy-paged">
+                    <div className={styles.hierarchyHeading}>
+                      <span>STEP 3 · GENEALOGY</span>
+                      <h5>祖譜：按房系與世代逐支展開</h5>
+                      <p>父母、配偶、手足與子女都有固定親屬 ID；每頁只解析目前六人，搜尋每次最多掃描 180 人，不會一次載入整個萬人家族。</p>
+                    </div>
+                    <form
+                      className={styles.genealogySearch}
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        setFamilySearchQuery(familySearchInput.trim());
+                        setFamilySearchCursor(0);
+                        setSelectedGenealogyOffset(null);
+                      }}
+                    >
+                      <label><span>搜尋姓名、身分、職位或房系</span><input value={familySearchInput} onChange={(event) => setFamilySearchInput(event.target.value)} /></label>
+                      <button type="submit">搜尋祖譜</button>
+                      {familySearchQuery ? <button type="button" onClick={() => { setFamilySearchInput(""); setFamilySearchQuery(""); setFamilySearchCursor(0); }}>清除搜尋</button> : null}
+                    </form>
+                    <div className={styles.genealogyBranches} aria-label="祖譜房系">
+                      <button type="button" aria-pressed={familyBranchCoupleIndex === null} onClick={() => { setFamilyBranchCoupleIndex(null); setFamilyGeneration(0); setFamilyPage(0); setFamilySearchQuery(""); }}>本家全譜</button>
+                      {familyBranches.map((branch) => <button
+                        type="button"
+                        key={branch.branchId}
+                        data-branch-id={branch.branchId}
+                        aria-pressed={familyBranchCoupleIndex === branch.branchCoupleIndex}
+                        onClick={() => { setFamilyBranchCoupleIndex(branch.branchCoupleIndex); setFamilyGeneration(1); setFamilyPage(0); setFamilySearchQuery(""); }}
+                      >{branch.label}</button>)}
+                    </div>
+                    <label className={styles.generationSelect}>
+                      <span>世代</span>
+                      <select value={familyGeneration} disabled={Boolean(familySearchQuery)} onChange={(event) => { setFamilyGeneration(Number(event.target.value)); setFamilyPage(0); setSelectedGenealogyOffset(null); }}>
+                        {Array.from({ length: maxFamilyGeneration + 1 }, (_, generation) => (
+                          <option key={generation} value={generation} disabled={familyBranchCoupleIndex !== null && generation === 0}>{generation === 0 ? "始祖" : `第 ${generation + 1} 代`}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </section>
+                ) : (
+                  <>
+                    <div className={styles.hierarchyHeading}><span>STEP 3 · ORGANIZATION TREE</span><h5>點選階層查看人物</h5><p>宗門可查峰、堂、內外門；企業可查董事會、事業群與部門。每個節點同時顯示實際在籍與編制上限。</p></div>
+                    <ul className={styles.hierarchyTree} data-testid="organization-hierarchy-tree">
+                      <OrganizationHierarchyBranch
+                        branch={selectedOrganization.hierarchy}
+                        selectedNodeId={selectedHierarchyNodeId}
+                        onSelect={(nodeId) => {
+                          setSelectedHierarchyNodeId(nodeId);
+                          setCharacterPage(0);
+                        }}
+                      />
+                    </ul>
+                  </>
+                )}
               </article>
             ) : null}
           </section>
@@ -1133,13 +1268,20 @@ export default function SocialWorldLibrary({
           <div className={styles.sectionHeading}>
             <div>
               <span>STEP 4 · MEMBERS ON DEMAND</span>
-              <h4>{selectedOrganization?.name ?? "組織"}人物名冊{selectedHierarchyNode ? ` · ${selectedHierarchyNode.label}` : ""}</h4>
-              {selectedHierarchyNode ? <button type="button" className={styles.clearHierarchyFilter} onClick={() => { setSelectedHierarchyNodeId(null); setCharacterPage(0); }}>查看全組織</button> : null}
+              <h4>{selectedOrganization?.name ?? "組織"}{selectedOrganizationIsFamily ? `祖譜 · ${familySearchQuery ? `搜尋「${familySearchQuery}」` : familyGeneration === 0 ? "始祖" : `第 ${familyGeneration + 1} 代`}` : `人物名冊${selectedHierarchyNode ? ` · ${selectedHierarchyNode.label}` : ""}`}</h4>
+              {!selectedOrganizationIsFamily && selectedHierarchyNode ? <button type="button" className={styles.clearHierarchyFilter} onClick={() => { setSelectedHierarchyNodeId(null); setCharacterPage(0); }}>查看全組織</button> : null}
             </div>
-            {pageControls("characters")}
+            {selectedOrganizationIsFamily && familySearchQuery ? (
+              <div className={styles.pageControls} aria-label="祖譜搜尋分頁">
+                <button type="button" disabled={familySearchCursor === 0} onClick={() => setFamilySearchCursor(Math.max(0, familySearchCursor - 180))}>搜尋上一批</button>
+                <span>本次掃描 {familySearchResult?.scanned ?? 0} 人 · 找到 {familySearchResult?.items.length ?? 0} 人</span>
+                <button type="button" disabled={familySearchResult?.nextCursor === null} onClick={() => setFamilySearchCursor(familySearchResult?.nextCursor ?? familySearchCursor)}>繼續搜尋下一批</button>
+              </div>
+            ) : pageControls("characters")}
           </div>
           <div className={styles.characterGrid} data-testid="social-character-grid">
             {characterItems.map((character) => {
+              const genealogyPosition = genealogyPositionByCharacterId.get(character.characterId);
               const institutionIndex = Number.parseInt(character.institutionId.split(":").at(-1) ?? "0", 36);
               const familyIndex = Number.parseInt(character.familyId.split(":").at(-1) ?? "0", 36);
               const institution = matrix.getInstitution(institutionIndex);
@@ -1152,7 +1294,7 @@ export default function SocialWorldLibrary({
                 && linkedInEveryBible
                 && !pendingApprovals.has(`character:${character.characterId}`);
               return (
-                <article className={styles.characterCard} key={character.characterId} data-character-id={character.characterId}>
+                <article className={styles.characterCard} key={character.characterId} data-character-id={character.characterId} data-generation-id={genealogyPosition?.generationId} data-parentage-id={genealogyPosition?.parentageId ?? undefined}>
                   <header>
                     {/* eslint-disable-next-line @next/next/no-img-element -- deterministic local SVG data URL */}
                     <img src={character.portrait.dataUrl} alt={`${character.name}的原創抽象人物相片`} />
@@ -1165,6 +1307,21 @@ export default function SocialWorldLibrary({
                     <span>派系／房系</span><strong>{character.organizationFaction}</strong>
                     <span>家族／團隊</span><strong>{family.name}</strong>
                   </div>
+                  {genealogyPosition ? (
+                    <div className={styles.kinshipSummary} data-testid={`genealogy-person-${genealogyPosition.memberOffset}`}>
+                      <span>{genealogyPosition.generationLabel}</span><strong>{genealogyPosition.branchLabel} · {genealogyPosition.lineageRole === "spouse" ? "配偶入譜" : "本支血親"}</strong>
+                      <small>人物 ID：{genealogyPosition.personId}</small>
+                      <button type="button" onClick={() => setSelectedGenealogyOffset(selectedGenealogyOffset === genealogyPosition.memberOffset ? null : genealogyPosition.memberOffset)}>{selectedGenealogyOffset === genealogyPosition.memberOffset ? "收合親屬" : "展開父母、配偶、手足與子女"}</button>
+                      {selectedGenealogyOffset === genealogyPosition.memberOffset && selectedOrganization ? (
+                        <dl>
+                          <div><dt>父母</dt><dd>{genealogyPosition.parentMemberOffsets.length ? genealogyPosition.parentMemberOffsets.map((offset) => organizationMemberAtOffset({ matrix, organization: selectedOrganization, memberOffset: offset }).name).join("、") : "始祖或外姓配偶，家內無親子來源"}</dd></div>
+                          <div><dt>配偶</dt><dd>{genealogyPosition.spouseMemberOffset === null ? "尚未入譜" : organizationMemberAtOffset({ matrix, organization: selectedOrganization, memberOffset: genealogyPosition.spouseMemberOffset }).name}</dd></div>
+                          <div><dt>手足</dt><dd>{genealogyPosition.siblingMemberOffsets.length ? genealogyPosition.siblingMemberOffsets.map((offset) => organizationMemberAtOffset({ matrix, organization: selectedOrganization, memberOffset: offset }).name).join("、") : "無同譜手足"}</dd></div>
+                          <div><dt>子女</dt><dd>{genealogyPosition.childMemberOffsets.length ? genealogyPosition.childMemberOffsets.map((offset) => organizationMemberAtOffset({ matrix, organization: selectedOrganization, memberOffset: offset }).name).join("、") : "尚無入譜子女"}</dd></div>
+                        </dl>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <p className={styles.goal}><b>人物目標</b>{character.goal}</p>
                   <div className={styles.traits}>{character.personality.traits.map((trait) => <span key={trait}>{trait}</span>)}</div>
                   <div className={styles.abilities}>{topAbilities(character).map((ability) => <div key={ability.label}><span>{ability.label}</span><meter min="0" max="100" value={ability.value}>{ability.value}</meter><b>{ability.value}</b></div>)}</div>
@@ -1172,11 +1329,11 @@ export default function SocialWorldLibrary({
                   <button
                     type="button"
                     className={styles.approveButton}
-                    disabled={isApproved || storyStarted || busyId !== null}
+                    disabled={!canEditCanon || isApproved || busyId !== null}
                     onClick={() => void approveCharacter(character)}
                     data-testid={`approve-social-character-${character.populationIndex}`}
                   >
-                    {isApproved ? "已核准為正式角色" : storyStarted ? "故事開始後請由首頁選擇既有人物" : busyId === character.characterId ? "正在核准持有鏈…" : "核准角色與持有鏈"}
+                    {isApproved ? "已核准為正式角色" : !canEditCanon ? "故事中僅供選擇與查詢" : busyId === character.characterId ? "正在核准持有鏈…" : "核准角色與持有鏈"}
                   </button>
                 </article>
               );
@@ -1186,7 +1343,7 @@ export default function SocialWorldLibrary({
       ) : view === "treasures" ? (
         <>
           <div className={styles.sectionHeading}>
-            <div><span>TREASURE OWNERSHIP</span><h4>寶物與人物交叉矩陣</h4></div>
+            <div><span>TREASURE OWNERSHIP · ERA FILTERED</span><h4>寶物與人物交叉矩陣</h4><small>{organizationSetting.eraLabel}／{organizationSetting.backgroundLabel}；{organizationSetting.allowsCrossEra ? "已明示跨時代，少量異時代物品會加註" : "未啟用跨時代，不會混入其他時代物品"}</small></div>
             {pageControls("treasures")}
           </div>
           <div className={styles.treasureGrid} data-testid="social-treasure-grid">
@@ -1196,20 +1353,47 @@ export default function SocialWorldLibrary({
               const isApproved = approvedTreasureIds.has(treasure.id)
                 && linkedInEveryBible
                 && !pendingApprovals.has(`treasure:${treasure.id}`);
+              const visualStyle = proceduralTreasureVisualCssVariables(treasure.visual) as CSSProperties;
               return (
-                <article className={styles.treasureCard} key={treasure.id} data-treasure-id={treasure.id}>
-                  <header><span>{treasure.rarityLabel} · {treasure.kindLabel}</span><h5>{treasure.name}</h5><p>{treasure.subtype}</p></header>
+                <article
+                  className={styles.treasureCard}
+                  key={treasure.id}
+                  data-treasure-id={treasure.id}
+                  data-treasure-kind={treasure.kind}
+                  data-rarity={treasure.rarity}
+                  data-element={treasure.visual.element}
+                  data-era={treasure.era.sourceEra}
+                  data-cross-era={treasure.era.isCrossEra}
+                  data-visual-variant={treasure.visual.variant}
+                  style={visualStyle}
+                >
+                  <div className={styles.treasurePresentation}>
+                    <div className={styles.treasureImageFrame}>
+                      <Image src={treasure.visual.baseAsset} alt={treasure.visual.alt} width={180} height={180} />
+                      <span className={styles.treasureElementBadge}>{treasure.visual.elementLabel}屬性</span>
+                      <span className={styles.treasureEraBadge}>{treasure.visual.eraOverlayLabel}</span>
+                    </div>
+                    <header>
+                      <div className={styles.treasureBadges}>
+                        <span data-badge="type">{treasure.kindLabel}</span>
+                        <span data-badge="rarity">{treasure.rarityLabel}</span>
+                        <span data-badge="era">{treasure.era.isCrossEra ? "跨時代" : treasure.era.sourceEraLabel}</span>
+                      </div>
+                      <h5>{treasure.name}</h5>
+                      <p>{treasure.subtype} · 視覺變體 #{treasure.visual.variant + 1}</p>
+                    </header>
+                  </div>
                   <p>{treasure.storyHook}</p>
                   <dl><div><dt>固定索引持有人候選</dt><dd>{treasure.holder.characterName} · {treasure.holder.factionName}</dd></div><div><dt>主要能力</dt><dd>{treasure.abilities[0].name}：{treasure.abilities[0].effect}</dd></div><div><dt>不可忽略代價</dt><dd>{treasure.cost}</dd></div></dl>
                   <details><summary>查看十個因果維度</summary><ol>{treasure.causalDimensions.map((dimension) => <li key={dimension.id}><b>{dimension.label}</b><span>{dimension.signal}</span></li>)}</ol></details>
                   <button
                     type="button"
                     className={styles.approveButton}
-                    disabled={isApproved || storyStarted || busyId !== null}
+                    disabled={!canEditCanon || isApproved || busyId !== null}
                     onClick={() => void approveTreasure(treasure)}
                     data-testid={`approve-treasure-${treasure.ordinal}`}
                   >
-                    {isApproved ? "已核准為正式寶物" : busyId === treasure.id ? "正在核准寶物…" : "核准這件寶物"}
+                    {isApproved ? "已核准為正式寶物" : !canEditCanon ? "故事中僅供選擇與查詢" : busyId === treasure.id ? "正在核准寶物…" : "核准這件寶物"}
                   </button>
                 </article>
               );
@@ -1277,11 +1461,11 @@ export default function SocialWorldLibrary({
                   <button
                     type="button"
                     className={styles.approveButton}
-                    disabled={isApproved || busyId !== null}
+                    disabled={!canEditCanon || isApproved || busyId !== null}
                     onClick={() => void approveWorld(world)}
                     data-testid={`approve-world-${world.globalOrdinal}`}
                   >
-                    {isApproved ? "已核准為正式世界" : storyStarted ? "故事開始後請由首頁選擇既有世界" : busyId === world.id ? "正在核准世界與規則…" : "核准世界與五條規則"}
+                    {isApproved ? "已核准為正式世界" : !canEditCanon ? "故事中僅供選擇與查詢" : busyId === world.id ? "正在核准世界與規則…" : "核准世界與五條規則"}
                   </button>
                 </article>
               );

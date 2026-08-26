@@ -2,14 +2,12 @@
 
 import { useMemo, type MutableRefObject } from "react";
 import type {
-  Character,
   ConversationArtifact,
   ConversationMessage,
   ConversationSession,
   ConversationToolInvocation,
   DomainRecord,
   LearningImportSession,
-  WorldRule,
 } from "@/lib/novel-ai/domain";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import type { SovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
@@ -25,10 +23,11 @@ import {
 } from "@/lib/novel-ai/conversation/closed-agent-approval";
 import type { ConversationLearningCoordinatorLoader } from "./use-conversation-learning-loader";
 import {
+  assertStoryWorkspaceConversationApprovalTarget,
   conversationCanonicalRecordDigest,
   conversationContentDigest,
+  isStoryWorkspaceForbiddenCanonicalTarget,
 } from "@/lib/novel-ai/conversation/approval-transaction";
-import { buildConversationCanonicalReplacement } from "@/lib/novel-ai/conversation/canonical-target";
 import { planConversationRequest, type ConversationPlan } from "@/lib/novel-ai/conversation/planner";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
 import {
@@ -235,6 +234,13 @@ export function useConversationApprovalController({
   setDrawer: (value: DrawerPayload) => void;
 }) {
   async function approveArtifact(artifact: ConversationArtifact, editedContent?: string) {
+    if (isStoryWorkspaceForbiddenCanonicalTarget(artifact.targetStore)) {
+      setSafeError({
+        code: "CONVERSATION_STORY_CANON_MUTATION_FORBIDDEN",
+        message: "故事工作台只能選擇上場內容，不能採用人物、關係、世界規則、Story Bible、記憶或時間線的正式變更；請回首頁修改。",
+      });
+      return;
+    }
     if (!activeSession) {
       setSafeError({
         code: "CONVERSATION_APPROVAL_SESSION_NOT_READY",
@@ -398,6 +404,7 @@ export function useConversationApprovalController({
       const sourceMessage = await repository.get<ConversationMessage>("conversationMessages", selected.sourceMessageId);
       const freshArtifact = await repository.get<ConversationArtifact>("conversationArtifacts", selected.id);
       if (!session || !sourceMessage || !freshArtifact) throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
+      assertStoryWorkspaceConversationApprovalTarget(freshArtifact.targetStore);
       if (freshArtifact.artifactType === "learning_rule") {
         const learning = await getLearningCoordinator();
         const candidate = parseLearningImportCandidate(freshArtifact);
@@ -584,85 +591,10 @@ export function useConversationApprovalController({
         } else {
           await commit();
         }
-      } else if (freshArtifact.targetStore === "characters" || freshArtifact.targetStore === "worldRules") {
-        const closedCandidateId = !contentWasEdited
-          ? await closedCandidateIdForUneditedApproval(repository, sourceMessage)
-          : null;
-        const targetStore = freshArtifact.targetStore;
-        const commit = async (
-          binding?: ConversationClosedAgentApprovalBinding,
-        ) => {
-          const [currentSession, currentMessage, currentArtifact, currentTarget] = binding
-            ? [
-                binding.session,
-                binding.sourceMessage,
-                binding.artifact,
-                binding.targetRecord as Character | WorldRule | null,
-              ]
-            : await Promise.all([
-                repository.get<ConversationSession>("conversationSessions", session.id),
-                repository.get<ConversationMessage>("conversationMessages", sourceMessage.id),
-                repository.get<ConversationArtifact>("conversationArtifacts", freshArtifact.id),
-                repository.get<Character | WorldRule>(targetStore, freshArtifact.targetRecordId),
-              ]);
-          if (!currentSession || !currentMessage || !currentArtifact) {
-            throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
-          }
-          const nextCanonicalRecord = buildConversationCanonicalReplacement({
-            projectId,
-            store: targetStore,
-            targetRecordId: currentArtifact.targetRecordId,
-            candidateContent: currentArtifact.candidateContent,
-            current: currentTarget,
-          });
-          const closedAgentApprovalBinding = binding
-            ? await buildConversationClosedAgentApprovalBindingProof(binding)
-            : undefined;
-          return conversation.approveArtifact({
-            operationId: `conversation-approval:${currentArtifact.id}`,
-            idempotencyKey: `conversation-approval:${currentArtifact.id}:${currentArtifact.candidateDigest}`,
-            projectId,
-            sessionId: session.id,
-            artifactId: currentArtifact.id,
-            sourceMessageId: currentMessage.id,
-            candidateDigest: currentArtifact.candidateDigest,
-            targetStore,
-            targetRecordId: currentArtifact.targetRecordId,
-            expectedSessionRevision: currentSession.revision,
-            expectedArtifactRevision: currentArtifact.revision,
-            expectedSourceMessageRevision: currentMessage.revision,
-            expectedSourceRevision: currentArtifact.sourceRevision,
-            applicationMode: "record_replace",
-            nextCanonicalRecord,
-            closedAgentApprovalBinding,
-          });
-        };
-        if (closedCandidateId && !contentWasEdited) {
-          const bound = await loadClosedCandidateApprovalBinding({
-            projectId,
-            sessionId: session.id,
-            repository,
-            candidateId: closedCandidateId,
-            sourceMessageId: sourceMessage.id,
-            artifactId: freshArtifact.id,
-          });
-          await approveStudioClosedAgentCandidate({
-            candidateId: closedCandidateId,
-            canonicalCommit: async ({ candidate }) => {
-              assertCanonicalCallbackCandidate(bound.candidate, candidate);
-              await assertClosedCandidateApprovalSnapshotCurrent({
-                expected: bound,
-                projectId,
-                sessionId: session.id,
-                repository,
-              });
-              const result = await commit(bound);
-              return { commitId: result.approvalTransaction.operationId };
-            },
-          });
-        } else {
-          await commit();
-        }
+      } else {
+        throw Object.assign(new Error("這類故事候選不能在故事工作台採用。"), {
+          code: "CONVERSATION_APPROVAL_TARGET_NOT_SUPPORTED",
+        });
       }
       await conversation.invalidateSummariesForCanonChange(
         projectId,

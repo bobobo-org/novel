@@ -10,6 +10,7 @@ import {
   type ProceduralStoryContext,
 } from "../game/procedural-story-library";
 import {
+  PROCEDURAL_TREASURE_KIND_DEFINITIONS,
   PROCEDURAL_TREASURE_CLASSIFICATION_VERSION,
   proceduralTreasureClassificationAt,
 } from "../game/procedural-treasure-classification";
@@ -812,26 +813,23 @@ export class DeterministicSocialMatrix {
       ordinal: treasureOrdinal,
       context: this.context,
     });
-    const classificationSlot = classification.kind === "pill"
-      ? 0
-      : classification.kind === "weapon"
-        ? 1
-        : classification.kind === "talisman"
-          ? 2
-          : classification.kind === "formation"
-            ? 3
-            : 4;
-    const legacyKind = classification.kind === "pill"
-      ? itemAt(["丹藥", "藥丸"] as const, random)
-      : classification.kind === "weapon"
-        ? "武器"
-        : classification.kind === "talisman"
-          ? "符籙"
-          : classification.kind === "formation"
-            ? "陣法"
-            : "特殊機緣";
+    const classificationSlot = PROCEDURAL_TREASURE_KIND_DEFINITIONS.findIndex(
+      (definition) => definition.id === classification.kind,
+    );
+    const legacyKind: SocialPossessionKind = ({
+      weapon: "武器",
+      artifact: "法寶",
+      talisman: "符籙",
+      pill: "丹藥",
+      herb: "藥草",
+      formation: "陣法",
+      armor: "護具",
+      material: "煉器材料",
+      manual: "功法",
+      "special-opportunity": "特殊機緣",
+    } as const)[classification.kind];
     const kind = useNativePossession
-      ? nativeVocabulary.possessionKinds[classificationSlot]
+      ? nativeVocabulary.possessionKinds[classificationSlot % nativeVocabulary.possessionKinds.length]
       : legacyKind;
     const rarity: SocialMatrixPossession["rarity"] = classification.rarity === "common"
       ? "常見"

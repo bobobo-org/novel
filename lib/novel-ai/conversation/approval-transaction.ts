@@ -41,6 +41,27 @@ export const CONVERSATION_CANONICAL_TARGET_STORES = new Set<ConversationCanonica
   "learningImportSessions",
 ]);
 
+export const STORY_WORKSPACE_FORBIDDEN_CANONICAL_TARGET_STORES = new Set<string>([
+  "characters",
+  "worldRules",
+  "storyBibles",
+  "relationships",
+  "lore",
+  "timeline",
+  "worlds",
+]);
+
+export function isStoryWorkspaceForbiddenCanonicalTarget(targetStore: unknown) {
+  return typeof targetStore === "string"
+    && STORY_WORKSPACE_FORBIDDEN_CANONICAL_TARGET_STORES.has(targetStore);
+}
+
+export function assertStoryWorkspaceConversationApprovalTarget(targetStore: unknown) {
+  if (isStoryWorkspaceForbiddenCanonicalTarget(targetStore)) {
+    throw new RepositoryOperationError("CONVERSATION_STORY_CANON_MUTATION_FORBIDDEN");
+  }
+}
+
 export async function conversationContentDigest(content: string) {
   return sha256Hex(content.normalize("NFKC"));
 }
@@ -274,6 +295,7 @@ export function assertConversationApprovalSource(
   candidateContentDigest: string,
   expectedCanonicalRevision = input.expectedSourceRevision,
 ) {
+  assertStoryWorkspaceConversationApprovalTarget(input.targetStore);
   const { session, sourceMessage, artifact, canonicalRecord } = records;
   if (!session || !sourceMessage || !artifact) {
     throw new RepositoryOperationError("CONVERSATION_APPROVAL_SOURCE_MISSING");

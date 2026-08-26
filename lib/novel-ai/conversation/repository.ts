@@ -24,7 +24,10 @@ import {
   type MarkConversationArtifactApprovedFromExternalCommitInput,
   type NovelRepository,
 } from "../repository/contracts";
-import { conversationContentDigest } from "./approval-transaction";
+import {
+  assertStoryWorkspaceConversationApprovalTarget,
+  conversationContentDigest,
+} from "./approval-transaction";
 import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
 import {
@@ -964,6 +967,10 @@ export class ConversationRepositoryService {
   }
 
   async approveArtifact(input: ApproveConversationArtifactTransactionInput) {
+    // Conversation is a story surface. Canon setting records are edited only
+    // from the project home, so even persisted legacy or forged candidates
+    // must fail before a backup or any canonical write is attempted.
+    assertStoryWorkspaceConversationApprovalTarget(input.targetStore);
     // Capture the recoverable pre-mutation state first. If backup creation
     // fails, no Canon/artifact/ledger write has occurred.
     await createProjectBackup(this.repository, input.projectId, "safety", {
@@ -981,6 +988,7 @@ export class ConversationRepositoryService {
   async markArtifactApprovedFromExternalCommit(
     input: MarkConversationArtifactApprovedFromExternalCommitInput,
   ) {
+    assertStoryWorkspaceConversationApprovalTarget(input.targetStore);
     // External coordinators must capture their safety backup before their
     // canonical commit.  A backup created here would necessarily describe a
     // partial state (Canon committed, Conversation artifact still pending)

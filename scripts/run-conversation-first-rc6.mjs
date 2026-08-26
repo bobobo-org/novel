@@ -2127,55 +2127,55 @@ harness.test("routing", "explicit continuation outranks incidental Canon entity 
       content: "請修改角色明檀的背景，讓她曾在北境修行。",
       intent: "character_candidate",
       taskType: "character.create",
-      targetStore: "characters",
+      targetStore: null,
     },
     {
       content: "請修改世界規則，讓靈石不可逆流。",
       intent: "world_rule_candidate",
       taskType: "world.ruleCandidate",
-      targetStore: "worldRules",
+      targetStore: null,
     },
     {
       content: "根據已核准的作品資料，提出世界規則候選；不要直接修改正式設定。",
       intent: "world_rule_candidate",
       taskType: "world.ruleCandidate",
-      targetStore: "worldRules",
+      targetStore: null,
     },
     {
       content: "請修改角色明檀的背景，讓她曾在北境修行，然後續寫下一段。",
       intent: "character_candidate",
       taskType: "character.create",
-      targetStore: "characters",
+      targetStore: null,
     },
     {
       content: "請修改世界規則，讓靈石不可逆流，接著寫下一段。",
       intent: "world_rule_candidate",
       taskType: "world.ruleCandidate",
-      targetStore: "worldRules",
+      targetStore: null,
     },
     {
       content: "請修改角色明檀的背景，再幫我開始第一章。",
       intent: "character_candidate",
       taskType: "character.create",
-      targetStore: "characters",
+      targetStore: null,
     },
     {
       content: "請修改世界規則，再開始第一章。",
       intent: "world_rule_candidate",
       taskType: "world.ruleCandidate",
-      targetStore: "worldRules",
+      targetStore: null,
     },
     {
       content: "只建立一個候選角色，並續寫下一段。",
       intent: "character_candidate",
       taskType: "character.create",
-      targetStore: "characters",
+      targetStore: null,
     },
     {
       content: "只建立一個候選世界規則，並續寫下一段。",
       intent: "world_rule_candidate",
       taskType: "world.ruleCandidate",
-      targetStore: "worldRules",
+      targetStore: null,
     },
   ];
   for (const expected of entityCandidateCases) {
@@ -2183,7 +2183,8 @@ harness.test("routing", "explicit continuation outranks incidental Canon entity 
     assert.equal(plan.intent, expected.intent, expected.content);
     assert.equal(plan.taskType, expected.taskType, expected.content);
     assert.equal(plan.targetStore, expected.targetStore, expected.content);
-    assert.equal(plan.approvalRequired, true, expected.content);
+    assert.equal(plan.executionKind, "closed_agent", expected.content);
+    assert.equal(plan.approvalRequired, false, expected.content);
   }
 });
 

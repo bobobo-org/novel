@@ -3,7 +3,16 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Chapter, NovelProject, ProjectBackup, StoryState } from "@/lib/novel-ai/domain";
+import type {
+  Chapter,
+  Character,
+  LoreEntry,
+  NovelProject,
+  ProjectBackup,
+  StoryBible,
+  StoryState,
+  World,
+} from "@/lib/novel-ai/domain";
 import {
   resolveStoryPlayMode,
   storyPlayModeDashboardHref,
@@ -15,13 +24,23 @@ import {
   migrateLegacyStudioProjects,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 import { discoverStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import {
+  SOCIAL_WORLD_APPROVAL_VERSION,
+  type SocialWorldApprovalJournal,
+} from "@/lib/novel-ai/social-world-approval";
 import CharacterRelationshipWorkbench from "../studio/project/[projectId]/character-relationship-workbench";
+import SocialWorldLibrary from "../studio/project/[projectId]/social-world-library";
 
 type ProjectSummary = {
   project: NovelProject;
   chapters: Chapter[];
   backups: ProjectBackup[];
   storyState: StoryState | null;
+  characters: Character[];
+  lore: LoreEntry[];
+  approvalJournals: SocialWorldApprovalJournal[];
+  storyBibles: StoryBible[];
+  worlds: World[];
 };
 
 function formatTime(value: string) {
@@ -85,11 +104,16 @@ export default function ProfessionalClient({
       setSummary(null);
       return;
     }
-    const [project, chapters, backups, storyStates] = await Promise.all([
+    const [project, chapters, backups, storyStates, characters, lore, operationJournals, storyBibles, worlds] = await Promise.all([
       repository.get<NovelProject>("projects", projectId),
       repository.list<Chapter>("chapters", projectId),
       repository.list<ProjectBackup>("backups", projectId),
       repository.list<StoryState>("storyStates", projectId),
+      repository.list<Character>("characters", projectId),
+      repository.list<LoreEntry>("lore", projectId),
+      repository.list<SocialWorldApprovalJournal>("operationJournal", projectId),
+      repository.list<StoryBible>("storyBibles", projectId),
+      repository.list<World>("worlds", projectId),
     ]);
     if (!project) {
       setSummary(null);
@@ -100,6 +124,11 @@ export default function ProfessionalClient({
       chapters: chapters.sort((left, right) => left.order - right.order),
       backups: backups.sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
       storyState: storyStates.find((item) => item.id === project.storyStateId) ?? storyStates[0] ?? null,
+      characters,
+      lore,
+      approvalJournals: operationJournals.filter((journal) => journal.operationType === SOCIAL_WORLD_APPROVAL_VERSION),
+      storyBibles,
+      worlds,
     });
   }, [repository]);
 
@@ -286,9 +315,24 @@ export default function ProfessionalClient({
           <CharacterRelationshipWorkbench
             project={project}
             compact
-            storyStarted={summary.chapters.some((chapter) => chapter.content.trim().length > 0)}
             onChanged={() => loadSummary(project.id)}
           />
+
+          <details className="professionalSocialLibrary" data-testid="professional-social-world-library">
+            <summary>完整宗門、家族、企業、人物、寶物與世界資料庫</summary>
+            <p>在首頁可核准與編修正式設定；進入故事後，同一資料庫只提供搜尋與選擇上場內容。家族使用祖譜，宗門與企業使用組織樹。</p>
+            <SocialWorldLibrary
+              mode="home-edit"
+              project={project}
+              approvedCharacters={summary.characters}
+              approvedLore={summary.lore}
+              approvalJournals={summary.approvalJournals}
+              storyBibles={summary.storyBibles}
+              approvedWorlds={summary.worlds}
+              storyStarted={Boolean(summary.storyState || summary.chapters.some((chapter) => chapter.content.trim()))}
+              onChanged={() => loadSummary(project.id)}
+            />
+          </details>
 
           <section className="professionalActionGroups" aria-label="作品全部功能">
             <article id="story-and-chapters">

@@ -1201,49 +1201,42 @@ harness.test("browser", "project tools preserve the selected project and active 
   await contextTabs.waitFor({ state: "visible" });
   assert.equal(await contextTabs.getAttribute("data-active-view"), "characters");
 
-  const socialLibrary = page.getByTestId("social-world-library");
-  await socialLibrary.waitFor({ state: "visible" });
-  assert.match(await socialLibrary.innerText(), /218[\s,，]*類題材/u);
-  assert.match(await socialLibrary.innerText(), /100,000[\s\S]*原創人物/u);
-  assert.match(await socialLibrary.innerText(), /1,000,000[\s\S]*人寶情境/u);
-  assert.equal(await socialLibrary.locator("[data-character-id]").count(), 6);
-  await socialLibrary.getByRole("button", { name: "核准角色與持有鏈" }).first().click();
-  await socialLibrary.getByTestId("social-library-status").filter({ hasText: /已核准/u }).waitFor({ timeout: 30_000 });
-  assert.equal(await socialLibrary.getByRole("button", { name: "已核准為正式角色" }).first().isDisabled(), true);
-
-  await socialLibrary.getByRole("tab", { name: /寶物、持有人與十因果/u }).click();
-  assert.equal(await socialLibrary.locator("[data-treasure-id]").count(), 6);
-  const firstTreasureDetails = socialLibrary.locator("[data-treasure-id] details").first();
-  await firstTreasureDetails.locator("summary").click();
-  assert.equal(await firstTreasureDetails.locator("ol > li").count(), 10);
-  const firstTreasureCard = socialLibrary.locator("[data-treasure-id]").first();
-  await firstTreasureCard.getByRole("button", { name: "核准這件寶物" }).click();
-  await firstTreasureCard.getByRole("button", { name: "已核准為正式寶物" }).waitFor({ timeout: 30_000 });
-  assert.equal(await firstTreasureCard.getByRole("button", { name: "已核准為正式寶物" }).isDisabled(), true);
+  const characterStage = page.getByTestId("story-stage-selector");
+  await characterStage.waitFor({ state: "visible" });
+  assert.equal(await characterStage.getAttribute("data-canon-edit-surface"), "story-selection-only");
+  assert.match(await characterStage.getByTestId("story-stage-selection-boundary").innerText(), /不會修改正式人物/u);
+  assert.equal(await page.getByTestId("social-world-library").count(), 0, "story routes must not expose library Canon approval");
+  for (const forbiddenAction of ["建立人物", "儲存人物", "刪除人物", "核准角色與持有鏈"]) {
+    assert.equal(await characterStage.getByRole("button", { name: forbiddenAction, exact: true }).count(), 0);
+  }
+  const selectableCharacter = characterStage
+    .locator('[data-testid="story-stage-character"]:not([disabled])')
+    .filter({ hasNotText: /主角/u })
+    .first();
+  await selectableCharacter.waitFor({ state: "visible" });
+  const previousCharacterStage = await selectableCharacter.getAttribute("aria-pressed");
+  await selectableCharacter.click();
+  await page.waitForFunction(({ previous }) => {
+    const candidate = [...document.querySelectorAll('[data-testid="story-stage-character"]')]
+      .find((element) => !element.textContent?.includes("主角") && !element.hasAttribute("disabled"));
+    return candidate?.getAttribute("aria-pressed") !== previous;
+  }, { previous: previousCharacterStage });
 
   await contextTabs.getByRole("link", { name: /世界設定/u }).click();
   await page.waitForURL((url) => (
     url.pathname === `${projectPrefix}/people-world`
     && url.searchParams.get("view") === "world"
   ));
-  const worldLibrary = page.getByTestId("social-world-library");
-  await worldLibrary.waitFor({ state: "visible" });
-  assert.equal(await worldLibrary.getByTestId("procedural-world-grid").locator("[data-world-id]").count(), 6);
-  await worldLibrary.getByTestId("world-topic-filter").selectOption({ index: 1 });
-  assert.match(await worldLibrary.getByTestId("world-topic-filter").locator("option:checked").innerText(), /1,000 個世界/u);
-  const firstWorldCard = worldLibrary.getByTestId("procedural-world-grid").locator("[data-world-id]").first();
-  const secondWorldCard = worldLibrary.getByTestId("procedural-world-grid").locator("[data-world-id]").nth(1);
-  await firstWorldCard.getByRole("button", { name: "核准世界與五條規則" }).click();
-  await firstWorldCard.getByRole("button", { name: "已核准為正式世界" }).waitFor({ timeout: 30_000 });
-  assert.equal(await firstWorldCard.getByRole("button", { name: "已核准為正式世界" }).isDisabled(), true);
-  await secondWorldCard.getByRole("button", { name: "核准世界與五條規則" }).click();
-  await secondWorldCard.getByRole("button", { name: "已核准為正式世界" }).waitFor({ timeout: 30_000 });
-  assert.equal(await secondWorldCard.getByRole("button", { name: "已核准為正式世界" }).isDisabled(), true);
-  assert.equal(await firstWorldCard.getByRole("button", { name: "核准世界與五條規則" }).isDisabled(), false);
+  const worldStage = page.getByTestId("story-stage-selector");
+  await worldStage.waitFor({ state: "visible" });
+  assert.equal(await worldStage.getAttribute("data-canon-edit-surface"), "story-selection-only");
+  assert.equal(await worldStage.getByTestId("story-stage-world").count() > 0, true);
+  for (const forbiddenAction of ["建立世界", "儲存世界", "刪除世界", "核准世界與五條規則"]) {
+    assert.equal(await worldStage.getByRole("button", { name: forbiddenAction, exact: true }).count(), 0);
+  }
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByTestId("social-world-library").waitFor({ state: "visible" });
-  assert.equal(await page.getByTestId("social-world-library").getByRole("button", { name: "已核准為正式世界" }).count(), 1);
-  assert.equal(await page.getByTestId("social-world-library").getByRole("button", { name: "已核准為正式世界" }).first().isDisabled(), true);
+  await page.getByTestId("story-stage-selector").waitFor({ state: "visible" });
+  assert.equal(await page.getByTestId("social-world-library").count(), 0);
 
   const reloadedContextTabs = page.getByTestId("people-world-context-tabs");
   await reloadedContextTabs.waitFor({ state: "visible" });
@@ -1253,7 +1246,7 @@ harness.test("browser", "project tools preserve the selected project and active 
     url.pathname === `${projectPrefix}/people-world`
     && url.searchParams.get("view") === "characters"
   ));
-  assert.equal(await page.getByTestId("social-world-library").getByRole("button", { name: "已核准為正式角色" }).first().isDisabled(), true);
+  await page.getByTestId("story-stage-selector").waitFor({ state: "visible" });
   const characterContextTabs = page.getByTestId("people-world-context-tabs");
   await characterContextTabs.waitFor({ state: "visible" });
   await characterContextTabs.getByRole("link", { name: /角色視角 AI/u }).click();
@@ -1490,7 +1483,12 @@ harness.test("long-session", "1000-message edit-copy, approval, switching, and r
   assert.equal(await page.getByTestId("conversation-edit-copy-dialog").count(), 1, "rapid clicks must open one controlled dialog");
   assert.equal(await editDialog.getByLabel("副本中的訊息").inputValue(), editedContent);
   assert.match(await editDialog.innerText(), /內容未變更：確認後仍會建立一個重試副本/u);
-  await editDialog.getByRole("button", { name: "確認並在副本重試" }).click();
+  await editDialog.getByRole("button", { name: "確認並在副本重試" }).evaluate((button) => {
+    button.click();
+    button.click();
+    button.click();
+    button.click();
+  });
   const editedState = await waitForLongSessionState(
     page,
     projectId,
@@ -1522,6 +1520,24 @@ harness.test("long-session", "1000-message edit-copy, approval, switching, and r
   ));
   assert.equal(automaticResponses.length, 1, "the edit copy must start exactly one assistant continuation");
   assert.equal(automaticResponses[0].status, "completed");
+  const visiblySelectedSession = page.getByTestId("conversation-active-session");
+  assert.equal(await visiblySelectedSession.getAttribute("data-session-id"), editSession.id);
+  assert.equal(await visiblySelectedSession.locator("button").first().getAttribute("aria-current"), "true");
+  assert.equal(await page.getByLabel("小說專案訊息").isEnabled(), true, "a completed edit copy must remain continuable");
+  const editedTailVisibility = await page.evaluate((messageId) => {
+    const timelineElement = document.querySelector('[data-testid="conversation-message-timeline"]');
+    const messageElement = document.querySelector(`article[data-message-id="${messageId}"]`);
+    if (!timelineElement || !messageElement) return null;
+    const timelineBox = timelineElement.getBoundingClientRect();
+    const messageBox = messageElement.getBoundingClientRect();
+    return {
+      visible: messageBox.bottom > timelineBox.top && messageBox.top < timelineBox.bottom,
+      distanceFromTail: timelineElement.scrollHeight - timelineElement.scrollTop - timelineElement.clientHeight,
+    };
+  }, automaticResponses[0].id);
+  assert.equal(editedTailVisibility?.visible, true, `edited continuation was not visible: ${JSON.stringify(editedTailVisibility)}`);
+  assert((editedTailVisibility?.distanceFromTail ?? Number.POSITIVE_INFINITY) < 96,
+    `edited branch did not navigate to its tail: ${JSON.stringify(editedTailVisibility)}`);
   assert.equal(editedState.sourceMessage?.content, editedContent);
   assert.equal(editedState.chapterRevision, seeded.chapterRevision + 1);
   assert.equal(editedState.approvals.length, 1);

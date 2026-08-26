@@ -37,6 +37,9 @@
 .root :global(.dramaLinearNotice){border-color:#3d6d67;background:#0d211f}
 .root :global(.dramaLinearNotice) p,.root :global(.dramaVideoPipeline) p,.root :global(.dramaVideoPipeline) li,.root :global(.dramaVideoPipeline)>small{color:#acbbcf;line-height:1.65}
 .root :global(.dramaVideoPipeline){display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,.8fr);gap:14px;align-items:center;background:linear-gradient(140deg,#0b1729,#17152c)}
+.root :global(.dramaVideoConsents){display:grid;gap:9px;padding:13px;border:1px solid #31506b;background:#091522}
+.root :global(.dramaVideoConsents) label{display:flex;grid-template-columns:none;align-items:flex-start;gap:9px;color:#cbd8e8;line-height:1.55}
+.root :global(.dramaVideoConsents) input{flex:0 0 auto;width:18px;height:18px;margin-top:3px;accent-color:#d0a552}
 .root :global(.dramaVideoPipeline)>button,.root :global(.dramaVideoPipeline)>small{grid-column:2}
 .root :global(.dramaActions){display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
 .root :global(.dramaTechnical){margin-top:16px;padding:14px;border:1px solid #2d4565}

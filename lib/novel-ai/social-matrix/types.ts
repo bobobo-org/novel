@@ -6,8 +6,13 @@ export type SocialPossessionKind =
   | "丹藥"
   | "藥丸"
   | "武器"
+  | "法寶"
   | "符籙"
+  | "藥草"
   | "陣法"
+  | "護具"
+  | "煉器材料"
+  | "功法"
   | "特殊機緣"
   | "祕笈"
   | "信物"
@@ -186,7 +191,7 @@ export type SocialCharacterCandidate = {
     generatorVersion: typeof SOCIAL_MATRIX_SCHEMA_VERSION;
     storyLibraryVersion: "procedural-story-library-v1";
     ownershipIndexVersion: "procedural-treasure-ownership-v1";
-    treasureClassificationVersion: "procedural-treasure-classification-v1";
+    treasureClassificationVersion: "procedural-treasure-classification-v2";
     portraitSource: "procedural-original-svg";
   };
 };

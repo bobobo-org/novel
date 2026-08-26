@@ -7,6 +7,7 @@ import type {
   ConversationArtifact,
   ConversationToolInvocation,
 } from "@/lib/novel-ai/domain";
+import { isStoryWorkspaceForbiddenCanonicalTarget } from "@/lib/novel-ai/conversation/approval-transaction";
 import { artifactStory } from "./conversation-presentation";
 import type { ArtifactView, DrawerPayload } from "./conversation-types";
 import styles from "../conversation.module.css";
@@ -50,6 +51,7 @@ export default function ArtifactDrawer({
   const selectedArtifactInvocations = selectedArtifact
     ? invocations.filter((invocation) => invocation.messageId === selectedArtifact.sourceMessageId)
     : [];
+  const canonMutationForbidden = isStoryWorkspaceForbiddenCanonicalTarget(selectedArtifact?.targetStore);
   const evidence = selectedArtifact ? {
     candidateDigest: selectedArtifact.candidateDigest,
     sourceRevision: selectedArtifact.sourceRevision,
@@ -93,24 +95,29 @@ export default function ArtifactDrawer({
                 </section>
               </div>
             ) : (
-              <textarea className={styles.renameInput} rows={16} value={artifactDraft || artifactStory(selectedArtifact)} disabled={selectedArtifact.status !== "candidate" || ["rpg", "learning_rule"].includes(selectedArtifact.artifactType)} onChange={(event) => onDraftChange(event.target.value)} />
+              <textarea className={styles.renameInput} rows={16} value={artifactDraft || artifactStory(selectedArtifact)} disabled={canonMutationForbidden || selectedArtifact.status !== "candidate" || ["rpg", "learning_rule"].includes(selectedArtifact.artifactType)} onChange={(event) => onDraftChange(event.target.value)} />
             )}
             <details className={styles.evidenceDetails} onToggle={(event) => setEvidenceOpen(event.currentTarget.open)}>
               <summary>技術證據</summary>
               {evidenceOpen ? <TechnicalEvidencePanel evidence={evidence} /> : null}
             </details>
+            {canonMutationForbidden && selectedArtifact.status === "candidate" ? (
+              <p className={styles.emptyNote} role="status" data-testid="story-canon-candidate-blocked">
+                這是舊版人物／世界 Canon 候選。故事工作台不能採用；可放棄候選，或回首頁修改正式設定。
+              </p>
+            ) : null}
             {selectedArtifact.status === "candidate" ? (
               <div className={styles.candidateActions}>
-                <button className={styles.approvalPrimary} type="button" disabled={busy} onClick={() => onApprove(
-                  selectedArtifact,
-                  ["rpg", "learning_rule"].includes(selectedArtifact.artifactType)
-                    ? undefined
-                    : artifactDraft || artifactStory(selectedArtifact),
-                )}>{selectedArtifact.artifactType === "rpg"
-                    ? "採用回合"
-                    : selectedArtifact.artifactType === "learning_rule"
-                      ? "採用整份學習規則"
-                      : "修改後採用"}</button>
+                {!canonMutationForbidden ? <button className={styles.approvalPrimary} type="button" disabled={busy} onClick={() => onApprove(
+                    selectedArtifact,
+                    ["rpg", "learning_rule"].includes(selectedArtifact.artifactType)
+                      ? undefined
+                      : artifactDraft || artifactStory(selectedArtifact),
+                  )}>{selectedArtifact.artifactType === "rpg"
+                      ? "採用回合"
+                      : selectedArtifact.artifactType === "learning_rule"
+                        ? "採用整份學習規則"
+                        : "修改後採用"}</button> : null}
                 <button type="button" disabled={busy} onClick={() => onReject(selectedArtifact)}>放棄</button>
               </div>
             ) : null}

@@ -343,7 +343,9 @@ jobs:
             pnpm test:studio:project-context-navigation
             pnpm test:ai:author-tools
             pnpm test:studio:organization-hierarchy
+            pnpm test:studio:procedural-treasure-library
             pnpm test:studio:character-staging
+            pnpm test:studio:story-selection-boundary
             node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-conversation-rpg-dashboard-presentation.mjs
           } 2>&1 | tee "$RUNNER_TEMP/rc6-evidence/conversation-gates.log"
 
@@ -358,6 +360,7 @@ jobs:
             pnpm test:ai:closed:optimization
             pnpm test:ai:external:modes
             pnpm test:ai:external:request-guard
+            pnpm test:media:seedance-contract
             pnpm test:ai:closed:cloud-sync
             pnpm test:ai:closed:model-verification-timeout
             pnpm test:ai:closed:super-agent-rpg

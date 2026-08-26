@@ -1,4 +1,4 @@
-import Client from "../project-section-client";
+import StoryStageSelectionPage from "../story-stage-selection-page";
 
 export default async function Page({
   params,
@@ -10,5 +10,5 @@ export default async function Page({
   const [{ projectId }, query] = await Promise.all([params, searchParams]);
   const requestedView = Array.isArray(query.view) ? query.view[0] : query.view;
   const view = requestedView === "story-bible" ? "story-bible" : "timeline";
-  return <Client projectId={projectId} section={view} />;
+  return <StoryStageSelectionPage projectId={projectId} focus={view} />;
 }

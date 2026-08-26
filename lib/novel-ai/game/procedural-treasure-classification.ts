@@ -1,13 +1,18 @@
 import { PROCEDURAL_TREASURE_CAPACITY } from "./procedural-story-library";
 
 export const PROCEDURAL_TREASURE_CLASSIFICATION_VERSION =
-  "procedural-treasure-classification-v1" as const;
+  "procedural-treasure-classification-v2" as const;
 
 export const PROCEDURAL_TREASURE_KIND_DEFINITIONS = [
-  { id: "pill", label: "丹藥／藥丸" },
   { id: "weapon", label: "武器" },
-  { id: "talisman", label: "符" },
+  { id: "artifact", label: "法寶" },
+  { id: "talisman", label: "符籙" },
+  { id: "pill", label: "丹藥" },
+  { id: "herb", label: "藥草" },
   { id: "formation", label: "陣法" },
+  { id: "armor", label: "護具" },
+  { id: "material", label: "煉器材料" },
+  { id: "manual", label: "功法" },
   { id: "special-opportunity", label: "特殊機緣" },
 ] as const;
 
