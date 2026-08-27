@@ -151,7 +151,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["先行封住失控靈脈", "私下查驗殘缺契印", "越級阻止宗門問罪", "帶走唯一證人", "公開挑戰錯誤戒律"],
     locations: ["雨夜山門", "斷脈藥谷", "浮燈城", "禁書石窟", "星井祭臺"],
     portraitBaseId: "xianxia",
-    portraitAssetUri: "/character-portraits/atlas-xianxia.png",
+    portraitAssetUri: "/character-portraits/atlas-xianxia.webp",
     treasureCategories: ["靈器", "契印", "丹匣", "古卷", "陣心"],
   },
   {
@@ -162,7 +162,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["先替自己訂下合作期限", "把未寄出的信交給第三人保管", "拒絕替主角掩飾失約", "主動約見共同證人", "暫停關係並追查真相"],
     locations: ["打烊後的書店", "雨幕車站", "舊城工作室", "河岸市集", "深夜編輯部"],
     portraitBaseId: "warm-contemporary",
-    portraitAssetUri: "/character-portraits/atlas-warm-contemporary.png",
+    portraitAssetUri: "/character-portraits/atlas-warm-contemporary.webp",
     treasureCategories: ["信物", "手稿", "錄音", "舊照", "未寄出的信"],
   },
   {
@@ -173,7 +173,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["凍結有疑點的採購款", "召集員工提出替代方案", "搶先簽下關鍵供應商", "公開退回不合格批次", "以自己的名義擔保新計畫"],
     locations: ["停工中的工坊", "封港倉庫", "股東會前廳", "凌晨市集", "危機指揮室"],
     portraitBaseId: "modern-mystery",
-    portraitAssetUri: "/character-portraits/atlas-modern-mystery.png",
+    portraitAssetUri: "/character-portraits/atlas-modern-mystery.webp",
     treasureCategories: ["專利樣品", "供貨憑證", "信用印章", "工藝母版", "密封帳冊"],
   },
   {
@@ -184,7 +184,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["切斷被污染的記憶網路", "改寫航路優先權", "拒絕執行未授權命令", "喚醒休眠證人", "把核心資料分散到民用節點"],
     locations: ["失重資料艙", "環城軌道站", "深空醫療艇", "記憶法庭", "廢棄殖民環"],
     portraitBaseId: "scifi",
-    portraitAssetUri: "/character-portraits/atlas-scifi.png",
+    portraitAssetUri: "/character-portraits/atlas-scifi.webp",
     treasureCategories: ["量子鑰匙", "記憶晶核", "星圖核心", "仿生協定", "休眠資料匣"],
   },
   {
@@ -195,7 +195,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["先一步封存關鍵證物", "向另一名嫌疑人提出交易", "更改證人保護地點", "公開一段被剪接的錄音", "拒絕簽署草率結案報告"],
     locations: ["封鎖線內的舊宅", "停電檔案館", "港區證物庫", "空置新聞室", "凌晨聽證會"],
     portraitBaseId: "modern-mystery",
-    portraitAssetUri: "/character-portraits/atlas-modern-mystery.png",
+    portraitAssetUri: "/character-portraits/atlas-modern-mystery.webp",
     treasureCategories: ["證物", "密錄", "殘頁", "暗碼鑰匙", "封存檔案"],
   },
   {
@@ -206,7 +206,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["搶在禁軍前送走密使", "當殿退回偽造詔書", "改道護送百姓名冊", "拒絕替權臣篡改紀錄", "聯絡敵方停戰派"],
     locations: ["封雪驛館", "夜禁宮門", "邊城糧倉", "河運碼頭", "舊史官宅"],
     portraitBaseId: "historical-east-asia",
-    portraitAssetUri: "/character-portraits/atlas-historical-east-asia.png",
+    portraitAssetUri: "/character-portraits/atlas-historical-east-asia.webp",
     treasureCategories: ["國印殘角", "盟約竹簡", "軍糧簿", "密詔匣", "河圖銅版"],
   },
   {
@@ -217,7 +217,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["解除王室強加的誓約", "把禁術證據交給自由城", "封閉遭侵蝕的古門", "釋放被錯囚的守護獸", "向舊領主宣告中立"],
     locations: ["月蝕古堡", "沉鐘森林", "邊境自由城", "倒懸圖書塔", "霜火礦坑"],
     portraitBaseId: "western-fantasy",
-    portraitAssetUri: "/character-portraits/atlas-western-fantasy.png",
+    portraitAssetUri: "/character-portraits/atlas-western-fantasy.webp",
     treasureCategories: ["誓約劍", "星砂瓶", "古門符石", "王冠碎片", "守護獸印"],
   },
   {
@@ -228,7 +228,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["封死會回應名字的房門", "燒毀偽造的家族譜", "喚來被除名的見證者", "拒絕延續血脈儀式", "把詛咒轉移到無主器物"],
     locations: ["無鏡莊園", "霧鐘療養院", "地下家書庫", "退潮墓園", "永夜車站"],
     portraitBaseId: "gothic-mystery",
-    portraitAssetUri: "/character-portraits/atlas-gothic-mystery.png",
+    portraitAssetUri: "/character-portraits/atlas-gothic-mystery.webp",
     treasureCategories: ["家書匣", "無影鏡", "墓園鐘舌", "血脈戒", "封名蠟印"],
   },
   {
@@ -239,7 +239,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["關閉不安全的主動力爐", "劫走壟斷航圖的母版", "召開地下工人議會", "拆除被動過手腳的安全閥", "公布真正的事故紀錄"],
     locations: ["雲層船塢", "齒輪議會", "地下鍋爐城", "封鎖航道塔", "墜落研究站"],
     portraitBaseId: "steampunk",
-    portraitAssetUri: "/character-portraits/atlas-steampunk.png",
+    portraitAssetUri: "/character-portraits/atlas-steampunk.webp",
     treasureCategories: ["航圖母版", "動力核心", "壓差鑰匙", "機械鳥", "事故黑匣"],
   },
   {
@@ -250,7 +250,7 @@ const STORY_PROFILES: StoryProfile[] = [
     actionVerbs: ["切斷被掠奪者追蹤的訊號", "把配給表交給全體居民表決", "先行撤出病弱者", "拒絕用難民交換燃料", "開啟封存種子庫"],
     locations: ["乾涸水塔", "移動醫療車", "地下種子庫", "風暴避難站", "失聯中繼塔"],
     portraitBaseId: "post-apocalypse",
-    portraitAssetUri: "/character-portraits/atlas-post-apocalypse.png",
+    portraitAssetUri: "/character-portraits/atlas-post-apocalypse.webp",
     treasureCategories: ["淨水芯", "種子匣", "救援頻碼", "能源電池", "避難站地圖"],
   },
 ];

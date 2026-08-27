@@ -96,9 +96,44 @@ export function SessionSidebar({
                   : `${session.status === "archived" ? "〔封存〕" : ""}${session.title}`}
             </button>
             <span className={styles.sessionActions}>
-              <button className={styles.iconButton} type="button" title="重新命名" disabled={busy} onClick={() => onRenameSession(session)}>✎</button>
-              <button className={styles.iconButton} type="button" title="封存" disabled={busy} onClick={() => onArchiveSession(session)}>⌁</button>
-              <button className={`${styles.iconButton} ${styles.danger}`} type="button" title="刪除" disabled={busy} onClick={() => onDeleteSession(session)}>×</button>
+              <button
+                className={styles.iconButton}
+                type="button"
+                title="重新命名"
+                aria-label={`重新命名對話：${session.title}`}
+                disabled={busy}
+                onClick={() => onRenameSession(session)}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z" />
+                  <path d="m13.8 7.5 3 3" />
+                </svg>
+              </button>
+              <button
+                className={styles.iconButton}
+                type="button"
+                title="封存"
+                aria-label={`封存對話：${session.title}`}
+                disabled={busy}
+                onClick={() => onArchiveSession(session)}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 7h16v13H4zM3 4h18v3H3z" />
+                  <path d="M9 11h6" />
+                </svg>
+              </button>
+              <button
+                className={`${styles.iconButton} ${styles.danger}`}
+                type="button"
+                title="刪除"
+                aria-label={`刪除對話：${session.title}`}
+                disabled={busy}
+                onClick={() => onDeleteSession(session)}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 7h16M9 7V4h6v3m-9 0 1 13h10l1-13M10 11v5m4-5v5" />
+                </svg>
+              </button>
             </span>
           </div>
         ))}

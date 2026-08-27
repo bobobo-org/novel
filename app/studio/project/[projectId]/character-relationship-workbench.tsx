@@ -114,6 +114,8 @@ export default function CharacterRelationshipWorkbench({
   const [trust, setTrust] = useState("50");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [characterEditorsOpen, setCharacterEditorsOpen] = useState(!compact);
+  const [canonEditorsOpen, setCanonEditorsOpen] = useState(!compact);
   const [selectedWorldId, setSelectedWorldId] = useState("");
   const [worldName, setWorldName] = useState("");
   const [worldEra, setWorldEra] = useState("");
@@ -959,8 +961,14 @@ export default function CharacterRelationshipWorkbench({
         </div>
       </section>
 
-      <div className="characterRelationForms">
-        <form onSubmit={saveCharacter}>
+      <details
+        className="characterHomeCharacterEditors"
+        open={characterEditorsOpen}
+        onToggle={(event) => setCharacterEditorsOpen(event.currentTarget.open)}
+      >
+        <summary>在首頁編修正式人物與人物關係</summary>
+        {characterEditorsOpen ? <div className="characterRelationForms">
+          <form onSubmit={saveCharacter}>
           <h3>{selectedCharacterId === "__new__" ? "在首頁建立人物" : "快速編修人物"}</h3>
           {selectedPortrait ? <div className="characterSelectedPortrait wide"><CharacterPortraitImage portrait={selectedPortrait} /><p><b>{selectedPortrait.role}</b><span>{selectedPortrait.themeLabel} · 依目前人物屬性自動配對</span><small>{selectedPortrait.visualDescription}</small></p></div> : null}
           <label>人物<select value={selectedCharacterId || "__new__"} onChange={(event) => selectCharacter(event.target.value)}><option value="__new__">＋ 建立新人物</option>{data.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
@@ -990,7 +998,7 @@ export default function CharacterRelationshipWorkbench({
           </> : null}
           <div className="wide"><button disabled={busy} type="submit">{selectedCharacterId === "__new__" ? "建立人物" : "儲存人物"}</button>{selectedCharacter ? <button disabled={busy} type="button" onClick={() => void removeSelectedCharacter()}>刪除人物</button> : null}</div>
         </form>
-        {data.characters.length >= 2 ? <form onSubmit={saveRelationship}>
+          {data.characters.length >= 2 ? <form onSubmit={saveRelationship}>
           <h3>建立或更新關係</h3>
           <label>人物甲<select value={fromId} onChange={(event) => setFromId(event.target.value)}>{data.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
           <label>關係<select value={kind} onChange={(event) => setKind(event.target.value)}>{RELATIONSHIP_KINDS.map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -998,11 +1006,17 @@ export default function CharacterRelationshipWorkbench({
           <label>信任值（-100～100）<input type="number" min="-100" max="100" value={trust} onChange={(event) => setTrust(event.target.value)} /></label>
           <label className="wide">關係歷史／目前矛盾<input value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="例：同門多年，因掌門繼承問題成為競爭者" /></label>
           <button disabled={busy || data.characters.length < 2} type="submit">儲存關係</button>
-        </form> : <article className="characterRelationEmpty"><h3>人物關係</h3><p>建立至少兩位人物後，即可在首頁連接正式關係。</p></article>}
-      </div>
+          </form> : <article className="characterRelationEmpty"><h3>人物關係</h3><p>建立至少兩位人物後，即可在首頁連接正式關係。</p></article>}
+        </div> : null}
+      </details>
 
-      <details className="characterHomeCanonEditors" open>
+      <details
+        className="characterHomeCanonEditors"
+        open={canonEditorsOpen}
+        onToggle={(event) => setCanonEditorsOpen(event.currentTarget.open)}
+      >
         <summary>在首頁編修正式世界與 Story Bible</summary>
+        {canonEditorsOpen ? <>
         <div>
           <form onSubmit={saveWorld}>
             <h3>正式世界</h3>
@@ -1065,6 +1079,7 @@ export default function CharacterRelationshipWorkbench({
             <div><button type="submit" disabled={busy}>儲存事件</button>{selectedTimelineId !== "__new__" ? <button type="button" disabled={busy} onClick={() => void removeSelectedTimeline()}>刪除事件</button> : null}</div>
           </form>
         </div>
+        </> : null}
       </details>
       {message ? <p className="characterRelationMessage" role="status">{message}</p> : null}
       {usesCultivationCanon ? <details className="cultivationCanonPanel" open={!compact}>

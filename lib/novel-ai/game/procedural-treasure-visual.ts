@@ -94,27 +94,27 @@ const RARITY_PALETTES: Record<ProceduralTreasureRarity, RarityPalette> = {
 };
 
 const ANCIENT_ASSET_BY_KIND: Record<ProceduralTreasureKind, string> = {
-  weapon: "/item-icons/weapon.png",
-  artifact: "/item-icons/artifact.png",
-  talisman: "/item-icons/talisman.png",
-  pill: "/item-icons/pill.png",
-  herb: "/item-icons/herb.png",
-  formation: "/item-icons/formation.png",
-  armor: "/item-icons/armor.png",
-  material: "/item-icons/material.png",
-  manual: "/item-icons/manual.png",
-  "special-opportunity": "/item-icons/special-opportunity.png",
+  weapon: "/item-icons/weapon.webp",
+  artifact: "/item-icons/artifact.webp",
+  talisman: "/item-icons/talisman.webp",
+  pill: "/item-icons/pill.webp",
+  herb: "/item-icons/herb.webp",
+  formation: "/item-icons/formation.webp",
+  armor: "/item-icons/armor.webp",
+  material: "/item-icons/material.webp",
+  manual: "/item-icons/manual.webp",
+  "special-opportunity": "/item-icons/special-opportunity.webp",
 };
 
 const MODERN_ASSETS = {
-  weapon: "/item-icons/modern-weapon.png",
-  medicine: "/item-icons/modern-medicine.png",
-  electronics: "/item-icons/modern-electronics.png",
-  communications: "/item-icons/modern-communications.png",
-  vehicle: "/item-icons/modern-vehicle.png",
-  tool: "/item-icons/modern-tool.png",
-  lab: "/item-icons/modern-lab.png",
-  credential: "/item-icons/modern-credential.png",
+  weapon: "/item-icons/modern-weapon.webp",
+  medicine: "/item-icons/modern-medicine.webp",
+  electronics: "/item-icons/modern-electronics.webp",
+  communications: "/item-icons/modern-communications.webp",
+  vehicle: "/item-icons/modern-vehicle.webp",
+  tool: "/item-icons/modern-tool.webp",
+  lab: "/item-icons/modern-lab.webp",
+  credential: "/item-icons/modern-credential.webp",
 } as const;
 
 function technologyAssetFor(kind: ProceduralTreasureKind, subtype: string) {

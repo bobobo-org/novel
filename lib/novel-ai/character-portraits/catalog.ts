@@ -1,6 +1,6 @@
 import type { CharacterPortraitAsset } from "../domain";
 
-export const CHARACTER_PORTRAIT_CATALOG_VERSION = "character-portraits-v2-10000" as const;
+export const CHARACTER_PORTRAIT_CATALOG_VERSION = "character-portraits-v3-webp-10000" as const;
 export const CHARACTER_PORTRAIT_CAPACITY = 10_000;
 
 type PortraitTheme = {
@@ -18,8 +18,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "xianxia",
     label: "仙俠武俠",
-    assetUri: "/character-portraits/atlas-xianxia.png",
-    assetDigest: "77be2e925a75ba3ced7cab6c7d668ba3385d23619780913832bf61814940bc94",
+    assetUri: "/character-portraits/atlas-xianxia.webp",
+    assetDigest: "bc55af201be0d0b4a4e6bfabf24c7166de93b7f1d3276a6f1f82e3d1bd4aa328",
     width: 1254,
     height: 1254,
     roles: ["玄門劍修", "靈花仙子", "白衣宗主", "赤甲女將", "北境俠客", "藥谷傳人", "暗衛統領", "冰湖聖女", "流浪刀客", "王朝貴女", "魔域少主", "山河策士"],
@@ -28,8 +28,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "modern-mystery",
     label: "現代懸疑",
-    assetUri: "/character-portraits/atlas-modern-mystery.png",
-    assetDigest: "6e6812b1b5573c797629b93e5e66fb962188177d7fb99bc9e506618233ff03c7",
+    assetUri: "/character-portraits/atlas-modern-mystery.webp",
+    assetDigest: "4236786a6e28a9bb03a7e8442b1242c96bfb8a93c3b7a80089407d5e321f4dcf",
     width: 1254,
     height: 1254,
     roles: ["刑警", "調查記者", "外科醫師", "律師", "畫家", "企業顧問", "資安專家", "運動員", "主廚", "大學教授", "音樂家", "私家偵探"],
@@ -38,8 +38,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "western-fantasy",
     label: "歐美奇幻",
-    assetUri: "/character-portraits/atlas-western-fantasy.png",
-    assetDigest: "0cad61e4eca1666301cbca106ddc116b31e9f50a97d6b1e74352b4fb4be698c7",
+    assetUri: "/character-portraits/atlas-western-fantasy.webp",
+    assetDigest: "91fb694935bd6eb789491c4d9d5637f3d791f9f2cc314d54a0e8d76fef193207",
     width: 1254,
     height: 1254,
     roles: ["王城騎士", "暗夜法師", "森林遊俠", "聖光治療師", "荒野盜賊", "北境貴族", "王室鍊金師", "吟遊詩人", "傭兵團長", "星象預言家", "古林德魯伊", "皇室近衛"],
@@ -48,8 +48,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "scifi",
     label: "科幻未來",
-    assetUri: "/character-portraits/atlas-scifi.png",
-    assetDigest: "cb9eef1a7626e1aead7551e0a5227aa6863e7c04624b084242e3e0b8418a3e9c",
+    assetUri: "/character-portraits/atlas-scifi.webp",
+    assetDigest: "554fa7d677f262a32fa3d6cdf4f21ae0269f5505ce5e81674e7cb52f2a49a055",
     width: 1448,
     height: 1086,
     roles: ["星艦艦長", "核心工程師", "仿生人", "前線醫官", "星際外交官", "賞金獵人", "殖民地科學家", "試飛員", "反抗軍領袖", "企業特務", "深空探險家", "人工智慧專家"],
@@ -58,8 +58,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "historical-east-asia",
     label: "東亞歷史",
-    assetUri: "/character-portraits/atlas-historical-east-asia.png",
-    assetDigest: "b4e4d9a11310c90c8cb193025d9d44897eaab09fcc9e3996fc4bcff36e2c6b8b",
+    assetUri: "/character-portraits/atlas-historical-east-asia.webp",
+    assetDigest: "ce5fe631c06f0908338214ec4aee47b8c8960ebdc57ca06f906b5a1d95373c8b",
     width: 1024,
     height: 1536,
     roles: ["皇后", "翰林學士", "鎮國將軍", "女醫", "商會主人", "府尹", "工匠", "黑衣策士", "江湖旅人", "邊軍校尉", "世家公子", "客棧掌櫃"],
@@ -68,8 +68,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "gothic-mystery",
     label: "哥德懸疑",
-    assetUri: "/character-portraits/atlas-gothic-mystery.png",
-    assetDigest: "1c8986807316d3a3345d237c98ebed89dda6f0d87aba3d823375ca4912dcca75",
+    assetUri: "/character-portraits/atlas-gothic-mystery.webp",
+    assetDigest: "8286a93c85ccc2e437bee6aea1f5861059cfdfb7a5edd4d4eac9a0b22274427f",
     width: 1448,
     height: 1086,
     roles: ["祕術學者", "夜族貴族", "霧都偵探", "靈媒", "禁書檔案員", "受詛咒繼承人", "藥劑師", "驅魔神父", "古典教授", "神祕圖書館員", "面具義警", "荒原旅者"],
@@ -78,8 +78,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "steampunk",
     label: "蒸汽龐克",
-    assetUri: "/character-portraits/atlas-steampunk.png",
-    assetDigest: "85cf418ffa2fc7c8aa92ee1b16e127aaf8cb98660d2dbaad911946fe603c1895",
+    assetUri: "/character-portraits/atlas-steampunk.webp",
+    assetDigest: "818d8b5b13d6bc113ecc048beb1a94252d871535621bf9cdd363dc6d8ef4c9d8",
     width: 1448,
     height: 1086,
     roles: ["飛空艇艦長", "動力發明家", "機械師", "遺跡探險家", "新貴族", "情報間諜", "齒輪工程師", "鐘錶匠", "航路領航員", "戰地醫師", "工業反抗者", "自動機設計師"],
@@ -88,8 +88,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "post-apocalypse",
     label: "末日生存",
-    assetUri: "/character-portraits/atlas-post-apocalypse.png",
-    assetDigest: "4472a560d84e9abdfadc15eb59318059be34b052838a1dea71fa777bc9c13463",
+    assetUri: "/character-portraits/atlas-post-apocalypse.webp",
+    assetDigest: "d8116e2c99a1015614e9f7e6d66140edc54316a4da589c798dd1e9c0bcd54998",
     width: 1448,
     height: 1086,
     roles: ["聚落領袖", "救援醫護", "荒地斥候", "能源工程師", "復育農人", "物資談判者", "邊境巡守", "車隊技師", "病毒學家", "商隊護衛", "無線電員", "社區建築師"],
@@ -98,8 +98,8 @@ const THEMES: PortraitTheme[] = [
   {
     id: "warm-contemporary",
     label: "都會情感",
-    assetUri: "/character-portraits/atlas-warm-contemporary.png",
-    assetDigest: "7dd637afeb5b8581ce6e23b8f0ad44489e17ca93d455978dd96ad5462563778f",
+    assetUri: "/character-portraits/atlas-warm-contemporary.webp",
+    assetDigest: "740fe554f2bcb0761b5a7b0076da38b9d942e51b7f17eae7092eac06f0db060a",
     width: 1254,
     height: 1254,
     roles: ["書店主人", "建築師", "教師", "紀錄片導演", "花藝師", "創業者", "甜點師", "攝影師", "服裝設計師", "心理師", "旅行作家", "社區組織者"],

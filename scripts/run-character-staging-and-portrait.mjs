@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   activeStoryCharacters,
@@ -17,7 +18,10 @@ import {
   suggestedCharacterPortrait,
   suggestedSocialMatrixCharacterPortrait,
 } from "../lib/novel-ai/character-portraits/assignment.ts";
-import { CHARACTER_PORTRAIT_CAPACITY } from "../lib/novel-ai/character-portraits/catalog.ts";
+import {
+  CHARACTER_PORTRAIT_CAPACITY,
+  CHARACTER_PORTRAIT_CATALOG,
+} from "../lib/novel-ai/character-portraits/catalog.ts";
 import { composeProjectContext } from "../lib/novel-ai/web/project-context-composer.ts";
 
 const optional = (value) => ({ value, source: value ? "user_defined" : "unset" });
@@ -69,6 +73,18 @@ const bible = {
 };
 
 assert.equal(CHARACTER_PORTRAIT_CAPACITY, 10_000);
+const portraitAssetDigests = new Map(
+  CHARACTER_PORTRAIT_CATALOG.map((portrait) => [portrait.assetUri, portrait.assetDigest]),
+);
+assert.equal(portraitAssetDigests.size, 9);
+for (const [assetUri, expectedDigest] of portraitAssetDigests) {
+  const bytes = await readFile(new URL(`../public${assetUri}`, import.meta.url));
+  assert.equal(
+    createHash("sha256").update(bytes).digest("hex"),
+    expectedDigest,
+    `${assetUri} catalog digest must match the shipped WebP bytes`,
+  );
+}
 const firstPortrait = suggestedCharacterPortrait({ character: cast[0], project: modernProject, worlds: [modernWorld] });
 assert.equal(firstPortrait.themeId, "modern-mystery");
 assert.deepEqual(
@@ -100,7 +116,7 @@ const resolvedProceduralPortrait = suggestedCharacterPortrait({
   worlds: [modernWorld],
 });
 assert.equal(resolvedProceduralPortrait.source, "catalog", "procedural SVG placeholders must resolve to a bundled portrait");
-assert.match(resolvedProceduralPortrait.assetUri, /^\/character-portraits\/atlas-[a-z-]+\.png$/u);
+assert.match(resolvedProceduralPortrait.assetUri, /^\/character-portraits\/atlas-[a-z-]+\.webp$/u);
 assert.notEqual(resolvedProceduralPortrait.assetUri, proceduralPortrait.assetUri);
 
 const uploadedPortrait = {
@@ -168,7 +184,7 @@ const socialCatalogPortrait = suggestedSocialMatrixCharacterPortrait({
 });
 assert.equal(socialCatalogPortrait.source, "catalog");
 assert.ok(socialCatalogPortrait.atlas, "social-matrix cards must use a local catalog atlas cell");
-assert.match(socialCatalogPortrait.assetUri, /^\/character-portraits\/atlas-[a-z-]+\.png$/u);
+assert.match(socialCatalogPortrait.assetUri, /^\/character-portraits\/atlas-[a-z-]+\.webp$/u);
 assert.notEqual(socialCatalogPortrait.assetUri, socialMatrixCandidate.portrait.dataUrl);
 assert.ok((socialCatalogPortrait.visualVariant?.variant ?? -1) >= 0);
 assert.ok((socialCatalogPortrait.visualVariant?.variant ?? 100) < 100);

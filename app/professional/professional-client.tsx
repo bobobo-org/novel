@@ -52,6 +52,22 @@ function wordCount(chapters: Chapter[]) {
   return chapters.reduce((sum, chapter) => sum + chapter.content.replace(/\s/gu, "").length, 0);
 }
 
+function readableProjectIdea(value: unknown) {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const preferred = ["logline", "summary", "coreIdea", "opening", "goal"]
+    .map((key) => record[key])
+    .filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    .map((item) => item.trim());
+  if (preferred.length) return preferred.join("；");
+  return Object.values(record)
+    .filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    .slice(0, 6)
+    .map((item) => item.trim())
+    .join("；");
+}
+
 function isStoryIntent(intent: string): intent is "chat" | "write" | "play" {
   return intent === "chat" || intent === "write" || intent === "play";
 }
@@ -97,6 +113,7 @@ export default function ProfessionalClient({
   const [status, setStatus] = useState("正在開啟同一份正式作品庫……");
   const [aiStatus, setAIStatus] = useState("背景偵測中（不影響作品）");
   const [error, setError] = useState("");
+  const [socialLibraryOpen, setSocialLibraryOpen] = useState(false);
   const aiDiscoveryController = useRef<AbortController | null>(null);
 
   const loadSummary = useCallback(async (projectId: string) => {
@@ -253,6 +270,11 @@ export default function ProfessionalClient({
   const localAIHref = project
     ? `/settings/local-ai?returnTo=${encodeURIComponent(primaryWorkspace)}`
     : "/settings/local-ai";
+  const projectIdea = readableProjectIdea(project?.coreIdea.value)
+    || "尚未設定核心想法；可在作品設定或故事工作台中補上。";
+  const projectIdeaPreview = projectIdea.length > 220
+    ? `${projectIdea.slice(0, 220).trimEnd()}……`
+    : projectIdea;
 
   return (
     <main className="professionalModern" data-testid="professional-canonical-workbench">
@@ -275,6 +297,14 @@ export default function ProfessionalClient({
         {project ? <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀作品</Link> : null}
       </nav>
 
+      {project ? (
+        <nav className="professionalMobileQuick" aria-label="手機快速操作">
+          <Link className="primary" href={primaryWorkspace}><span aria-hidden="true">寫</span>繼續創作</Link>
+          <Link href="#character-world-memory-home"><span aria-hidden="true">人</span>角色世界</Link>
+          <Link href="#professional-all-tools"><span aria-hidden="true">具</span>全部工具</Link>
+        </nav>
+      ) : null}
+
       <p className="professionalModernNotice" role={error ? "alert" : "status"} data-error={Boolean(error)}>
         {error ? `讀取失敗：${error}。${status}` : status}
       </p>
@@ -292,11 +322,17 @@ export default function ProfessionalClient({
 
       {project && summary ? (
         <>
-          <section className="professionalProjectHero">
+          <section className="professionalProjectHero" id="professional-project-overview">
             <div>
               <small>PROJECT DATA & TOOLS</small>
               <h2>{project.title}</h2>
-              <p>{project.coreIdea.value || "尚未設定核心想法；可在作品設定或故事工作台中補上。"}</p>
+              <p className="professionalProjectIdeaPreview">{projectIdeaPreview}</p>
+              {projectIdea.length > 220 ? (
+                <details className="professionalProjectIdeaFull">
+                  <summary>閱讀完整故事核心</summary>
+                  <p>{projectIdea}</p>
+                </details>
+              ) : null}
               <div className="professionalHeroActions">
                 <Link className="primary" href={primaryWorkspace}>繼續{STORY_PLAY_MODE_LABELS[playMode]}</Link>
                 <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
@@ -318,10 +354,15 @@ export default function ProfessionalClient({
             onChanged={() => loadSummary(project.id)}
           />
 
-          <details className="professionalSocialLibrary" data-testid="professional-social-world-library">
+          <details
+            className="professionalSocialLibrary"
+            data-testid="professional-social-world-library"
+            open={socialLibraryOpen}
+            onToggle={(event) => setSocialLibraryOpen(event.currentTarget.open)}
+          >
             <summary>完整宗門、家族、企業、人物、寶物與世界資料庫</summary>
             <p>在首頁可核准與編修正式設定；進入故事後，同一資料庫只提供搜尋與選擇上場內容。家族使用祖譜，宗門與企業使用組織樹。</p>
-            <SocialWorldLibrary
+            {socialLibraryOpen ? <SocialWorldLibrary
               mode="home-edit"
               project={project}
               approvedCharacters={summary.characters}
@@ -331,10 +372,10 @@ export default function ProfessionalClient({
               approvedWorlds={summary.worlds}
               storyStarted={Boolean(summary.storyState || summary.chapters.some((chapter) => chapter.content.trim()))}
               onChanged={() => loadSummary(project.id)}
-            />
+            /> : null}
           </details>
 
-          <section className="professionalActionGroups" aria-label="作品全部功能">
+          <section className="professionalActionGroups" id="professional-all-tools" aria-label="作品全部功能">
             <article id="story-and-chapters">
               <small>STORY & CHAPTERS</small><h2>故事與章節</h2>
               <p>創作、RPG 與三選一在故事工作台進行；已採用正文則在校訂頁精修。</p>
@@ -417,6 +458,7 @@ export default function ProfessionalClient({
         </section>
       ) : (
         <section className="professionalModernEmpty">
+          <div className="professionalEmptyGlyphs" aria-hidden="true"><span data-icon="character">人</span><span data-icon="world">界</span><span data-icon="story">章</span></div>
           <h2>目前沒有正式作品</h2>
           <p>快速建立、引導建立與完整故事庫都放在新作品流程的第一步。</p>
           <Link className="primary" href="/studio/create">建立第一部作品</Link>

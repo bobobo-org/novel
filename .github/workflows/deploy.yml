@@ -154,6 +154,10 @@ jobs:
       - name: Install locked Chromium for browser gates
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Install locked WebKit for current mobile browser gates
+        if: github.event_name != 'workflow_dispatch' || inputs.operation != 'deploy-immutable-product-recovery'
+        run: pnpm exec playwright install --with-deps webkit
+
       - name: Initialize ephemeral CI evidence
         shell: bash
         run: mkdir -p "$RUNNER_TEMP/rc6-evidence"
@@ -1579,7 +1583,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == '9cd074f239b73dd9b61f6d758fcf97fbd809face' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     outputs:
       deployment_id: ${{ steps.staged.outputs.deployment_id }}
       temporal_proof_digest: ${{ steps.temporal.outputs.proof_digest }}
@@ -1625,6 +1629,48 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+
+      - name: Prepare exact Product checkout for staged mobile gates
+        if: github.event_name == 'push'
+        working-directory: .release-product
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mobile-consumer-evidence"
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+          pnpm install --frozen-lockfile
+
+      - name: Install locked Chromium and WebKit for staged mobile gates
+        if: github.event_name == 'push'
+        working-directory: .release-product
+        run: pnpm exec playwright install --with-deps chromium webkit
+
+      - name: Verify complete public mobile journeys on the staged deployment
+        if: github.event_name == 'push'
+        working-directory: .release-product
+        shell: bash
+        env:
+          MOBILE_BASE_URL: ${{ env.STAGED_URL }}
+        run: |
+          set -euo pipefail
+          {
+            for engine in chromium webkit; do
+              MOBILE_BROWSER_ENGINE="$engine" pnpm test:mobile:consumer-experience
+              for viewport in 320x568 375x812 390x844 430x932; do
+                MOBILE_BROWSER_ENGINE="$engine" MOBILE_VIEWPORT="$viewport" pnpm test:studio:humanized-browser -- "$MOBILE_BASE_URL"
+              done
+            done
+          } 2>&1 | tee "$RUNNER_TEMP/mobile-consumer-evidence/staged-mobile-consumer-gates.log"
+
+      - name: Upload staged public mobile evidence
+        if: always() && github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staged-mobile-consumer-${{ env.PRODUCT_COMMIT }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mobile-consumer-evidence
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Verify staged production identity
         id: staged

@@ -100,7 +100,7 @@ assert.ok(first.storyHook.includes(first.holder.characterName));
 assert.equal(first.era.storyEra, "ancient");
 assert.equal(first.era.sourceEra, "ancient");
 assert.equal(first.era.isCrossEra, false);
-assert.equal(first.visual.baseAsset, `/item-icons/${first.kind}.png`);
+assert.equal(first.visual.baseAsset, `/item-icons/${first.kind}.webp`);
 assert.equal(first.visual.variant >= 0 && first.visual.variant < 96, true);
 assert.equal(first.visual.era, first.era.sourceEra);
 assert.equal(first.stakeholders.length, 3);

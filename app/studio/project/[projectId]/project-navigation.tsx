@@ -27,18 +27,29 @@ const PROJECT_LINKS = [
 
 const PROJECT_LINK_PRESENTATION: Record<(typeof PROJECT_LINKS)[number][0], {
   short: string;
-  icon: string;
 }> = {
-  "people-world": { short: "人物世界", icon: "人" },
-  "story-context": { short: "脈絡", icon: "⌁" },
-  "progress-hub": { short: "任務成就", icon: "✓" },
-  "ai-hub": { short: "AI 協調學習", icon: "◉" },
-  drama: { short: "短劇", icon: "▶" },
-  "author-tools": { short: "研究", icon: "⌕" },
-  "data-safety": { short: "備份還原", icon: "↺" },
+  "people-world": { short: "人物世界" },
+  "story-context": { short: "脈絡" },
+  "progress-hub": { short: "任務成就" },
+  "ai-hub": { short: "AI 協調學習" },
+  drama: { short: "短劇" },
+  "author-tools": { short: "研究" },
+  "data-safety": { short: "備份還原" },
 };
 
 type ProjectLinkPath = (typeof PROJECT_LINKS)[number][0];
+
+function ProjectNavIcon({ kind }: { kind: "home" | "story" | "tools" | "section" | "data" | "clone" }) {
+  const paths = {
+    home: <><path d="M3 11.5 12 4l9 7.5" /><path d="M5.5 10.5V20h13v-9.5M9.5 20v-6h5v6" /></>,
+    story: <><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" /><path d="m18.5 16 .7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7.7-2.1Z" /></>,
+    tools: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>,
+    section: <><circle cx="7" cy="7" r="2" /><circle cx="17" cy="7" r="2" /><circle cx="7" cy="17" r="2" /><path d="M10 7h5M7 10v5M9 17h9v-7" /></>,
+    data: <><path d="M5 5h14v14H5zM9.5 5v14M14.5 5v14M5 10h14M5 15h14" /></>,
+    clone: <><path d="M8 8V5h11v11h-3" /><path d="M5 8h11v11H5zM10 14l7-7M12 7h5v5" /></>,
+  } as const;
+  return <span className="p2NavIcon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[kind]}</svg></span>;
+}
 
 const PROJECT_LINK_ACTIVE_PATHS: Partial<Record<ProjectLinkPath, readonly string[]>> = {
   "ai-hub": ["ai-hub", "closed-ai", "learning"],
@@ -143,7 +154,7 @@ export default function ProjectNavigation({
         href={projectHome}
         {...guardedLink(projectHome, "作品管理中心")}
       >
-        <span className="p2NavIcon" aria-hidden="true">⌂</span>
+        <ProjectNavIcon kind="home" />
         <span className="p2NavLabel">作品管理中心</span>
         <span className="p2NavShort">管理</span>
       </Link>
@@ -153,20 +164,20 @@ export default function ProjectNavigation({
         aria-current={["chat", "ai", "rpg"].includes(active) ? "page" : undefined}
         {...(["chat", "ai", "rpg"].includes(active) ? {} : guardedLink(`/studio/project/${projectId}/chat`, "故事工作台"))}
       >
-        <span className="p2NavIcon" aria-hidden="true">✦</span>
+        <ProjectNavIcon kind="story" />
         <span className="p2NavLabel">故事工作台</span>
         <span className="p2NavShort">故事</span>
       </Link>
       <details className="p2ProjectTools">
         <summary>
-          <span className="p2NavIcon" aria-hidden="true">⌘</span>
+          <ProjectNavIcon kind="tools" />
           <span className="p2NavLabel">全部作品功能</span>
           <span className="p2NavShort">功能</span>
         </summary>
         <p>人物與世界、故事脈絡只提供唯讀查詢與上場選擇；要修改正式角色、能力、世界、記憶或時間線，請開啟「正式設定管理（可編修）」。故事創作與 RPG 請回故事工作台。</p>
         <div className="p2ProjectToolGrid">
           {PROJECT_LINKS.map(([path, label]) => {
-            const { icon, short } = PROJECT_LINK_PRESENTATION[path];
+            const { short } = PROJECT_LINK_PRESENTATION[path];
             const linkActive = projectLinkIsActive(path, active);
             const displayLabel = path === "people-world" || path === "story-context"
               ? `${label}（唯讀／上場選擇）`
@@ -182,7 +193,7 @@ export default function ProjectNavigation({
                 aria-current={linkActive ? "page" : undefined}
                 {...(linkActive ? {} : guardedLink(href, displayLabel))}
               >
-                <span className="p2NavIcon" aria-hidden="true">{icon}</span>
+                <ProjectNavIcon kind="section" />
                 <span className="p2NavLabel">{displayLabel}</span>
                 <span className="p2NavShort">{short}</span>
               </Link>
@@ -194,7 +205,7 @@ export default function ProjectNavigation({
             prefetch={false}
             {...guardedLink(projectHome, "正式設定管理（可編修）")}
           >
-            <span className="p2NavIcon" aria-hidden="true">▦</span>
+            <ProjectNavIcon kind="data" />
             <span className="p2NavLabel">正式設定管理（可編修）</span>
             <span className="p2NavShort">資料</span>
           </Link>
@@ -204,7 +215,7 @@ export default function ProjectNavigation({
             prefetch={false}
             {...guardedLink(`/studio/create?cloneFrom=${encodeURIComponent(projectId)}`, "複製為其他玩法")}
           >
-            <span className="p2NavIcon" aria-hidden="true">↗</span>
+            <ProjectNavIcon kind="clone" />
             <span className="p2NavLabel">複製為其他玩法</span>
             <span className="p2NavShort">複製玩法</span>
           </Link> : null}

@@ -149,7 +149,8 @@ async function frontdoorProjectRouting() {
   assert.match(professional, /router\.push\(storyWorkspaceHref\(projectId, intent\)\)/);
   assert.match(createClient, /\/chat\$\{createdMode === "general" \? "" : "\?mode=play"\}/);
   assert.doesNotMatch(createClient, /storyPlayModeDashboardHref/);
-  assert.match(createClient, /唯一故事工作台交給閉端 AI 自動協調器/);
+  assert.match(createClient, /createdMode === "general" \? "進入故事工作台" : "在故事工作台開始遊玩"/);
+  assert.match(createClient, /runStudioPreCreationClosedAI/);
   assert.doesNotMatch(createClient, /generateWithBrowserWebLLM|Browser AI 再深化|creation-ai-candidate/);
   assert.match(professional, /作品管理中心/u);
   for (const section of [
@@ -412,15 +413,18 @@ async function productionRouteMatrix() {
 }
 
 async function mobileFrontdoorUsability() {
-  const [frontdoor, css] = await Promise.all([
+  const [frontdoor, globals, luxury] = await Promise.all([
     source("app/frontdoor-client.tsx"),
     source("app/globals.css"),
+    source("app/frontdoor-luxury.module.css"),
   ]);
+  const css = `${globals}\n${luxury}`;
   assert.match(frontdoor, /data-testid="modern-consumer-frontdoor"/);
-  assert.match(css, /@media\(max-width:620px\)/);
-  assert.match(css, /\.entryGrid\{grid-template-columns:1fr\}/);
-  assert.match(css, /\.frontdoorRuntime\{grid-template-columns:1fr/);
-  assert.doesNotMatch(css, /\.frontdoor[^}]*width:\s*(?:[4-9]\d\d|\d{4,})px/);
+  assert.match(css, /@media\s*\(max-width:\s*430px\)/);
+  assert.match(css, /\.luxury\s+:global\(\.entryGrid\)\s*\{\s*grid-template-columns:\s*1fr/);
+  assert.match(css, /\.mobileDock\s+a\s*\{[^}]*min-height:\s*50px/su);
+  assert.match(css, /\.luxury\s+:global\(\.frontdoorRuntime\)\s*\{\s*display:\s*none/);
+  assert.match(luxury, /\.luxury\s+:global\(\.frontdoorHero\)\s*\{[^}]*width:\s*calc\(100%\s*-\s*32px\)/su);
 }
 
 const runners = {

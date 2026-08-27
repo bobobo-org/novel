@@ -200,3 +200,46 @@
   .treasureImageFrame img { width: 90px; height: 90px; }
   .pageControls { justify-content: flex-start; }
 }
+
+@media (max-width: 720px) {
+  .library button,
+  .library input,
+  .library select,
+  .library summary { min-height: 44px; touch-action: manipulation; }
+  .hero { padding: 1.2rem 1rem; }
+  .hero h3 { font-size: clamp(1.75rem, 8vw, 2.35rem); }
+  .capacityGrid { gap: .5rem; padding-top: .75rem; }
+  .capacityGrid div { min-width: 0; padding: .75rem; }
+  .capacityGrid strong { overflow-wrap: anywhere; font-size: 1.45rem; }
+  .viewTabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
+  .viewTabs button { min-width: 0; padding: .7rem .45rem; font-size: .78rem; text-align: center; }
+  .viewTabs small { display: none; }
+  .organizationDetail { padding: .85rem; }
+  .organizationDetail > header { align-items: flex-start; flex-direction: column; }
+  .organizationDetail > header > strong { text-align: left; }
+  .hierarchyTree ul { gap: .35rem; margin-left: .35rem; padding-left: .45rem; }
+  .hierarchyBranch { padding: .48rem; }
+  .hierarchyNodeButton { align-items: flex-start; flex-direction: column; gap: .2rem; }
+  .hierarchyNodeButton small { margin-left: 0; }
+  .genealogySearch { align-items: stretch; flex-direction: column; }
+  .genealogySearch label { flex-basis: auto; }
+  .generationSelect { grid-template-columns: 1fr; }
+  .characterCard,
+  .treasureCard,
+  .worldCard { padding: .9rem; content-visibility: auto; contain-intrinsic-size: 520px; }
+  .goal,
+  .treasureCard > p,
+  .worldLogline { min-height: 0; }
+  .pageControls { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .pageControls span { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
+}
+
+@media (max-width: 430px) {
+  .organizationList { grid-template-columns: 1fr; }
+  .treasurePresentation { grid-template-columns: 80px minmax(0, 1fr); }
+  .treasureImageFrame { width: 80px; height: 80px; border-radius: 16px; }
+  .treasureImageFrame img { width: 74px; height: 74px; }
+  .characterCard > header { align-items: flex-start; }
+  .characterCard .socialCharacterPortrait { width: 68px; height: 68px; border-radius: 17px; }
+  .worldMetrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

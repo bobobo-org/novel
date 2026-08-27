@@ -1,9 +1,11 @@
 const CACHE_PREFIX = "novel-studio-offline-";
-const BOOTSTRAP_CACHE = `${CACHE_PREFIX}bootstrap-v4`;
+const BOOTSTRAP_CACHE = `${CACHE_PREFIX}bootstrap-v5`;
 const OFFLINE_FALLBACK = "/offline-studio.html";
 const STATIC_SEED = [
   OFFLINE_FALLBACK,
   "/manifest.webmanifest",
+  "/app-icon.svg",
+  "/app-icon-192.png",
 ];
 let activeReleaseIdentity = null;
 
@@ -108,6 +110,13 @@ function isHashedImmutableAsset(pathname) {
     && /\.(?:woff2?|png|jpg|jpeg|webp|svg|ico)$/i.test(pathname);
 }
 
+function isPublicVisualAsset(pathname) {
+  return pathname.startsWith("/app-icon-")
+    || pathname === "/app-icon.svg"
+    || pathname.startsWith("/character-portraits/")
+    || pathname.startsWith("/item-icons/");
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -122,7 +131,7 @@ self.addEventListener("fetch", (event) => {
     || url.pathname.includes("/_next/webpack-hmr")
     || request.headers.get("range")
   ) return;
-  if (isHashedImmutableAsset(url.pathname)) {
+  if (isHashedImmutableAsset(url.pathname) || isPublicVisualAsset(url.pathname)) {
     event.respondWith(cacheFirst(request));
     return;
   }

@@ -749,6 +749,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   const [cloneSource, setCloneSource] = useState<ProjectCloneSourceSummary | null>(null);
   const [cloneSourceError, setCloneSourceError] = useState("");
   const [cloneReadAttempt, setCloneReadAttempt] = useState(0);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const requestId = useRef(crypto.randomUUID());
   const titleInputRef = useRef<HTMLInputElement>(null);
   const seedAssistantControllerRef = useRef<AbortController | null>(null);
@@ -805,6 +806,14 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
 
   useEffect(() => () => {
     seedAssistantRequestGateRef.current.invalidate("CREATE_STORY_SEED_UNMOUNTED");
+  }, []);
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 821px)");
+    const syncPreview = () => setPreviewOpen(desktop.matches);
+    syncPreview();
+    desktop.addEventListener("change", syncPreview);
+    return () => desktop.removeEventListener("change", syncPreview);
   }, []);
 
   function retryCloneSourceRead() {
@@ -1462,8 +1471,16 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           ) : null}
         </section>
 
-        <aside className="p2SeedPreview">
-          <span>正式建立前預覽</span>
+        <details
+          className="p2SeedPreview"
+          open={previewOpen}
+          onToggle={(event) => setPreviewOpen(event.currentTarget.open)}
+        >
+          <summary>
+            <span>正式建立前預覽</span>
+            <b>{draft.title.trim() || "尚未命名"}</b>
+          </summary>
+          <div className="p2SeedPreviewBody">
           <h2>{draft.title.trim() || "請先輸入作品名稱"}</h2>
           <strong>{currentPlayMode ? STORY_PLAY_MODE_LABELS[currentPlayMode] : "尚未選擇玩法"}</strong>
           <h3>世界觀</h3>
@@ -1493,7 +1510,8 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
             ))}
           </div>
           <p>你填寫或保留的 AI 建議，只有在你按下「建立作品」後才會進入新作品。建立前不會自動寫入正式作品。</p>
-        </aside>
+          </div>
+        </details>
       </div>
     </main>
   );

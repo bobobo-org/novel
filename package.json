@@ -19,6 +19,7 @@
     "test:rc3-release-identity": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24b-rc3-consumer-activation.mjs rc3-release-identity",
     "test:production-route-matrix": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24b-rc3-consumer-activation.mjs production-route-matrix",
     "test:mobile-frontdoor-usability": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24b-rc3-consumer-activation.mjs mobile-frontdoor-usability",
+    "test:mobile:consumer-experience": "node scripts/run-mobile-consumer-experience.mjs",
     "test:rc3:supabase-repair-plan": "node scripts/run-p24b-rc3-supabase-audit.mjs",
     "test:rc3:consumer-activation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-p24b-rc3-consumer-activation.mjs all && node scripts/run-p24b-rc3-supabase-audit.mjs",
     "test:studio:chapter-isolation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-studio-chapter-isolation.mjs",

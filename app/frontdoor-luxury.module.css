@@ -340,6 +340,8 @@
 .luxury :global(.frontdoorFooter a) { color: #809aab; text-decoration: none; }
 .luxury :global(.frontdoorFooter nav) { display: flex; gap: 16px; }
 
+.mobileDock { display: none; }
+
 .luxury :global(a:focus-visible), .luxury :global(button:focus-visible) { outline: 2px solid var(--lux-gold); outline-offset: 4px; }
 
 @keyframes orbit { to { transform: rotate(360deg); } }
@@ -359,19 +361,20 @@
 }
 
 @media (max-width: 880px) {
-  .luxury { min-height: 100svh; overflow-x: hidden; overflow-y: auto; }
-  .luxury :global(.frontdoorNav) { height: 64px; min-height: 64px; padding: 0 18px; grid-template-columns: auto 1fr auto; }
+  .luxury { min-height: 100svh; overflow-x: hidden; overflow-y: auto; padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+  .luxury :global(.frontdoorNav) { height: calc(64px + env(safe-area-inset-top)); min-height: calc(64px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 18px 0; grid-template-columns: auto 1fr auto; }
+  .luxury :global(.brandLockup) { min-height: 44px; }
   .luxury :global(.brandLockup b) { font-size: 17px; }
   .luxury :global(.brandLockup small), .luxury :global(.frontdoorNav nav), .aiStatus { display: none; }
-  .luxury :global(.navCta) { min-height: 40px; padding: 0 13px; font-size: 12px; }
+  .luxury :global(.navCta) { min-height: 44px; padding: 0 13px; font-size: 12px; }
   .luxury :global(.frontdoorHero) {
     width: calc(100% - 32px);
-    min-height: 596px;
+    min-height: 0;
     max-height: none;
     grid-template-columns: 1fr;
     align-content: start;
     gap: 4px;
-    padding: 34px 4px 0;
+    padding: 30px 4px 0;
   }
   .luxury :global(.eyebrow) { margin-bottom: 13px; font-size: 9px; letter-spacing: .2em; }
   .luxury :global(.heroCopy h1) { font-size: clamp(40px, 11.6vw, 54px); line-height: 1.12; }
@@ -407,15 +410,65 @@
   .luxury :global(.entryCard h3) { align-self: center; font-size: 13px; }
   .luxury :global(.entryCard p), .luxury :global(.entryArrow) { display: none; }
   .luxury :global(.frontdoorFooter) { display: none; }
+  .mobileDock {
+    position: fixed;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: 8px;
+    z-index: 90;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    padding: 5px;
+    border: 1px solid rgba(123,226,209,.28);
+    border-radius: 17px;
+    background: rgba(4, 14, 27, .94);
+    box-shadow: 0 16px 48px rgba(0,0,0,.54);
+    backdrop-filter: blur(22px);
+  }
+  .mobileDock a {
+    display: grid;
+    min-width: 0;
+    min-height: 50px;
+    place-items: center;
+    gap: 2px;
+    border-radius: 12px;
+    color: #a9bdcb;
+    text-decoration: none;
+  }
+  .mobileDock a[aria-current="page"] { color: var(--lux-gold); background: rgba(116, 81, 24, .34); }
+  .mobileDock svg { width: 20px; height: 20px; }
+  .mobileDock b { min-width: 0; font-size: 10px; font-weight: 760; white-space: nowrap; }
 }
 
-@media (max-width: 430px) and (max-height: 850px) {
-  .luxury :global(.frontdoorHero) { min-height: 570px; padding-top: 25px; }
-  .luxury :global(.heroCopy h1) { font-size: 39px; }
+@media (max-width: 560px) {
+  .luxury :global(.heroActions) { display: grid; grid-template-columns: 1fr; }
+  .luxury :global(.primaryAction), .luxury :global(.secondaryAction) { width: 100%; min-width: 0; }
+  .luxury :global(.primaryAction) { gap: 16px; }
+}
+
+@media (max-width: 430px) {
+  .luxury :global(.frontdoorNav) { padding: env(safe-area-inset-top) 12px 0; }
+  .luxury :global(.brandSeal) { width: 34px; height: 38px; }
+  .luxury :global(.brandLockup) { gap: 9px; }
+  .luxury :global(.brandLockup b) { font-size: 16px; letter-spacing: .07em; }
+  .luxury :global(.frontdoorHero) { padding-top: 24px; }
+  .luxury :global(.heroCopy h1) { font-size: clamp(34px, 10.7vw, 44px); line-height: 1.14; }
   .luxury :global(.lead) { font-size: 14px; }
-  .luxury :global(.worldPreview) { min-height: 238px; }
-  .cosmos { width: 202px; }
-  .luxury :global(.frontdoorEntries) { margin-top: 0; }
+  .luxury :global(.worldPreview) { min-height: 224px; margin-top: -8px; }
+  .cosmos { width: min(196px, 58vw); }
+  .luxury :global(.frontdoorEntries) { margin-top: 8px; }
+  .luxury :global(.entryGrid) { grid-template-columns: 1fr; }
+  .luxury :global(.entryCard) { min-height: 58px; grid-template-columns: 34px minmax(0,1fr) 20px; }
+  .luxury :global(.entryCard p) { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .luxury :global(.entryArrow) { display: block; }
+}
+
+@media (max-width: 350px) {
+  .luxury :global(.navCta) { padding: 0 9px; font-size: 11px; }
+  .luxury :global(.brandLockup b) { font-size: 15px; }
+  .luxury :global(.heroCopy h1) { font-size: 33px; }
+  .truthRow { font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

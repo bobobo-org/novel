@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="諸天萬界小說生成系統">
+  <defs>
+    <radialGradient id="sky" cx="72%" cy="24%" r="95%">
+      <stop offset="0" stop-color="#174b57"/>
+      <stop offset="0.52" stop-color="#101c39"/>
+      <stop offset="1" stop-color="#060d1b"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fff0b0"/>
+      <stop offset="0.48" stop-color="#ffd36e"/>
+      <stop offset="1" stop-color="#b67517"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#sky)"/>
+  <circle cx="256" cy="256" r="172" fill="none" stroke="#7be2d1" stroke-opacity=".35" stroke-width="6"/>
+  <circle cx="256" cy="256" r="126" fill="none" stroke="#ffd778" stroke-opacity=".48" stroke-width="5"/>
+  <path d="M256 62v56M450 256h-56M256 450v-56M62 256h56" stroke="#7be2d1" stroke-width="8" stroke-linecap="round"/>
+  <path d="M177 160h158v192H177z" fill="#09182c" stroke="url(#gold)" stroke-width="7"/>
+  <path d="M202 202h108M202 240h108M202 278h78M202 316h96" stroke="url(#gold)" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="379" cy="133" r="16" fill="#ffd778"/>
+</svg>

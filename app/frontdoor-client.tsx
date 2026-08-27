@@ -9,7 +9,6 @@ import {
   previewLegacyStudioProjects,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "@/lib/novel-ai/providers/local-ollama/companion-release";
-import { getStudioClosedAIRuntimeCoordinator } from "@/lib/novel-ai/web/closed-agent-os-service";
 import styles from "./frontdoor-luxury.module.css";
 
 type FrontdoorProps = {
@@ -28,6 +27,19 @@ type ClosedAIStatus = "未設定" | "等待配對" | "已就緒";
 type CloudStatus = "未設定" | "正常" | "暫停";
 
 const STUDIO_SHELL_KEY = "novel_p12_studio_state";
+
+function scheduleBrowserIdle(task: () => void) {
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+  if (idleWindow.requestIdleCallback) {
+    const handle = idleWindow.requestIdleCallback(task, { timeout: 4_000 });
+    return () => idleWindow.cancelIdleCallback?.(handle);
+  }
+  const handle = window.setTimeout(task, 1_500);
+  return () => window.clearTimeout(handle);
+}
 
 function recentProjectFromShell(): RecentProject | null {
   try {
@@ -55,6 +67,16 @@ function safeProjectId(value: string) {
   return /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : "";
 }
 
+function MobileDockIcon({ kind }: { kind: "home" | "create" | "write" | "library" }) {
+  const paths = {
+    home: <><path d="M3 11.5 12 4l9 7.5" /><path d="M5.5 10.5V20h13v-9.5M9.5 20v-6h5v6" /></>,
+    create: <><path d="M12 5v14M5 12h14" /><circle cx="12" cy="12" r="9" /></>,
+    write: <><path d="m5 19 3.8-.9L19 7.9 16.1 5 5.9 15.2 5 19Z" /><path d="m14.8 6.3 2.9 2.9M4 21h16" /></>,
+    library: <><path d="M4 5.5h6v14H4zM14 5.5h6v14h-6z" /><path d="M10 7.5h4M10 17.5h4" /></>,
+  } as const;
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[kind]}</svg>;
+}
+
 export default function FrontdoorClient({ release, packs, classicTopics }: FrontdoorProps) {
   const [recentProject, setRecentProject] = useState<RecentProject | null>(null);
   const [projectCount, setProjectCount] = useState(0);
@@ -68,6 +90,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
 
   useEffect(() => {
     let active = true;
+    let cancelAIProbe: () => void = () => {};
     const timer = window.setTimeout(() => {
       void (async () => {
         const shellRecent = recentProjectFromShell();
@@ -91,36 +114,47 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         }
         const preview = previewLegacyStudioProjects(EXPLICIT_LEGACY_STUDIO_KEYS);
         const origin = window.location.origin;
-        const coordinator = getStudioClosedAIRuntimeCoordinator(origin);
-        const session = coordinator.localClient.getSessionMetadata();
-        const proof = coordinator.localClient.getModelVerification();
         if (!active) return;
         setRecentProject(recent);
         setProjectCount(canonicalProjects.length || (recent ? 1 : 0));
         setLegacyPreview(preview);
-        setClosedAI(proof ? "已就緒" : session ? "等待配對" : "未設定");
-        if (PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
-          origin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
-        )) {
-          try {
-            const result = await coordinator.connectAutomatically();
-            if (!active) return;
-            const ready = result.localOllama.status === "fulfilled"
-              || result.privateHub.status === "fulfilled";
-            const hasSession = Boolean(
-              coordinator.localClient.getSessionMetadata()
-              || coordinator.privateHubClient.getSessionMetadata(),
+        // Let the useful project entry paint first. The closed-AI coordinator
+        // is a large optional capability and must not compete with the first
+        // tap, scroll, or route transition on a public mobile device.
+        cancelAIProbe = scheduleBrowserIdle(() => {
+          void (async () => {
+            const { getStudioClosedAIRuntimeCoordinator } = await import(
+              "@/lib/novel-ai/web/closed-agent-os-service"
             );
-            setClosedAI(ready ? "已就緒" : hasSession ? "等待配對" : "未設定");
-          } catch {
+            const coordinator = getStudioClosedAIRuntimeCoordinator(origin);
+            const session = coordinator.localClient.getSessionMetadata();
+            const proof = coordinator.localClient.getModelVerification();
             if (!active) return;
-            const hasSession = Boolean(
-              coordinator.localClient.getSessionMetadata()
-              || coordinator.privateHubClient.getSessionMetadata(),
-            );
-            setClosedAI(hasSession ? "等待配對" : "未設定");
-          }
-        }
+            setClosedAI(proof ? "已就緒" : session ? "等待配對" : "未設定");
+            if (PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
+              origin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
+            )) {
+              try {
+                const result = await coordinator.connectAutomatically();
+                if (!active) return;
+                const ready = result.localOllama.status === "fulfilled"
+                  || result.privateHub.status === "fulfilled";
+                const hasSession = Boolean(
+                  coordinator.localClient.getSessionMetadata()
+                  || coordinator.privateHubClient.getSessionMetadata(),
+                );
+                setClosedAI(ready ? "已就緒" : hasSession ? "等待配對" : "未設定");
+              } catch {
+                if (!active) return;
+                const hasSession = Boolean(
+                  coordinator.localClient.getSessionMetadata()
+                  || coordinator.privateHubClient.getSessionMetadata(),
+                );
+                setClosedAI(hasSession ? "等待配對" : "未設定");
+              }
+            }
+          })();
+        });
       })();
       void fetch(`/api/persistence/health?frontdoor=${Date.now()}`, {
         cache: "no-store",
@@ -144,6 +178,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
     return () => {
       active = false;
       window.clearTimeout(timer);
+      cancelAIProbe();
     };
   }, []);
 
@@ -300,6 +335,12 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
           ))}
         </div>
       </section>
+      <nav className={styles.mobileDock} aria-label="手機主要導覽">
+        <Link href="/" aria-current="page"><MobileDockIcon kind="home" /><b>首頁</b></Link>
+        <Link href="/studio/create"><MobileDockIcon kind="create" /><b>新作品</b></Link>
+        <Link href={continueHref}><MobileDockIcon kind="write" /><b>工作臺</b></Link>
+        <Link href="/professional?intent=library"><MobileDockIcon kind="library" /><b>作品</b></Link>
+      </nav>
       <footer className="frontdoorFooter">
         <p>快速本機模式：速度較快，長篇品質有限。系統不會把 API online 顯示成 AI online。</p>
         <nav aria-label="精簡工具連結">

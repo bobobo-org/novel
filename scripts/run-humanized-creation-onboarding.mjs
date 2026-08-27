@@ -33,7 +33,7 @@ const checks = [
   ["RPG 選擇仍須明確核准", /data-testid="conversation-approve-candidate"/u.test(conversationApproval) && /核准寫入正文、狀態與收據/u.test(conversationApproval) && /approveRpgChatTurn/u.test(conversationApprovalFlow)],
   ["桌機與手機都有新手流程版面", /\.studioCreationGuide/u.test(globalCss) && /\.studioStoryStarter/u.test(globalCss) && /\.playGuide/u.test(rpgCss) && /@media \(max-width: 680px\)/u.test(rpgCss)],
   ["新版建立流程先要求名稱再鎖定單一玩法", /data-testid="p2-project-title"/u.test(creation) && /story\.playModeLocked/u.test(creationDomain) && /story\.setupComplete/u.test(creationDomain) && /STORY_PLAY_MODE_IDS/u.test(playMode)],
-  ["引導建立每一題都會攔截空白答案", /請先回答第 \$\{draft\.step\} 題/u.test(creation) && /scrollIntoView/u.test(creation)],
+  ["引導建立每一題都會攔截空白答案", /請先回答第 \$\{(?:draft\.step|questionIndex \+ 1)\} 題/u.test(creation) && /scrollIntoView/u.test(creation)],
   ["最終建立按鈕可回報缺項而不是靜默失效", /disabled=\{saving\} onClick=\{\(\) => void finish\(\)\}/u.test(creation) && /還不能開始：請先完成 \$\{missing\.join/u.test(creation)],
   ["作品語言會鎖入正式 StoryState", /data-testid="p2-story-language"/u.test(creation) && /story\.language/u.test(creationDomain)],
   ["同一故事改玩法時建立獨立副本", /cloneFrom/u.test(creation) && /crypto\.randomUUID\(\)/u.test(creationDomain) && /複製故事種子/u.test(rpg)],

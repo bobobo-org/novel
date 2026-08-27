@@ -217,6 +217,13 @@
   border-radius: 9px;
 }
 
+.iconButton svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin: auto;
+}
+
 .iconButton:hover,
 .quietButton:hover {
   color: var(--accent);
@@ -340,6 +347,8 @@
   cursor: pointer;
   font-weight: 800;
 }
+
+.sidebarToggle svg { width: 20px; height: 20px; flex: 0 0 auto; }
 
 .sidebarToggle:hover,
 .sidebarToggle:focus-visible,
@@ -1602,7 +1611,7 @@
   .mobileBar {
     position: fixed;
     z-index: 21;
-    top: 0;
+    top: var(--conversation-visual-top, 0px);
     left: 0;
     right: 0;
     display: flex;
@@ -1625,10 +1634,10 @@
   .workspace,
   .workspace[data-artifact-open="true"] {
     display: block;
-    height: 100dvh;
+    height: var(--conversation-visual-height, 100dvh);
     padding-top: 54px;
   }
-  .main { height: calc(100dvh - 54px); }
+  .main { height: calc(var(--conversation-visual-height, 100dvh) - 54px); }
   .threadHeader { min-height: 58px; padding: 9px 14px; }
   .threadIdentity { gap: 0; }
   .sidebarToggle { display: none; }
@@ -1666,6 +1675,62 @@
   .composerWrap { padding-right: 8px; padding-left: 8px; }
 }
 
+@media (max-width: 900px) {
+  .shell {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: var(--conversation-visual-height, 100dvh);
+    min-height: 0;
+    overflow: hidden;
+    overflow: clip;
+  }
+  .mobileBar {
+    height: calc(58px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 10px 0;
+  }
+  .mobileBar .iconButton,
+  .mobileBar button { min-width: 44px; min-height: 44px; }
+  .mobileBar svg { width: 22px; height: 22px; }
+  .workspace,
+  .workspace[data-artifact-open="true"] { padding-top: calc(58px + env(safe-area-inset-top)); }
+  .main { height: calc(var(--conversation-visual-height, 100dvh) - 58px - env(safe-area-inset-top)); }
+  .storyStageDisclosure { max-height: 36dvh; padding: 8px 12px; }
+  .storyStageDisclosure > summary { display: flex; min-height: 44px; align-items: center; }
+  .threadHeader { min-height: 54px; padding: 7px 11px; }
+  .threadInner { padding-top: 16px; padding-bottom: 112px; }
+  .threadInner > * { content-visibility: auto; contain-intrinsic-size: auto 380px; }
+  .message[data-rpg-story="true"] .messageBody { padding: 20px clamp(18px, 5vw, 30px); font-size: 1rem; line-height: 1.72; }
+  .turnDecision { gap: 11px; padding: 18px; border-radius: 17px; }
+  .choiceCard { min-height: 0; padding: 16px; }
+  .choiceCard p { font-size: .96rem; line-height: 1.62; }
+  .composerWrap { padding: 7px 8px max(8px, env(safe-area-inset-bottom)); }
+  .composerWrap:focus-within .closedAiSetupCard { display: none; }
+  .composer { padding: 7px; border-radius: 15px; }
+  .composer textarea { min-height: 46px; max-height: 128px; padding: 7px 8px; font-size: 16px; }
+  .sendButton,
+  .leftActions button,
+  .rightActions button,
+  .closedAiSetupActions a,
+  .closedAiSetupActions button,
+  .candidateActions button,
+  .attachmentCard button,
+  .resultCard button,
+  .sidebarClose,
+  .newSession,
+  .managementLink,
+  .exportSummary { min-height: 44px; touch-action: manipulation; }
+  .threadHeader .rightActions a { display: none; }
+  .threadHeader .rightActions button { min-width: 44px; min-height: 44px; white-space: nowrap; }
+  .sidebar .iconButton,
+  .sidebar .quietButton { min-width: 44px; min-height: 44px; }
+  .sidebar .searchInput,
+  .sidebar .renameInput,
+  .sidebar .sessionButton { min-height: 44px; }
+  .sessionActions { opacity: 1; }
+  .composerMeta { min-height: 20px; padding-top: 4px; }
+}
+
 @media (max-width: 480px) {
   .threadHeader p { display: none; }
   .threadInner { padding-right: 11px; padding-left: 11px; gap: 17px; }
@@ -1691,6 +1756,13 @@
   .storyCharacterGrid { grid-template-columns: 1fr; }
   .storyCharacterRelations li { grid-template-columns: 54px minmax(0, 1fr); }
   .storyCharacterRelations li small { grid-column: 2; }
+  .message[data-rpg-story="true"] .messageBody { padding: 17px 15px; }
+  .turnDecision { padding: 15px 12px; }
+  .turnDecisionHeading { gap: 7px; }
+  .choiceCard { gap: 10px; padding: 14px 13px; }
+  .choiceKey { width: 40px; height: 40px; flex-basis: 40px; }
+  .composerActions { align-items: flex-end; }
+  .composerMeta { white-space: normal; text-align: center; }
 }
 
 @media (min-width: 1041px) and (max-height: 900px) {
