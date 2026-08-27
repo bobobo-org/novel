@@ -272,15 +272,13 @@ async function assertCleanDiagnostics(label, options = {}) {
     const accepted = unacceptedRequestFailures.filter((failure) => (
       frontdoorTargets.some((target) => isSupersededRscCancellation(failure, target))
     ));
-    for (const pathname of new Set(frontdoorTargets.map((target) => target.pathname))) {
+    for (const target of frontdoorTargets) {
       const targetFailures = accepted.filter((failure) => (
-        frontdoorTargets
-          .filter((target) => target.pathname === pathname)
-          .some((target) => isSupersededRscCancellation(failure, target))
+        isSupersededRscCancellation(failure, target)
       ));
       assert.ok(
         targetFailures.length <= 1,
-        `${label}: at most one superseded frontdoor RSC prefetch is allowed for ${pathname}`,
+        `${label}: at most one superseded frontdoor RSC prefetch is allowed for ${JSON.stringify(target)}`,
       );
     }
     assert.ok(accepted.length <= 2, `${label}: at most two superseded frontdoor RSC prefetches are allowed`);
