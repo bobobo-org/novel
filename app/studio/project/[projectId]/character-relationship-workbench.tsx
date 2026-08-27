@@ -115,6 +115,7 @@ export default function CharacterRelationshipWorkbench({
   const [trust, setTrust] = useState("50");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [canonDataLoadedProjectId, setCanonDataLoadedProjectId] = useState("");
   const [characterEditorsOpen, setCharacterEditorsOpen] = useState(!compact);
   const [canonEditorsOpen, setCanonEditorsOpen] = useState(!compact);
   const [selectedWorldId, setSelectedWorldId] = useState("");
@@ -240,8 +241,16 @@ export default function CharacterRelationshipWorkbench({
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void load().then(() => {
+        if (!cancelled) setCanonDataLoadedProjectId(project.id);
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -249,21 +258,26 @@ export default function CharacterRelationshipWorkbench({
       const hash = window.location.hash;
       const revealAll = hash === "#character-world-memory-home"
         || hash === "#character-world-memory-editor";
+      if (!["#character-world-memory-home", "#character-world-memory-editor", "#character-editor", "#world-memory-editor"].includes(hash)) return;
+      if (canonDataLoadedProjectId !== project.id) return;
       if (revealAll || hash === "#character-editor") setCharacterEditorsOpen(true);
       if (revealAll || hash === "#world-memory-editor") setCanonEditorsOpen(true);
-      if (!["#character-world-memory-home", "#character-world-memory-editor", "#character-editor", "#world-memory-editor"].includes(hash)) return;
+      const alignTarget = () => {
+        const target = document.getElementById(hash.slice(1));
+        target?.scrollIntoView({ block: "start" });
+        if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+      };
+      alignTarget();
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
-          const target = document.getElementById(hash.slice(1));
-          target?.scrollIntoView({ block: "start" });
-          if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+          alignTarget();
         });
       });
     };
     revealCanonEditor();
     window.addEventListener("hashchange", revealCanonEditor);
     return () => window.removeEventListener("hashchange", revealCanonEditor);
-  }, []);
+  }, [canonDataLoadedProjectId, project.id]);
 
   const selectedCharacter = data.characters.find((character) => character.id === selectedCharacterId) ?? null;
   const storyBible = data.storyBibles.find((item) => item.id === project.storyBibleId) ?? data.storyBibles[0] ?? null;
