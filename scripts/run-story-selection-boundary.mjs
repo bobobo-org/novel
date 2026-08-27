@@ -116,7 +116,24 @@ assert.match(selectorSource, /data-canon-edit-surface="story-selection-only"/u);
 
 const professionalSource = source("app/professional/professional-client.tsx");
 assert.match(professionalSource, /mode="home-edit"/u);
-assert.match(professionalSource, /在首頁編修正式角色、世界與記憶/u);
+assert.match(professionalSource, /professional-canon-editor-link/u);
+assert.match(professionalSource, /character-world-memory-editor/u);
+const frontdoorSource = source("app/frontdoor-client.tsx");
+assert.match(frontdoorSource, /frontdoor-canon-editor/u);
+assert.match(frontdoorSource, /character-world-memory-editor/u);
+assert.match(frontdoorSource, /novel_p2_active_project_id/u);
+assert.match(frontdoorSource, /item\.id === activeProjectId/u);
+const homeWorkbenchSource = source("app/studio/project/[projectId]/character-relationship-workbench.tsx");
+assert.match(homeWorkbenchSource, /data-testid="home-canon-editor"/u);
+assert.match(homeWorkbenchSource, /setCharacterEditorsOpen\(true\)/u);
+assert.match(homeWorkbenchSource, /setCanonEditorsOpen\(true\)/u);
+assert.match(homeWorkbenchSource, /scrollIntoView/u);
+for (const editReturnFile of [
+  "app/studio/project/[projectId]/story-stage-selection-page.tsx",
+  "app/studio/project/[projectId]/story-stage-selector.tsx",
+]) {
+  assert.match(source(editReturnFile), /#character-world-memory-editor/u, `${editReturnFile} must return to the editor, not the stage picker`);
+}
 for (const label of [
   "故事內選擇上場人物（唯讀）",
   "故事內選擇上場世界與規則（唯讀）",

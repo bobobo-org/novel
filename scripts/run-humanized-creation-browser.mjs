@@ -126,6 +126,20 @@ function isCompletedLegacyRedirectCancellation(failure, projectId) {
   }
 }
 
+function isSupersededHealthCancellation(failure) {
+  try {
+    const requestUrl = new URL(failure.url);
+    return requestUrl.origin === new URL(baseUrl).origin
+      && requestUrl.pathname === "/api/ai/health"
+      && failure.errorText === "net::ERR_ABORTED"
+      && failure.method === "GET"
+      && failure.resourceType === "fetch"
+      && !failure.rscHeader;
+  } catch {
+    return false;
+  }
+}
+
 async function assertCleanDiagnostics(label, options = {}) {
   let unacceptedRequestFailures = requestFailures;
   const workspaceProjectId = options.allowSupersededWorkspacePrefetchesForProjectId || "";
@@ -195,6 +209,13 @@ async function assertCleanDiagnostics(label, options = {}) {
       isCompletedLegacyRedirectCancellation(failure, legacyProjectId)
     ));
     assert.ok(accepted.length <= 1, `${label}: at most one completed legacy redirect cancellation is allowed`);
+    unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
+    expectedNavigationCancellations.push(...accepted);
+  }
+
+  if (options.allowSupersededHealthRequest) {
+    const accepted = unacceptedRequestFailures.filter(isSupersededHealthCancellation);
+    assert.ok(accepted.length <= 1, `${label}: at most one superseded AI health request is allowed`);
     unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
     expectedNavigationCancellations.push(...accepted);
   }
@@ -456,7 +477,7 @@ try {
     ]);
     await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });
     for (const heading of ["故事與章節", "角色、世界與記憶", "任務、成就與檢查", "作品、存檔與備份", "自動協調器與學習", "研究與作者輔助"]) {
-      await page.getByRole("heading", { name: heading }).waitFor({ state: "visible" });
+      await page.getByRole("heading", { name: heading, exact: true }).waitFor({ state: "visible" });
     }
     const mobileState = await page.evaluate(() => ({
       overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -466,6 +487,40 @@ try {
     assert.equal(mobileState.overflow, false);
     assert.equal(mobileState.groupColumns, 1);
     assert.equal(mobileState.managementVisible, true);
+
+    const canonEditorLink = page.getByTestId("professional-canon-editor-link");
+    const canonEditorHref = new URL(await canonEditorLink.getAttribute("href"), baseUrl);
+    assert.equal(canonEditorHref.searchParams.get("projectId"), projectId);
+    assert.equal(canonEditorHref.hash, "#character-world-memory-editor");
+    await Promise.all([
+      page.waitForURL((url) => url.hash === "#character-world-memory-editor", { timeout: 60_000 }),
+      canonEditorLink.tap(),
+    ]);
+    await page.getByTestId("home-canon-editor").waitFor({ state: "visible" });
+    await page.waitForFunction(() => (
+      document.querySelector('[data-testid="home-character-editor"]')?.hasAttribute("open")
+      && document.querySelector('[data-testid="home-world-memory-editor"]')?.hasAttribute("open")
+    ));
+    assert.equal(await page.getByTestId("home-character-editor").getAttribute("open"), "");
+    assert.equal(await page.getByTestId("home-world-memory-editor").getAttribute("open"), "");
+    assert.equal(await page.getByTestId("home-character-name").isVisible(), true);
+    assert.equal(await page.getByTestId("story-bible-editor").isVisible(), true);
+    const editorViewport = await page.getByTestId("home-canon-editor").evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, viewportHeight: innerHeight };
+    });
+    assert.ok(editorViewport.top >= 0 && editorViewport.top < editorViewport.viewportHeight, JSON.stringify(editorViewport));
+    assert.ok(editorViewport.bottom > 0, JSON.stringify(editorViewport));
+    const characterName = page.getByTestId("home-character-name");
+    const originalName = (await characterName.inputValue()).trim();
+    assert.ok(originalName, "the started story must retain an editable formal character");
+    const editedName = `${originalName}・首頁編修`;
+    await characterName.fill(editedName);
+    await page.getByRole("button", { name: "儲存人物", exact: true }).click();
+    await page.getByText("人物、能力值、境界與屬性配對人像已在首頁更新；故事內只會讀取並選擇這筆正式資料。", { exact: true }).waitFor({ state: "visible" });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByTestId("home-character-name").waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("home-character-name").inputValue(), editedName);
   });
 
   await check("real mobile reader keeps compact controls and readable width", async () => {
@@ -491,18 +546,128 @@ try {
     assert.equal(readerState.overflow, false);
     assert.ok(readerState.articleRight <= readerState.viewport + 1);
     assert.equal(readerState.shortTargets, 0);
+    await assertCleanDiagnostics("mobile workspace, management, and reader journey", {
+      allowSupersededReaderNavigationForProjectId: createdProjectId,
+      allowSupersededHealthRequest: true,
+    });
+  });
+
+  await check("story routes keep Canon read-only and return to the formal editor", async () => {
+    const projectId = createdProjectId;
+    assert.ok(projectId, "the created project identity must remain available");
+    await openFreshPage(`${baseUrl}/studio/project/${encodeURIComponent(projectId)}/characters`);
+    await page.getByTestId("story-stage-selection-page").waitFor({ state: "visible" });
+    await page.getByTestId("story-stage-selector").waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("story-stage-selection-page").getAttribute("data-canon-edit-surface"), "story-selection-only");
+    assert.equal(await page.getByTestId("home-character-name").count(), 0);
+    assert.equal(await page.getByRole("button", { name: "儲存人物", exact: true }).count(), 0);
+    const worldCardLayout = await page.evaluate(() => {
+      const strip = document.querySelector(".characterStageWorlds");
+      const widths = [...document.querySelectorAll(".characterStageWorlds > button")]
+        .map((element) => element.getBoundingClientRect().width);
+      return {
+        stripClientWidth: strip?.clientWidth ?? 0,
+        stripScrollWidth: strip?.scrollWidth ?? 0,
+        maxCardWidth: widths.length ? Math.max(...widths) : 0,
+      };
+    });
+    assert.ok(worldCardLayout.maxCardWidth <= worldCardLayout.stripClientWidth + 1, JSON.stringify(worldCardLayout));
+    assert.ok(worldCardLayout.stripScrollWidth <= worldCardLayout.stripClientWidth + 1, JSON.stringify(worldCardLayout));
+    const returnLink = page.getByRole("link", { name: /首頁正式設定/u }).first();
+    const returnTarget = new URL(await returnLink.getAttribute("href"), baseUrl);
+    assert.equal(returnTarget.searchParams.get("projectId"), projectId);
+    assert.equal(returnTarget.hash, "#character-world-memory-editor");
+    await Promise.all([
+      page.waitForURL((url) => url.pathname === "/professional" && url.hash === "#character-world-memory-editor", { timeout: 60_000 }),
+      returnLink.tap(),
+    ]);
+    await page.getByTestId("home-character-name").waitFor({ state: "visible" });
   });
 
   await check("old project-home links converge on the complete management center", async () => {
     const projectId = createdProjectId;
     assert.ok(projectId, "the created project identity must remain available");
     await page.setViewportSize(mobileViewport);
-    await assertCleanDiagnostics("mobile workspace, management, and reader journey", {
-      allowSupersededReaderNavigationForProjectId: projectId,
-    });
     await openFreshPage(`${baseUrl}/studio?screen=home&projectId=${encodeURIComponent(projectId)}`);
     await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });
     assert.equal(new URL(page.url()).pathname, "/professional");
+  });
+
+  await check("frontdoor opens the selected project's editable Canon surface", async () => {
+    const projectId = createdProjectId;
+    assert.ok(projectId, "the created project identity must remain available");
+    const competingProjectId = `${projectId}-newer`;
+    await page.evaluate(async ({ activeProjectId, competingId }) => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("novel-intelligence-platform");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const original = await new Promise((resolve, reject) => {
+        const request = database.transaction("projects", "readonly").objectStore("projects").get(activeProjectId);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      if (!original) throw new Error("active project fixture must exist");
+      await new Promise((resolve, reject) => {
+        const transaction = database.transaction("projects", "readwrite");
+        transaction.objectStore("projects").put({
+          ...original,
+          id: competingId,
+          title: "較新的非作用中作品",
+          updatedAt: "9999-12-31T23:59:59.999Z",
+        });
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+      database.close();
+      localStorage.setItem("novel_p2_active_project_id", activeProjectId);
+      localStorage.setItem("novel_p12_studio_state", JSON.stringify({
+        activeProjectId: competingId,
+        projects: [{ id: competingId, title: "較新的非作用中作品", updatedAt: "9999-12-31T23:59:59.999Z" }],
+      }));
+    }, { activeProjectId: projectId, competingId: competingProjectId });
+    await openFreshPage(baseUrl);
+    const canonEditorLink = page.getByTestId("frontdoor-canon-editor");
+    await canonEditorLink.waitFor({ state: "visible" });
+    const target = new URL(await canonEditorLink.getAttribute("href"), baseUrl);
+    assert.equal(target.searchParams.get("projectId"), projectId);
+    assert.equal(target.hash, "#character-world-memory-editor");
+    await Promise.all([
+      page.waitForURL((url) => url.pathname === "/professional" && url.hash === "#character-world-memory-editor", { timeout: 60_000 }),
+      canonEditorLink.tap(),
+    ]);
+    await page.getByTestId("home-canon-editor").waitFor({ state: "visible" });
+    await page.waitForFunction(() => (
+      document.querySelector('[data-testid="home-character-editor"]')?.hasAttribute("open")
+      && document.querySelector('[data-testid="home-world-memory-editor"]')?.hasAttribute("open")
+    ));
+    assert.equal(await page.getByTestId("home-character-editor").getAttribute("open"), "");
+    assert.equal(await page.getByTestId("home-world-memory-editor").getAttribute("open"), "");
+    const editorViewport = await page.getByTestId("home-canon-editor").evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, viewportHeight: innerHeight };
+    });
+    assert.ok(editorViewport.top >= 0 && editorViewport.top < editorViewport.viewportHeight, JSON.stringify(editorViewport));
+    assert.ok(editorViewport.bottom > 0, JSON.stringify(editorViewport));
+    await page.evaluate(async ({ activeProjectId, competingId }) => {
+      const database = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("novel-intelligence-platform");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      await new Promise((resolve, reject) => {
+        const transaction = database.transaction("projects", "readwrite");
+        transaction.objectStore("projects").delete(competingId);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+      database.close();
+      localStorage.setItem("novel_p2_active_project_id", activeProjectId);
+      localStorage.removeItem("novel_p12_studio_state");
+    }, { activeProjectId: projectId, competingId: competingProjectId });
   });
 
   await check("browser console has no unexpected errors or repeated native permission probes", async () => {

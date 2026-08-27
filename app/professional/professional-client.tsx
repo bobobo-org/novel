@@ -263,8 +263,15 @@ export default function ProfessionalClient({
     }
   }
 
+  function revealCanonEditor() {
+    window.setTimeout(() => window.dispatchEvent(new Event("hashchange")), 0);
+  }
+
   const project = summary?.project ?? null;
   const projectRoot = project ? `/studio/project/${encodeURIComponent(project.id)}` : "";
+  const canonEditorHref = project
+    ? `/professional?intent=library&projectId=${encodeURIComponent(project.id)}#character-world-memory-editor`
+    : "/professional?intent=library";
   const playMode = summary?.storyState ? resolveStoryPlayMode(summary.storyState) : "general";
   const primaryWorkspace = project ? storyPlayModeDashboardHref(project.id, playMode) : "";
   const localAIHref = project
@@ -300,7 +307,7 @@ export default function ProfessionalClient({
       {project ? (
         <nav className="professionalMobileQuick" aria-label="手機快速操作">
           <Link prefetch={false} className="primary" href={primaryWorkspace}><span aria-hidden="true">寫</span>繼續創作</Link>
-          <Link href="#character-world-memory-home"><span aria-hidden="true">人</span>角色世界</Link>
+          <a href={canonEditorHref} onClick={revealCanonEditor}><span aria-hidden="true">編</span>編輯設定</a>
           <Link href="#professional-all-tools"><span aria-hidden="true">具</span>全部工具</Link>
         </nav>
       ) : null}
@@ -385,8 +392,8 @@ export default function ProfessionalClient({
             </article>
             <article id="world-and-characters">
               <small>CANON & WORLD</small><h2>角色、世界與記憶</h2>
-              <p>正式人物、能力、世界與 Story Bible 直接在上方首頁編修；故事進行中則選擇目前上場的人物、規則與記憶。</p>
-              <Link href="#character-world-memory-home">在首頁編修正式角色、世界與記憶</Link>
+              <p>正式人物、能力、世界與 Story Bible 在本作品的正式設定編輯器修改；故事進行中只選擇目前上場的人物、規則與記憶。</p>
+              <a data-testid="professional-canon-editor-link" href={canonEditorHref} onClick={revealCanonEditor}>開啟角色、世界與記憶編輯器</a>
               <Link href={`${projectRoot}/characters`}>故事內選擇上場人物（唯讀）</Link>
               <Link href={`${projectRoot}/character-ai`}>角色視角模擬（非正式 Canon）</Link>
               <Link href={`${projectRoot}/world`}>故事內選擇上場世界與規則（唯讀）</Link>

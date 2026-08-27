@@ -294,7 +294,7 @@ export default function StoryStageSelector({
       <p className="characterCanonLock" data-locked="true" role="status" data-testid="story-stage-selection-boundary">{message}</p>
       <p>
         要新增或修改正式設定，請回到{" "}
-        <Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-home`}>
+        <Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>
           首頁「角色、世界與記憶」
         </Link>。
       </p>

@@ -26,6 +26,7 @@ type ClosedAIStatus = "未設定" | "等待配對" | "已就緒";
 type CloudStatus = "未設定" | "正常" | "暫停";
 
 const STUDIO_SHELL_KEY = "novel_p12_studio_state";
+const ACTIVE_PROJECT_KEY = "novel_p2_active_project_id";
 
 function scheduleBrowserIdle(task: () => void) {
   const idleWindow = window as Window & {
@@ -98,7 +99,9 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         try {
           canonicalProjects = (await createNovelRepository().list<NovelProject>("projects"))
             .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-          const preferred = canonicalProjects.find((item) => item.id === shellRecent?.id)
+          const activeProjectId = safeProjectId(localStorage.getItem(ACTIVE_PROJECT_KEY) || "");
+          const preferred = canonicalProjects.find((item) => item.id === activeProjectId)
+            ?? canonicalProjects.find((item) => item.id === shellRecent?.id)
             ?? canonicalProjects[0];
           if (preferred) {
             recent = {
@@ -166,6 +169,9 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
       : "/professional?intent=chat";
     return `/settings/local-ai?returnTo=${encodeURIComponent(returnTo)}`;
   }, [recentId]);
+  const canonEditorHref = recentId
+    ? `/professional?intent=library&projectId=${encodeURIComponent(recentId)}#character-world-memory-editor`
+    : "/professional?intent=library";
   const directProjectHref = projectCount === 1 && recentId
     ? `/studio/project/${encodeURIComponent(recentId)}/chat`
     : "";
@@ -246,6 +252,18 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
               <Link className="secondaryAction" href="/studio/create">探索 {classicTopics} 類題材</Link>
             )}
           </div>
+          {recentProject && recentId ? (
+            <Link
+              prefetch={false}
+              className={styles.canonShortcut}
+              data-testid="frontdoor-canon-editor"
+              href={canonEditorHref}
+            >
+              <span>角色、世界與記憶</span>
+              <b>編輯《{recentProject.title}》的正式設定</b>
+              <i aria-hidden="true">→</i>
+            </Link>
+          ) : null}
           <div className={styles.truthRow} aria-label="平台特色">
             <span><b>{classicTopics}</b> 類經典題材</span>
             <span><b>{packs}</b> 個世界分類</span>

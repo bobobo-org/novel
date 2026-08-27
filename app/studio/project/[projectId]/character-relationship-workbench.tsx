@@ -245,7 +245,19 @@ export default function CharacterRelationshipWorkbench({
 
   useEffect(() => {
     const revealCanonEditor = () => {
-      if (window.location.hash === "#character-world-memory-home") setCanonEditorsOpen(true);
+      const hash = window.location.hash;
+      const revealAll = hash === "#character-world-memory-home"
+        || hash === "#character-world-memory-editor";
+      if (revealAll || hash === "#character-editor") setCharacterEditorsOpen(true);
+      if (revealAll || hash === "#world-memory-editor") setCanonEditorsOpen(true);
+      if (!["#character-world-memory-home", "#character-world-memory-editor", "#character-editor", "#world-memory-editor"].includes(hash)) return;
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const target = document.getElementById(hash.slice(1));
+          target?.scrollIntoView({ block: "start" });
+          if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+        });
+      });
     };
     revealCanonEditor();
     window.addEventListener("hashchange", revealCanonEditor);
@@ -921,12 +933,12 @@ export default function CharacterRelationshipWorkbench({
   return (
     <section id="character-world-memory-home" className="characterRelationWorkbench" data-compact={compact} data-canon-edit-surface="home" data-testid="character-relationship-workbench">
       <header>
-        <div><small>CHARACTERS · WORLD · MEMORY · SAME CANON</small><h2>首頁正式設定與上場管理</h2></div>
+        <div><small>CHARACTERS · WORLD · MEMORY · SAME CANON</small><h2>作品正式設定與上場管理</h2></div>
         <span>{worldContextLabel} · {data.characters.length} 人 · {data.relationships.length} 條關係 · {CHARACTER_PORTRAIT_CAPACITY.toLocaleString("zh-TW")} 種衍生造型</span>
       </header>
-      <p>首頁管理正式人物、世界與 Story Bible；故事中的工作台只選擇誰、哪個世界與哪些記憶要在目前情節上場。人物人像會依時代、身分、年齡、個性與能力從 100 張基礎人像的 100 組可重現造型中配對，不會讓不同人物共用同一張空白卡。</p>
+      <p>作品管理中心負責正式人物、世界與 Story Bible；故事中的工作台只選擇誰、哪個世界與哪些記憶要在目前情節上場。人物人像會依時代、身分、年齡、個性與能力從 100 張基礎人像的 100 組可重現造型中配對，不會讓不同人物共用同一張空白卡。</p>
       <p className="characterCanonLock" data-locked="false" role="status">
-        首頁是正式設定的唯一編修區：無論故事是否已開始，都可修改人物、能力值、世界、Story Bible、規則、記憶與時間線；故事內只能選擇上場內容，不能改寫這些正式數值。
+        這裡是正式設定的唯一編修區：無論故事是否已開始，都可修改人物、能力值、世界、Story Bible、規則、記憶與時間線；故事內只能選擇上場內容，不能改寫這些正式數值。
       </p>
 
       <section className="characterStageManager" aria-labelledby="character-stage-title">
@@ -970,18 +982,30 @@ export default function CharacterRelationshipWorkbench({
         </div>
       </section>
 
+      <section id="character-world-memory-editor" className="characterHomeEditorHub" data-testid="home-canon-editor" tabIndex={-1}>
+        <small>CANON EDITOR · EDITABLE HERE</small>
+        <h3>角色、世界與記憶編輯器</h3>
+        <p>直接展開下方欄位即可建立或修改正式人物、能力值、關係、世界、Story Bible、規則、記憶與時間線。這不是故事內的唯讀上場頁。</p>
+        <nav aria-label="正式設定編輯器快速入口">
+          <a href="#character-editor">人物、能力與關係</a>
+          <a href="#world-memory-editor">世界、規則與記憶</a>
+        </nav>
+      </section>
+
       <details
+        id="character-editor"
         className="characterHomeCharacterEditors"
+        data-testid="home-character-editor"
         open={characterEditorsOpen}
         onToggle={(event) => setCharacterEditorsOpen(event.currentTarget.open)}
       >
-        <summary>在首頁編修正式人物與人物關係</summary>
+        <summary>編輯正式人物、能力值與人物關係</summary>
         <div className="characterRelationForms">
           <form onSubmit={saveCharacter}>
           <h3>{selectedCharacterId === "__new__" ? "在首頁建立人物" : "快速編修人物"}</h3>
           {selectedPortrait ? <div className="characterSelectedPortrait wide"><CharacterPortraitImage portrait={selectedPortrait} /><p><b>{selectedPortrait.role}</b><span>{selectedPortrait.themeLabel} · 依目前人物屬性自動配對</span><small>{selectedPortrait.visualDescription}</small></p></div> : null}
           <label>人物<select value={selectedCharacterId || "__new__"} onChange={(event) => selectCharacter(event.target.value)}><option value="__new__">＋ 建立新人物</option>{data.characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}</select></label>
-          <label>姓名<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label>姓名<input data-testid="home-character-name" required value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label>職業／身分<input list={`profession-${project.id}`} value={profession} onChange={(event) => setProfession(event.target.value)} placeholder={suggestions.slice(0, 4).join("、")} /></label>
           <datalist id={`profession-${project.id}`}>{suggestions.map((item) => <option key={item} value={item} />)}</datalist>
           <label className="wide">能力配置<select value={rpgArchetype} onChange={(event) => {
@@ -1020,11 +1044,13 @@ export default function CharacterRelationshipWorkbench({
       </details>
 
       <details
+        id="world-memory-editor"
         className="characterHomeCanonEditors"
+        data-testid="home-world-memory-editor"
         open={canonEditorsOpen}
         onToggle={(event) => setCanonEditorsOpen(event.currentTarget.open)}
       >
-        <summary>在首頁編修正式世界與 Story Bible</summary>
+        <summary>編輯正式世界、Story Bible、規則、記憶與時間線</summary>
         <>
         <div>
           <form onSubmit={saveWorld}>

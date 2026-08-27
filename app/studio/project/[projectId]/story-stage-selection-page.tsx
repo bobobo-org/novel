@@ -27,7 +27,7 @@ export default function StoryStageSelectionPage({
       data-canon-edit-surface="story-selection-only"
     >
       <header>
-        <Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-home`}>
+        <Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>
           ← 首頁正式設定
         </Link>
         <div><small>故事工作台 · 只讀與上場選擇</small><h1>{title}</h1></div>
