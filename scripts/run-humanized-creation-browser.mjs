@@ -74,9 +74,9 @@ async function resetLocalStorageAndOpen(url) {
 }
 
 function isSupersededRscCancellation(failure, target) {
+  const expectedErrorText = engineName === "webkit" ? "Load request cancelled" : "net::ERR_ABORTED";
   if (
-    engineName !== "chromium"
-    || failure.errorText !== "net::ERR_ABORTED"
+    failure.errorText !== expectedErrorText
     || failure.method !== "GET"
     || failure.resourceType !== "fetch"
     || failure.rscHeader !== "1"
@@ -129,9 +129,32 @@ function isCompletedLegacyRedirectCancellation(failure, projectId) {
 function isSupersededHealthCancellation(failure) {
   try {
     const requestUrl = new URL(failure.url);
+    const queryKeys = [...requestUrl.searchParams.keys()];
+    const expectedErrorText = engineName === "webkit" ? "Load request cancelled" : "net::ERR_ABORTED";
     return requestUrl.origin === new URL(baseUrl).origin
       && requestUrl.pathname === "/api/ai/health"
-      && failure.errorText === "net::ERR_ABORTED"
+      && queryKeys.length === 0
+      && failure.errorText === expectedErrorText
+      && failure.method === "GET"
+      && failure.resourceType === "fetch"
+      && !failure.rscHeader;
+  } catch {
+    return false;
+  }
+}
+
+function isBoundedSharedLearningCancellation(failure) {
+  try {
+    const requestUrl = new URL(failure.url);
+    const queryKeys = [...requestUrl.searchParams.keys()];
+    const expectedErrorText = engineName === "webkit" ? "Load request cancelled" : "net::ERR_ABORTED";
+    return requestUrl.origin === new URL(baseUrl).origin
+      && requestUrl.pathname === "/api/ai/learning/shared-library"
+      && queryKeys.length === 1
+      && queryKeys[0] === "limit"
+      && requestUrl.searchParams.getAll("limit").length === 1
+      && requestUrl.searchParams.get("limit") === "24"
+      && failure.errorText === expectedErrorText
       && failure.method === "GET"
       && failure.resourceType === "fetch"
       && !failure.rscHeader;
@@ -151,6 +174,8 @@ async function assertCleanDiagnostics(label, options = {}) {
       assert.equal(await page.getByTestId(testId).isVisible(), true);
     }
     allowedTargets.push(
+      { pathname: "/" },
+      { pathname: "/studio/create" },
       { pathname: `/studio/project/${workspaceProjectId}/write` },
       { pathname: "/professional" },
       {
@@ -170,6 +195,8 @@ async function assertCleanDiagnostics(label, options = {}) {
       pathname: `/studio/project/${readerProjectId}/chat`,
       search: { mode: "play" },
     });
+    allowedTargets.push({ pathname: "/" });
+    allowedTargets.push({ pathname: "/studio/create" });
     allowedTargets.push({ pathname: `/studio/read/${readerProjectId}` });
     allowedTargets.push(
       { pathname: "/professional" },
@@ -194,6 +221,7 @@ async function assertCleanDiagnostics(label, options = {}) {
         `${label}: at most one superseded Next RSC cancellation is allowed for ${pathname}`,
       );
     }
+    assert.ok(accepted.length <= 2, `${label}: at most two superseded Next RSC prefetches are allowed`);
     unacceptedRequestFailures = requestFailures.filter((failure) => !accepted.includes(failure));
     expectedNavigationCancellations.push(...accepted);
   }
@@ -209,6 +237,60 @@ async function assertCleanDiagnostics(label, options = {}) {
       isCompletedLegacyRedirectCancellation(failure, legacyProjectId)
     ));
     assert.ok(accepted.length <= 1, `${label}: at most one completed legacy redirect cancellation is allowed`);
+    unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
+    expectedNavigationCancellations.push(...accepted);
+  }
+
+  const professionalLibraryProjectId = options.allowSupersededFrontdoorNavigationPrefetchesForProjectId || "";
+  if (professionalLibraryProjectId) {
+    const currentUrl = new URL(page.url());
+    assert.equal(currentUrl.pathname, "/professional");
+    assert.equal(currentUrl.searchParams.get("intent"), "library");
+    assert.equal(currentUrl.searchParams.get("projectId"), professionalLibraryProjectId);
+    assert.equal(await page.getByTestId("professional-canonical-workbench").isVisible(), true);
+    const frontdoorTargets = [
+      { pathname: "/" },
+      { pathname: "/studio" },
+      { pathname: "/studio/create" },
+      { pathname: "/studio/create", search: { cloneFrom: professionalLibraryProjectId } },
+      { pathname: "/professional", search: { intent: "chat" } },
+      { pathname: "/professional", search: { intent: "library" } },
+      {
+        pathname: "/professional",
+        search: { intent: "library", projectId: professionalLibraryProjectId },
+      },
+      {
+        pathname: "/settings/local-ai",
+        search: { returnTo: `/studio/project/${professionalLibraryProjectId}/chat` },
+      },
+      {
+        pathname: `/studio/project/${professionalLibraryProjectId}/chat`,
+        search: { mode: "play" },
+      },
+      { pathname: `/studio/read/${professionalLibraryProjectId}` },
+    ];
+    const accepted = unacceptedRequestFailures.filter((failure) => (
+      frontdoorTargets.some((target) => isSupersededRscCancellation(failure, target))
+    ));
+    for (const pathname of new Set(frontdoorTargets.map((target) => target.pathname))) {
+      const targetFailures = accepted.filter((failure) => (
+        frontdoorTargets
+          .filter((target) => target.pathname === pathname)
+          .some((target) => isSupersededRscCancellation(failure, target))
+      ));
+      assert.ok(
+        targetFailures.length <= 1,
+        `${label}: at most one superseded frontdoor RSC prefetch is allowed for ${pathname}`,
+      );
+    }
+    assert.ok(accepted.length <= 2, `${label}: at most two superseded frontdoor RSC prefetches are allowed`);
+    unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
+    expectedNavigationCancellations.push(...accepted);
+  }
+
+  if (options.allowBoundedSharedLearningRequest) {
+    const accepted = unacceptedRequestFailures.filter(isBoundedSharedLearningCancellation);
+    assert.ok(accepted.length <= 1, `${label}: at most one bounded shared-learning request is allowed`);
     unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
     expectedNavigationCancellations.push(...accepted);
   }
@@ -354,6 +436,7 @@ try {
     const chatUrl = page.url();
     await assertCleanDiagnostics("RPG creation and workspace navigation", {
       allowSupersededWorkspacePrefetchesForProjectId: createdProjectId,
+      allowBoundedSharedLearningRequest: true,
     });
     await openFreshPage(chatUrl);
     await page.setViewportSize(mobileViewport);
@@ -517,19 +600,45 @@ try {
     const editedName = `${originalName}・首頁編修`;
     await characterName.fill(editedName);
     await page.getByRole("button", { name: "儲存人物", exact: true }).click();
-    await page.getByText("人物、能力值、境界與屬性配對人像已在首頁更新；故事內只會讀取並選擇這筆正式資料。", { exact: true }).waitFor({ state: "visible" });
+    try {
+      await page.getByText("人物、能力值、境界與屬性配對人像已在首頁更新；故事內只會讀取並選擇這筆正式資料。", { exact: true }).waitFor({ state: "visible" });
+    } catch (error) {
+      throw new Error(`CHARACTER_SAVE_ACK_FAILED ${JSON.stringify({
+        currentUrl: page.url(),
+        inputValue: await characterName.inputValue(),
+        saveDisabled: await page.getByRole("button", { name: "儲存人物", exact: true }).isDisabled(),
+        statusTexts: await page.locator('[role="status"]').allTextContents(),
+        consoleErrors,
+        requestFailures,
+        pageErrors,
+      })}`, { cause: error });
+    }
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.getByTestId("home-character-name").waitFor({ state: "visible" });
+    await page.waitForFunction((expectedName) => (
+      document.querySelector('[data-testid="home-character-name"]')?.value === expectedName
+    ), editedName);
     assert.equal(await page.getByTestId("home-character-name").inputValue(), editedName);
   });
 
   await check("real mobile reader keeps compact controls and readable width", async () => {
     const readerLink = page.getByRole("link", { name: "閱讀作品", exact: true }).first();
-    await Promise.all([
-      page.waitForURL(new RegExp(`/studio/read/${createdProjectId}$`, "u"), { timeout: 60_000 }),
-      readerLink.tap(),
-    ]);
-    await page.locator(".readerShell").waitFor({ state: "visible" });
+    try {
+      await Promise.all([
+        page.waitForURL(new RegExp(`/studio/read/${createdProjectId}$`, "u"), { timeout: 60_000 }),
+        readerLink.tap(),
+      ]);
+      await page.locator(".readerShell").waitFor({ state: "visible" });
+    } catch (error) {
+      throw new Error(`READER_NAVIGATION_FAILED ${JSON.stringify({
+        currentUrl: page.url(),
+        pageTitle: await page.title(),
+        bodyText: (await page.locator("body").innerText()).slice(0, 1_000),
+        consoleErrors,
+        requestFailures,
+        pageErrors,
+      })}`, { cause: error });
+    }
     assert.equal(await page.locator("#reader-controls").count(), 0);
     await page.getByRole("button", { name: "閱讀設定" }).click();
     await page.locator("#reader-controls").waitFor({ state: "visible" });
@@ -549,6 +658,7 @@ try {
     await assertCleanDiagnostics("mobile workspace, management, and reader journey", {
       allowSupersededReaderNavigationForProjectId: createdProjectId,
       allowSupersededHealthRequest: true,
+      allowBoundedSharedLearningRequest: true,
     });
   });
 
@@ -671,8 +781,9 @@ try {
   });
 
   await check("browser console has no unexpected errors or repeated native permission probes", async () => {
-    await assertCleanDiagnostics("legacy management redirect", {
+    await assertCleanDiagnostics("frontdoor Canon navigation and legacy management redirect", {
       allowCompletedLegacyRedirectForProjectId: createdProjectId,
+      allowSupersededFrontdoorNavigationPrefetchesForProjectId: createdProjectId,
     });
   });
 
