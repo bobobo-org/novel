@@ -59,57 +59,9 @@ async function resetLocalStorageAndOpen(url) {
 }
 
 function assertCleanDiagnostics(label) {
-  const isCompanionHealthUrl = (url) => (
-    /^http:\/\/127\.0\.0\.1:32(?:17|27)\/health$/u.test(url)
-  );
-  const loopbackCompanionFailures = requestFailures.filter(({ url, method, resourceType }) => (
-    isCompanionHealthUrl(url)
-    && method === "GET"
-    && resourceType === "fetch"
-  ));
-  const nativePermissionErrors = consoleErrors.filter(({ text }) => (
-    /Access to fetch at 'http:\/\/127\.0\.0\.1:32(?:17|27)\/health'/u.test(text)
-    && text.includes("blocked by CORS policy")
-    && text.includes("Permission was denied")
-    && text.includes("`loopback` address space")
-  ));
-  const loopbackResourceErrors = consoleErrors.filter(({ text, url }) => (
-    isCompanionHealthUrl(url)
-    && /(?:Failed to load resource|Load failed|Could not connect|ERR_(?:FAILED|CONNECTION_REFUSED)|NS_ERROR_CONNECTION_REFUSED)/iu.test(text)
-  ));
-  const loopbackPageErrorPattern = /^(?:https?:\/\/|\/)?127\.0\.0\.1:(3217|3227)\/health due to access control checks\.$/u;
-  const loopbackPageErrors = pageErrors.filter((message) => loopbackPageErrorPattern.test(message));
-  const unexpectedPageErrors = pageErrors.filter((message) => !loopbackPageErrors.includes(message));
-  const genericLoopbackConsoleErrors = consoleErrors.filter(({ text, url }) => {
-    if (text !== "Not allowed to request resource") return false;
-    try {
-      const source = new URL(url, baseUrl);
-      return source.origin === new URL(baseUrl).origin
-        && /^\/_next\/static\/chunks\/.+\.js$/u.test(source.pathname);
-    } catch {
-      return false;
-    }
-  });
-  const unexpectedErrors = consoleErrors.filter((entry) => (
-    !nativePermissionErrors.includes(entry)
-    && !loopbackResourceErrors.includes(entry)
-    && !genericLoopbackConsoleErrors.includes(entry)
-  ));
-  const loopbackPageErrorPorts = loopbackPageErrors.map((message) => loopbackPageErrorPattern.exec(message)?.[1] ?? "");
-  assert.deepEqual(unexpectedPageErrors, [], `${label}: unexpected page errors: ${JSON.stringify(unexpectedPageErrors)}`);
-  assert.ok(loopbackPageErrors.length <= 2, `${label}: each optional Companion page error may appear once`);
-  assert.equal(new Set(loopbackPageErrorPorts).size, loopbackPageErrorPorts.length, `${label}: each optional Companion page error may appear once`);
-  assert.ok(genericLoopbackConsoleErrors.length <= loopbackPageErrors.length, `${label}: generic WebKit resource errors require an exact Companion page error`);
-  assert.ok(loopbackCompanionFailures.length <= 2, `${label}: each optional Companion health endpoint may fail once when no local runtime is installed`);
-  assert.equal(
-    new Set(loopbackCompanionFailures.map(({ url }) => new URL(url).port)).size,
-    loopbackCompanionFailures.length,
-    `${label}: the public journey must not retry a missing Companion endpoint`,
-  );
-  assert.deepEqual(unexpectedErrors, [], `${label}: unexpected console errors`);
-  assert.ok(nativePermissionErrors.length <= 2, `${label}: each Companion endpoint may trigger the native gate at most once`);
-  assert.ok(nativePermissionErrors.length <= loopbackCompanionFailures.length, `${label}: native permission errors must correspond to optional Companion health probes`);
-  assert.ok(loopbackResourceErrors.length <= loopbackCompanionFailures.length, `${label}: console resource errors must point to a failed optional Companion health request`);
+  assert.deepEqual(pageErrors, [], `${label}: page errors: ${JSON.stringify(pageErrors)}`);
+  assert.deepEqual(consoleErrors, [], `${label}: console errors: ${JSON.stringify(consoleErrors)}`);
+  assert.deepEqual(requestFailures, [], `${label}: failed requests: ${JSON.stringify(requestFailures)}`);
 }
 
 const results = [];

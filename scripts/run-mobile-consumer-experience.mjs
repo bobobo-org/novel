@@ -7,12 +7,23 @@ const baseUrl = String(
   || "http://127.0.0.1:3100",
 ).replace(/\/$/u, "");
 
-const viewports = [
+const defaultViewports = [
   { width: 320, height: 568 },
   { width: 375, height: 812 },
   { width: 390, height: 844 },
   { width: 430, height: 932 },
 ];
+const requestedViewportTokens = String(process.env.MOBILE_VIEWPORTS || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const viewports = requestedViewportTokens.length
+  ? requestedViewportTokens.map((value) => {
+      const match = /^(\d{3,4})x(\d{3,4})$/u.exec(value);
+      assert.ok(match, `MOBILE_VIEWPORTS contains an invalid viewport: ${value}`);
+      return { width: Number(match[1]), height: Number(match[2]) };
+    })
+  : defaultViewports;
 
 const engineName = process.env.MOBILE_BROWSER_ENGINE === "webkit" ? "webkit" : "chromium";
 const browserType = engineName === "webkit" ? webkit : chromium;
@@ -108,7 +119,20 @@ try {
     const sizeLabel = `${viewport.width}x${viewport.height}`;
     const page = await context.newPage();
     const pageErrors = [];
+    const unexpectedLoopbackRequests = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("request", (request) => {
+      try {
+        const url = new URL(request.url());
+        if (
+          ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+          && ["3217", "3227"].includes(url.port)
+        ) unexpectedLoopbackRequests.push(request.url());
+      } catch {
+        // Playwright can surface browser-internal URLs that are not parseable
+        // as HTTP URLs; they are outside this public Companion regression gate.
+      }
+    });
 
     await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.getByTestId("modern-consumer-frontdoor").waitFor({ state: "visible" });
@@ -124,6 +148,7 @@ try {
       .map((image) => image.currentSrc || image.src)
       .filter((source) => /(?:file:|[CD]:\\|localhost)/iu.test(source)));
     assert.deepEqual(forbiddenImages, [], `${sizeLabel}: machine-local image URLs leaked into the public UI`);
+    assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public front door must not probe a machine-local Companion`);
     assert.deepEqual(pageErrors, [], `${sizeLabel}: front door page errors`);
     record(`${engineName} ${sizeLabel} public front door`);
 
@@ -135,6 +160,7 @@ try {
     await page.getByRole("heading", { name: "目前沒有正式作品" }).waitFor({ state: "visible" });
     await assertNoClippedControls(page, `${sizeLabel} fresh library`);
     await assertTouchTargets(page.getByRole("link", { name: "建立第一部作品" }), `${sizeLabel} fresh library CTA`);
+    assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public library journey must not inherit a machine-local Companion probe`);
     assert.deepEqual(pageErrors, [], `${sizeLabel}: library page errors`);
     record(`${engineName} ${sizeLabel} fresh-user library`);
 
@@ -158,6 +184,7 @@ try {
       null,
       `${sizeLabel}: the long preview must start collapsed on mobile`,
     );
+    assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public creation journey must not probe a machine-local Companion`);
     assert.deepEqual(pageErrors, [], `${sizeLabel}: create page errors`);
     record(`${engineName} ${sizeLabel} creation flow`);
 

@@ -8,7 +8,6 @@ import {
   EXPLICIT_LEGACY_STUDIO_KEYS,
   previewLegacyStudioProjects,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
-import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "@/lib/novel-ai/providers/local-ollama/companion-release";
 import styles from "./frontdoor-luxury.module.css";
 
 type FrontdoorProps = {
@@ -113,46 +112,24 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
           // unavailable; the canonical picker will show the recovery state.
         }
         const preview = previewLegacyStudioProjects(EXPLICIT_LEGACY_STUDIO_KEYS);
-        const origin = window.location.origin;
         if (!active) return;
         setRecentProject(recent);
         setProjectCount(canonicalProjects.length || (recent ? 1 : 0));
         setLegacyPreview(preview);
-        // Let the useful project entry paint first. The closed-AI coordinator
-        // is a large optional capability and must not compete with the first
-        // tap, scroll, or route transition on a public mobile device.
+        // Let the useful project entry paint first. Reading an already active
+        // tab session is local and cheap; a public front door must never probe
+        // loopback Companion ports in the background. The settings screen and
+        // an explicit closed-AI action perform connection discovery on demand.
         cancelAIProbe = scheduleBrowserIdle(() => {
           void (async () => {
             const { getStudioClosedAIRuntimeCoordinator } = await import(
               "@/lib/novel-ai/web/closed-agent-os-service"
             );
-            const coordinator = getStudioClosedAIRuntimeCoordinator(origin);
+            const coordinator = getStudioClosedAIRuntimeCoordinator(window.location.origin);
             const session = coordinator.localClient.getSessionMetadata();
             const proof = coordinator.localClient.getModelVerification();
             if (!active) return;
             setClosedAI(proof ? "已就緒" : session ? "等待配對" : "未設定");
-            if (PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
-              origin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
-            )) {
-              try {
-                const result = await coordinator.connectAutomatically();
-                if (!active) return;
-                const ready = result.localOllama.status === "fulfilled"
-                  || result.privateHub.status === "fulfilled";
-                const hasSession = Boolean(
-                  coordinator.localClient.getSessionMetadata()
-                  || coordinator.privateHubClient.getSessionMetadata(),
-                );
-                setClosedAI(ready ? "已就緒" : hasSession ? "等待配對" : "未設定");
-              } catch {
-                if (!active) return;
-                const hasSession = Boolean(
-                  coordinator.localClient.getSessionMetadata()
-                  || coordinator.privateHubClient.getSessionMetadata(),
-                );
-                setClosedAI(hasSession ? "等待配對" : "未設定");
-              }
-            }
           })();
         });
       })();

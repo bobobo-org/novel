@@ -111,7 +111,7 @@ export default function ProfessionalClient({
   const [summary, setSummary] = useState<ProjectSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("正在開啟同一份正式作品庫……");
-  const [aiStatus, setAIStatus] = useState("背景偵測中（不影響作品）");
+  const [aiStatus, setAIStatus] = useState("能力狀態讀取中（不連接本機服務）");
   const [error, setError] = useState("");
   const [socialLibraryOpen, setSocialLibraryOpen] = useState(false);
   const aiDiscoveryController = useRef<AbortController | null>(null);
@@ -208,7 +208,7 @@ export default function ProfessionalClient({
       timedOut = true;
       controller.abort("PROFESSIONAL_AI_DISCOVERY_TIMEOUT");
     }, 7_000);
-    setAIStatus("背景偵測中（不影響作品）");
+    setAIStatus("能力狀態讀取中（不連接本機服務）");
     try {
       const snapshot = await discoverStudioClosedAI(controller.signal);
       if (controller.signal.aborted) return;
@@ -221,7 +221,7 @@ export default function ProfessionalClient({
             : "未連線（寫作與作品庫仍可使用）");
     } catch {
       if (!controller.signal.aborted || timedOut) {
-        setAIStatus(timedOut ? "背景偵測逾時（不影響作品）" : "可在寫作頁重試實際執行器");
+        setAIStatus(timedOut ? "能力狀態讀取逾時（不影響作品）" : "可在寫作頁明確連接閉端 AI");
       }
     } finally {
       window.clearTimeout(timeout);

@@ -439,7 +439,16 @@ function verifyAliasCutover(workflow) {
   assert.match(alias, /production-last-known-good\.mjs download/u);
   assert.match(alias, /production-last-known-good\.mjs select/u);
   assert.match(alias, /Cut over both aliases with atomic compensation/u);
-  assert.match(alias, /verify-production-public-cutover\.mjs/u);
+  assert.match(alias, /Prepare exact Product checkout for post-cutover mobile proof/u);
+  assert.match(alias, /Install locked Chromium and WebKit for post-cutover mobile proof/u);
+  const publicGate = step(alias, "Verify both public aliases and their dynamic assets after cutover");
+  assert.match(publicGate, /verify-production-public-cutover\.mjs/u);
+  assert.match(publicGate, /run-mobile-consumer-experience\.mjs/u);
+  assert.match(publicGate, /https:\/\/novel-orcin\.vercel\.app/u);
+  assert.match(publicGate, /https:\/\/novel-lqtechs-projects\.vercel\.app/u);
+  assert.match(publicGate, /MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844/u);
+  assert.match(publicGate, /MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568/u);
+  assert.match(alias, /post-cutover-mobile-browser\.log/u);
   assert.match(alias, /Write Last Known Good only after public verification passes/u);
   assert.match(alias, /Publish dynamic Last Known Good identity/u);
   assert.doesNotMatch(recoveryLkg, /github\.event_name == 'push'/u);

@@ -33,7 +33,6 @@ import {
   humanizedSerialFictionInstruction,
 } from "./humanized-serial-fiction-profile";
 import { getStudioClosedAIRuntimeCoordinator } from "./closed-agent-os-service";
-import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "../providers/local-ollama/companion-release";
 import { getConfiguredLocalBridgeModel } from "../providers/local-ollama/local-bridge-client";
 import {
   hasExplicitLocalComputeAuthorization,
@@ -237,11 +236,10 @@ export async function discoverStudioClosedAI(
 ): Promise<StudioClosedAISnapshot> {
   if (readSnapshots === localProviderSnapshots) {
     const coordinator = getStudioClosedAIRuntimeCoordinator();
-    if (PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
-      coordinator.localClient.origin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
-    )) {
-      await coordinator.connectAutomatically(signal).catch(() => null);
-    }
+    // Discovery is a read-only status refresh. Public pages call it during
+    // mount, so it must not trigger Local Network Access or probe loopback
+    // Companion ports. Explicit settings and closed-AI execution paths own
+    // connection discovery and retain the production-origin allowlist.
     const runtime = await coordinator.refresh({
       projectId: "studio-discovery",
       taskType: "chapter.continue",

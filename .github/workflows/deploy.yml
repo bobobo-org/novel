@@ -1873,6 +1873,21 @@ jobs:
         with:
           node-version: 24
 
+      - name: Prepare exact Product checkout for post-cutover mobile proof
+        if: github.event_name == 'push'
+        working-directory: .release-product
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+          pnpm install --frozen-lockfile
+
+      - name: Install locked Chromium and WebKit for post-cutover mobile proof
+        if: github.event_name == 'push'
+        working-directory: .release-product
+        run: pnpm exec playwright install --with-deps chromium webkit
+
       - name: Reproduce and bind recovery control proof for Last Known Good publication
         if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-immutable-product-recovery'
         env:
@@ -2142,7 +2157,21 @@ jobs:
         env:
           EXPECTED_COMMIT: ${{ env.PRODUCT_COMMIT }}
           POST_CUTOVER_REPORT_PATH: ${{ runner.temp }}/post-cutover-public-verification.json
-        run: node scripts/verify-production-public-cutover.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-production-public-cutover.mjs
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            {
+              cd .release-product
+              for origin in https://novel-orcin.vercel.app https://novel-lqtechs-projects.vercel.app; do
+                MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844 \
+                  node scripts/run-mobile-consumer-experience.mjs "$origin"
+                MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568 \
+                  node scripts/run-mobile-consumer-experience.mjs "$origin"
+              done
+            } 2>&1 | tee "$RUNNER_TEMP/post-cutover-mobile-browser.log"
+          fi
 
       - name: Compensating rollback after public verification failure
         if: steps.cutover.outcome == 'success' && steps.public_gate.outcome != 'success'
@@ -2160,7 +2189,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-post-cutover-${{ env.PRODUCT_COMMIT }}-control-${{ github.sha }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/post-cutover-public-verification.json
+          path: |
+            ${{ runner.temp }}/post-cutover-public-verification.json
+            ${{ runner.temp }}/post-cutover-mobile-browser.log
           if-no-files-found: error
           retention-days: 30
 

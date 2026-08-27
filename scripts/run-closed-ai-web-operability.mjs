@@ -1040,7 +1040,7 @@ await test("every Closed AI command button has a real handler or form action", (
   }
 });
 
-await test("official production UI auto-connects local runtimes and exposes version updates", () => {
+await test("official production UI connects local runtimes on demand and exposes version updates", () => {
   for (const marker of [
     "connectRuntimesAutomatically",
     'data-testid="closed-ai-auto-connect-status"',
@@ -1078,8 +1078,11 @@ await test("official production UI auto-connects local runtimes and exposes vers
   ]) {
     assert.ok(aiSettingsSource.includes(marker), `AI settings: ${marker}`);
   }
-  assert.ok(frontdoorSource.includes("coordinator.connectAutomatically()"));
-  assert.ok(studioClosedAISource.includes("coordinator.connectAutomatically(signal)"));
+  assert.ok(!frontdoorSource.includes("coordinator.connectAutomatically()"));
+  assert.ok(frontdoorSource.includes("a public front door must never probe"));
+  assert.ok(!studioClosedAISource.includes("coordinator.connectAutomatically(signal)"));
+  assert.ok(studioClosedAISource.includes("Discovery is a read-only status refresh"));
+  assert.ok(studioClosedAISource.includes("connectLocalAutomatically(input.signal)"));
 });
 
 await test("web workspaces expose real CRUD, chapter, AI, learning and safe legacy handoff", () => {
