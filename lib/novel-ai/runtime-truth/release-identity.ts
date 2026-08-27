@@ -108,6 +108,9 @@ export function releaseIdentity() {
     releaseBuild: provenanceVerified
       ? RELEASE_MANIFEST.releaseBuild
       : "provenance-unavailable",
+    assetManifestDigest: provenanceVerified
+      ? RELEASE_MANIFEST.commitProvenanceHash
+      : null,
     releaseName: RELEASE_MANIFEST.releaseName,
     consumerRelease: RELEASE_MANIFEST.consumerRelease,
     architectureStage: RELEASE_MANIFEST.architectureStage,

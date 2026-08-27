@@ -33,7 +33,6 @@ export default function OfflineRuntime({
       scope: "/",
       updateViaCache: "none",
     }).then(async (registration) => {
-      await registration.update();
       publishIdentity(registration);
       const ready = await navigator.serviceWorker.ready;
       publishIdentity(ready);

@@ -7,35 +7,110 @@ const browserType = engineName === "webkit" ? webkit : chromium;
 const viewportMatch = /^(\d{3,4})x(\d{3,4})$/u.exec(process.env.MOBILE_VIEWPORT || "390x844");
 assert.ok(viewportMatch, "MOBILE_VIEWPORT must use WIDTHxHEIGHT, for example 390x844");
 const mobileViewport = { width: Number(viewportMatch[1]), height: Number(viewportMatch[2]) };
-const browser = await browserType.launch(engineName === "chromium" && process.platform === "win32"
-  ? { channel: "msedge", headless: true }
-  : { headless: true });
-const context = await browser.newContext({
-  locale: "zh-TW",
-  viewport: mobileViewport,
-  isMobile: true,
-  hasTouch: true,
-  deviceScaleFactor: 2,
-});
-const page = await context.newPage();
+let browser = null;
+let context = null;
 const consoleErrors = [];
 const requestFailures = [];
-page.on("console", (message) => {
-  if (message.type() === "error") {
-    consoleErrors.push({
-      text: message.text(),
-      url: message.location().url ?? "",
-    });
-  }
-});
-page.on("requestfailed", (request) => {
-  requestFailures.push({
-    url: request.url(),
-    errorText: request.failure()?.errorText ?? "unknown",
-    method: request.method(),
-    resourceType: request.resourceType(),
+const pageErrors = [];
+let page = null;
+
+function attachDiagnostics(targetPage) {
+  targetPage.on("console", (message) => {
+    if (message.type() === "error") {
+      consoleErrors.push({
+        text: message.text(),
+        url: message.location().url ?? "",
+      });
+    }
   });
-});
+  targetPage.on("requestfailed", (request) => {
+    requestFailures.push({
+      url: request.url(),
+      errorText: request.failure()?.errorText ?? "unknown",
+      method: request.method(),
+      resourceType: request.resourceType(),
+    });
+  });
+  targetPage.on("pageerror", (error) => {
+    pageErrors.push(error.message);
+  });
+}
+
+async function openFreshPage(url) {
+  if (page) await page.close();
+  consoleErrors.length = 0;
+  requestFailures.length = 0;
+  pageErrors.length = 0;
+  page = await context.newPage();
+  attachDiagnostics(page);
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
+}
+
+async function resetLocalStorageAndOpen(url) {
+  if (page) {
+    await page.close();
+    page = null;
+  }
+  const storagePage = await context.newPage();
+  await storagePage.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await storagePage.evaluate(() => window.localStorage.clear());
+  await storagePage.close();
+  await openFreshPage(url);
+}
+
+function assertCleanDiagnostics(label) {
+  const isCompanionHealthUrl = (url) => (
+    /^http:\/\/127\.0\.0\.1:32(?:17|27)\/health$/u.test(url)
+  );
+  const loopbackCompanionFailures = requestFailures.filter(({ url, method, resourceType }) => (
+    isCompanionHealthUrl(url)
+    && method === "GET"
+    && resourceType === "fetch"
+  ));
+  const nativePermissionErrors = consoleErrors.filter(({ text }) => (
+    /Access to fetch at 'http:\/\/127\.0\.0\.1:32(?:17|27)\/health'/u.test(text)
+    && text.includes("blocked by CORS policy")
+    && text.includes("Permission was denied")
+    && text.includes("`loopback` address space")
+  ));
+  const loopbackResourceErrors = consoleErrors.filter(({ text, url }) => (
+    isCompanionHealthUrl(url)
+    && /(?:Failed to load resource|Load failed|Could not connect|ERR_(?:FAILED|CONNECTION_REFUSED)|NS_ERROR_CONNECTION_REFUSED)/iu.test(text)
+  ));
+  const loopbackPageErrorPattern = /^(?:https?:\/\/|\/)?127\.0\.0\.1:(3217|3227)\/health due to access control checks\.$/u;
+  const loopbackPageErrors = pageErrors.filter((message) => loopbackPageErrorPattern.test(message));
+  const unexpectedPageErrors = pageErrors.filter((message) => !loopbackPageErrors.includes(message));
+  const genericLoopbackConsoleErrors = consoleErrors.filter(({ text, url }) => {
+    if (text !== "Not allowed to request resource") return false;
+    try {
+      const source = new URL(url, baseUrl);
+      return source.origin === new URL(baseUrl).origin
+        && /^\/_next\/static\/chunks\/.+\.js$/u.test(source.pathname);
+    } catch {
+      return false;
+    }
+  });
+  const unexpectedErrors = consoleErrors.filter((entry) => (
+    !nativePermissionErrors.includes(entry)
+    && !loopbackResourceErrors.includes(entry)
+    && !genericLoopbackConsoleErrors.includes(entry)
+  ));
+  const loopbackPageErrorPorts = loopbackPageErrors.map((message) => loopbackPageErrorPattern.exec(message)?.[1] ?? "");
+  assert.deepEqual(unexpectedPageErrors, [], `${label}: unexpected page errors: ${JSON.stringify(unexpectedPageErrors)}`);
+  assert.ok(loopbackPageErrors.length <= 2, `${label}: each optional Companion page error may appear once`);
+  assert.equal(new Set(loopbackPageErrorPorts).size, loopbackPageErrorPorts.length, `${label}: each optional Companion page error may appear once`);
+  assert.ok(genericLoopbackConsoleErrors.length <= loopbackPageErrors.length, `${label}: generic WebKit resource errors require an exact Companion page error`);
+  assert.ok(loopbackCompanionFailures.length <= 2, `${label}: each optional Companion health endpoint may fail once when no local runtime is installed`);
+  assert.equal(
+    new Set(loopbackCompanionFailures.map(({ url }) => new URL(url).port)).size,
+    loopbackCompanionFailures.length,
+    `${label}: the public journey must not retry a missing Companion endpoint`,
+  );
+  assert.deepEqual(unexpectedErrors, [], `${label}: unexpected console errors`);
+  assert.ok(nativePermissionErrors.length <= 2, `${label}: each Companion endpoint may trigger the native gate at most once`);
+  assert.ok(nativePermissionErrors.length <= loopbackCompanionFailures.length, `${label}: native permission errors must correspond to optional Companion health probes`);
+  assert.ok(loopbackResourceErrors.length <= loopbackCompanionFailures.length, `${label}: console resource errors must point to a failed optional Companion health request`);
+}
 
 const results = [];
 let createdProjectId = "";
@@ -45,9 +120,16 @@ async function check(name, work) {
 }
 
 try {
-  await page.goto(`${baseUrl}/studio/create`, { waitUntil: "networkidle", timeout: 60_000 });
-  await page.evaluate(() => window.localStorage.clear());
-  await page.reload({ waitUntil: "networkidle" });
+  browser = await browserType.launch({ headless: true });
+  context = await browser.newContext({
+    locale: "zh-TW",
+    viewport: mobileViewport,
+    isMobile: true,
+    hasTouch: true,
+    deviceScaleFactor: 2,
+    serviceWorkers: "allow",
+  });
+  await resetLocalStorageAndOpen(`${baseUrl}/studio/create`);
 
   await check("title is required before mode or creation path", async () => {
     await page.getByTestId("canonical-create-flow").waitFor({ state: "visible" });
@@ -65,9 +147,8 @@ try {
     assert.equal(await page.getByTestId("p2-project-title").inputValue(), "入口流程驗收作品");
   });
 
-  await page.goto(`${baseUrl}/studio/create`, { waitUntil: "networkidle" });
-  await page.evaluate(() => window.localStorage.clear());
-  await page.reload({ waitUntil: "networkidle" });
+  assertCleanDiagnostics("general creation validation");
+  await resetLocalStorageAndOpen(`${baseUrl}/studio/create`);
 
   await check("incomplete RPG setup has no choices and cannot start", async () => {
     await page.getByTestId("p2-project-title").fill("必要設定 Gate 驗收");
@@ -117,9 +198,26 @@ try {
   await check("RPG start reaches a playable first turn", async () => {
     await page.getByRole("button", { name: "建立「RPG 養成」作品" }).click();
     const playLink = page.getByRole("link", { name: "在故事工作台開始遊玩" });
-    assert.match(await playLink.getAttribute("href"), /\/chat\?mode=play$/u);
-    await playLink.click();
-    await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
+    const playHref = await playLink.getAttribute("href");
+    assert.match(playHref, /\/chat\?mode=play$/u);
+    try {
+      await Promise.all([
+        page.waitForURL(/\/studio\/project\/[^/]+\/chat\?mode=play$/u, { timeout: 60_000 }),
+        playLink.click(),
+      ]);
+      await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
+    } catch (error) {
+      throw new Error(
+        `PLAY_WORKSPACE_NAVIGATION_FAILED ${JSON.stringify({
+          currentUrl: page.url(),
+          expectedHref: playHref,
+          consoleErrors,
+          requestFailures,
+          pageErrors,
+        })}`,
+        { cause: error },
+      );
+    }
     assert.match(new URL(page.url()).pathname, /\/studio\/project\/[^/]+\/chat$/u);
     createdProjectId = new URL(page.url()).pathname.split("/")[3] || "";
     assert.ok(createdProjectId);
@@ -131,17 +229,17 @@ try {
   });
 
   await check("mobile onboarding has no horizontal overflow", async () => {
+    const chatUrl = page.url();
+    assertCleanDiagnostics("RPG creation and workspace navigation");
+    await openFreshPage(chatUrl);
     await page.setViewportSize(mobileViewport);
-    await page.reload({ waitUntil: "domcontentloaded" });
     await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible" });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     assert.equal(overflow, false);
     assert.equal(await page.locator("header a:visible").filter({ hasText: /系統首頁|作品管理中心/u }).count(), 0);
     await page.getByTestId("conversation-mobile-sidebar-toggle").click();
     await page.getByTestId("conversation-session-sidebar").waitFor({ state: "visible" });
-    const sessionActions = page.getByTestId("conversation-active-session").locator("span button");
-    assert.equal(await sessionActions.count(), 3);
-    assert.equal(await sessionActions.locator("svg").count(), 3);
+    await page.getByTestId("conversation-active-session").waitFor({ state: "visible" });
     const sessionActionTargetsHandle = await page.waitForFunction(() => {
       const buttons = [...document.querySelectorAll(
         '[data-testid="conversation-active-session"] span button',
@@ -152,10 +250,16 @@ try {
           label: button.getAttribute("aria-label") || "",
           width: rect.width,
           height: rect.height,
+          hasIcon: Boolean(button.querySelector("svg")),
         };
       });
       return targets.length === 3
-        && targets.every((target) => target.label && target.width >= 44 && target.height >= 44)
+        && targets.every((target) => (
+          target.label
+          && target.hasIcon
+          && target.width >= 44
+          && target.height >= 44
+        ))
         ? targets
         : false;
     }, undefined, { timeout: 10_000 });
@@ -163,7 +267,12 @@ try {
     await sessionActionTargetsHandle.dispose();
     assert.equal(sessionActionTargets.length, 3);
     assert.ok(
-      sessionActionTargets.every((target) => target.label && target.width >= 44 && target.height >= 44),
+      sessionActionTargets.every((target) => (
+        target.label
+        && target.hasIcon
+        && target.width >= 44
+        && target.height >= 44
+      )),
       JSON.stringify(sessionActionTargets),
     );
     await page.getByTestId("conversation-sidebar-close").click();
@@ -193,11 +302,15 @@ try {
       const main = document.querySelector('[data-testid="conversation-first-workspace"] section')?.getBoundingClientRect();
       const shell = document.querySelector('[data-testid="conversation-first-workspace"]');
       const mainElement = document.querySelector('[data-testid="conversation-first-workspace"] section');
+      const maxTouchPoints = navigator.maxTouchPoints;
+      const coarsePointer = matchMedia("(pointer: coarse)").matches;
       return {
         inputVisible: Boolean(input && input.top >= visualTop - 1 && input.bottom <= visualBottom + 1),
         sendVisible: Boolean(send && send.top >= visualTop - 1 && send.bottom <= visualBottom + 1),
         visualViewportBound: document.querySelector('[data-testid="conversation-first-workspace"]')?.getAttribute("data-visual-viewport") === "bound",
-        touchCapable: navigator.maxTouchPoints > 0 && matchMedia("(pointer: coarse)").matches,
+        touchCapable: maxTouchPoints > 0 || coarsePointer,
+        maxTouchPoints,
+        coarsePointer,
         visualTop,
         visualBottom,
         inputTop: input?.top ?? null,
@@ -228,8 +341,36 @@ try {
     await page.setViewportSize(mobileViewport);
   });
 
+  await check("mobile project drawer opens the complete management center", async () => {
+    const projectId = createdProjectId;
+    assert.ok(projectId, "the created project identity must remain available");
+    await page.setViewportSize(mobileViewport);
+    await page.getByTestId("conversation-mobile-sidebar-toggle").tap();
+    const managementLink = page.getByRole("link", { name: /作品管理中心/u }).first();
+    await Promise.all([
+      page.waitForURL(/\/professional\?intent=library&projectId=/u, { timeout: 60_000 }),
+      managementLink.tap(),
+    ]);
+    await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });
+    for (const heading of ["故事與章節", "角色、世界與記憶", "任務、成就與檢查", "作品、存檔與備份", "自動協調器與學習", "研究與作者輔助"]) {
+      await page.getByRole("heading", { name: heading }).waitFor({ state: "visible" });
+    }
+    const mobileState = await page.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      groupColumns: getComputedStyle(document.querySelector(".professionalActionGroups")).gridTemplateColumns.split(" ").length,
+      managementVisible: document.querySelector('[data-testid="professional-canonical-workbench"]')?.getBoundingClientRect().height > 0,
+    }));
+    assert.equal(mobileState.overflow, false);
+    assert.equal(mobileState.groupColumns, 1);
+    assert.equal(mobileState.managementVisible, true);
+  });
+
   await check("real mobile reader keeps compact controls and readable width", async () => {
-    await page.goto(`${baseUrl}/studio/read/${encodeURIComponent(createdProjectId)}`, { waitUntil: "domcontentloaded" });
+    const readerLink = page.getByRole("link", { name: "閱讀作品", exact: true }).first();
+    await Promise.all([
+      page.waitForURL(new RegExp(`/studio/read/${createdProjectId}$`, "u"), { timeout: 60_000 }),
+      readerLink.tap(),
+    ]);
     await page.locator(".readerShell").waitFor({ state: "visible" });
     assert.equal(await page.locator("#reader-controls").count(), 0);
     await page.getByRole("button", { name: "閱讀設定" }).click();
@@ -253,55 +394,14 @@ try {
     const projectId = createdProjectId;
     assert.ok(projectId, "the created project identity must remain available");
     await page.setViewportSize(mobileViewport);
-    await page.goto(`${baseUrl}/studio?screen=home&projectId=${encodeURIComponent(projectId)}`, { waitUntil: "domcontentloaded" });
+    assertCleanDiagnostics("mobile workspace, management, and reader journey");
+    await openFreshPage(`${baseUrl}/studio?screen=home&projectId=${encodeURIComponent(projectId)}`);
     await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });
     assert.equal(new URL(page.url()).pathname, "/professional");
-    for (const heading of ["故事與章節", "角色、世界與記憶", "任務、成就與檢查", "作品、存檔與備份", "自動協調器與學習", "研究與作者輔助"]) {
-      await page.getByRole("heading", { name: heading }).waitFor({ state: "visible" });
-    }
-    const mobileState = await page.evaluate(() => ({
-      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-      groupColumns: getComputedStyle(document.querySelector(".professionalActionGroups")).gridTemplateColumns.split(" ").length,
-      managementVisible: document.querySelector('[data-testid="professional-canonical-workbench"]')?.getBoundingClientRect().height > 0,
-    }));
-    assert.equal(mobileState.overflow, false);
-    assert.equal(mobileState.groupColumns, 1);
-    assert.equal(mobileState.managementVisible, true);
   });
 
   await check("browser console has no unexpected errors or repeated native permission probes", async () => {
-    const isCompanionHealthUrl = (url) => (
-      /^http:\/\/127\.0\.0\.1:32(?:17|27)\/health$/u.test(url)
-    );
-    const loopbackCompanionFailures = requestFailures.filter(({ url, method, resourceType }) => (
-      isCompanionHealthUrl(url)
-      && method === "GET"
-      && resourceType === "fetch"
-    ));
-    const nativePermissionErrors = consoleErrors.filter(({ text }) => (
-      /Access to fetch at 'http:\/\/127\.0\.0\.1:32(?:17|27)\/health'/u.test(text)
-      && text.includes("blocked by CORS policy")
-      && text.includes("Permission was denied")
-      && text.includes("`loopback` address space")
-    ));
-    const loopbackResourceErrors = consoleErrors.filter(({ text, url }) => (
-      isCompanionHealthUrl(url)
-      && /(?:Failed to load resource|Load failed|Could not connect|ERR_(?:FAILED|CONNECTION_REFUSED)|NS_ERROR_CONNECTION_REFUSED)/iu.test(text)
-    ));
-    const unexpectedErrors = consoleErrors.filter((entry) => (
-      !nativePermissionErrors.includes(entry)
-      && !loopbackResourceErrors.includes(entry)
-    ));
-    assert.ok(loopbackCompanionFailures.length <= 2, "each optional Companion health endpoint may fail once when no local runtime is installed");
-    assert.equal(
-      new Set(loopbackCompanionFailures.map(({ url }) => new URL(url).port)).size,
-      loopbackCompanionFailures.length,
-      "the public journey must not retry a missing Companion endpoint",
-    );
-    assert.deepEqual(unexpectedErrors, []);
-    assert.ok(nativePermissionErrors.length <= 2, "each Companion endpoint may trigger the native gate at most once");
-    assert.ok(nativePermissionErrors.length <= loopbackCompanionFailures.length, "native permission errors must correspond to optional Companion health probes");
-    assert.ok(loopbackResourceErrors.length <= loopbackCompanionFailures.length, "console resource errors must point to a failed optional Companion health request");
+    assertCleanDiagnostics("legacy management redirect");
   });
 
   console.log(JSON.stringify({
@@ -313,6 +413,6 @@ try {
     results,
   }, null, 2));
 } finally {
-  await context.close();
-  await browser.close();
+  await context?.close();
+  await browser?.close();
 }

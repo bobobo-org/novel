@@ -16,6 +16,7 @@ export async function GET() {
       "X-Novel-Release-Product-Commit": identity.releaseProductCommit,
       "X-Novel-Release-Revision": identity.releaseRevision,
       "X-Novel-Release-Build": identity.releaseBuild,
+      "X-Novel-Asset-Manifest-Digest": identity.assetManifestDigest ?? "provenance-unavailable",
       "X-Novel-Deployment-Id": identity.deploymentId,
       "X-Novel-Git-Commit-Signature": identity.gitCommitSignature,
       "X-Novel-Deployment-Provenance": identity.deploymentProvenance,
