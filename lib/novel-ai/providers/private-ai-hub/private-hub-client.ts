@@ -339,6 +339,19 @@ export class PrivateHubClient {
       : null;
   }
 
+  hasActiveOrRememberedSession() {
+    if (
+      this.session
+      && Date.parse(this.session.expiresAt) > Date.now()
+    ) return true;
+    return Boolean(readClosedAITabSession({
+      backend: "private-ai-hub",
+      protocolVersion: PRIVATE_HUB_PROTOCOL,
+      origin: this.origin,
+      endpoint: this.endpoint,
+    }, this.tabStorage));
+  }
+
   getModelVerification(modelId?: string, modelDigest?: string | null) {
     if (!this.modelVerification || !this.session) return null;
     if (this.modelVerification.instanceId !== this.session.instanceId) return null;

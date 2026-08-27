@@ -698,13 +698,16 @@ export async function runStudioPreCreationClosedAI(
 ) {
   return settleOnCallerAbort(input.signal, async () => {
     if (execute === executePlatformAI) {
-      try {
-        await getStudioClosedAIRuntimeCoordinator().connectLocalAutomatically(input.signal);
-      } catch (error) {
-        if (input.signal?.aborted) throw error;
-        // Local Ollama is optional. The strict-local platform router may still
-        // select an already verified Browser AI runtime; otherwise it fails
-        // truthfully and the create page can offer its explicit device fallback.
+      const runtime = getStudioClosedAIRuntimeCoordinator();
+      if (runtime.localClient.hasActiveOrRememberedSession()) {
+        try {
+          await runtime.connectLocalAutomatically(input.signal);
+        } catch (error) {
+          if (input.signal?.aborted) throw error;
+          // Local Ollama is optional. The strict-local platform router may still
+          // select an already verified Browser AI runtime; otherwise it fails
+          // truthfully and the create page can offer its explicit device fallback.
+        }
       }
     }
     try {

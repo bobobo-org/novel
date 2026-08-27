@@ -297,6 +297,18 @@ export class LocalBridgeClient {
     this.clearControlPlaneCache();
   }
   getSessionMetadata() { return this.session ? { instanceId: this.session.instanceId, expiresAt: this.session.expiresAt } : null; }
+  hasActiveOrRememberedSession() {
+    if (
+      this.session
+      && Date.parse(this.session.expiresAt) > Date.now()
+    ) return true;
+    return Boolean(readClosedAITabSession({
+      backend: "local-ollama",
+      protocolVersion: LOCAL_BRIDGE_PROTOCOL,
+      origin: this.origin,
+      endpoint: this.endpoint,
+    }, this.tabStorage));
+  }
   getModelVerification(modelId?: string) {
     if (!this.modelVerification || !this.session) return null;
     if (this.modelVerification.instanceId !== this.session.instanceId) return null;

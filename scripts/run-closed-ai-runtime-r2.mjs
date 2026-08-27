@@ -646,6 +646,12 @@ test("pairing-session-reload", "tab-only pairing reload revalidates instance, mo
   const modelId = "qwen2.5:3b";
   const modelDigest = "model-digest-r2";
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const reconnectableClient = new LocalBridgeClient({
+    origin,
+    tabStorage: storage,
+    rememberWithinTab: true,
+  });
+  assert.equal(reconnectableClient.hasActiveOrRememberedSession(), false);
   saveClosedAITabSession({
     schemaVersion: "closed-ai-tab-session-v1",
     backend: "local-ollama",
@@ -662,6 +668,7 @@ test("pairing-session-reload", "tab-only pairing reload revalidates instance, mo
     modelDigest,
     savedAt: new Date().toISOString(),
   }, storage);
+  assert.equal(reconnectableClient.hasActiveOrRememberedSession(), true);
   const originalFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url, init = {}) => {
@@ -758,6 +765,7 @@ test("pairing-session-reload", "tab-only pairing reload revalidates instance, mo
     restoredRequests: requests.length,
     exactOriginEnforced: true,
     expiredSessionRejected: true,
+    freshPublicLoopbackProbeSuppressed: true,
     localStorageWrites: 0,
   };
 });

@@ -304,13 +304,14 @@ export async function executeStudioClosedAgent(
     input.taskId ?? `studio-closed-agent:${crypto.randomUUID()}`;
   runtime.beginExecution(input.projectId, input.taskType);
   // Project sections use full-page navigation so their module singletons are
-  // intentionally recreated. The origin-bound Local Bridge session and model
-  // proof survive inside this tab, but they must be restored into the new
-  // coordinator before Closed Agent OS probes its backends. Only an explicit
-  // quality/balanced policy (or a locked Local Ollama transaction such as
-  // regeneration) authorizes this reconnect; browser-first routing remains
-  // fail-closed and never escalates silently.
-  if (shouldRestoreStudioLocalRuntime(input)) {
+  // intentionally recreated. Restore Local Bridge only when this tab already
+  // owns a valid or remembered pairing. A quality policy is not permission to
+  // probe a fresh public visitor's loopback interface; first-time pairing stays
+  // behind the explicit settings action.
+  if (
+    shouldRestoreStudioLocalRuntime(input)
+    && runtime.localClient.hasActiveOrRememberedSession()
+  ) {
     try {
       await runtime.connectLocalAutomatically(input.signal);
     } catch (error) {
@@ -321,7 +322,10 @@ export async function executeStudioClosedAgent(
     }
   }
   const complexity = taskComplexity(input.taskType);
-  if (complexity === "heavy") {
+  if (
+    complexity === "heavy"
+    && runtime.privateHubClient.hasActiveOrRememberedSession()
+  ) {
     // Heavy work may use only the verified private Hub. Connection failure is
     // deliberately swallowed here so the router can return its truthful
     // setup-required result; it must never fall through to an external AI.

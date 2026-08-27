@@ -12,6 +12,7 @@ let context = null;
 const consoleErrors = [];
 const requestFailures = [];
 const pageErrors = [];
+const unexpectedLoopbackRequests = [];
 let page = null;
 
 function attachDiagnostics(targetPage) {
@@ -31,6 +32,17 @@ function attachDiagnostics(targetPage) {
       resourceType: request.resourceType(),
     });
   });
+  targetPage.on("request", (request) => {
+    try {
+      const url = new URL(request.url());
+      if (
+        ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+        && ["3217", "3227"].includes(url.port)
+      ) unexpectedLoopbackRequests.push(request.url());
+    } catch {
+      // Browser-internal URLs are outside the public Companion boundary.
+    }
+  });
   targetPage.on("pageerror", (error) => {
     pageErrors.push(error.message);
   });
@@ -41,6 +53,7 @@ async function openFreshPage(url) {
   consoleErrors.length = 0;
   requestFailures.length = 0;
   pageErrors.length = 0;
+  unexpectedLoopbackRequests.length = 0;
   page = await context.newPage();
   attachDiagnostics(page);
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
@@ -59,6 +72,11 @@ async function resetLocalStorageAndOpen(url) {
 }
 
 function assertCleanDiagnostics(label) {
+  assert.deepEqual(
+    unexpectedLoopbackRequests,
+    [],
+    label + ": public journey must not probe a machine-local Companion",
+  );
   assert.deepEqual(pageErrors, [], `${label}: page errors: ${JSON.stringify(pageErrors)}`);
   assert.deepEqual(consoleErrors, [], `${label}: console errors: ${JSON.stringify(consoleErrors)}`);
   assert.deepEqual(requestFailures, [], `${label}: failed requests: ${JSON.stringify(requestFailures)}`);

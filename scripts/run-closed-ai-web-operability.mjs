@@ -1120,8 +1120,11 @@ await test("official production UI connects local runtimes on demand and exposes
     "public mount discovery must never restore, probe, or connect a Companion backend",
   );
   assert.ok(studioClosedAISource.includes("connectLocalAutomatically(input.signal)"));
+  assert.ok(studioClosedAISource.includes("localClient.hasActiveOrRememberedSession()"));
   assert.ok(closedAgentServiceSource.includes("connectLocalAutomatically(input.signal)"));
+  assert.ok(closedAgentServiceSource.includes("localClient.hasActiveOrRememberedSession()"));
   assert.ok(closedAgentServiceSource.includes("connectPrivateHubAutomatically(input.signal)"));
+  assert.ok(closedAgentServiceSource.includes("privateHubClient.hasActiveOrRememberedSession()"));
 });
 
 await test("web workspaces expose real CRUD, chapter, AI, learning and safe legacy handoff", () => {
