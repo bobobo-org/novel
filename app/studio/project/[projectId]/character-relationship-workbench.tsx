@@ -30,8 +30,9 @@ import {
   CULTIVATION_PROFESSIONS,
   FUTURE_ORGANIZATION_CATALOG,
   HISTORICAL_ORGANIZATION_CATALOG,
-  professionContinuityError,
+  professionChangeValidationError,
   professionSuggestions,
+  professionValueChanged,
   professionWorldContext,
   MODERN_ORGANIZATION_CATALOG,
 } from "@/lib/novel-ai/game/character-profession";
@@ -707,18 +708,21 @@ export default function CharacterRelationshipWorkbench({
       setMessage("人物姓名不能留白。");
       return;
     }
-    const continuityError = professionContinuityError(profession, project, activeWorlds);
-    if (continuityError) {
-      setMessage(continuityError);
-      return;
-    }
-    const normalizedProfession = profession.trim();
-    const duplicateProfession = normalizedProfession
-      ? data.characters.find((character) => character.id !== selectedCharacter?.id
-        && character.identity.value?.trim() === normalizedProfession)
-      : null;
-    if (duplicateProfession) {
-      setMessage(`「${normalizedProfession}」已由${duplicateProfession.name}擔任；請替每位人物安排不同職業或專長。`);
+    const professionError = professionChangeValidationError({
+      value: profession,
+      previousValue: selectedCharacter?.identity.value,
+      isNew: creating,
+      project,
+      worlds: activeWorlds,
+      currentCharacterId: selectedCharacter?.id,
+      professionHolders: data.characters.map((character) => ({
+        id: character.id,
+        name: character.name,
+        profession: character.identity.value,
+      })),
+    });
+    if (professionError) {
+      setMessage(professionError);
       return;
     }
     if (usesCultivationCanon) {
@@ -765,7 +769,9 @@ export default function CharacterRelationshipWorkbench({
       const saved = await repository.put<Character>("characters", {
         ...baseCharacter,
         name: name.trim() || baseCharacter.name,
-        identity: optionalValue(profession.trim() || null, profession.trim() ? "user_defined" : "unset"),
+        identity: selectedCharacter && !professionValueChanged(profession, selectedCharacter.identity.value)
+          ? selectedCharacter.identity
+          : optionalValue(profession.trim() || null, profession.trim() ? "user_defined" : "unset"),
         rpgProfile: createCharacterRpgProfile({
           archetype: rpgArchetype,
           stats: rpgStats,

@@ -57,8 +57,9 @@ import {
   suggestCharacterRpgArchetype,
 } from "@/lib/novel-ai/game/character-rpg-profile";
 import {
-  professionContinuityError,
+  professionChangeValidationError,
   professionSuggestions,
+  professionValueChanged,
 } from "@/lib/novel-ai/game/character-profession";
 import { RELEASE_MANIFEST } from "@/lib/release-manifest";
 import {
@@ -1183,9 +1184,17 @@ function CharacterEditor({
       setMessage("角色姓名不能留白。");
       return;
     }
-    const continuityError = professionContinuityError(identity, project, worlds);
-    if (continuityError) {
-      setMessage(continuityError);
+    const existing = characters.find((item) => item.id === editingId);
+    const professionError = professionChangeValidationError({
+      value: identity,
+      previousValue: existing?.identity.value,
+      isNew: !existing,
+      project,
+      worlds,
+      currentCharacterId: existing?.id,
+    });
+    if (professionError) {
+      setMessage(professionError);
       return;
     }
     try {
@@ -1205,7 +1214,6 @@ function CharacterEditor({
         characterAIFormBeforeRef.current = null;
       }
       const repo = createNovelRepository();
-      const existing = characters.find((item) => item.id === editingId);
       const base = existing ?? makeRecord(projectId);
       const rpgProfile = editingRpgLocked && existing?.rpgProfile
         ? existing.rpgProfile
@@ -1217,7 +1225,9 @@ function CharacterEditor({
         ...base,
         name: name.trim(),
         aliases: aliases.split(/[、,\n]/).map((item) => item.trim()).filter(Boolean),
-        identity: optionalValue(identity.trim() || null, identity.trim() ? "user_defined" : "unset"),
+        identity: existing && !professionValueChanged(identity, existing.identity.value)
+          ? existing.identity
+          : optionalValue(identity.trim() || null, identity.trim() ? "user_defined" : "unset"),
         personality: optionalValue(personality.trim() || null, personality.trim() ? "user_defined" : "unset"),
         goal: optionalValue(goal.trim() || null, goal.trim() ? "user_defined" : "unset"),
         lifeStatus,

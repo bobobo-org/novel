@@ -21,6 +21,8 @@ export const FUTURE_PROFESSIONS = [
   "殖民地規劃師", "量子通訊員", "氣候工程師", "軌道物流師", "安全分析師", "異星生態學家",
 ] as const;
 
+export const SHARED_PROFESSIONS = ["工匠"] as const;
+
 export const MODERN_ORGANIZATION_CATALOG = [
   { id: "modern.company", name: "公司／企業集團", roles: ["董事長", "執行長", "部門主管", "專案經理", "專業職員", "外部顧問"], strategicAssets: "資金、股權、客戶、供應鏈、專利與商譽" },
   { id: "modern.family-business", name: "家族企業／財團", roles: ["家主", "接班人", "家族董事", "事業部負責人", "家族律師", "受託人"], strategicAssets: "家族持股、信託、婚姻聯盟、政商人脈與繼承順位" },
@@ -43,6 +45,19 @@ export const FUTURE_ORGANIZATION_CATALOG = [
 ] as const;
 
 export type ProfessionWorldContext = "cultivation" | "modern" | "historical" | "future" | "cross-era";
+
+function professionCatalogForContext(context: ProfessionWorldContext) {
+  const catalog = context === "cultivation"
+    ? CULTIVATION_PROFESSIONS
+    : context === "historical"
+      ? HISTORICAL_PROFESSIONS
+      : context === "future"
+        ? [...FUTURE_PROFESSIONS, ...MODERN_PROFESSIONS]
+        : context === "modern"
+          ? MODERN_PROFESSIONS
+          : [...CULTIVATION_PROFESSIONS, ...HISTORICAL_PROFESSIONS, ...MODERN_PROFESSIONS, ...FUTURE_PROFESSIONS];
+  return [...new Set([...catalog, ...SHARED_PROFESSIONS])];
+}
 
 function projectWorldSignal(project: NovelProject, worlds: World[]) {
   return normalizeWorldEraSignal([
@@ -86,11 +101,19 @@ export function professionWorldContext(project: NovelProject, worlds: World[]): 
 
 export function professionSuggestions(project: NovelProject, worlds: World[]) {
   const context = professionWorldContext(project, worlds);
-  if (context === "cultivation") return [...CULTIVATION_PROFESSIONS];
-  if (context === "historical") return [...HISTORICAL_PROFESSIONS];
-  if (context === "future") return [...FUTURE_PROFESSIONS, ...MODERN_PROFESSIONS];
-  if (context === "modern") return [...MODERN_PROFESSIONS];
-  return [...CULTIVATION_PROFESSIONS, ...HISTORICAL_PROFESSIONS, ...MODERN_PROFESSIONS, ...FUTURE_PROFESSIONS];
+  return professionCatalogForContext(context);
+}
+
+function professionTermSpans(value: string, profession: string) {
+  const spans: Array<{ start: number; end: number }> = [];
+  let offset = 0;
+  while (offset < value.length) {
+    const start = value.indexOf(profession, offset);
+    if (start < 0) break;
+    spans.push({ start, end: start + profession.length });
+    offset = start + profession.length;
+  }
+  return spans;
 }
 
 export function professionContinuityError(
@@ -99,7 +122,11 @@ export function professionContinuityError(
   worlds: World[],
 ) {
   const context = professionWorldContext(project, worlds);
-  if (context === "cross-era" || !value.trim()) return null;
+  const normalizedValue = value.trim();
+  if (context === "cross-era" || !normalizedValue) return null;
+  const currentWorldTermSpans = professionCatalogForContext(context)
+    .filter((profession) => !SHARED_PROFESSIONS.includes(profession as typeof SHARED_PROFESSIONS[number]))
+    .flatMap((profession) => professionTermSpans(normalizedValue, profession));
   const otherWorldTerms = context === "cultivation"
     ? [...MODERN_PROFESSIONS, ...HISTORICAL_PROFESSIONS, ...FUTURE_PROFESSIONS]
     : context === "historical"
@@ -107,8 +134,55 @@ export function professionContinuityError(
       : context === "future"
         ? [...CULTIVATION_PROFESSIONS, ...HISTORICAL_PROFESSIONS]
         : [...CULTIVATION_PROFESSIONS, ...HISTORICAL_PROFESSIONS, ...FUTURE_PROFESSIONS];
-  const collision = otherWorldTerms.find((profession) => value.includes(profession));
+  const collision = otherWorldTerms
+    .filter((profession) => !SHARED_PROFESSIONS.includes(profession as typeof SHARED_PROFESSIONS[number]))
+    .flatMap((profession) => professionTermSpans(normalizedValue, profession).map((span) => ({ profession, ...span })))
+    .filter((foreignSpan) => !currentWorldTermSpans.some((allowedSpan) => (
+      allowedSpan.start <= foreignSpan.start && allowedSpan.end >= foreignSpan.end
+    )))
+    .sort((left, right) => right.profession.length - left.profession.length || left.start - right.start)[0]?.profession;
   if (!collision) return null;
   const contextLabel = context === "cultivation" ? "修仙" : context === "historical" ? "古代／歷史" : context === "future" ? "未來" : "現代";
   return `「${collision}」不屬於目前的${contextLabel}職業庫。若要保留，請先在世界前提明確設定穿越或跨時代。`;
+}
+
+export function professionValueChanged(value: string, previousValue?: string | null) {
+  return value.trim() !== (previousValue?.trim() ?? "");
+}
+
+export function professionChangeValidationError({
+  value,
+  previousValue,
+  isNew,
+  project,
+  worlds,
+  currentCharacterId,
+  professionHolders = [],
+}: {
+  value: string;
+  previousValue?: string | null;
+  isNew: boolean;
+  project: NovelProject;
+  worlds: World[];
+  currentCharacterId?: string | null;
+  professionHolders?: ReadonlyArray<{
+    id: string;
+    name: string;
+    profession?: string | null;
+  }>;
+}) {
+  const normalizedProfession = value.trim();
+  if (!isNew && !professionValueChanged(value, previousValue)) return null;
+
+  const continuityError = professionContinuityError(normalizedProfession, project, worlds);
+  if (continuityError) return continuityError;
+
+  const duplicateProfession = normalizedProfession
+    ? professionHolders.find((holder) => (
+        holder.id !== currentCharacterId
+        && holder.profession?.trim() === normalizedProfession
+      ))
+    : null;
+  if (!duplicateProfession) return null;
+  return `「${normalizedProfession}」已由${duplicateProfession.name}擔任；請替每位人物安排不同職業或專長。`;
 }

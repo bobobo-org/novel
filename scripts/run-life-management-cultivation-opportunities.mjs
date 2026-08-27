@@ -26,8 +26,10 @@ import {
   HISTORICAL_ORGANIZATION_CATALOG,
   HISTORICAL_PROFESSIONS,
   MODERN_PROFESSIONS,
+  professionChangeValidationError,
   professionContinuityError,
   professionSuggestions,
+  professionValueChanged,
   professionWorldContext,
 } from "../lib/novel-ai/game/character-profession.ts";
 
@@ -119,6 +121,48 @@ assert.match(professionContinuityError("醫生", professionProject("古代王朝
 assert.equal(professionContinuityError("郎中", professionProject("古代王朝"), []), null);
 assert.equal(professionContinuityError("工匠", legacyHistoricalIdentityOverlay, []), null);
 assert.match(professionContinuityError("工程師", legacyHistoricalIdentityOverlay, []), /古代／歷史/u);
+for (const signal of ["現代企業", "古代王朝", "修仙宗門", "未來星際殖民"]) {
+  assert.equal(professionContinuityError("工匠", professionProject(signal), []), null);
+  assert.ok(professionSuggestions(professionProject(signal), []).includes("工匠"));
+}
+assert.equal(professionContinuityError("坊市掌櫃", professionProject("修仙宗門"), []), null);
+assert.equal(professionContinuityError("青雲坊市掌櫃", professionProject("修仙宗門"), []), null);
+assert.match(professionContinuityError("仿生工程師", professionProject("現代企業"), []), /不屬於目前的現代職業庫/u);
+assert.match(professionContinuityError("前掌櫃轉任坊市掌櫃", professionProject("修仙宗門"), []), /不屬於目前的修仙職業庫/u);
+assert.equal(professionValueChanged(" 工程師 ", "工程師"), false);
+assert.equal(professionValueChanged("醫生", "工程師"), true);
+
+const invalidLegacyProfessionHolders = [
+  { id: "legacy", name: "舊人物", profession: "工程師" },
+  { id: "duplicate", name: "另一位舊人物", profession: "工程師" },
+];
+assert.equal(professionChangeValidationError({
+  value: "工程師",
+  previousValue: "工程師",
+  isNew: false,
+  project: professionProject("古代王朝"),
+  worlds: [],
+  currentCharacterId: "legacy",
+  professionHolders: invalidLegacyProfessionHolders,
+}), null);
+assert.match(professionChangeValidationError({
+  value: "醫生",
+  previousValue: "工程師",
+  isNew: false,
+  project: professionProject("古代王朝"),
+  worlds: [],
+  currentCharacterId: "legacy",
+  professionHolders: invalidLegacyProfessionHolders,
+}), /不屬於目前的古代／歷史職業庫/u);
+assert.match(professionChangeValidationError({
+  value: "郎中",
+  previousValue: "工程師",
+  isNew: false,
+  project: professionProject("古代王朝"),
+  worlds: [],
+  currentCharacterId: "legacy",
+  professionHolders: [{ id: "doctor", name: "既有郎中", profession: "郎中" }],
+}), /已由既有郎中擔任/u);
 
 assert.ok(CULTIVATION_OPPORTUNITIES.length >= 12);
 assert.equal(new Set(CULTIVATION_OPPORTUNITIES.map((item) => item.id)).size, CULTIVATION_OPPORTUNITIES.length);
