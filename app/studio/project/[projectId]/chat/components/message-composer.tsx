@@ -143,7 +143,7 @@ export function MessageComposer({
                     onClick={onPrepareClosedAi}
                   >{closedAiSetupError ? "重試自動協調器" : "準備自動協調器"}</button>
             ) : null}
-            <Link href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai`}>
+            <Link prefetch={false} href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai`}>
               自動協調器設定
             </Link>
           </div>

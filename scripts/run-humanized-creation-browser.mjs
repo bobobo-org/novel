@@ -13,6 +13,7 @@ const consoleErrors = [];
 const requestFailures = [];
 const pageErrors = [];
 const unexpectedLoopbackRequests = [];
+const expectedNavigationCancellations = [];
 let page = null;
 
 function attachDiagnostics(targetPage) {
@@ -30,6 +31,7 @@ function attachDiagnostics(targetPage) {
       errorText: request.failure()?.errorText ?? "unknown",
       method: request.method(),
       resourceType: request.resourceType(),
+      rscHeader: request.headers().rsc ?? "",
     });
   });
   targetPage.on("request", (request) => {
@@ -71,7 +73,132 @@ async function resetLocalStorageAndOpen(url) {
   await openFreshPage(url);
 }
 
-function assertCleanDiagnostics(label) {
+function isSupersededRscCancellation(failure, target) {
+  if (
+    engineName !== "chromium"
+    || failure.errorText !== "net::ERR_ABORTED"
+    || failure.method !== "GET"
+    || failure.resourceType !== "fetch"
+    || failure.rscHeader !== "1"
+  ) return false;
+
+  try {
+    const requestUrl = new URL(failure.url);
+    const rscTokens = requestUrl.searchParams.getAll("_rsc");
+    const queryKeys = [...requestUrl.searchParams.keys()];
+    const expectedSearch = Object.entries(target.search ?? {});
+    return requestUrl.origin === new URL(baseUrl).origin
+      && requestUrl.pathname === target.pathname
+      && queryKeys.length === expectedSearch.length + 1
+      && new Set(queryKeys).size === expectedSearch.length + 1
+      && rscTokens.length === 1
+      && /^[A-Za-z0-9_-]{1,64}$/u.test(rscTokens[0])
+      && expectedSearch.every(([key, value]) => {
+        const values = requestUrl.searchParams.getAll(key);
+        return values.length === 1 && values[0] === value;
+      });
+  } catch {
+    return false;
+  }
+}
+
+function isCompletedLegacyRedirectCancellation(failure, projectId) {
+  if (
+    engineName !== "webkit"
+    || failure.errorText !== "Load request cancelled"
+    || failure.method !== "GET"
+    || failure.resourceType !== "document"
+  ) return false;
+
+  try {
+    const requestUrl = new URL(failure.url);
+    const queryKeys = [...requestUrl.searchParams.keys()];
+    return requestUrl.origin === new URL(baseUrl).origin
+      && requestUrl.pathname === "/professional"
+      && queryKeys.length === 2
+      && new Set(queryKeys).size === 2
+      && requestUrl.searchParams.getAll("intent").length === 1
+      && requestUrl.searchParams.get("intent") === "library"
+      && requestUrl.searchParams.getAll("projectId").length === 1
+      && requestUrl.searchParams.get("projectId") === projectId;
+  } catch {
+    return false;
+  }
+}
+
+async function assertCleanDiagnostics(label, options = {}) {
+  let unacceptedRequestFailures = requestFailures;
+  const workspaceProjectId = options.allowSupersededWorkspacePrefetchesForProjectId || "";
+  const readerProjectId = options.allowSupersededReaderNavigationForProjectId || "";
+  const allowedTargets = [];
+  if (workspaceProjectId) {
+    assert.equal(new URL(page.url()).pathname, `/studio/project/${workspaceProjectId}/chat`);
+    for (const testId of ["conversation-first-workspace", "rpg-inline-choices", "rpg-choice-A", "rpg-choice-B", "rpg-choice-C"]) {
+      assert.equal(await page.getByTestId(testId).isVisible(), true);
+    }
+    allowedTargets.push(
+      { pathname: `/studio/project/${workspaceProjectId}/write` },
+      { pathname: "/professional" },
+      {
+        pathname: "/professional",
+        search: { intent: "library", projectId: workspaceProjectId },
+      },
+      {
+        pathname: `/studio/project/${workspaceProjectId}/chat`,
+        search: { mode: "play" },
+      },
+    );
+  }
+  if (readerProjectId) {
+    assert.equal(new URL(page.url()).pathname, `/studio/read/${readerProjectId}`);
+    assert.equal(await page.locator(".readerShell").isVisible(), true);
+    allowedTargets.push({
+      pathname: `/studio/project/${readerProjectId}/chat`,
+      search: { mode: "play" },
+    });
+    allowedTargets.push({ pathname: `/studio/read/${readerProjectId}` });
+    allowedTargets.push(
+      { pathname: "/professional" },
+      {
+        pathname: "/professional",
+        search: { intent: "library", projectId: readerProjectId },
+      },
+    );
+  }
+  if (allowedTargets.length) {
+    const accepted = requestFailures.filter((failure) => (
+      allowedTargets.some((target) => isSupersededRscCancellation(failure, target))
+    ));
+    for (const pathname of new Set(allowedTargets.map((target) => target.pathname))) {
+      const targetFailures = accepted.filter((failure) => (
+        allowedTargets
+          .filter((target) => target.pathname === pathname)
+          .some((target) => isSupersededRscCancellation(failure, target))
+      ));
+      assert.ok(
+        targetFailures.length <= 1,
+        `${label}: at most one superseded Next RSC cancellation is allowed for ${pathname}`,
+      );
+    }
+    unacceptedRequestFailures = requestFailures.filter((failure) => !accepted.includes(failure));
+    expectedNavigationCancellations.push(...accepted);
+  }
+
+  const legacyProjectId = options.allowCompletedLegacyRedirectForProjectId || "";
+  if (legacyProjectId) {
+    const currentUrl = new URL(page.url());
+    assert.equal(currentUrl.pathname, "/professional");
+    assert.equal(currentUrl.searchParams.get("intent"), "library");
+    assert.equal(currentUrl.searchParams.get("projectId"), legacyProjectId);
+    assert.equal(await page.getByTestId("professional-canonical-workbench").isVisible(), true);
+    const accepted = unacceptedRequestFailures.filter((failure) => (
+      isCompletedLegacyRedirectCancellation(failure, legacyProjectId)
+    ));
+    assert.ok(accepted.length <= 1, `${label}: at most one completed legacy redirect cancellation is allowed`);
+    unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
+    expectedNavigationCancellations.push(...accepted);
+  }
+
   assert.deepEqual(
     unexpectedLoopbackRequests,
     [],
@@ -79,7 +206,11 @@ function assertCleanDiagnostics(label) {
   );
   assert.deepEqual(pageErrors, [], `${label}: page errors: ${JSON.stringify(pageErrors)}`);
   assert.deepEqual(consoleErrors, [], `${label}: console errors: ${JSON.stringify(consoleErrors)}`);
-  assert.deepEqual(requestFailures, [], `${label}: failed requests: ${JSON.stringify(requestFailures)}`);
+  assert.deepEqual(
+    unacceptedRequestFailures,
+    [],
+    `${label}: failed requests: ${JSON.stringify(unacceptedRequestFailures)}`,
+  );
 }
 
 const results = [];
@@ -117,7 +248,7 @@ try {
     assert.equal(await page.getByTestId("p2-project-title").inputValue(), "入口流程驗收作品");
   });
 
-  assertCleanDiagnostics("general creation validation");
+  await assertCleanDiagnostics("general creation validation");
   await resetLocalStorageAndOpen(`${baseUrl}/studio/create`);
 
   await check("incomplete RPG setup has no choices and cannot start", async () => {
@@ -200,7 +331,9 @@ try {
 
   await check("mobile onboarding has no horizontal overflow", async () => {
     const chatUrl = page.url();
-    assertCleanDiagnostics("RPG creation and workspace navigation");
+    await assertCleanDiagnostics("RPG creation and workspace navigation", {
+      allowSupersededWorkspacePrefetchesForProjectId: createdProjectId,
+    });
     await openFreshPage(chatUrl);
     await page.setViewportSize(mobileViewport);
     await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible" });
@@ -364,14 +497,18 @@ try {
     const projectId = createdProjectId;
     assert.ok(projectId, "the created project identity must remain available");
     await page.setViewportSize(mobileViewport);
-    assertCleanDiagnostics("mobile workspace, management, and reader journey");
+    await assertCleanDiagnostics("mobile workspace, management, and reader journey", {
+      allowSupersededReaderNavigationForProjectId: projectId,
+    });
     await openFreshPage(`${baseUrl}/studio?screen=home&projectId=${encodeURIComponent(projectId)}`);
     await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });
     assert.equal(new URL(page.url()).pathname, "/professional");
   });
 
   await check("browser console has no unexpected errors or repeated native permission probes", async () => {
-    assertCleanDiagnostics("legacy management redirect");
+    await assertCleanDiagnostics("legacy management redirect", {
+      allowCompletedLegacyRedirectForProjectId: createdProjectId,
+    });
   });
 
   console.log(JSON.stringify({
@@ -380,6 +517,7 @@ try {
     viewport: mobileViewport,
     pass: results.length,
     fail: 0,
+    expectedNavigationCancellations,
     results,
   }, null, 2));
 } finally {

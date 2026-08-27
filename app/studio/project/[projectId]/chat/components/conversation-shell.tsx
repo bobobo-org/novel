@@ -123,8 +123,8 @@ export function ConversationShell({
               </div>
             </div>
             <div className={styles.rightActions}>
-              <Link className={styles.quietButton} href="/">系統首頁</Link>
-              <Link className={styles.quietButton} href={projectManagementHref(projectId)}>作品管理中心</Link>
+              <Link prefetch={false} className={styles.quietButton} href="/">系統首頁</Link>
+              <Link prefetch={false} className={styles.quietButton} href={projectManagementHref(projectId)}>作品管理中心</Link>
               <button className={styles.quietButton} type="button" onClick={onToggleArtifacts}>候選與核准</button>
             </div>
           </header>

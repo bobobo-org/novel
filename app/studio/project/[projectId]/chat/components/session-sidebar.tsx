@@ -139,7 +139,7 @@ export function SessionSidebar({
         ))}
       </div>
       <div className={styles.sidebarUtilities}>
-        <Link className={styles.managementLink} href={projectManagementHref(projectId)}>
+        <Link prefetch={false} className={styles.managementLink} href={projectManagementHref(projectId)}>
           <strong>作品管理中心</strong>
           <span>章節、角色、世界、任務、備份、學習與 AI 設定都在這裡</span>
         </Link>

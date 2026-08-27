@@ -1281,11 +1281,11 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           <strong>{STORY_PLAY_MODE_LABELS[createdMode]} · 已鎖定</strong>
           <p>{message}</p>
           <div>
-            <Link className="primaryAction" href={primaryHref}>
+            <Link prefetch={false} className="primaryAction" href={primaryHref}>
               {createdMode === "general" ? "進入故事工作台" : "在故事工作台開始遊玩"}
             </Link>
-            <Link className="secondaryAction" href={`/studio/project/${createdId}/write`}>章節正式稿校訂（專業工具）</Link>
-            <Link className="secondaryAction" href={`/professional?intent=library&projectId=${encodeURIComponent(createdId)}`}>作品資料管理（專業工具）</Link>
+            <Link prefetch={false} className="secondaryAction" href={`/studio/project/${createdId}/write`}>章節正式稿校訂（專業工具）</Link>
+            <Link prefetch={false} className="secondaryAction" href={`/professional?intent=library&projectId=${encodeURIComponent(createdId)}`}>作品資料管理（專業工具）</Link>
           </div>
         </section>
       </main>

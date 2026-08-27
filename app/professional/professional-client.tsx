@@ -299,7 +299,7 @@ export default function ProfessionalClient({
 
       {project ? (
         <nav className="professionalMobileQuick" aria-label="手機快速操作">
-          <Link className="primary" href={primaryWorkspace}><span aria-hidden="true">寫</span>繼續創作</Link>
+          <Link prefetch={false} className="primary" href={primaryWorkspace}><span aria-hidden="true">寫</span>繼續創作</Link>
           <Link href="#character-world-memory-home"><span aria-hidden="true">人</span>角色世界</Link>
           <Link href="#professional-all-tools"><span aria-hidden="true">具</span>全部工具</Link>
         </nav>
@@ -334,8 +334,8 @@ export default function ProfessionalClient({
                 </details>
               ) : null}
               <div className="professionalHeroActions">
-                <Link className="primary" href={primaryWorkspace}>繼續{STORY_PLAY_MODE_LABELS[playMode]}</Link>
-                <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
+                <Link prefetch={false} className="primary" href={primaryWorkspace}>繼續{STORY_PLAY_MODE_LABELS[playMode]}</Link>
+                <Link prefetch={false} href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
                 <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製種子，改用其他玩法</Link>
               </div>
             </div>
@@ -379,9 +379,9 @@ export default function ProfessionalClient({
             <article id="story-and-chapters">
               <small>STORY & CHAPTERS</small><h2>故事與章節</h2>
               <p>創作、RPG 與三選一在故事工作台進行；已採用正文則在校訂頁精修。</p>
-              <Link href={primaryWorkspace}>繼續目前玩法</Link>
+              <Link prefetch={false} href={primaryWorkspace}>繼續目前玩法</Link>
               <Link href={`${projectRoot}/write`}>章節全文校訂</Link>
-              <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
+              <Link prefetch={false} href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
             </article>
             <article id="world-and-characters">
               <small>CANON & WORLD</small><h2>角色、世界與記憶</h2>

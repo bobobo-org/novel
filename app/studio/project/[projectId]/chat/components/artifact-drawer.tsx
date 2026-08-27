@@ -123,7 +123,7 @@ export default function ArtifactDrawer({
             ) : null}
           </section>
         ) : drawer?.kind === "status" || drawer?.kind === "attachments" ? (
-          <section className={styles.drawerCard}><h3>{drawer.title}</h3><p className={styles.drawerText}>{drawer.content}</p>{drawer.kind === "status" && drawer.title === "回復備份" ? <Link href={`/studio/project/${encodeURIComponent(projectId)}/backups`}>前往備份工作區</Link> : null}</section>
+          <section className={styles.drawerCard}><h3>{drawer.title}</h3><p className={styles.drawerText}>{drawer.content}</p>{drawer.kind === "status" && drawer.title === "回復備份" ? <Link prefetch={false} href={`/studio/project/${encodeURIComponent(projectId)}/backups`}>前往備份工作區</Link> : null}</section>
         ) : artifacts.length ? (
           [...artifacts].reverse().map((artifact) => (
             <button className={styles.drawerCard} type="button" key={artifact.id} data-artifact-id={artifact.id} onClick={() => onOpenArtifact(artifact)}><h3>{artifact.artifactType} · {artifact.status}</h3><p className={styles.candidatePreview}>{artifactStory(artifact)}</p></button>
