@@ -455,26 +455,52 @@ function familyDisplayName(input: {
   return input.publicName;
 }
 
-function roleCandidate(
+function roleCandidates(
   members: SocialMatrixCharacter[],
   role: TopicWorldStageRole,
   used: Set<string>,
 ) {
   const unused = members.filter((member) => !used.has(member.characterId));
-  if (role === "男主角候選") return unused.find((member) => member.pronouns === "他");
-  if (role === "女主角候選") return unused.find((member) => member.pronouns === "她");
-  if (role === "家族長輩") return unused.find((member) => member.lifeStage === "長者");
-  if (role === "同輩骨幹") return unused.find((member) => member.lifeStage === "青年" || member.lifeStage === "壯年");
+  if (role === "男主角候選") return unused.filter((member) => member.pronouns === "他");
+  if (role === "女主角候選") return unused.filter((member) => member.pronouns === "她");
+  if (role === "家族長輩") return unused.filter((member) => member.lifeStage === "長者");
+  if (role === "同輩骨幹") return unused.filter((member) => member.lifeStage === "青年" || member.lifeStage === "壯年");
   if (role === "盟友代表") {
-    return [...unused].sort((left, right) => right.personality.loyalty - left.personality.loyalty)[0];
+    return [...unused].sort((left, right) => right.personality.loyalty - left.personality.loyalty);
   }
-  return [...unused].sort((left, right) => right.personality.ambition - left.personality.ambition)[0];
+  return [...unused].sort((left, right) => right.personality.ambition - left.personality.ambition);
 }
 
-function familySupportsStageRoles(members: SocialMatrixCharacter[]) {
-  return members.some((member) => member.pronouns === "他")
-    && members.some((member) => member.pronouns === "她")
-    && members.some((member) => member.lifeStage === "長者");
+function stageRoleAssignment(members: SocialMatrixCharacter[]) {
+  const allocationOrder: TopicWorldStageRole[] = [
+    "家族長輩",
+    "同輩骨幹",
+    "男主角候選",
+    "女主角候選",
+    "盟友代表",
+    "對手代表",
+  ];
+  const used = new Set<string>();
+  const selectedByRole = new Map<TopicWorldStageRole, SocialMatrixCharacter>();
+
+  const assign = (ordinal: number): boolean => {
+    if (ordinal >= allocationOrder.length) return true;
+    const role = allocationOrder[ordinal]!;
+    for (const candidate of roleCandidates(members, role, used)) {
+      used.add(candidate.characterId);
+      selectedByRole.set(role, candidate);
+      if (assign(ordinal + 1)) return true;
+      selectedByRole.delete(role);
+      used.delete(candidate.characterId);
+    }
+    return false;
+  };
+
+  if (!assign(0)) return undefined;
+  return STAGE_ROLE_ORDER.map((role) => ({
+    role,
+    selected: selectedByRole.get(role)!,
+  }));
 }
 
 function chooseStageFamily(input: {
@@ -487,7 +513,7 @@ function chooseStageFamily(input: {
   for (let attempt = 0; attempt < 96; attempt += 1) {
     const familyIndex = (start + attempt * 97) % input.matrix.familyCount;
     const page = input.matrix.listFamilyMembers(familyIndex, { limit: 100 });
-    if (page.items.length >= TOPIC_WORLD_STAGE_MEMBER_COUNT && familySupportsStageRoles(page.items)) {
+    if (page.items.length >= TOPIC_WORLD_STAGE_MEMBER_COUNT && stageRoleAssignment(page.items)) {
       return {
         family: input.matrix.getFamily(familyIndex),
         members: page.items,
@@ -588,13 +614,8 @@ function stageFamily(input: {
     publicName: selection.family.name,
     organizationKind: input.organization.kindLabel,
   });
-  const used = new Set<string>();
-  const selectedMembers = STAGE_ROLE_ORDER.map((role) => {
-    const selected = roleCandidate(selection.members, role, used);
-    if (!selected) throw new Error(`TOPIC_WORLD_STAGE_FAMILY_ROLE_NOT_FOUND:${role}`);
-    used.add(selected.characterId);
-    return { role, selected };
-  });
+  const selectedMembers = stageRoleAssignment(selection.members);
+  if (!selectedMembers) throw new Error("TOPIC_WORLD_STAGE_FAMILY_ROLE_NOT_FOUND");
   const professionPool = [...new Set([
     ...input.contract.eraProfile.occupations,
     ...selectedMembers.flatMap(({ selected }) => selected.institutionRole.split("／")),
