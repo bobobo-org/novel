@@ -79,6 +79,8 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(() => {
+      // Reading this tab-only summary is deliberately local: a public front door must never probe
+      // loopback Companion ports or load the full Closed Agent runtime in the background.
       const closedAISummary = readLocalClosedAITabSessionSummary(window.location.origin);
       setClosedAI(
         closedAISummary === "inference_verified"
