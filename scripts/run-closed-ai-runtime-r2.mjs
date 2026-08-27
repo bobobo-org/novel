@@ -867,6 +867,33 @@ test("automatic-local-connection", "official origin connects without password or
     globalThis.fetch = originalFetch;
   }
 
+  let unavailableHealthRequests = 0;
+  globalThis.fetch = async (url) => {
+    if (new URL(String(url)).pathname === "/health") {
+      unavailableHealthRequests += 1;
+      throw new TypeError("fetch failed");
+    }
+    return Response.json({ errorCode: "UNEXPECTED_TEST_REQUEST" }, { status: 500 });
+  };
+  try {
+    const unavailableClient = new LocalBridgeClient({
+      origin,
+      tabStorage: new MemoryStorage(),
+      rememberWithinTab: true,
+    });
+    await assert.rejects(
+      () => unavailableClient.connectAutomatically(modelId),
+      (error) => error?.code === "BRIDGE_PROCESS_UNREACHABLE",
+    );
+    assert.equal(
+      unavailableHealthRequests,
+      1,
+      "automatic discovery must not retry a missing Companion endpoint",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
   assert.equal(PASSWORDLESS_LOCAL_AI_ORIGINS.includes(origin), true);
   assert.equal(evaluateLocalAIRuntimeVersion({
     reportedVersion: "1.2.0-origin-auto-connect",

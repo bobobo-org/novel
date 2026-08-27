@@ -459,7 +459,12 @@ export class LocalBridgeClient {
     try {
       return this.parse(await this.fetchBridge(`${this.endpoint}/health`, { headers: this.headers(), cache: "no-store" }, signal));
     } catch (error) {
-      if (signal?.aborted || !(error instanceof AiProviderError) || !error.retryable) throw error;
+      if (
+        signal?.aborted
+        || !(error instanceof AiProviderError)
+        || !error.retryable
+        || error.code === "BRIDGE_PROCESS_UNREACHABLE"
+      ) throw error;
       await new Promise((resolve) => setTimeout(resolve, 100));
       return this.parse(await this.fetchBridge(`${this.endpoint}/health`, { headers: this.headers(), cache: "no-store" }, signal));
     }
