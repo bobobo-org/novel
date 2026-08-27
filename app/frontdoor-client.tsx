@@ -8,6 +8,7 @@ import {
   EXPLICIT_LEGACY_STUDIO_KEYS,
   previewLegacyStudioProjects,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
+import { readLocalClosedAITabSessionSummary } from "@/lib/novel-ai/providers/closed/tab-session-recovery";
 import styles from "./frontdoor-luxury.module.css";
 
 type FrontdoorProps = {
@@ -27,19 +28,6 @@ type CloudStatus = "未設定" | "正常" | "暫停";
 
 const STUDIO_SHELL_KEY = "novel_p12_studio_state";
 const ACTIVE_PROJECT_KEY = "novel_p2_active_project_id";
-
-function scheduleBrowserIdle(task: () => void) {
-  const idleWindow = window as Window & {
-    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-    cancelIdleCallback?: (handle: number) => void;
-  };
-  if (idleWindow.requestIdleCallback) {
-    const handle = idleWindow.requestIdleCallback(task, { timeout: 4_000 });
-    return () => idleWindow.cancelIdleCallback?.(handle);
-  }
-  const handle = window.setTimeout(task, 1_500);
-  return () => window.clearTimeout(handle);
-}
 
 function recentProjectFromShell(): RecentProject | null {
   try {
@@ -90,8 +78,15 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
 
   useEffect(() => {
     let active = true;
-    let cancelAIProbe: () => void = () => {};
     const timer = window.setTimeout(() => {
+      const closedAISummary = readLocalClosedAITabSessionSummary(window.location.origin);
+      setClosedAI(
+        closedAISummary === "inference_verified"
+          ? "已就緒"
+          : closedAISummary === "paired"
+            ? "等待配對"
+            : "未設定",
+      );
       void (async () => {
         const shellRecent = recentProjectFromShell();
         let recent = shellRecent;
@@ -119,22 +114,6 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         setRecentProject(recent);
         setProjectCount(canonicalProjects.length || (recent ? 1 : 0));
         setLegacyPreview(preview);
-        // Let the useful project entry paint first. Reading an already active
-        // tab session is local and cheap; a public front door must never probe
-        // loopback Companion ports in the background. The settings screen and
-        // an explicit closed-AI action perform connection discovery on demand.
-        cancelAIProbe = scheduleBrowserIdle(() => {
-          void (async () => {
-            const { getStudioClosedAIRuntimeCoordinator } = await import(
-              "@/lib/novel-ai/web/closed-agent-os-service"
-            );
-            const coordinator = getStudioClosedAIRuntimeCoordinator(window.location.origin);
-            const session = coordinator.localClient.getSessionMetadata();
-            const proof = coordinator.localClient.getModelVerification();
-            if (!active) return;
-            setClosedAI(proof ? "已就緒" : session ? "等待配對" : "未設定");
-          })();
-        });
       })();
       void fetch(`/api/persistence/health?frontdoor=${Date.now()}`, {
         cache: "no-store",
@@ -158,7 +137,6 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
     return () => {
       active = false;
       window.clearTimeout(timer);
-      cancelAIProbe();
     };
   }, []);
 

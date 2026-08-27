@@ -27,6 +27,7 @@ import {
 import {
   saveClosedAITabSession,
   readClosedAITabSession,
+  readLocalClosedAITabSessionSummary,
   closedAITabSessionStorageKey,
 } from "../lib/novel-ai/providers/closed/tab-session-recovery.ts";
 import {
@@ -636,6 +637,94 @@ test("browser-task-vs-generative", "packaged browser task model cannot generate 
     nativePromptGenerationVerified: false,
     webLlmProseProductionQualified: false,
     webLlmMaximumComplexity: "standard",
+  };
+});
+
+test("frontdoor-session-summary", "frontdoor reads a truthful tab-only local AI summary without probing loopback", async () => {
+  const frontdoorSource = await readFile(
+    new URL("../app/frontdoor-client.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(frontdoorSource, /closed-agent-os-service/u);
+  assert.doesNotMatch(frontdoorSource, /getStudioClosedAIRuntimeCoordinator/u);
+  assert.doesNotMatch(frontdoorSource, /scheduleBrowserIdle/u);
+  assert.match(frontdoorSource, /readLocalClosedAITabSessionSummary/u);
+  const storage = new MemoryStorage();
+  const origin = "https://preview.example";
+  const storageKey = closedAITabSessionStorageKey("local-ollama");
+  const baseRecord = {
+    schemaVersion: "closed-ai-tab-session-v1",
+    backend: "local-ollama",
+    protocolVersion: LOCAL_BRIDGE_PROTOCOL,
+    origin,
+    endpoint: "http://127.0.0.1:3217",
+    instanceId: "frontdoor-summary-instance",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    session: { token: "secret-token", csrf: "secret-csrf" },
+    modelId: "qwen2.5:3b",
+    modelDigest: "frontdoor-model-digest",
+    modelProof: null,
+    savedAt: new Date().toISOString(),
+  };
+  const validProof = {
+    proofVersion: "local-model-inference-proof-v1",
+    state: "inference_verified",
+    providerKind: "local_ollama",
+    instanceId: baseRecord.instanceId,
+    modelId: baseRecord.modelId,
+    modelDigest: baseRecord.modelDigest,
+    verifiedAt: new Date().toISOString(),
+    latencyMs: 1,
+    outputDigest: "a".repeat(64),
+    outputBytes: 12,
+    evalCount: 2,
+    externalRequest: false,
+    dataLeftDevice: false,
+  };
+  let fetchCalls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error("frontdoor summary must not probe loopback");
+  };
+  try {
+    assert.equal(readLocalClosedAITabSessionSummary(origin, storage), "not_configured");
+
+    storage.setItem(storageKey, JSON.stringify(baseRecord));
+    assert.equal(readLocalClosedAITabSessionSummary(origin, storage), "paired");
+
+    storage.setItem(storageKey, JSON.stringify({ ...baseRecord, modelProof: validProof }));
+    assert.equal(readLocalClosedAITabSessionSummary(origin, storage), "inference_verified");
+
+    storage.setItem(storageKey, JSON.stringify({
+      ...baseRecord,
+      modelProof: { ...validProof, instanceId: "wrong-instance" },
+    }));
+    assert.equal(readLocalClosedAITabSessionSummary(origin, storage), "paired");
+
+    for (const invalidRecord of [
+      { ...baseRecord, protocolVersion: "wrong-protocol" },
+      { ...baseRecord, endpoint: "http://127.0.0.1:3999" },
+      { ...baseRecord, origin: "https://other.example" },
+      { ...baseRecord, expiresAt: new Date(Date.now() - 1_000).toISOString() },
+    ]) {
+      storage.setItem(storageKey, JSON.stringify(invalidRecord));
+      assert.equal(readLocalClosedAITabSessionSummary(origin, storage), "not_configured");
+    }
+
+    storage.setItem(storageKey, "{malformed");
+    assert.equal(readLocalClosedAITabSessionSummary(origin, storage), "not_configured");
+    assert.equal(fetchCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  return {
+    noSession: "not_configured",
+    sessionWithoutProof: "paired",
+    completeProof: "inference_verified",
+    malformedProofNeverReady: true,
+    invalidSessionNeverReady: true,
+    loopbackRequests: fetchCalls,
   };
 });
 

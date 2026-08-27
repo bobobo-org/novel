@@ -143,6 +143,29 @@ function isSupersededHealthCancellation(failure) {
   }
 }
 
+function isCompletedFrontdoorHealthCancellation(failure, visitStartedAt, editorArrivedAt) {
+  try {
+    const requestUrl = new URL(failure.url);
+    const queryKeys = [...requestUrl.searchParams.keys()];
+    const expectedErrorText = engineName === "webkit" ? "Load request cancelled" : "net::ERR_ABORTED";
+    const requestTimestamp = Number(requestUrl.searchParams.get("frontdoor"));
+    return requestUrl.origin === new URL(baseUrl).origin
+      && requestUrl.pathname === "/api/persistence/health"
+      && queryKeys.length === 1
+      && queryKeys[0] === "frontdoor"
+      && requestUrl.searchParams.getAll("frontdoor").length === 1
+      && /^\d{13}$/u.test(requestUrl.searchParams.get("frontdoor") ?? "")
+      && requestTimestamp >= visitStartedAt
+      && requestTimestamp <= editorArrivedAt
+      && failure.errorText === expectedErrorText
+      && failure.method === "GET"
+      && failure.resourceType === "fetch"
+      && !failure.rscHeader;
+  } catch {
+    return false;
+  }
+}
+
 function isBoundedSharedLearningCancellation(failure) {
   try {
     const requestUrl = new URL(failure.url);
@@ -245,7 +268,9 @@ async function assertCleanDiagnostics(label, options = {}) {
     assert.equal(currentUrl.pathname, "/professional");
     assert.equal(currentUrl.searchParams.get("intent"), "library");
     assert.equal(currentUrl.searchParams.get("projectId"), professionalLibraryProjectId);
+    assert.equal(currentUrl.hash, "#character-world-memory-editor");
     assert.equal(await page.getByTestId("professional-canonical-workbench").isVisible(), true);
+    assert.equal(await page.getByTestId("home-canon-editor").isVisible(), true);
     const frontdoorTargets = [
       { pathname: "/" },
       { pathname: "/studio" },
@@ -282,6 +307,25 @@ async function assertCleanDiagnostics(label, options = {}) {
     assert.ok(accepted.length <= 2, `${label}: at most two superseded frontdoor RSC prefetches are allowed`);
     unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
     expectedNavigationCancellations.push(...accepted);
+
+    const frontdoorVisitStartedAt = options.frontdoorVisitStartedAt ?? 0;
+    const frontdoorEditorArrivedAt = options.frontdoorEditorArrivedAt ?? 0;
+    assert.ok(frontdoorVisitStartedAt > 0, `${label}: frontdoor visit start time is required`);
+    assert.ok(
+      frontdoorEditorArrivedAt >= frontdoorVisitStartedAt,
+      `${label}: Canon editor arrival time must follow the frontdoor visit start`,
+    );
+    const completedHealthCancellations = unacceptedRequestFailures.filter((failure) => (
+      isCompletedFrontdoorHealthCancellation(failure, frontdoorVisitStartedAt, frontdoorEditorArrivedAt)
+    ));
+    assert.ok(
+      completedHealthCancellations.length <= 1,
+      `${label}: at most one completed frontdoor health cancellation is allowed: ${JSON.stringify(completedHealthCancellations)}`,
+    );
+    unacceptedRequestFailures = unacceptedRequestFailures.filter(
+      (failure) => !completedHealthCancellations.includes(failure),
+    );
+    expectedNavigationCancellations.push(...completedHealthCancellations);
   }
 
   if (options.allowBoundedSharedLearningRequest) {
@@ -317,6 +361,8 @@ async function assertCleanDiagnostics(label, options = {}) {
 
 const results = [];
 let createdProjectId = "";
+let frontdoorCanonVisitStartedAt = 0;
+let frontdoorCanonEditorArrivedAt = 0;
 async function check(name, work) {
   await work();
   results.push({ name, status: "PASS" });
@@ -737,6 +783,7 @@ try {
         projects: [{ id: competingId, title: "較新的非作用中作品", updatedAt: "9999-12-31T23:59:59.999Z" }],
       }));
     }, { activeProjectId: projectId, competingId: competingProjectId });
+    frontdoorCanonVisitStartedAt = Date.now();
     await openFreshPage(baseUrl);
     const canonEditorLink = page.getByTestId("frontdoor-canon-editor");
     await canonEditorLink.waitFor({ state: "visible" });
@@ -754,6 +801,7 @@ try {
     ));
     assert.equal(await page.getByTestId("home-character-editor").getAttribute("open"), "");
     assert.equal(await page.getByTestId("home-world-memory-editor").getAttribute("open"), "");
+    frontdoorCanonEditorArrivedAt = Date.now();
     const editorViewport = await page.getByTestId("home-canon-editor").evaluate((element) => {
       const rect = element.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, viewportHeight: innerHeight };
@@ -783,6 +831,8 @@ try {
     await assertCleanDiagnostics("frontdoor Canon navigation and legacy management redirect", {
       allowCompletedLegacyRedirectForProjectId: createdProjectId,
       allowSupersededFrontdoorNavigationPrefetchesForProjectId: createdProjectId,
+      frontdoorVisitStartedAt: frontdoorCanonVisitStartedAt,
+      frontdoorEditorArrivedAt: frontdoorCanonEditorArrivedAt,
     });
   });
 

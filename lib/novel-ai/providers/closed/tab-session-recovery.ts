@@ -23,6 +23,11 @@ export type ClosedAITabSessionRecord = {
   savedAt: string;
 };
 
+export type LocalClosedAITabSessionSummary =
+  | "not_configured"
+  | "paired"
+  | "inference_verified";
+
 const KEYS: Record<ClosedAITabSessionBackend, string> = {
   "local-ollama": "novel.closed-ai.local-ollama.tab-session.v1",
   "private-ai-hub": "novel.closed-ai.private-ai-hub.tab-session.v1",
@@ -73,6 +78,36 @@ function validRecord(
     );
 }
 
+function hasReusableLocalModelProof(record: ClosedAITabSessionRecord) {
+  if (!record.modelId || !record.modelProof) return false;
+  const proof = record.modelProof;
+  const verifiedAt = Date.parse(String(proof.verifiedAt ?? ""));
+  return proof.proofVersion === "local-model-inference-proof-v1"
+    && proof.state === "inference_verified"
+    && proof.providerKind === "local_ollama"
+    && proof.instanceId === record.instanceId
+    && proof.modelId === record.modelId
+    && proof.modelDigest === record.modelDigest
+    && Number.isFinite(verifiedAt)
+    && verifiedAt > 0
+    && verifiedAt <= Date.now() + 60_000
+    && typeof proof.latencyMs === "number"
+    && proof.latencyMs >= 0
+    && typeof proof.outputDigest === "string"
+    && /^[a-f0-9]{64}$/iu.test(proof.outputDigest)
+    && typeof proof.outputBytes === "number"
+    && proof.outputBytes > 0
+    && (
+      proof.evalCount === null
+      || (
+        typeof proof.evalCount === "number"
+        && proof.evalCount >= 0
+      )
+    )
+    && proof.externalRequest === false
+    && proof.dataLeftDevice === false;
+}
+
 export function saveClosedAITabSession(
   record: ClosedAITabSessionRecord,
   storage?: Storage | null,
@@ -108,6 +143,26 @@ export function readClosedAITabSession(
     target.removeItem(key);
     return null;
   }
+}
+
+/**
+ * Reads only the non-secret readiness state needed by the public front door.
+ * It never restores a runtime, probes loopback, or exposes the saved token.
+ */
+export function readLocalClosedAITabSessionSummary(
+  origin: string,
+  storage?: Storage | null,
+): LocalClosedAITabSessionSummary {
+  const record = readClosedAITabSession({
+    backend: "local-ollama",
+    protocolVersion: "novel-local-bridge/v1",
+    origin,
+    endpoint: "http://127.0.0.1:3217",
+  }, storage);
+  if (!record) return "not_configured";
+  return hasReusableLocalModelProof(record)
+    ? "inference_verified"
+    : "paired";
 }
 
 export function clearClosedAITabSession(
