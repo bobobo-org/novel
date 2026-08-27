@@ -205,18 +205,18 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
       data-testid="modern-consumer-frontdoor"
     >
       <header className="frontdoorNav">
-        <Link className="brandLockup" href="/" aria-label="諸天萬界小說生成系統首頁">
+        <Link prefetch={false} className="brandLockup" href="/" aria-label="諸天萬界小說生成系統首頁">
           <span className="brandSeal">創</span>
           <span><b>諸天萬界</b><small>小說生成系統</small></span>
         </Link>
         <nav aria-label="主要導覽">
-          <Link className="active" href="/">首頁</Link>
-          <Link href="/studio/create">建立世界</Link>
-          <Link href={continueHref}>故事工作臺</Link>
-          <Link href="/professional?intent=library">我的作品</Link>
+          <Link prefetch={false} className="active" href="/">首頁</Link>
+          <a href="/studio/create">建立世界</a>
+          <a href={continueHref}>故事工作臺</a>
+          <a href="/professional?intent=library">我的作品</a>
         </nav>
         <div className={styles.navActions}>
-          <Link
+          <a
             className={styles.aiStatus}
             data-state={closedAI}
             href={localAIHref}
@@ -224,8 +224,8 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
           >
             <span aria-hidden="true" />
             本機 AI {closedAI}
-          </Link>
-          <Link className="navCta" href="/studio">進入創作中心</Link>
+          </a>
+          <a className="navCta" href="/studio">進入創作中心</a>
         </div>
       </header>
 
@@ -239,22 +239,21 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
           <p className="lead">把靈感鍛造成角色、世界與會記得你每次選擇的長篇故事。</p>
           <p className={styles.startingRule}>首頁只有兩個開始方式：建立新作品，或選擇既有作品繼續。</p>
           <div className="heroActions">
-            <Link
+            <a
               className="primaryAction"
               data-testid="frontdoor-primary-action"
               href={primaryHref}
             >
               <span>{primaryLabel}</span><b aria-hidden="true">→</b>
-            </Link>
+            </a>
             {recentProject ? (
-              <Link className="secondaryAction" href="/studio/create">開始新故事</Link>
+              <a className="secondaryAction" href="/studio/create">開始新故事</a>
             ) : (
-              <Link className="secondaryAction" href="/studio/create">探索 {classicTopics} 類題材</Link>
+              <a className="secondaryAction" href="/studio/create">探索 {classicTopics} 類題材</a>
             )}
           </div>
           {recentProject && recentId ? (
-            <Link
-              prefetch={false}
+            <a
               className={styles.canonShortcut}
               data-testid="frontdoor-canon-editor"
               href={canonEditorHref}
@@ -262,7 +261,7 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
               <span>角色、世界與記憶</span>
               <b>編輯《{recentProject.title}》的正式設定</b>
               <i aria-hidden="true">→</i>
-            </Link>
+            </a>
           ) : null}
           <div className={styles.truthRow} aria-label="平台特色">
             <span><b>{classicTopics}</b> 類經典題材</span>
@@ -307,9 +306,9 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
             <button type="button" onClick={() => setShowLegacyDetails((value) => !value)}>
               {showLegacyDetails ? "收起遷移預覽" : "查看遷移預覽"}
             </button>
-            <Link data-testid="legacy-import-explicit" href="/professional?intent=library&legacyMigration=import">匯入到新版作品庫</Link>
+            <a data-testid="legacy-import-explicit" href="/professional?intent=library&legacyMigration=import">匯入到新版作品庫</a>
             <button type="button" onClick={() => setDismissLegacy(true)}>暫不匯入</button>
-            <Link href="/professional?intent=library">到統一作品管理中心</Link>
+            <a href="/professional?intent=library">到統一作品管理中心</a>
           </div>
         </section>
       ) : null}
@@ -321,26 +320,26 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
         </div>
         <div className="entryGrid">
           {entries.map(([title, description, href, icon]) => (
-            <Link className="entryCard" href={href} key={title}>
+            <a className="entryCard" href={href} key={title}>
               <span className="entryIndex">{icon}</span>
               <h3>{title}</h3>
               <p>{description}</p>
               <span className="entryArrow" aria-hidden="true">→</span>
-            </Link>
+            </a>
           ))}
         </div>
       </section>
       <nav className={styles.mobileDock} aria-label="手機主要導覽">
-        <Link href="/" aria-current="page"><MobileDockIcon kind="home" /><b>首頁</b></Link>
-        <Link href="/studio/create"><MobileDockIcon kind="create" /><b>新作品</b></Link>
-        <Link href={continueHref}><MobileDockIcon kind="write" /><b>工作臺</b></Link>
-        <Link href="/professional?intent=library"><MobileDockIcon kind="library" /><b>作品</b></Link>
+        <Link prefetch={false} href="/" aria-current="page"><MobileDockIcon kind="home" /><b>首頁</b></Link>
+        <a href="/studio/create"><MobileDockIcon kind="create" /><b>新作品</b></a>
+        <a href={continueHref}><MobileDockIcon kind="write" /><b>工作臺</b></a>
+        <a href="/professional?intent=library"><MobileDockIcon kind="library" /><b>作品</b></a>
       </nav>
       <footer className="frontdoorFooter">
         <p>快速本機模式：速度較快，長篇品質有限。系統不會把 API online 顯示成 AI online。</p>
         <nav aria-label="精簡工具連結">
-          <Link href="/professional?intent=library">作品資料與工具</Link>
-          <Link href={localAIHref}>閉端 AI 設定</Link>
+          <a href="/professional?intent=library">作品資料與工具</a>
+          <a href={localAIHref}>閉端 AI 設定</a>
         </nav>
       </footer>
     </main>

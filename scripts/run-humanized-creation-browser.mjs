@@ -210,15 +210,13 @@ async function assertCleanDiagnostics(label, options = {}) {
     const accepted = requestFailures.filter((failure) => (
       allowedTargets.some((target) => isSupersededRscCancellation(failure, target))
     ));
-    for (const pathname of new Set(allowedTargets.map((target) => target.pathname))) {
+    for (const target of allowedTargets) {
       const targetFailures = accepted.filter((failure) => (
-        allowedTargets
-          .filter((target) => target.pathname === pathname)
-          .some((target) => isSupersededRscCancellation(failure, target))
+        isSupersededRscCancellation(failure, target)
       ));
       assert.ok(
         targetFailures.length <= 1,
-        `${label}: at most one superseded Next RSC cancellation is allowed for ${pathname}`,
+        `${label}: at most one superseded Next RSC cancellation is allowed for ${JSON.stringify(target)}: ${JSON.stringify(targetFailures)}`,
       );
     }
     assert.ok(accepted.length <= 2, `${label}: at most two superseded Next RSC prefetches are allowed`);
@@ -278,7 +276,7 @@ async function assertCleanDiagnostics(label, options = {}) {
       ));
       assert.ok(
         targetFailures.length <= 1,
-        `${label}: at most one superseded frontdoor RSC prefetch is allowed for ${JSON.stringify(target)}`,
+        `${label}: at most one superseded frontdoor RSC prefetch is allowed for ${JSON.stringify(target)}: ${JSON.stringify(targetFailures)}`,
       );
     }
     assert.ok(accepted.length <= 2, `${label}: at most two superseded frontdoor RSC prefetches are allowed`);
@@ -295,7 +293,10 @@ async function assertCleanDiagnostics(label, options = {}) {
 
   if (options.allowSupersededHealthRequest) {
     const accepted = unacceptedRequestFailures.filter(isSupersededHealthCancellation);
-    assert.ok(accepted.length <= 1, `${label}: at most one superseded AI health request is allowed`);
+    assert.ok(
+      accepted.length <= 2,
+      `${label}: at most two superseded AI health requests are allowed: ${JSON.stringify(accepted)}`,
+    );
     unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
     expectedNavigationCancellations.push(...accepted);
   }

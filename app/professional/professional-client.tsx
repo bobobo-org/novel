@@ -298,17 +298,17 @@ export default function ProfessionalClient({
       </header>
 
       <nav className="professionalModernTop" aria-label="作品管理中心主要入口">
-        <Link href="/">系統首頁</Link>
-        <Link className="primary" href="/studio/create">建立新作品</Link>
-        {project ? <Link href={primaryWorkspace}>繼續目前玩法</Link> : null}
-        {project ? <Link href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀作品</Link> : null}
+        <Link prefetch={false} href="/">系統首頁</Link>
+        <Link prefetch={false} className="primary" href="/studio/create">建立新作品</Link>
+        {project ? <Link prefetch={false} href={primaryWorkspace}>繼續目前玩法</Link> : null}
+        {project ? <a href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀作品</a> : null}
       </nav>
 
       {project ? (
         <nav className="professionalMobileQuick" aria-label="手機快速操作">
           <Link prefetch={false} className="primary" href={primaryWorkspace}><span aria-hidden="true">寫</span>繼續創作</Link>
           <a href={canonEditorHref} onClick={revealCanonEditor}><span aria-hidden="true">編</span>編輯設定</a>
-          <Link href="#professional-all-tools"><span aria-hidden="true">具</span>全部工具</Link>
+          <a href="#professional-all-tools"><span aria-hidden="true">具</span>全部工具</a>
         </nav>
       ) : null}
 
@@ -343,7 +343,7 @@ export default function ProfessionalClient({
               <div className="professionalHeroActions">
                 <Link prefetch={false} className="primary" href={primaryWorkspace}>繼續{STORY_PLAY_MODE_LABELS[playMode]}</Link>
                 <Link prefetch={false} href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
-                <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製種子，改用其他玩法</Link>
+                <Link prefetch={false} href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製種子，改用其他玩法</Link>
               </div>
             </div>
             <dl>
@@ -387,60 +387,60 @@ export default function ProfessionalClient({
               <small>STORY & CHAPTERS</small><h2>故事與章節</h2>
               <p>創作、RPG 與三選一在故事工作台進行；已採用正文則在校訂頁精修。</p>
               <Link prefetch={false} href={primaryWorkspace}>繼續目前玩法</Link>
-              <Link href={`${projectRoot}/write`}>章節全文校訂</Link>
+              <Link prefetch={false} href={`${projectRoot}/write`}>章節全文校訂</Link>
               <Link prefetch={false} href={`/studio/read/${encodeURIComponent(project.id)}`}>閱讀全文</Link>
             </article>
             <article id="world-and-characters">
               <small>CANON & WORLD</small><h2>角色、世界與記憶</h2>
               <p>正式人物、能力、世界與 Story Bible 在本作品的正式設定編輯器修改；故事進行中只選擇目前上場的人物、規則與記憶。</p>
               <a data-testid="professional-canon-editor-link" href={canonEditorHref} onClick={revealCanonEditor}>開啟角色、世界與記憶編輯器</a>
-              <Link href={`${projectRoot}/characters`}>故事內選擇上場人物（唯讀）</Link>
-              <Link href={`${projectRoot}/character-ai`}>角色視角模擬（非正式 Canon）</Link>
-              <Link href={`${projectRoot}/world`}>故事內選擇上場世界與規則（唯讀）</Link>
-              <Link href={`${projectRoot}/story-bible`}>故事內選擇上場記憶（唯讀）</Link>
-              <Link href={`${projectRoot}/timeline`}>故事內選擇上場時間線（唯讀）</Link>
+              <Link prefetch={false} href={`${projectRoot}/characters`}>故事內選擇上場人物（唯讀）</Link>
+              <Link prefetch={false} href={`${projectRoot}/character-ai`}>角色視角模擬（非正式 Canon）</Link>
+              <Link prefetch={false} href={`${projectRoot}/world`}>故事內選擇上場世界與規則（唯讀）</Link>
+              <Link prefetch={false} href={`${projectRoot}/story-bible`}>故事內選擇上場記憶（唯讀）</Link>
+              <Link prefetch={false} href={`${projectRoot}/timeline`}>故事內選擇上場時間線（唯讀）</Link>
             </article>
             <article id="progress-and-review">
               <small>PROGRESS & REVIEW</small><h2>任務、成就與檢查</h2>
               <p>追蹤目前作品的目標與里程碑；一致性檢查會回到同一故事工作台建立候選。</p>
-              <Link href={`${projectRoot}/tasks`}>任務與進度</Link>
-              <Link href={`${projectRoot}/achievements`}>成就與里程碑</Link>
-              <Link href={consistencyReviewHref(project.id)}>檢查作品一致性</Link>
+              <Link prefetch={false} href={`${projectRoot}/tasks`}>任務與進度</Link>
+              <Link prefetch={false} href={`${projectRoot}/achievements`}>成就與里程碑</Link>
+              <Link prefetch={false} href={consistencyReviewHref(project.id)}>檢查作品一致性</Link>
             </article>
             <article id="data-and-safety">
               <small>DATA & SAFETY</small><h2>作品、存檔與備份</h2>
               <p>切換作品、完整備份、還原與儲存設定集中管理，不再回到舊版首頁。</p>
-              <Link href="/professional?intent=library">我的作品</Link>
-              <Link href={`${projectRoot}/backups`}>備份、還原與匯出</Link>
-              <Link href="/studio/settings/storage">本機儲存與雲端同步</Link>
-              <Link href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製為其他玩法</Link>
+              <Link prefetch={false} href="/professional?intent=library">我的作品</Link>
+              <Link prefetch={false} href={`${projectRoot}/backups`}>備份、還原與匯出</Link>
+              <Link prefetch={false} href="/studio/settings/storage">本機儲存與雲端同步</Link>
+              <Link prefetch={false} href={`/studio/create?cloneFrom=${encodeURIComponent(project.id)}`}>複製為其他玩法</Link>
             </article>
             <article id="ai-and-learning">
               <small>AI & LEARNING</small><h2>自動協調器與學習</h2>
               <p>管理閉端算力、共享學習規則、資料邊界與本機模型；正文仍只在故事工作台產生。</p>
-              <Link href={`${projectRoot}/closed-ai`}>閉端 AI 自動協調器</Link>
-              <Link href={`${projectRoot}/learning`}>閉端 AI 規則學習</Link>
-              <Link href="/studio/settings/ai">AI 使用方式與資料邊界</Link>
-              <Link href={localAIHref}>本機 AI 安裝與連線</Link>
+              <Link prefetch={false} href={`${projectRoot}/closed-ai`}>閉端 AI 自動協調器</Link>
+              <Link prefetch={false} href={`${projectRoot}/learning`}>閉端 AI 規則學習</Link>
+              <Link prefetch={false} href="/studio/settings/ai">AI 使用方式與資料邊界</Link>
+              <Link prefetch={false} href={localAIHref}>本機 AI 安裝與連線</Link>
             </article>
             <article id="extended-creation">
               <small>EXTENDED CREATION</small><h2>小說轉短劇</h2>
               <p>短劇改編保持候選／核准邊界，不會直接覆寫原作；角色視角模擬已合併回「角色、世界與記憶」。</p>
-              <Link href={`${projectRoot}/drama`}>小說轉短劇</Link>
+              <Link prefetch={false} href={`${projectRoot}/drama`}>小說轉短劇</Link>
             </article>
             <article id="video-production">
               <small>VIDEO RUNTIME STATUS</small><h2>影片生成（尚未連接）</h2>
               <p>目前沒有可執行的影片模型、工作佇列或 MP4 產物；JSON 交接資料不算影片。連接供應商、成本上限與外送同意後才會開放真正生成。</p>
-              <Link href={`${projectRoot}/drama#video-production`}>查看影片能力狀態</Link>
-              <Link href={`${projectRoot}/drama`}>先整理短劇改編</Link>
+              <Link prefetch={false} href={`${projectRoot}/drama#video-production`}>查看影片能力狀態</Link>
+              <Link prefetch={false} href={`${projectRoot}/drama`}>先整理短劇改編</Link>
             </article>
             <article id="research-and-legacy-tools">
               <small>RESEARCH & AUTHOR TOOLS</small><h2>研究與作者輔助</h2>
               <p>四項工具都直接讀取目前作品的正式資料、在各自頁面產生結果；不再跳回聊天或誤用最近更新的其他作品。</p>
-              <Link href={authorToolHref(project.id, "breakdown")}>書籍與作品拆解</Link>
-              <Link href={authorToolHref(project.id, "relay")}>續寫接力提示</Link>
-              <Link href={authorToolHref(project.id, "batch")}>多章批量規劃</Link>
-              <Link href={authorToolHref(project.id, "serial")}>連載、讀者與 IP 研究</Link>
+              <Link prefetch={false} href={authorToolHref(project.id, "breakdown")}>書籍與作品拆解</Link>
+              <Link prefetch={false} href={authorToolHref(project.id, "relay")}>續寫接力提示</Link>
+              <Link prefetch={false} href={authorToolHref(project.id, "batch")}>多章批量規劃</Link>
+              <Link prefetch={false} href={authorToolHref(project.id, "serial")}>連載、讀者與 IP 研究</Link>
             </article>
           </section>
         </>
@@ -468,7 +468,7 @@ export default function ProfessionalClient({
           <div className="professionalEmptyGlyphs" aria-hidden="true"><span data-icon="character">人</span><span data-icon="world">界</span><span data-icon="story">章</span></div>
           <h2>目前沒有正式作品</h2>
           <p>快速建立、引導建立與完整故事庫都放在新作品流程的第一步。</p>
-          <Link className="primary" href="/studio/create">建立第一部作品</Link>
+          <Link prefetch={false} className="primary" href="/studio/create">建立第一部作品</Link>
         </section>
       )}
 

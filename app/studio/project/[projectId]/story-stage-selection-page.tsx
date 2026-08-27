@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ProjectContextTabs } from "./project-context-tabs";
 import ProjectNavigation from "./project-navigation";
 import StoryStageSelector from "./story-stage-selector";
@@ -27,9 +26,9 @@ export default function StoryStageSelectionPage({
       data-canon-edit-surface="story-selection-only"
     >
       <header>
-        <Link href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>
+        <a href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>
           ← 首頁正式設定
-        </Link>
+        </a>
         <div><small>故事工作台 · 只讀與上場選擇</small><h1>{title}</h1></div>
         <span>Canon 內容鎖定</span>
       </header>
