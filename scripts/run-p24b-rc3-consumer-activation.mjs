@@ -91,7 +91,7 @@ async function legacyExplicitOnly() {
   assert.match(frontdoor, /legacyMigration=import/);
   assert.doesNotMatch(frontdoor, /function isExplicitLegacyRoute/);
   assert.doesNotMatch(frontdoor, /isExplicitLegacyRoute\(href\)/);
-  assert.match(frontdoor, /<Link className="entryCard" href=\{href\}/);
+  assert.match(frontdoor, /<a className="entryCard" href=\{href\}/);
   assert.doesNotMatch(frontdoor, /href="\/legacy\/novel-system\.html"/);
   assert.match(studio, /<a className="studioProfessional" href="\/professional">/);
   assert.match(frontdoor, /暫不匯入/);
@@ -127,6 +127,11 @@ async function frontdoorAISetupDiscovery() {
     /configureLocalBridgeClient\(client\);[\s\S]*?coordinator\.refresh\(/,
   );
   assert.match(wizard, /<details>/);
+  assert.equal(
+    (wizard.match(/href="\/studio\/settings\/ai" prefetch=\{false\}/gu) ?? []).length,
+    2,
+    "the setup page must not prefetch the shared AI settings chunk before navigation",
+  );
 }
 
 async function frontdoorProjectRouting() {
@@ -297,17 +302,34 @@ async function serviceWorkerFrontdoorUpgrade() {
   stores.set(oldCacheName, new Map([
     ["https://preview.example/", new Response("LEGACY")],
     ["https://preview.example/_next/static/media/logo.abcdef123456.svg", new Response("HASHED-CACHED")],
+    ["https://preview.example/_next/static/chunks/challenge.js", new Response("CURRENT-RELEASE-CACHED")],
+    ["https://preview.example/_next/static/chunks/network-failure.js", new Response("OFFLINE-CACHED")],
+    ["https://preview.example/private.js", new Response("PRIVATE-CACHED")],
   ]));
   let networkCalls = 0;
+  const cachePutFailures = new Set([
+    "https://preview.example/_next/static/chunks/cache-put-failure.js",
+    "https://preview.example/character-portraits/cache-put-failure.png",
+    "https://preview.example/runtime/cache-put-failure.js",
+  ]);
+  let cacheOpenFailures = 0;
   const caches = {
     async keys() { return [...stores.keys()]; },
     async delete(name) { return stores.delete(name); },
     async open(name) {
+      if (cacheOpenFailures > 0) {
+        cacheOpenFailures -= 1;
+        throw new Error("simulated CacheStorage open failure");
+      }
       if (!stores.has(name)) stores.set(name, new Map());
       const rows = stores.get(name);
       return {
         async match(request) { return rows.get(requestKey(request))?.clone(); },
-        async put(request, response) { rows.set(requestKey(request), response.clone()); },
+        async put(request, response) {
+          const key = requestKey(request);
+          if (cachePutFailures.has(key)) throw new Error("simulated CacheStorage write failure");
+          rows.set(key, response.clone());
+        },
         async addAll(paths) {
           for (const path of paths) rows.set(new URL(path, "https://preview.example").href, new Response("seed"));
         },
@@ -322,6 +344,9 @@ async function serviceWorkerFrontdoorUpgrade() {
       networkCalls += 1;
       const url = requestKey(request);
       if (url === "https://preview.example/") return new Response("MODERN");
+      if (url.endsWith("/private.js")) return new Response("FORBIDDEN", { status: 403 });
+      if (url.endsWith("/challenge.js")) return new Response("CHECKPOINT", { status: 403 });
+      if (url.endsWith("/network-failure.js")) throw new Error("simulated network failure");
       return new Response("NETWORK");
     },
     self: {
@@ -350,9 +375,69 @@ async function serviceWorkerFrontdoorUpgrade() {
   assert.equal(networkCalls, 1);
   assert.equal(await fireFetch("https://preview.example/api/ai/health"), null);
   assert.equal(await fireFetch("http://127.0.0.1:43117/health"), null);
+  const callsBeforeFlightRequests = networkCalls;
+  assert.equal(await fireFetch("https://preview.example/studio?_rsc=flight-token"), null);
+  assert.equal(await fireFetch("https://preview.example/studio", { headers: { rsc: "1" } }), null);
+  assert.equal(await fireFetch("https://preview.example/studio", {
+    headers: { "next-router-prefetch": "1" },
+  }), null);
+  assert.equal(networkCalls, callsBeforeFlightRequests);
+  const protectedNavigation = await fireFetch("https://preview.example/private.js", { mode: "navigate" });
+  assert.equal(protectedNavigation.status, 403);
+  assert.equal(await protectedNavigation.text(), "FORBIDDEN");
+  const callsBeforeHashedAsset = networkCalls;
   const hashed = await fireFetch("https://preview.example/_next/static/media/logo.abcdef123456.svg");
   assert.equal(await hashed.text(), "HASHED-CACHED");
-  assert.equal(networkCalls, 1);
+  assert.equal(networkCalls, callsBeforeHashedAsset);
+  const chunkDespiteCacheWriteFailure = await fireFetch(
+    "https://preview.example/_next/static/chunks/cache-put-failure.js",
+  );
+  assert.equal(chunkDespiteCacheWriteFailure.status, 200);
+  assert.equal(await chunkDespiteCacheWriteFailure.text(), "NETWORK");
+  const callsBeforeChunkReuse = networkCalls;
+  const firstChunkLoad = await fireFetch(
+    "https://preview.example/_next/static/chunks/reused.js",
+  );
+  const secondChunkLoad = await fireFetch(
+    "https://preview.example/_next/static/chunks/reused.js",
+  );
+  assert.equal(await firstChunkLoad.text(), "NETWORK");
+  assert.equal(await secondChunkLoad.text(), "NETWORK");
+  assert.equal(networkCalls, callsBeforeChunkReuse + 1);
+  cacheOpenFailures = 1;
+  const chunkDespiteCacheOpenFailure = await fireFetch(
+    "https://preview.example/_next/static/chunks/cache-open-failure.js",
+  );
+  assert.equal(chunkDespiteCacheOpenFailure.status, 200);
+  assert.equal(await chunkDespiteCacheOpenFailure.text(), "NETWORK");
+  const networkFirstDespiteCacheWriteFailure = await fireFetch(
+    "https://preview.example/runtime/cache-put-failure.js",
+  );
+  assert.equal(networkFirstDespiteCacheWriteFailure.status, 200);
+  assert.equal(await networkFirstDespiteCacheWriteFailure.text(), "NETWORK");
+  cacheOpenFailures = 1;
+  const networkFirstDespiteCacheOpenFailure = await fireFetch(
+    "https://preview.example/runtime/cache-open-failure.js",
+  );
+  assert.equal(networkFirstDespiteCacheOpenFailure.status, 200);
+  assert.equal(await networkFirstDespiteCacheOpenFailure.text(), "NETWORK");
+  const imageDespiteCacheWriteFailure = await fireFetch(
+    "https://preview.example/character-portraits/cache-put-failure.png",
+  );
+  assert.equal(imageDespiteCacheWriteFailure.status, 200);
+  assert.equal(await imageDespiteCacheWriteFailure.text(), "NETWORK");
+  cacheOpenFailures = 2;
+  const imageDespiteCacheOpenFailure = await fireFetch(
+    "https://preview.example/character-portraits/cache-open-failure.png",
+  );
+  assert.equal(imageDespiteCacheOpenFailure.status, 200);
+  assert.equal(await imageDespiteCacheOpenFailure.text(), "NETWORK");
+  const challengedChunk = await fireFetch("https://preview.example/_next/static/chunks/challenge.js");
+  assert.equal(challengedChunk.status, 200);
+  assert.equal(await challengedChunk.text(), "CURRENT-RELEASE-CACHED");
+  const offlineChunk = await fireFetch("https://preview.example/_next/static/chunks/network-failure.js");
+  assert.equal(offlineChunk.status, 200);
+  assert.equal(await offlineChunk.text(), "OFFLINE-CACHED");
   let waited = null;
   listeners.get("message")({
     data: {
@@ -365,6 +450,11 @@ async function serviceWorkerFrontdoorUpgrade() {
   });
   await waited;
   assert.deepEqual(await caches.keys(), [`novel-studio-offline-${"c".repeat(40)}-${"d".repeat(64)}`]);
+  const challengedChunkAfterReleaseSwitch = await fireFetch(
+    "https://preview.example/_next/static/chunks/challenge.js",
+  );
+  assert.equal(challengedChunkAfterReleaseSwitch.status, 403);
+  assert.equal(await challengedChunkAfterReleaseSwitch.text(), "CHECKPOINT");
 }
 
 async function rc3ReleaseIdentity() {

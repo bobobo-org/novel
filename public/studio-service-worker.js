@@ -75,26 +75,57 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+async function openActiveCache() {
+  try {
+    return await caches.open(await activeCacheName());
+  } catch {
+    return null;
+  }
+}
+
+async function matchCached(cache, request) {
+  if (!cache) return undefined;
+  try {
+    return await cache.match(request);
+  } catch {
+    return undefined;
+  }
+}
+
+async function storeCached(cache, request, response) {
+  if (!cache || !response.ok) return;
+  try {
+    await cache.put(request, response.clone());
+  } catch {
+    // CacheStorage is progressive enhancement. A successful network response
+    // must still reach the page when a release cache changes in flight.
+  }
+}
+
 async function cacheFirst(request) {
-  const cache = await caches.open(await activeCacheName());
-  const cached = await cache.match(request);
+  let cache = await openActiveCache();
+  const cached = await matchCached(cache, request);
   if (cached) return cached;
   const response = await fetch(request);
-  if (response.ok) {
-    await cache.put(request, response.clone());
-  }
+  if (!cache) cache = await openActiveCache();
+  await storeCached(cache, request, response);
   return response;
 }
 
 async function networkFirst(request) {
-  const cache = await caches.open(await activeCacheName());
   try {
     const response = await fetch(request);
-    if (response.ok) await cache.put(request, response.clone());
+    if (response.ok) {
+      await storeCached(await openActiveCache(), request, response);
+    }
+    // An HTTP response is authoritative, including 401/403. Cached content is
+    // only an offline fallback when fetch itself fails; it must never bypass a
+    // server-side access decision or a deployment protection checkpoint.
     return response;
   } catch {
-    return (await cache.match(request))
-      || (request.mode === "navigate" ? await cache.match(OFFLINE_FALLBACK) : undefined)
+    const cache = await openActiveCache();
+    return (await matchCached(cache, request))
+      || (request.mode === "navigate" ? await matchCached(cache, OFFLINE_FALLBACK) : undefined)
       || Response.error();
   }
 }
@@ -117,6 +148,12 @@ function isPublicVisualAsset(pathname) {
     || pathname.startsWith("/item-icons/");
 }
 
+function isNextFlightRequest(request, url) {
+  return url.searchParams.has("_rsc")
+    || request.headers.get("rsc") === "1"
+    || request.headers.has("next-router-prefetch");
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -129,18 +166,21 @@ self.addEventListener("fetch", (event) => {
     url.pathname === "/api"
     || url.pathname.startsWith("/api/")
     || url.pathname.includes("/_next/webpack-hmr")
+    || isNextFlightRequest(request, url)
     || request.headers.get("range")
   ) return;
   if (isHashedImmutableAsset(url.pathname) || isPublicVisualAsset(url.pathname)) {
     event.respondWith(cacheFirst(request));
     return;
   }
-  if (
-    url.pathname.startsWith("/_next/static/")
-    || /\.(?:js|css)$/i.test(url.pathname)
-  ) {
-    // Application code must prefer the newest deployment. The cache remains
-    // an offline fallback, but it can no longer pin an old UI after an update.
+  if (url.pathname.startsWith("/_next/static/")) {
+    // Next build assets have content-addressed URLs and live inside the
+    // commit-and-digest release cache. Reusing an exact chunk avoids refetching
+    // it on every full navigation without allowing an older release to pin UI.
+    event.respondWith(cacheFirst(request));
+    return;
+  }
+  if (/\.(?:js|css)$/i.test(url.pathname)) {
     event.respondWith(networkFirst(request));
     return;
   }

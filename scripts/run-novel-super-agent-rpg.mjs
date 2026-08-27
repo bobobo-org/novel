@@ -482,7 +482,7 @@ await test("mature character vault contains ten women and ten men with valid RPG
   };
 });
 
-await test("unified story navigation absorbs RPG and offline updates cannot pin stale UI", async () => {
+await test("unified story navigation absorbs RPG and release caches cannot pin stale UI", async () => {
   const [navigation, globalCss, rpgRoute, conversationRpg, workspace, serviceWorker] = await Promise.all([
     readFile(new URL("../app/studio/project/[projectId]/project-navigation.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -517,13 +517,13 @@ await test("unified story navigation absorbs RPG and offline updates cannot pin 
   assert.match(serviceWorker, /NOVEL_RELEASE_IDENTITY/u);
   assert.match(serviceWorker, /identity\.appCommit[\s\S]*identity\.assetManifestDigest/u);
   assert.match(serviceWorker, /retainOnly\(cacheName\)/u);
-  assert.match(serviceWorker, /url\.pathname\.startsWith\("\/_next\/static\/"\)[\s\S]*networkFirst\(request\)/u);
+  assert.match(serviceWorker, /url\.pathname\.startsWith\("\/_next\/static\/"\)[\s\S]*cacheFirst\(request\)/u);
   return {
     navigation: "one story workbench with RPG mode and compatibility redirect",
     mobileMenu: "four-column non-overflow grid",
     approval: "explicit, cancellable, and mutation-free until completion",
     turnRuntime: "single streamed generation with a 180-second AI ceiling and bounded fallback finalization",
-    updateStrategy: "commit-and-digest cache identity with network-first application code",
+    updateStrategy: "commit-and-digest cache identity with content-addressed chunk reuse",
   };
 });
 
