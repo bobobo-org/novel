@@ -430,7 +430,9 @@ function verifyExactProductIdentity(workflow) {
 
 function verifyAliasCutover(workflow) {
   const audit = job(workflow, "audit_last_known_good");
+  const runtime = job(workflow, "runtime_gates");
   const alias = job(workflow, "alias_cutover");
+  assert.match(runtime, /for engine in webkit chromium/u);
   assert.match(alias, /timeout-minutes:\s*45/u);
   assert.match(audit, /Require cryptographic dynamic Last Known Good metadata for normal main push/u);
   assert.match(alias, /Require latest verified Last Known Good for normal cutover/u);
@@ -449,6 +451,11 @@ function verifyAliasCutover(workflow) {
   assert.match(publicGate, /https:\/\/novel-lqtechs-projects\.vercel\.app/u);
   assert.match(publicGate, /MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844/u);
   assert.match(publicGate, /MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568/u);
+  assert.ok(
+    publicGate.indexOf("MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568")
+      < publicGate.indexOf("MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844"),
+    "post-cutover browser proof must run WebKit before the Chromium traffic sweep",
+  );
   assert.match(publicGate, /timeout --signal=TERM --kill-after=30s 600s bash -c/u);
   assert.match(alias, /post-cutover-mobile-browser\.log/u);
   assert.match(alias, /Write Last Known Good only after public verification passes/u);

@@ -1655,7 +1655,10 @@ jobs:
         run: |
           set -euo pipefail
           {
-            for engine in chromium webkit; do
+            # A staged gate intentionally starts with WebKit before the longer
+            # Chromium sweep accumulates automated traffic at Vercel's edge.
+            # Both engines and every viewport still run before alias cutover.
+            for engine in webkit chromium; do
               MOBILE_BROWSER_ENGINE="$engine" pnpm test:mobile:consumer-experience
               for viewport in 320x568 375x812 390x844 430x932; do
                 MOBILE_BROWSER_ENGINE="$engine" MOBILE_VIEWPORT="$viewport" pnpm test:studio:humanized-browser -- "$MOBILE_BASE_URL"
@@ -2169,9 +2172,9 @@ jobs:
               set -euo pipefail
               cd .release-product
               for origin in https://novel-orcin.vercel.app https://novel-lqtechs-projects.vercel.app; do
-                MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844 \
-                  node scripts/run-mobile-consumer-experience.mjs "$origin"
                 MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568 \
+                  node scripts/run-mobile-consumer-experience.mjs "$origin"
+                MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844 \
                   node scripts/run-mobile-consumer-experience.mjs "$origin"
               done
             ' 2>&1 | tee "$RUNNER_TEMP/post-cutover-mobile-browser.log"
