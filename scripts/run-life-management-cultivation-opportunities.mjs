@@ -103,6 +103,10 @@ assert.equal(professionWorldContext(professionProject("現代企業與家族財�
 assert.equal(professionWorldContext(professionProject("修仙宗門與靈根境界"), []), "cultivation");
 assert.equal(professionWorldContext(professionProject("未來星際殖民與星艦"), []), "future");
 assert.equal(professionWorldContext(professionProject("現代律師穿越古代王朝"), []), "cross-era");
+const legacyHistoricalIdentityOverlay = professionProject(
+  "附身變身世界｜歷史宮廷。題材核心仍維持附身變身，不會被自動改寫成修仙故事。",
+);
+assert.equal(professionWorldContext(legacyHistoricalIdentityOverlay, []), "historical");
 assert.ok(professionSuggestions(professionProject("古代王朝"), []).includes("仵作"));
 assert.ok(professionSuggestions(professionProject("修仙宗門"), []).includes("煉丹師"));
 assert.ok(professionSuggestions(professionProject("現代企業"), []).includes("會計師"));
@@ -113,6 +117,8 @@ assert.ok(HISTORICAL_ORGANIZATION_CATALOG.length >= 4);
 assert.ok(FUTURE_ORGANIZATION_CATALOG.length >= 3);
 assert.match(professionContinuityError("醫生", professionProject("古代王朝"), []), /不屬於/u);
 assert.equal(professionContinuityError("郎中", professionProject("古代王朝"), []), null);
+assert.equal(professionContinuityError("工匠", legacyHistoricalIdentityOverlay, []), null);
+assert.match(professionContinuityError("工程師", legacyHistoricalIdentityOverlay, []), /古代／歷史/u);
 
 assert.ok(CULTIVATION_OPPORTUNITIES.length >= 12);
 assert.equal(new Set(CULTIVATION_OPPORTUNITIES.map((item) => item.id)).size, CULTIVATION_OPPORTUNITIES.length);

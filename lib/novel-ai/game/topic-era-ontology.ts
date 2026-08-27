@@ -587,7 +587,7 @@ export function createIdentityMechanismOverlay(input: {
     mechanism: input.mechanism,
     mechanismLabel,
     contextLabel: lexicon.label,
-    premise: `${mechanismLabel}發生在${lexicon.settingTags.slice(0, 2).join("與")}之間。${MECHANISM_PREMISES[input.mechanism]}題材核心仍維持「${topicProfile.topicName}」，不會被自動改寫成修仙故事。`,
+    premise: `${mechanismLabel}發生在${lexicon.settingTags.slice(0, 2).join("與")}之間。${MECHANISM_PREMISES[input.mechanism]}題材核心仍維持「${topicProfile.topicName}」，不會被自動改寫成其他題材。`,
     rolePairs,
     settingTags: [...lexicon.settingTags],
     addressTerms: [...lexicon.addressTerms],

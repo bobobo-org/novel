@@ -174,6 +174,7 @@ for (const [worldOrdinal, contextLabel, institutionType, primaryEra] of [
   assert.equal(contract.eraProfile.identityOverlay?.contextLabel, contextLabel);
   assert.equal(contract.eraProfile.primaryEra, primaryEra);
   assert.ok(contract.eraProfile.institutionTypes.includes(institutionType));
+  assert.doesNotMatch(contract.eraProfile.premise, /(?:不會|不会)被(?:自動|自动)(?:改寫|改写)成修仙故事/u);
   assertNoVisibleInternalCode(contract, `identity context ${contextLabel}`);
   if (["校園社群", "企業職場"].includes(contextLabel)) {
     assert.doesNotMatch(visibleContractText(contract), /煉氣|築基|宗門|靈草|法器/u);

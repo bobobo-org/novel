@@ -45,13 +45,26 @@ export const FUTURE_ORGANIZATION_CATALOG = [
 export type ProfessionWorldContext = "cultivation" | "modern" | "historical" | "future" | "cross-era";
 
 function projectWorldSignal(project: NovelProject, worlds: World[]) {
-  return [
+  return normalizeWorldEraSignal([
     project.genrePackId,
     project.genreId,
     project.subgenreId,
     project.coreIdea.value,
     ...worlds.flatMap((world) => [world.name.value, world.era.value, world.summary.value]),
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join(" "));
+}
+
+/**
+ * Older identity-overlay worlds explicitly said that the host setting would
+ * not be rewritten into a cultivation story.  That negated disclosure is not
+ * evidence that the story itself is cultivation, so remove it before the era
+ * keyword classifier runs.  Keep this compatibility normalizer even after the
+ * source copy changes because existing IndexedDB projects retain the old text.
+ */
+export function normalizeWorldEraSignal(signal: string) {
+  return signal
+    .replace(/(?:不會|不会)被(?:自動|自动)(?:改寫|改写)成修仙故事/gu, "")
+    .replace(/不(?:改寫|改写)修仙\s*Canon/giu, "");
 }
 
 export function professionWorldContext(project: NovelProject, worlds: World[]): ProfessionWorldContext {
