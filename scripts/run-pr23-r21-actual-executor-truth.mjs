@@ -372,8 +372,13 @@ await check("UI and discovery cannot promote a planned route to actual", async (
   ]);
   assert.doesNotMatch(coordinatorSource, /actualExecutor:\s*selected\?\.id/u);
   assert.match(coordinatorSource, /actualExecutor:\s*executionReceipt\?\.backendId\s*\?\?\s*"not_executed"/u);
-  assert.match(studioSource, /plannedProviderId:\s*providerId/u);
-  assert.match(studioSource, /actualExecutor:\s*runtime\.actualExecutor/u);
+  const discoveryStart = studioSource.indexOf("export async function discoverStudioClosedAI");
+  const executionStart = studioSource.indexOf("async function runStudioClosedAIUnsettled");
+  assert.ok(discoveryStart >= 0 && executionStart > discoveryStart);
+  const discoverySource = studioSource.slice(discoveryStart, executionStart);
+  assert.match(discoverySource, /plannedProviderId:\s*providerId/u);
+  assert.match(discoverySource, /actualExecutor:\s*"not_executed"/u);
+  assert.doesNotMatch(discoverySource, /actualExecutor:\s*runtime\.actualExecutor/u);
   assert.doesNotMatch(setupSource, /snapshot\.actualExecutor\s*===\s*"local-ollama"/u);
 });
 

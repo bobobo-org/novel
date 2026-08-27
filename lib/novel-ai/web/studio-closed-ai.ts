@@ -321,10 +321,11 @@ export async function discoverStudioClosedAI(
   const localOllama = providers.find((provider) => provider.id === "local-ollama");
   const browserAI = providers.find((provider) => provider.id === "browser-ai");
   if (localOllama?.status === "ready") {
+    const providerId = localOllama.id;
     return {
       status: "ollama_ready",
-      providerId: localOllama.id,
-      plannedProviderId: localOllama.id,
+      providerId,
+      plannedProviderId: providerId,
       modelId: localOllama.modelId,
       providers,
       actualExecutor: "not_executed",
@@ -332,10 +333,11 @@ export async function discoverStudioClosedAI(
     };
   }
   if (browserAI?.status === "ready") {
+    const providerId = browserAI.id;
     return {
       status: "browser_ready",
-      providerId: browserAI.id,
-      plannedProviderId: browserAI.id,
+      providerId,
+      plannedProviderId: providerId,
       modelId: browserAI.modelId,
       providers,
       actualExecutor: "not_executed",
