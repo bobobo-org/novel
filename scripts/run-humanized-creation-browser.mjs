@@ -142,26 +142,30 @@ try {
     const sessionActions = page.getByTestId("conversation-active-session").locator("span button");
     assert.equal(await sessionActions.count(), 3);
     assert.equal(await sessionActions.locator("svg").count(), 3);
-    await page.waitForFunction(() => {
+    const sessionActionTargetsHandle = await page.waitForFunction(() => {
       const buttons = [...document.querySelectorAll(
         '[data-testid="conversation-active-session"] span button',
       )];
-      return buttons.length === 3 && buttons.every((button) => {
+      const targets = buttons.map((button) => {
         const rect = button.getBoundingClientRect();
-        return Boolean(button.getAttribute("aria-label"))
-          && rect.width >= 44
-          && rect.height >= 44;
+        return {
+          label: button.getAttribute("aria-label") || "",
+          width: rect.width,
+          height: rect.height,
+        };
       });
+      return targets.length === 3
+        && targets.every((target) => target.label && target.width >= 44 && target.height >= 44)
+        ? targets
+        : false;
     }, undefined, { timeout: 10_000 });
-    const sessionActionTargets = await sessionActions.evaluateAll((buttons) => buttons.map((button) => {
-      const rect = button.getBoundingClientRect();
-      return {
-        label: button.getAttribute("aria-label") || "",
-        width: rect.width,
-        height: rect.height,
-      };
-    }));
-    assert.ok(sessionActionTargets.every((target) => target.label && target.width >= 44 && target.height >= 44));
+    const sessionActionTargets = await sessionActionTargetsHandle.jsonValue();
+    await sessionActionTargetsHandle.dispose();
+    assert.equal(sessionActionTargets.length, 3);
+    assert.ok(
+      sessionActionTargets.every((target) => target.label && target.width >= 44 && target.height >= 44),
+      JSON.stringify(sessionActionTargets),
+    );
     await page.getByTestId("conversation-sidebar-close").click();
     const composer = page.getByLabel("小說專案訊息");
     await composer.focus();
