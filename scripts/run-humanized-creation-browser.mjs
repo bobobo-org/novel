@@ -142,6 +142,17 @@ try {
     const sessionActions = page.getByTestId("conversation-active-session").locator("span button");
     assert.equal(await sessionActions.count(), 3);
     assert.equal(await sessionActions.locator("svg").count(), 3);
+    await page.waitForFunction(() => {
+      const buttons = [...document.querySelectorAll(
+        '[data-testid="conversation-active-session"] span button',
+      )];
+      return buttons.length === 3 && buttons.every((button) => {
+        const rect = button.getBoundingClientRect();
+        return Boolean(button.getAttribute("aria-label"))
+          && rect.width >= 44
+          && rect.height >= 44;
+      });
+    }, undefined, { timeout: 10_000 });
     const sessionActionTargets = await sessionActions.evaluateAll((buttons) => buttons.map((button) => {
       const rect = button.getBoundingClientRect();
       return {

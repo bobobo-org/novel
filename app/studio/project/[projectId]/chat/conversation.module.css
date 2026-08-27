@@ -1724,6 +1724,12 @@
   .threadHeader .rightActions button { min-width: 44px; min-height: 44px; white-space: nowrap; }
   .sidebar .iconButton,
   .sidebar .quietButton { min-width: 44px; min-height: 44px; }
+  .sessionActions .iconButton {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    padding: 0;
+  }
   .sidebar .searchInput,
   .sidebar .renameInput,
   .sidebar .sessionButton { min-height: 44px; }
