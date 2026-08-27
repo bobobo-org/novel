@@ -19,8 +19,22 @@ const context = await browser.newContext({
 });
 const page = await context.newPage();
 const consoleErrors = [];
+const requestFailures = [];
 page.on("console", (message) => {
-  if (message.type() === "error") consoleErrors.push(message.text());
+  if (message.type() === "error") {
+    consoleErrors.push({
+      text: message.text(),
+      url: message.location().url ?? "",
+    });
+  }
+});
+page.on("requestfailed", (request) => {
+  requestFailures.push({
+    url: request.url(),
+    errorText: request.failure()?.errorText ?? "unknown",
+    method: request.method(),
+    resourceType: request.resourceType(),
+  });
 });
 
 const results = [];
@@ -241,22 +255,38 @@ try {
   });
 
   await check("browser console has no unexpected errors or repeated native permission probes", async () => {
-    const nativePermissionErrors = consoleErrors.filter((message) => (
-      /Access to fetch at 'http:\/\/127\.0\.0\.1:32(?:17|27)\/health'/u.test(message)
-      && message.includes("blocked by CORS policy")
-      && message.includes("Permission was denied")
-      && message.includes("`loopback` address space")
-    ));
-    const blockedResourceErrors = consoleErrors.filter(
-      (message) => message === "Failed to load resource: net::ERR_FAILED",
+    const isCompanionHealthUrl = (url) => (
+      /^http:\/\/127\.0\.0\.1:32(?:17|27)\/health$/u.test(url)
     );
-    const unexpectedErrors = consoleErrors.filter((message) => (
-      !nativePermissionErrors.includes(message)
-      && message !== "Failed to load resource: net::ERR_FAILED"
+    const loopbackCompanionFailures = requestFailures.filter(({ url, method, resourceType }) => (
+      isCompanionHealthUrl(url)
+      && method === "GET"
+      && resourceType === "fetch"
     ));
+    const nativePermissionErrors = consoleErrors.filter(({ text }) => (
+      /Access to fetch at 'http:\/\/127\.0\.0\.1:32(?:17|27)\/health'/u.test(text)
+      && text.includes("blocked by CORS policy")
+      && text.includes("Permission was denied")
+      && text.includes("`loopback` address space")
+    ));
+    const loopbackResourceErrors = consoleErrors.filter(({ text, url }) => (
+      isCompanionHealthUrl(url)
+      && /(?:Failed to load resource|Load failed|Could not connect|ERR_(?:FAILED|CONNECTION_REFUSED)|NS_ERROR_CONNECTION_REFUSED)/iu.test(text)
+    ));
+    const unexpectedErrors = consoleErrors.filter((entry) => (
+      !nativePermissionErrors.includes(entry)
+      && !loopbackResourceErrors.includes(entry)
+    ));
+    assert.ok(loopbackCompanionFailures.length <= 2, "each optional Companion health endpoint may fail once when no local runtime is installed");
+    assert.equal(
+      new Set(loopbackCompanionFailures.map(({ url }) => new URL(url).port)).size,
+      loopbackCompanionFailures.length,
+      "the public journey must not retry a missing Companion endpoint",
+    );
     assert.deepEqual(unexpectedErrors, []);
     assert.ok(nativePermissionErrors.length <= 2, "each Companion endpoint may trigger the native gate at most once");
-    assert.ok(blockedResourceErrors.length <= nativePermissionErrors.length, "generic failures must correspond to a native permission gate");
+    assert.ok(nativePermissionErrors.length <= loopbackCompanionFailures.length, "native permission errors must correspond to optional Companion health probes");
+    assert.ok(loopbackResourceErrors.length <= loopbackCompanionFailures.length, "console resource errors must point to a failed optional Companion health request");
   });
 
   console.log(JSON.stringify({
