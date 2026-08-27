@@ -243,6 +243,15 @@ export default function CharacterRelationshipWorkbench({
     return () => window.clearTimeout(timer);
   }, [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const revealCanonEditor = () => {
+      if (window.location.hash === "#character-world-memory-home") setCanonEditorsOpen(true);
+    };
+    revealCanonEditor();
+    window.addEventListener("hashchange", revealCanonEditor);
+    return () => window.removeEventListener("hashchange", revealCanonEditor);
+  }, []);
+
   const selectedCharacter = data.characters.find((character) => character.id === selectedCharacterId) ?? null;
   const storyBible = data.storyBibles.find((item) => item.id === project.storyBibleId) ?? data.storyBibles[0] ?? null;
   const storyState = data.storyStates.find((item) => item.id === project.storyStateId) ?? data.storyStates[0] ?? null;
@@ -967,7 +976,7 @@ export default function CharacterRelationshipWorkbench({
         onToggle={(event) => setCharacterEditorsOpen(event.currentTarget.open)}
       >
         <summary>在首頁編修正式人物與人物關係</summary>
-        {characterEditorsOpen ? <div className="characterRelationForms">
+        <div className="characterRelationForms">
           <form onSubmit={saveCharacter}>
           <h3>{selectedCharacterId === "__new__" ? "在首頁建立人物" : "快速編修人物"}</h3>
           {selectedPortrait ? <div className="characterSelectedPortrait wide"><CharacterPortraitImage portrait={selectedPortrait} /><p><b>{selectedPortrait.role}</b><span>{selectedPortrait.themeLabel} · 依目前人物屬性自動配對</span><small>{selectedPortrait.visualDescription}</small></p></div> : null}
@@ -1007,7 +1016,7 @@ export default function CharacterRelationshipWorkbench({
           <label className="wide">關係歷史／目前矛盾<input value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="例：同門多年，因掌門繼承問題成為競爭者" /></label>
           <button disabled={busy || data.characters.length < 2} type="submit">儲存關係</button>
           </form> : <article className="characterRelationEmpty"><h3>人物關係</h3><p>建立至少兩位人物後，即可在首頁連接正式關係。</p></article>}
-        </div> : null}
+        </div>
       </details>
 
       <details
@@ -1016,7 +1025,7 @@ export default function CharacterRelationshipWorkbench({
         onToggle={(event) => setCanonEditorsOpen(event.currentTarget.open)}
       >
         <summary>在首頁編修正式世界與 Story Bible</summary>
-        {canonEditorsOpen ? <>
+        <>
         <div>
           <form onSubmit={saveWorld}>
             <h3>正式世界</h3>
@@ -1079,7 +1088,7 @@ export default function CharacterRelationshipWorkbench({
             <div><button type="submit" disabled={busy}>儲存事件</button>{selectedTimelineId !== "__new__" ? <button type="button" disabled={busy} onClick={() => void removeSelectedTimeline()}>刪除事件</button> : null}</div>
           </form>
         </div>
-        </> : null}
+        </>
       </details>
       {message ? <p className="characterRelationMessage" role="status">{message}</p> : null}
       {usesCultivationCanon ? <details className="cultivationCanonPanel" open={!compact}>
