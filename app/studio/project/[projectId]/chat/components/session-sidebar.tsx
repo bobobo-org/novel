@@ -100,7 +100,7 @@ export function SessionSidebar({
                 className={styles.iconButton}
                 type="button"
                 title="重新命名"
-                aria-label={`重新命名對話：${session.title}`}
+                aria-label="重新命名此對話"
                 disabled={busy}
                 onClick={() => onRenameSession(session)}
               >
@@ -113,7 +113,7 @@ export function SessionSidebar({
                 className={styles.iconButton}
                 type="button"
                 title="封存"
-                aria-label={`封存對話：${session.title}`}
+                aria-label="封存此對話"
                 disabled={busy}
                 onClick={() => onArchiveSession(session)}
               >
@@ -126,7 +126,7 @@ export function SessionSidebar({
                 className={`${styles.iconButton} ${styles.danger}`}
                 type="button"
                 title="刪除"
-                aria-label={`刪除對話：${session.title}`}
+                aria-label="刪除此對話"
                 disabled={busy}
                 onClick={() => onDeleteSession(session)}
               >
