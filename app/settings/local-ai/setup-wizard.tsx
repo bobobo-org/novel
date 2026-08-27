@@ -86,7 +86,9 @@ export default function LocalAISetupWizard() {
   const [bridgeVersion, setBridgeVersion] = useState<string | null>(null);
   const [rememberWithinTab, setRememberWithinTab] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("正在檢查這台裝置。");
+  const [message, setMessage] = useState(
+    "等待你按下「檢查本機網路權限」或「連線／檢查」後，才會連接這台電腦。",
+  );
   const [copied, setCopied] = useState("");
 
   useEffect(() => {
@@ -176,7 +178,7 @@ export default function LocalAISetupWizard() {
             : automaticConnectionError
               ? runtimeMessage(automaticConnectionError)
               : directConnectionEnabled
-                ? "安裝並啟動 Companion 後，這個正式網址會免密碼自動連線與實測模型。"
+                ? "安裝並啟動 Companion 後，按下連線／檢查即可取得短期工作階段並實測模型。"
                 : "依序完成下載、啟動、配對與模型實測。",
       );
     } catch (error) {
@@ -185,14 +187,6 @@ export default function LocalAISetupWizard() {
       setBusy(false);
     }
   }, [client, coordinator, directConnectionEnabled, origin, selectedModel]);
-
-  useEffect(() => {
-    if (!origin) return;
-    const timer = window.setTimeout(() => {
-      void refresh();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [origin, refresh]);
 
   async function copy(name: string, value: string) {
     try {
@@ -298,7 +292,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
     <main
       className={styles.shell}
       data-testid="local-ai-setup"
-      data-runtime-state={runtime?.state ?? "checking"}
+      data-runtime-state={runtime?.state ?? "idle"}
     >
       <header className={styles.hero}>
         <div>
@@ -314,7 +308,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
           data-testid="local-ai-runtime-state"
           data-ready={ready}
         >
-          <span>{ready ? "READY" : runtime?.state ?? "CHECKING"}</span>
+          <span>{ready ? "READY" : runtime?.state ?? "WAITING"}</span>
           <strong>{ready ? "本機模型可執行" : "尚待完成設定"}</strong>
           <small>{message}</small>
         </div>
@@ -324,22 +318,22 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
         <Link href={returnTo}>返回原本的創作畫面</Link>
         <Link href="/studio/settings/ai">進階診斷</Link>
         <button type="button" disabled={busy} onClick={() => void refresh()}>
-          重新檢查
+          連線／檢查
         </button>
       </nav>
 
       <section className={styles.truthGrid} aria-label="執行真相">
         <article>
           <span>本機網路權限</span>
-          <strong>{runtime?.localNetworkPermission ?? "checking"}</strong>
+          <strong>{runtime?.localNetworkPermission ?? "waiting"}</strong>
         </article>
         <article>
           <span>Local Bridge</span>
-          <strong>{runtime?.localBridge.status ?? "checking"}</strong>
+          <strong>{runtime?.localBridge.status ?? "waiting"}</strong>
         </article>
         <article>
           <span>Ollama／模型</span>
-          <strong>{runtime?.localOllama.status ?? "checking"}</strong>
+          <strong>{runtime?.localOllama.status ?? "waiting"}</strong>
         </article>
         <article>
           <span>實際執行器</span>
@@ -355,7 +349,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
           <div>
             <h2>允許這個網站使用本機 AI</h2>
             <p>
-              按下重新檢查；若 Edge 詢問是否允許存取本機網路，請核對網址後按「允許」。
+              按下「連線／檢查」；若 Edge 詢問是否允許存取本機網路，請核對網址後按「允許」。
               沒有出現詢問也沒關係，系統會直接顯示目前狀態。
             </p>
             <div className={styles.actions}>
@@ -364,7 +358,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
               </button>
             </div>
             <p className={runtime?.localNetworkPermission === "denied" ? "" : styles.success}>
-              目前狀態：{runtime?.localNetworkPermission ?? "檢查中"}
+              目前狀態：{runtime?.localNetworkPermission ?? "等待手動檢查"}
             </p>
             <details>
               <summary>技術說明</summary>
@@ -382,9 +376,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
             <h2>準備這台電腦的 AI 服務</h2>
             <p>
               如果狀態不是「可連線」，下載並執行一次 Windows 安裝器；它會安裝、
-              立即啟動並設定登入自動啟動。完成後回來按重新檢查。
+              立即啟動並設定登入自動啟動。完成後回來按「連線／檢查」。
             </p>
-            <p>目前狀態：{runtime?.localBridge.status ?? "檢查中"}</p>
+            <p>目前狀態：{runtime?.localBridge.status ?? "等待手動檢查"}</p>
             <details>
               <summary>一鍵安裝／進階技術資訊</summary>
               <p data-testid="local-ai-companion-version-status">
@@ -395,7 +389,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                     ? " 版本不相容，請下載更新後重新啟動。"
                     : bridgeVersionStatus === "update_available"
                       ? " 有新版可更新。"
-                      : " 啟動後會自動核對版本。"}
+                      : " 按下連線／檢查後會核對版本。"}
                 套件可用 SHA-256 驗證，目前未簽章。組織政策若禁止未簽章程式，請勿繞過政策。
               </p>
               <div className={styles.actions}>
@@ -433,7 +427,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                 一鍵安裝器會檢查 Node.js {LOCAL_AI_COMPANION_RELEASE.minimumNodeMajor}+、Ollama、
                 登入自動啟動與快速 3B 模型。16 GB RAM 進階建議：<code>ollama pull {RECOMMENDED_LOCAL_WRITER_MODEL}</code>；
                 記憶體較少可用 <code>ollama pull {FAST_LOCAL_WRITER_MODEL}</code>。
-                首次自動連線會先用快速 3B 完成真實推理驗證，避免 7B 冷啟動卡住畫面；
+                首次按下連線／檢查會先用快速 3B 完成真實推理驗證，避免 7B 冷啟動卡住畫面；
                 連線後仍可在下方切換並驗證 7B 品質模型。
               </p>
               <ul className={styles.modelGuide}>
@@ -470,7 +464,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
         <article>
           <span className={styles.stepNumber}>3</span>
           <div>
-            <h2>{directConnectionEnabled ? "免密碼自動連線" : "一次性安全配對"}</h2>
+            <h2>{directConnectionEnabled ? "免密碼直接連線" : "一次性安全配對"}</h2>
             <label className={styles.checkbox}>
               <input
                 type="checkbox"
@@ -490,7 +484,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
               ) : (
                 <div className={styles.pairBox}>
                   <p>
-                    不需輸入密碼或六位數碼。Companion 啟動後，正式站會用精確 Origin 綁定的短期工作階段直接連線。
+                    不需輸入密碼或六位數碼。Companion 啟動後，按下按鈕才會用精確 Origin 綁定的短期工作階段直接連線。
                   </p>
                   <button
                     type="button"
@@ -498,7 +492,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
                     disabled={busy}
                     onClick={() => void refresh()}
                   >
-                    重新自動連線
+                    連線並檢查
                   </button>
                 </div>
               )

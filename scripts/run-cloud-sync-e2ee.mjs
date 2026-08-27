@@ -382,6 +382,11 @@ test("private Storage provisioning is gated, server-only and preserves the addit
   assert.match(provisioner, /public:\s*false/iu);
   assert.match(provisioner, /allowedMimeTypes:\s*\["application\/json"\]/u);
   assert.match(provisioner, /storage_provisioned_and_verified/u);
+  assert.match(provisioner, /MAX_PROVISION_ATTEMPTS\s*=\s*5/u);
+  assert.match(provisioner, /\[408, 425, 429\]\.includes\(status\)/u);
+  assert.match(provisioner, /status >= 500/u);
+  assert.match(provisioner, /status:\s*"storage_provision_retry"/u);
+  assert.match(provisioner, /RETRY_BASE_DELAY_MS \* \(2 \*\* \(attempt - 1\)\)/u);
   assert.doesNotMatch(provisioner, /SUPABASE_ACCESS_TOKEN/u);
   assert.doesNotMatch(provisioner, /console\.(?:log|error)\([^\n]*(?:serviceRoleKey|authorization)/u);
   assert.match(backend, /locks\/\$\{projectId\}\/\$\{expectedRevision\}\.json/u);

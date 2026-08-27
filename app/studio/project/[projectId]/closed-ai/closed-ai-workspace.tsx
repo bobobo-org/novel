@@ -313,11 +313,13 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const computePolicy: BrowserComputePolicy = "browser-first";
   const [storyBibleRevision, setStoryBibleRevision] = useState("current");
   const [knowledgeScopeRevision, setKnowledgeScopeRevision] = useState("current");
-  const [status, setStatus] = useState("正在啟動統合閉端 AI 自動協調器。");
+  const [status, setStatus] = useState("統合閉端 AI 自動協調器已載入；尚未連接本機服務。");
   const [busy, setBusy] = useState(false);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [rememberPairing, setRememberPairing] = useState(true);
-  const [runtimeStatus, setRuntimeStatus] = useState("正在檢查本機執行環境。");
+  const [runtimeStatus, setRuntimeStatus] = useState(
+    "等待你按下「連線／檢查」後，才會連接這台電腦的閉端 AI。",
+  );
   const [networkOnline, setNetworkOnline] = useState(true);
   const [offlineWorkerControlled, setOfflineWorkerControlled] = useState(false);
   const [browserCapability, setBrowserCapability] = useState<BrowserAICapability | null>(null);
@@ -357,9 +359,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   const [localRuntimeVersion, setLocalRuntimeVersion] = useState<string | null>(null);
   const [hubRuntimeVersion, setHubRuntimeVersion] = useState<string | null>(null);
   const [contextInventory, setContextInventory] = useState<ContextInventory | null>(null);
-  const automaticConnectionOrigin = useRef<string | null>(null);
   const automaticConnectionRunning = useRef(false);
-  const automaticConnectionCheckedAt = useRef(0);
   const selectedBrowserModel = browserWebLlm?.models.find((item) => item.selected);
   const browserPrewarmKey = selectedBrowserModel?.installStatus === "ready"
     && selectedBrowserModel.cacheVerified
@@ -976,7 +976,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     } catch (error) {
       setRuntimeStatus(runtimeError(error));
     } finally {
-      automaticConnectionCheckedAt.current = Date.now();
       automaticConnectionRunning.current = false;
       setRuntimeBusy(false);
     }
@@ -985,33 +984,6 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
   useEffect(() => {
     runtimeCoordinator.setRememberPairingWithinTab(rememberPairing);
   }, [rememberPairing, runtimeCoordinator]);
-
-  useEffect(() => {
-    if (!currentOrigin) return;
-    if (automaticConnectionOrigin.current === currentOrigin) return;
-    automaticConnectionOrigin.current = currentOrigin;
-    const initialization = window.setTimeout(() => {
-      void connectRuntimesAutomatically();
-    }, 0);
-    return () => window.clearTimeout(initialization);
-  }, [connectRuntimesAutomatically, currentOrigin]);
-
-  useEffect(() => {
-    if (!currentOrigin) return;
-    const reconnectAfterResume = () => {
-      if (document.visibilityState !== "visible") return;
-      if (Date.now() - automaticConnectionCheckedAt.current < 60_000) return;
-      void connectRuntimesAutomatically();
-    };
-    window.addEventListener("focus", reconnectAfterResume);
-    window.addEventListener("online", reconnectAfterResume);
-    document.addEventListener("visibilitychange", reconnectAfterResume);
-    return () => {
-      window.removeEventListener("focus", reconnectAfterResume);
-      window.removeEventListener("online", reconnectAfterResume);
-      document.removeEventListener("visibilitychange", reconnectAfterResume);
-    };
-  }, [connectRuntimesAutomatically, currentOrigin]);
 
   async function verifyBrowserRuntime() {
     if (runtimeBusy) return;
@@ -1643,11 +1615,11 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <p>這裡只管理同一個小說閉端 AI 的算力、知識索引、Cache、學習與證據；故事工作一律從故事工作台開始。</p>
         </div>
         <div className={styles.headerActions}>
-          <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "核對中"}</span>
+          <span data-ready={dashboard?.status === "ready"}>Closed Agent OS：{dashboard?.status === "ready" ? "就緒" : "等待檢查"}</span>
           <Link href={`/studio/project/${projectId}/chat`}>返回故事工作台</Link>
           <Link href="/settings/local-ai">本機 AI 安裝精靈</Link>
           <button type="button" disabled={busy || runtimeBusy} onClick={() => void connectRuntimesAutomatically()}>
-            重新連線／檢查
+            連線／檢查
           </button>
         </div>
       </header>
@@ -1675,7 +1647,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
           <span>目前能力真相</span>
           <strong>{recommendedFleetModel
             ? `${recommendedFleetModel.modelId} · 適配 ${recommendedFleetModel.score}%`
-            : "等待本機服務自動連線"}</strong>
+            : "等待你按下連線／檢查"}</strong>
           <p>{recommendedFleetModel
             ? recommendedFleetModel.reasons.slice(0, 2).join("；")
             : "架構已支援多模型；實際能力仍取決於已安裝、已驗證的模型與硬體。"}</p>
@@ -1767,7 +1739,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
               checked={rememberPairing}
               onChange={(event) => setRememberPairing(event.target.checked)}
             />
-            自動連線只在目前分頁保留短期工作階段；不需密碼或配對碼，關閉分頁即失效，也不寫入 localStorage 或作品備份。
+            按下連線後取得的短期工作階段只在目前分頁保留；不需密碼或配對碼，關閉分頁即失效，也不寫入 localStorage 或作品備份。
           </label>
           <div className={styles.backendList}>
             {snapshots.map((snapshot) => (
@@ -2047,7 +2019,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                       disabled={runtimeBusy}
                       onClick={() => void connectRuntimesAutomatically()}
                     >
-                      重新自動連線
+                      連線並檢查
                     </button> : null}
                   </> : <>
                     <code>node local-ai/bridge/launcher.mjs start</code>
@@ -2116,7 +2088,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
                       disabled={runtimeBusy}
                       onClick={() => void connectRuntimesAutomatically()}
                     >
-                      重新自動連線
+                      連線並檢查
                     </button> : null}
                   </> : <>
                     <code>node local-ai/private-hub/launcher.mjs start</code>

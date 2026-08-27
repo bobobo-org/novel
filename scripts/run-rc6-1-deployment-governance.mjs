@@ -1537,12 +1537,19 @@ async function testBoundedTimeoutsAndRollbackBudget() {
     + 60_000 // rollback-target selection
     + (360_000 - 180_000) // cutover promotion window; reserve is unavailable to promotion
     + 180_000 // public verification
+    + 600_000 // exact public mobile browser proof across both aliases and engines
     + 240_000; // compensating restore
   assert.ok(
-    worstCaseSuccessThenCompensationMs <= (20 * 60_000) - 300_000,
+    worstCaseSuccessThenCompensationMs <= (45 * 60_000) - 300_000,
     "alias job must reserve at least five minutes beyond bounded operations",
   );
-  assert.match(aliasJob, /timeout-minutes:\s*20/u);
+  assert.match(aliasJob, /timeout-minutes:\s*45/u);
+  assert.match(aliasJob, /timeout --signal=TERM --kill-after=30s 600s bash -c/u);
+  const rollbackGuardJob = jobSection("alias_cutover_rollback_guard");
+  assert.match(rollbackGuardJob, /needs\.alias_cutover\.result == 'failure'/u);
+  assert.match(rollbackGuardJob, /needs\.alias_cutover\.result == 'cancelled'/u);
+  assert.match(rollbackGuardJob, /production-last-known-good\.mjs select/u);
+  assert.match(rollbackGuardJob, /vercel-dual-alias-cutover\.mjs restore/u);
   assert.match(publicGateSource, /boundedFetch/u);
   assert.match(publicGateSource, /boundedOperation/u);
   assert.match(envGovernanceSource, /PRODUCTION_AUDIT_PROJECT_LOOKUP_TIMEOUT/u);

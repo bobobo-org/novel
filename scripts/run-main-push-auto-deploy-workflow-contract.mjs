@@ -431,6 +431,7 @@ function verifyExactProductIdentity(workflow) {
 function verifyAliasCutover(workflow) {
   const audit = job(workflow, "audit_last_known_good");
   const alias = job(workflow, "alias_cutover");
+  assert.match(alias, /timeout-minutes:\s*45/u);
   assert.match(audit, /Require cryptographic dynamic Last Known Good metadata for normal main push/u);
   assert.match(alias, /Require latest verified Last Known Good for normal cutover/u);
   const recoveryLkg = step(alias, "Require exact prior RC6.2 Last Known Good only for recovery cutover");
@@ -448,10 +449,21 @@ function verifyAliasCutover(workflow) {
   assert.match(publicGate, /https:\/\/novel-lqtechs-projects\.vercel\.app/u);
   assert.match(publicGate, /MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844/u);
   assert.match(publicGate, /MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568/u);
+  assert.match(publicGate, /timeout --signal=TERM --kill-after=30s 600s bash -c/u);
   assert.match(alias, /post-cutover-mobile-browser\.log/u);
   assert.match(alias, /Write Last Known Good only after public verification passes/u);
   assert.match(alias, /Publish dynamic Last Known Good identity/u);
   assert.doesNotMatch(recoveryLkg, /github\.event_name == 'push'/u);
+
+  const rollbackGuard = job(workflow, "alias_cutover_rollback_guard");
+  assert.match(rollbackGuard, /needs:\s*\[alias_cutover\]/u);
+  assert.match(rollbackGuard, /needs\.alias_cutover\.result == 'failure'/u);
+  assert.match(rollbackGuard, /needs\.alias_cutover\.result == 'cancelled'/u);
+  assert.match(rollbackGuard, /production-last-known-good\.mjs discover/u);
+  assert.match(rollbackGuard, /production-last-known-good\.mjs download/u);
+  assert.match(rollbackGuard, /DISABLE_CURRENT_CAPTURE:\s*'true'/u);
+  assert.match(rollbackGuard, /production-last-known-good\.mjs select/u);
+  assert.match(rollbackGuard, /vercel-dual-alias-cutover\.mjs restore/u);
 }
 
 function verifyNoDuplicateProductionDeploy(workflow, vercel) {

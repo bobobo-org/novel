@@ -1041,6 +1041,7 @@ await test("every Closed AI command button has a real handler or form action", (
 });
 
 await test("official production UI connects local runtimes on demand and exposes version updates", () => {
+  const count = (source, marker) => source.split(marker).length - 1;
   for (const marker of [
     "connectRuntimesAutomatically",
     'data-testid="closed-ai-auto-connect-status"',
@@ -1074,15 +1075,53 @@ await test("official production UI connects local runtimes on demand and exposes
   for (const marker of [
     "runtimeCoordinator.connectAutomatically()",
     'data-testid="pair-auto-retry"',
-    "正式網址會直接要求短期、精確來源的本機工作階段",
+    "按下連線／檢查後，正式網址才會要求短期、精確來源的本機工作階段",
   ]) {
     assert.ok(aiSettingsSource.includes(marker), `AI settings: ${marker}`);
   }
+  assert.equal(
+    count(localAISetupSource, "void refresh()"),
+    count(localAISetupSource, "onClick={() => void refresh()}"),
+    "setup wizard must only probe loopback after an explicit click",
+  );
+  assert.ok(localAISetupSource.includes("等待你按下「檢查本機網路權限」"));
+  assert.equal(
+    count(aiSettingsSource, "void refresh()"),
+    count(aiSettingsSource, "onClick={() => void refresh()}"),
+    "AI settings must only probe loopback after an explicit click",
+  );
+  assert.ok(aiSettingsSource.includes('browser: "等待手動檢查"'));
+  assert.equal(
+    count(workspaceSource, "void connectRuntimesAutomatically()"),
+    count(workspaceSource, "onClick={() => void connectRuntimesAutomatically()}"),
+    "Closed AI workspace must only connect loopback runtimes after an explicit click",
+  );
+  assert.ok(workspaceSource.includes("等待你按下「連線／檢查」後"));
+  assert.ok(localAISetupSource.includes("client.connectAutomatically"));
+  assert.ok(aiSettingsSource.includes("runtimeCoordinator.connectAutomatically()"));
+  assert.ok(workspaceSource.includes("runtimeCoordinator.connectLocalAutomatically()"));
+  assert.ok(workspaceSource.includes("connectPrivateHubAutomatically()"));
+  assert.ok(!workspaceSource.includes("reconnectAfterResume"));
+  assert.ok(!workspaceSource.includes("automaticConnectionCheckedAt"));
   assert.ok(!frontdoorSource.includes("coordinator.connectAutomatically()"));
   assert.ok(frontdoorSource.includes("a public front door must never probe"));
   assert.ok(!studioClosedAISource.includes("coordinator.connectAutomatically(signal)"));
-  assert.ok(studioClosedAISource.includes("Discovery is a read-only status refresh"));
+  const passiveDiscoveryStart = studioClosedAISource.indexOf("async function readPassiveStudioProviderSnapshots");
+  const explicitExecutionStart = studioClosedAISource.indexOf("async function runStudioClosedAIUnsettled");
+  assert.ok(passiveDiscoveryStart >= 0, "Studio mount discovery must have a passive provider reader");
+  assert.ok(explicitExecutionStart > passiveDiscoveryStart, "passive discovery must stay before explicit execution");
+  const passiveDiscoverySource = studioClosedAISource.slice(passiveDiscoveryStart, explicitExecutionStart);
+  assert.ok(passiveDiscoverySource.includes("getSessionMetadata()"));
+  assert.ok(passiveDiscoverySource.includes("getModelVerification()"));
+  assert.ok(passiveDiscoverySource.includes("readPassiveStudioProviderSnapshots(signal)"));
+  assert.doesNotMatch(
+    passiveDiscoverySource,
+    /\.refresh\(|restoreRememberedSession|backendSnapshots|connectAutomatically|connectLocalAutomatically|connectPrivateHubAutomatically/u,
+    "public mount discovery must never restore, probe, or connect a Companion backend",
+  );
   assert.ok(studioClosedAISource.includes("connectLocalAutomatically(input.signal)"));
+  assert.ok(closedAgentServiceSource.includes("connectLocalAutomatically(input.signal)"));
+  assert.ok(closedAgentServiceSource.includes("connectPrivateHubAutomatically(input.signal)"));
 });
 
 await test("web workspaces expose real CRUD, chapter, AI, learning and safe legacy handoff", () => {

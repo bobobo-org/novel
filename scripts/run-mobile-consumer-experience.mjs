@@ -105,6 +105,48 @@ async function assertTouchTargets(locator, label) {
   }
 }
 
+async function seedRememberedCompanionSessions(context) {
+  await context.addInitScript(() => {
+    if (!/^https?:$/u.test(window.location.protocol)) return;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 30 * 60_000).toISOString();
+    const savedAt = now.toISOString();
+    const common = {
+      schemaVersion: "closed-ai-tab-session-v1",
+      origin: window.location.origin,
+      expiresAt,
+      session: {
+        token: "remembered-session-token-that-must-never-trigger-a-public-mount-probe",
+        csrf: "remembered-session-csrf-that-must-stay-passive",
+      },
+      modelId: null,
+      modelDigest: null,
+      modelProof: null,
+      savedAt,
+    };
+    window.sessionStorage.setItem(
+      "novel.closed-ai.local-ollama.tab-session.v1",
+      JSON.stringify({
+        ...common,
+        backend: "local-ollama",
+        protocolVersion: "novel-local-bridge/v1",
+        endpoint: "http://127.0.0.1:3217",
+        instanceId: "remembered-local-instance",
+      }),
+    );
+    window.sessionStorage.setItem(
+      "novel.closed-ai.private-ai-hub.tab-session.v1",
+      JSON.stringify({
+        ...common,
+        backend: "private-ai-hub",
+        protocolVersion: "novel-private-hub/v1",
+        endpoint: "http://127.0.0.1:3227",
+        instanceId: "remembered-private-instance",
+      }),
+    );
+  });
+}
+
 try {
   browser = await browserType.launch({ headless: true });
   for (const viewport of viewports) {
@@ -116,6 +158,7 @@ try {
       deviceScaleFactor: 2,
       serviceWorkers: "allow",
     });
+    await seedRememberedCompanionSessions(context);
     const sizeLabel = `${viewport.width}x${viewport.height}`;
     const page = await context.newPage();
     const pageErrors = [];
@@ -150,7 +193,7 @@ try {
     assert.deepEqual(forbiddenImages, [], `${sizeLabel}: machine-local image URLs leaked into the public UI`);
     assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public front door must not probe a machine-local Companion`);
     assert.deepEqual(pageErrors, [], `${sizeLabel}: front door page errors`);
-    record(`${engineName} ${sizeLabel} public front door`);
+    record(`${engineName} ${sizeLabel} remembered-session public front door`);
 
     await Promise.all([
       page.waitForURL(/\/professional\?intent=library$/u, { timeout: 60_000 }),
@@ -162,7 +205,7 @@ try {
     await assertTouchTargets(page.getByRole("link", { name: "建立第一部作品" }), `${sizeLabel} fresh library CTA`);
     assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public library journey must not inherit a machine-local Companion probe`);
     assert.deepEqual(pageErrors, [], `${sizeLabel}: library page errors`);
-    record(`${engineName} ${sizeLabel} fresh-user library`);
+    record(`${engineName} ${sizeLabel} remembered-session fresh-user library`);
 
     await Promise.all([
       page.waitForURL(/\/studio\/create$/u, { timeout: 60_000 }),
@@ -187,6 +230,42 @@ try {
     assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public creation journey must not probe a machine-local Companion`);
     assert.deepEqual(pageErrors, [], `${sizeLabel}: create page errors`);
     record(`${engineName} ${sizeLabel} creation flow`);
+
+    await page.goto(`${baseUrl}/settings/local-ai`, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    await page.getByTestId("local-ai-setup").waitFor({ state: "visible" });
+    await assertNoClippedControls(page, `${sizeLabel} local AI setup`);
+    await assertTouchTargets(
+      page.getByRole("button", { name: "連線／檢查", exact: true }).first(),
+      `${sizeLabel} local AI explicit connection`,
+    );
+    assert.deepEqual(
+      unexpectedLoopbackRequests,
+      [],
+      `${sizeLabel}: local AI setup must wait for an explicit connection action`,
+    );
+    assert.deepEqual(pageErrors, [], `${sizeLabel}: local AI setup page errors`);
+    record(`${engineName} ${sizeLabel} passive local AI setup`);
+
+    await page.goto(`${baseUrl}/studio/settings/ai`, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    await page.getByRole("heading", { name: "AI 使用方式" }).waitFor({ state: "visible" });
+    await assertNoClippedControls(page, `${sizeLabel} AI settings`);
+    await assertTouchTargets(
+      page.getByRole("button", { name: "連線／檢查", exact: true }).first(),
+      `${sizeLabel} AI settings explicit connection`,
+    );
+    assert.deepEqual(
+      unexpectedLoopbackRequests,
+      [],
+      `${sizeLabel}: AI settings must wait for an explicit connection action`,
+    );
+    assert.deepEqual(pageErrors, [], `${sizeLabel}: AI settings page errors`);
+    record(`${engineName} ${sizeLabel} passive AI settings`);
 
     await context.close();
   }

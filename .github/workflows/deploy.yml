@@ -1834,7 +1834,10 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == '9cd074f239b73dd9b61f6d758fcf97fbd809face' && inputs.operation == 'deploy-immutable-product-recovery')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The public browser proof has its own ten-minute hard deadline. Keep a
+    # separate job-level reserve so a timed-out proof can still restore both
+    # aliases before GitHub terminates the runner.
+    timeout-minutes: 45
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -2162,7 +2165,8 @@ jobs:
           set -euo pipefail
           node scripts/verify-production-public-cutover.mjs
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            {
+            timeout --signal=TERM --kill-after=30s 600s bash -c '
+              set -euo pipefail
               cd .release-product
               for origin in https://novel-orcin.vercel.app https://novel-lqtechs-projects.vercel.app; do
                 MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844 \
@@ -2170,7 +2174,7 @@ jobs:
                 MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568 \
                   node scripts/run-mobile-consumer-experience.mjs "$origin"
               done
-            } 2>&1 | tee "$RUNNER_TEMP/post-cutover-mobile-browser.log"
+            ' 2>&1 | tee "$RUNNER_TEMP/post-cutover-mobile-browser.log"
           fi
 
       - name: Compensating rollback after public verification failure
@@ -2533,6 +2537,77 @@ jobs:
         run: |
           echo "Post-cutover finalization failed; compensating rollback was attempted and this run is failed closed." >&2
           exit 1
+
+  alias_cutover_rollback_guard:
+    name: independent alias rollback guard
+    needs: [alias_cutover]
+    if: >-
+      always() &&
+      (needs.alias_cutover.result == 'failure' || needs.alias_cutover.result == 'cancelled') &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha == '9cd074f239b73dd9b61f6d758fcf97fbd809face' && inputs.operation == 'deploy-immutable-product-recovery'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_FETCH_TIMEOUT_MS: 10000
+      ROLLBACK_TARGET_SELECTION_DEADLINE_MS: 60000
+      ROLLBACK_DEADLINE_MS: 240000
+    steps:
+      - name: Checkout trusted rollback control commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Discover latest successful Last Known Good for rollback guard
+        id: guard_lkg
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/production-last-known-good.mjs discover
+
+      - name: Require a verified Last Known Good rollback target
+        shell: bash
+        run: test "${{ steps.guard_lkg.outputs.available }}" = true
+
+      - name: Download verified Last Known Good for rollback guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LAST_KNOWN_GOOD_ARTIFACT_ID: ${{ steps.guard_lkg.outputs.artifact_id }}
+          LAST_KNOWN_GOOD_ARTIFACT_NAME: ${{ steps.guard_lkg.outputs.artifact_name }}
+          LAST_KNOWN_GOOD_ARTIFACT_DIGEST: ${{ steps.guard_lkg.outputs.artifact_digest }}
+          LAST_KNOWN_GOOD_RUN_ID: ${{ steps.guard_lkg.outputs.run_id }}
+          LAST_KNOWN_GOOD_HEAD_SHA: ${{ steps.guard_lkg.outputs.head_sha }}
+          LAST_KNOWN_GOOD_PRODUCT_COMMIT: ${{ steps.guard_lkg.outputs.product_commit }}
+          LAST_KNOWN_GOOD_CONTROL_COMMIT: ${{ steps.guard_lkg.outputs.control_commit }}
+          LAST_KNOWN_GOOD_WORKFLOW_EVENT: ${{ steps.guard_lkg.outputs.workflow_event }}
+          LAST_KNOWN_GOOD_WORKFLOW_BRANCH: ${{ steps.guard_lkg.outputs.workflow_branch }}
+          LAST_KNOWN_GOOD_RUN_ATTEMPT: ${{ steps.guard_lkg.outputs.run_attempt }}
+          LAST_KNOWN_GOOD_WORKFLOW_PATH: ${{ steps.guard_lkg.outputs.workflow_path }}
+          LAST_KNOWN_GOOD_CREATED_AT: ${{ steps.guard_lkg.outputs.created_at }}
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/guard-last-known-good-production.json
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/guard-last-known-good-artifact-proof.json
+        run: node scripts/production-last-known-good.mjs download
+
+      - name: Select independently verified rollback target
+        id: guard_rollback
+        env:
+          DISABLE_CURRENT_CAPTURE: 'true'
+          LAST_KNOWN_GOOD_AVAILABLE: 'true'
+          LAST_KNOWN_GOOD_PATH: ${{ runner.temp }}/guard-last-known-good-production.json
+          LAST_KNOWN_GOOD_PROOF_PATH: ${{ runner.temp }}/guard-last-known-good-artifact-proof.json
+        run: node scripts/production-last-known-good.mjs select
+
+      - name: Restore both aliases after cutover job failure or timeout
+        env:
+          PRIMARY_BEFORE_DEPLOYMENT: ${{ steps.guard_rollback.outputs.primary_deployment_id }}
+          PRIMARY_BEFORE_COMMIT: ${{ steps.guard_rollback.outputs.primary_app_commit }}
+          MIRROR_BEFORE_DEPLOYMENT: ${{ steps.guard_rollback.outputs.mirror_deployment_id }}
+          MIRROR_BEFORE_COMMIT: ${{ steps.guard_rollback.outputs.mirror_app_commit }}
+        run: node scripts/vercel-dual-alias-cutover.mjs restore
 
   main_push_complete:
     name: normal main push Production closure

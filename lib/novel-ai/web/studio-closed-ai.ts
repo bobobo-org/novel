@@ -2,6 +2,7 @@ import {
   executePlatformAI,
   localProviderSnapshots,
 } from "../router/platform-executor";
+import { browserProviderSnapshot } from "../providers/browser-ai/browser-ai-provider";
 import type {
   ClosedAIBackendId,
   ClosedAIExecutionReceipt,
@@ -14,7 +15,6 @@ import type {
   PlatformAIRequest,
   PlatformAIResult,
   PlatformProviderId,
-  PlatformProviderCapability,
   PlatformProviderSnapshot,
   PlatformTaskType,
 } from "../router/platform-types";
@@ -230,67 +230,94 @@ export function studioPromptProfileVersion(regeneration = false) {
     : `studio-${HUMANIZED_SERIAL_FICTION_PROFILE_VERSION}`;
 }
 
+async function readPassiveStudioProviderSnapshots(
+  signal?: AbortSignal,
+): Promise<PlatformProviderSnapshot[]> {
+  if (signal?.aborted) throw callerAbortReason(signal);
+  const coordinator = getStudioClosedAIRuntimeCoordinator();
+  const browser = await browserProviderSnapshot();
+  if (signal?.aborted) throw callerAbortReason(signal);
+
+  // This path is used by public pages during mount. Only inspect state that is
+  // already active in memory. In particular, do not restore a remembered tab
+  // session and do not ask any backend adapter for a live snapshot: both
+  // operations can issue loopback requests to ports 3217 or 3227.
+  const localSession = coordinator.localClient.getSessionMetadata();
+  const localProof = coordinator.localClient.getModelVerification();
+  const localSessionActive = Boolean(
+    localSession
+    && Date.parse(localSession.expiresAt) > Date.now(),
+  );
+  const localVerified = Boolean(
+    localSessionActive
+    && localProof
+    && localProof.instanceId === localSession?.instanceId,
+  );
+  const privateSession = coordinator.privateHubClient.getSessionMetadata();
+  const privateProof = coordinator.privateHubClient.getModelVerification();
+  const privateSessionActive = Boolean(
+    privateSession
+    && Date.parse(privateSession.expiresAt) > Date.now(),
+  );
+  const privateVerified = Boolean(
+    privateSessionActive
+    && privateProof
+    && privateProof.instanceId === privateSession?.instanceId,
+  );
+
+  return [
+    browser,
+    {
+      id: "local-ollama",
+      status: localVerified
+        ? "ready"
+        : localSessionActive
+          ? "degraded"
+          : "runtime_unavailable",
+      capabilities: ["text", "structured", "streaming", "offline"],
+      modelId: localVerified ? localProof?.modelId ?? null : null,
+      modelDigest: localVerified ? localProof?.modelDigest ?? null : null,
+      maxContext: 0,
+      local: true,
+      requiresInternet: false,
+      detail: localVerified
+        ? "passive_active_session_verified"
+        : localSessionActive
+          ? "passive_active_session_requires_verification"
+          : "explicit_connection_required",
+    },
+    {
+      id: "private-ai-hub",
+      status: privateVerified
+        ? "ready"
+        : privateSessionActive
+          ? "degraded"
+          : "runtime_unavailable",
+      capabilities: ["text", "structured", "streaming", "long-context"],
+      modelId: privateVerified ? privateProof?.modelId ?? null : null,
+      modelDigest: privateVerified ? privateProof?.modelDigest ?? null : null,
+      maxContext: 0,
+      local: true,
+      requiresInternet: false,
+      detail: privateVerified
+        ? "passive_active_session_verified"
+        : privateSessionActive
+          ? "passive_active_session_requires_verification"
+          : "explicit_connection_required",
+    },
+  ];
+}
+
 export async function discoverStudioClosedAI(
   signal?: AbortSignal,
   readSnapshots: SnapshotReader = localProviderSnapshots,
 ): Promise<StudioClosedAISnapshot> {
-  if (readSnapshots === localProviderSnapshots) {
-    const coordinator = getStudioClosedAIRuntimeCoordinator();
-    // Discovery is a read-only status refresh. Public pages call it during
-    // mount, so it must not trigger Local Network Access or probe loopback
-    // Companion ports. Explicit settings and closed-AI execution paths own
-    // connection discovery and retain the production-origin allowlist.
-    const runtime = await coordinator.refresh({
-      projectId: "studio-discovery",
-      taskType: "chapter.continue",
-      signal,
-    });
-    const providers = runtime.backends.map((provider) => ({
-      id: provider.id,
-      status: provider.status === "ready"
-        ? "ready" as const
-        : provider.status === "degraded"
-          ? "degraded" as const
-          : "runtime_unavailable" as const,
-      capabilities: provider.capabilities as PlatformProviderCapability[],
-      modelId: provider.modelId,
-      modelDigest: provider.modelDigest,
-      maxContext: provider.maxContext ?? 0,
-      local: provider.local,
-      requiresInternet: false,
-      detail: provider.detailCode,
-    }));
-    if (runtime.route.executionStatus === "routable") {
-      const providerId = runtime.route.backend.id;
-      return {
-        status: providerId === "local-ollama"
-          ? "ollama_ready"
-          : "browser_ready",
-        providerId,
-        plannedProviderId: providerId,
-        modelId: runtime.plannedModel,
-        providers,
-        actualExecutor: runtime.actualExecutor,
-        executionStatus: "routable",
-        reasonCode: runtime.route.reasonCode,
-        recommendedNextAction: runtime.nextAction,
-      };
-    }
-    return {
-      status: runtime.localNetworkPermission === "denied"
-        ? "auth_required"
-        : "runtime_required",
-      providerId: null,
-      plannedProviderId: null,
-      modelId: null,
-      providers,
-      actualExecutor: "not_executed",
-      executionStatus: "not_executed",
-      reasonCode: runtime.route.reasonCode,
-      recommendedNextAction: runtime.nextAction,
-    };
-  }
-  const providers = await readSnapshots(signal);
+  // Default discovery is deliberately passive because it runs during public
+  // page mount. Explicit settings and closed-AI execution retain the live
+  // coordinator refresh/connect paths and perform loopback discovery on demand.
+  const providers = readSnapshots === localProviderSnapshots
+    ? await readPassiveStudioProviderSnapshots(signal)
+    : await readSnapshots(signal);
   const localOllama = providers.find((provider) => provider.id === "local-ollama");
   const browserAI = providers.find((provider) => provider.id === "browser-ai");
   if (localOllama?.status === "ready") {

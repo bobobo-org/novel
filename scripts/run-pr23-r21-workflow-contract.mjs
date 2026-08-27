@@ -264,6 +264,7 @@ const jobNames = [
   "staged_deploy",
   "runtime_gates",
   "alias_cutover",
+  "alias_cutover_rollback_guard",
   "main_push_complete",
   "recovery_complete",
 ];
@@ -317,6 +318,7 @@ const postBuildSecretScanJob = section("post_build_secret_scan");
 const stagedJob = section("staged_deploy");
 const runtimeJob = section("runtime_gates");
 const aliasJob = section("alias_cutover");
+const aliasRollbackGuardJob = section("alias_cutover_rollback_guard");
 const restoreJob = section("restore_known_stable");
 const mainPushCompleteJob = section("main_push_complete");
 const recoveryCompleteJob = section("recovery_complete");
@@ -887,7 +889,15 @@ assert.match(aliasJob, /Recheck exact single Vercel Production deployment immedi
 assert.match(aliasJob, /node scripts\/run-main-push-auto-deploy-workflow-contract\.mjs verify-vercel-production-authority/u);
 assert.match(aliasJob, /PRODUCTION_AUTHORITY_RECEIPT_SCHEMA="p24b-production-deployment-authority-recheck-v1"/u);
 assert.match(aliasJob, /\.pageCount >= 1 and \.paginationComplete == true/u);
-assert.match(aliasJob, /timeout-minutes:\s*20/u);
+assert.match(aliasJob, /timeout-minutes:\s*45/u);
+assert.match(aliasJob, /timeout --signal=TERM --kill-after=30s 600s bash -c/u);
+assert.match(aliasRollbackGuardJob, /needs:\s*\[alias_cutover\]/u);
+assert.match(aliasRollbackGuardJob, /needs\.alias_cutover\.result == 'failure'/u);
+assert.match(aliasRollbackGuardJob, /needs\.alias_cutover\.result == 'cancelled'/u);
+assert.match(aliasRollbackGuardJob, /production-last-known-good\.mjs discover/u);
+assert.match(aliasRollbackGuardJob, /production-last-known-good\.mjs download/u);
+assert.match(aliasRollbackGuardJob, /production-last-known-good\.mjs select/u);
+assert.match(aliasRollbackGuardJob, /vercel-dual-alias-cutover\.mjs restore/u);
 
 assert.match(restoreJob, /inputs\.operation == 'restore-known-stable' && github\.ref == 'refs\/heads\/main'/u);
 assert.doesNotMatch(restoreJob, /github\.event_name == 'push'|deploy-preview|audit-last-known-good/u);

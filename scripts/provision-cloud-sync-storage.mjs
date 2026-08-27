@@ -5,6 +5,8 @@ const BUCKET = "novel-cloud-sync-e2ee";
 const SCHEMA_VERSION = "novel-cloud-sync-e2ee-v1";
 const MIGRATION_VERSION = "cloud_sync_e2ee_storage_001";
 const MARKER_PATH = `_system/${MIGRATION_VERSION}.json`;
+const MAX_PROVISION_ATTEMPTS = 5;
+const RETRY_BASE_DELAY_MS = 2_000;
 const args = new Set(process.argv.slice(2));
 const required = args.has("--required");
 const envFileIndex = process.argv.indexOf("--env-file");
@@ -46,6 +48,17 @@ function isAlreadyExists(error) {
     && /already exists|duplicate|asset exists/iu.test(message(error));
 }
 
+function isTransient(error) {
+  const status = statusCode(error);
+  return [408, 425, 429].includes(status)
+    || status >= 500
+    || /econnreset|etimedout|fetch failed|gateway timeout|temporar(?:y|ily)|timeout/iu.test(message(error));
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function fail(code, detail = {}) {
   console.error(JSON.stringify({
     status: "storage_provision_failed",
@@ -75,7 +88,7 @@ if (!url || !serviceRoleKey) {
     },
   });
 
-  try {
+  async function provisionAndVerify() {
     let { data: bucket, error: bucketError } = await supabase.storage.getBucket(BUCKET);
     let created = false;
     if (bucketError && isNotFound(bucketError)) {
@@ -90,63 +103,88 @@ if (!url || !serviceRoleKey) {
     }
     if (bucketError) throw bucketError;
     if (!bucket || bucket.public) {
-      fail("SUPABASE_STORAGE_BUCKET_NOT_PRIVATE");
-    } else {
-      const marker = {
-        schemaVersion: SCHEMA_VERSION,
-        migrationVersion: MIGRATION_VERSION,
-        backend: "private-object-storage",
-        public: false,
-        provisionedAt: new Date().toISOString(),
-      };
-      const markerUpload = await supabase.storage
-        .from(BUCKET)
-        .upload(
-          MARKER_PATH,
-          new Blob([JSON.stringify(marker)], { type: "application/json" }),
-          {
-            cacheControl: "0",
-            contentType: "application/json",
-            upsert: true,
-          },
-        );
-      if (markerUpload.error) throw markerUpload.error;
-      const markerDownload = await supabase.storage
-        .from(BUCKET)
-        .download(
-          MARKER_PATH,
-          { cacheNonce: `${Date.now()}-${crypto.randomUUID()}` },
-          { cache: "no-store" },
-        );
-      if (markerDownload.error) throw markerDownload.error;
-      const verified = JSON.parse(await markerDownload.data.text());
-      if (
-        verified?.schemaVersion !== SCHEMA_VERSION
-        || verified?.migrationVersion !== MIGRATION_VERSION
-        || verified?.backend !== "private-object-storage"
-        || verified?.public !== false
-      ) {
-        throw Object.assign(new Error("SUPABASE_STORAGE_MARKER_INVALID"), {
-          code: "SUPABASE_STORAGE_MARKER_INVALID",
-        });
-      }
-      const listing = await supabase.storage
-        .from(BUCKET)
-        .list("_system", { limit: 10, offset: 0 }, { cache: "no-store" });
-      if (listing.error || !listing.data.some((item) => item.name === `${MIGRATION_VERSION}.json`)) {
-        throw listing.error ?? Object.assign(new Error("SUPABASE_STORAGE_MARKER_NOT_LISTED"), {
-          code: "SUPABASE_STORAGE_MARKER_NOT_LISTED",
-        });
-      }
-      console.log(JSON.stringify({
-        status: "storage_provisioned_and_verified",
-        schemaVersion: SCHEMA_VERSION,
-        migrationVersion: MIGRATION_VERSION,
-        backend: "private-object-storage",
-        bucketCreated: created,
-        bucketPublic: false,
-      }));
+      throw Object.assign(new Error("SUPABASE_STORAGE_BUCKET_NOT_PRIVATE"), {
+        code: "SUPABASE_STORAGE_BUCKET_NOT_PRIVATE",
+      });
     }
+
+    const marker = {
+      schemaVersion: SCHEMA_VERSION,
+      migrationVersion: MIGRATION_VERSION,
+      backend: "private-object-storage",
+      public: false,
+      provisionedAt: new Date().toISOString(),
+    };
+    const markerUpload = await supabase.storage
+      .from(BUCKET)
+      .upload(
+        MARKER_PATH,
+        new Blob([JSON.stringify(marker)], { type: "application/json" }),
+        {
+          cacheControl: "0",
+          contentType: "application/json",
+          upsert: true,
+        },
+      );
+    if (markerUpload.error) throw markerUpload.error;
+    const markerDownload = await supabase.storage
+      .from(BUCKET)
+      .download(
+        MARKER_PATH,
+        { cacheNonce: `${Date.now()}-${crypto.randomUUID()}` },
+        { cache: "no-store" },
+      );
+    if (markerDownload.error) throw markerDownload.error;
+    const verified = JSON.parse(await markerDownload.data.text());
+    if (
+      verified?.schemaVersion !== SCHEMA_VERSION
+      || verified?.migrationVersion !== MIGRATION_VERSION
+      || verified?.backend !== "private-object-storage"
+      || verified?.public !== false
+    ) {
+      throw Object.assign(new Error("SUPABASE_STORAGE_MARKER_INVALID"), {
+        code: "SUPABASE_STORAGE_MARKER_INVALID",
+      });
+    }
+    const listing = await supabase.storage
+      .from(BUCKET)
+      .list("_system", { limit: 10, offset: 0 }, { cache: "no-store" });
+    if (listing.error || !listing.data.some((item) => item.name === `${MIGRATION_VERSION}.json`)) {
+      throw listing.error ?? Object.assign(new Error("SUPABASE_STORAGE_MARKER_NOT_LISTED"), {
+        code: "SUPABASE_STORAGE_MARKER_NOT_LISTED",
+      });
+    }
+    return created;
+  }
+
+  try {
+    let created = false;
+    for (let attempt = 1; attempt <= MAX_PROVISION_ATTEMPTS; attempt += 1) {
+      try {
+        created = await provisionAndVerify();
+        break;
+      } catch (error) {
+        if (!isTransient(error) || attempt === MAX_PROVISION_ATTEMPTS) throw error;
+        const retryDelayMs = RETRY_BASE_DELAY_MS * (2 ** (attempt - 1));
+        console.warn(JSON.stringify({
+          status: "storage_provision_retry",
+          migrationVersion: MIGRATION_VERSION,
+          attempt,
+          nextAttempt: attempt + 1,
+          retryDelayMs,
+          errorCode: String(error?.code || `SUPABASE_STORAGE_HTTP_${statusCode(error) || 500}`),
+        }));
+        await delay(retryDelayMs);
+      }
+    }
+    console.log(JSON.stringify({
+      status: "storage_provisioned_and_verified",
+      schemaVersion: SCHEMA_VERSION,
+      migrationVersion: MIGRATION_VERSION,
+      backend: "private-object-storage",
+      bucketCreated: created,
+      bucketPublic: false,
+    }));
   } catch (error) {
     fail(String(error?.code || `SUPABASE_STORAGE_HTTP_${statusCode(error) || 500}`));
   }
