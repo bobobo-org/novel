@@ -200,13 +200,9 @@ async function storyBiblesByProject(page, projectIds) {
   }, projectIds);
 }
 
-async function waitForPersistedStoryBible(page, projectId, {
-  afterRevision,
-  expectedFields,
-  timeoutMs = 20_000,
-}) {
+async function waitForProjectStoryBibleCandidate(page, projectId, expectedFields, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
-  let latest = null;
+  let candidates = [];
   const listFields = {
     foreshadowing: "foreshadowing",
     unresolved: "unresolvedThreads",
@@ -215,38 +211,51 @@ async function waitForPersistedStoryBible(page, projectId, {
   };
   while (Date.now() < deadline) {
     const records = await storyBiblesByProject(page, [projectId]);
-    latest = records[projectId]?.[0] ?? null;
-    const fieldsMatch = Object.entries(expectedFields).every(([field, expected]) => {
-      if (field === "theme" || field === "style") return latest?.[field]?.value === expected;
-      const stored = latest?.[listFields[field]];
+    candidates = records[projectId] ?? [];
+    const match = candidates.find((candidate) => Object.entries(expectedFields).every(([field, expected]) => {
+      if (field === "theme" || field === "style") return candidate?.[field]?.value === expected;
+      const stored = candidate?.[listFields[field]];
       return Array.isArray(stored) && stored.join("\n") === expected;
-    });
-    if (Number(latest?.revision) > afterRevision && fieldsMatch) return latest;
+    }));
+    if (match) return match;
     await page.waitForTimeout(100);
   }
-  throw new Error(`STORY_BIBLE_PERSISTENCE_TIMEOUT:${JSON.stringify({
+  throw new Error(`STORY_BIBLE_CANDIDATE_TIMEOUT:${JSON.stringify({
     projectId,
-    afterRevision,
-    observedRevision: latest?.revision ?? null,
+    observedCandidates: candidates.map((candidate) => ({ id: candidate.id, revision: candidate.revision })),
     expectedFieldNames: Object.keys(expectedFields),
   })}`);
 }
 
-async function waitForStoryBibleEditorValues(page, expectedFields, timeoutMs = 20_000) {
-  const testIds = {
-    theme: "story-bible-theme",
-    style: "story-bible-style",
-    foreshadowing: "story-bible-foreshadowing",
-    unresolved: "story-bible-unresolved",
-    contradictions: "story-bible-contradictions",
-    preferences: "story-bible-preferences",
-  };
-  await page.waitForFunction(({ expectedFields, testIds }) => Object.entries(expectedFields).every(([field, expected]) => {
-    const input = document.querySelector(`[data-testid="${testIds[field]}"]`);
-    return input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement
-      ? input.value === expected
-      : false;
-  }), { expectedFields, testIds }, { timeout: timeoutMs });
+async function createAndCopyGlobalStoryBible(page, projectId, title, values) {
+  await page.goto(`${baseUrl}/canon?targetProjectId=${encodeURIComponent(projectId)}`, { waitUntil: "domcontentloaded" });
+  await page.getByTestId("global-canon-editor").waitFor();
+  await page.getByTestId("global-canon-characters").waitFor();
+  const targetProject = page.getByTestId("global-canon-target-project");
+  await targetProject.selectOption(projectId);
+  await page.getByRole("tab", { name: "Story Bible", exact: true }).click();
+  const workspace = page.getByTestId("global-canon-story-bibles");
+  await workspace.waitFor();
+  await workspace.getByLabel("名稱", { exact: true }).fill(title);
+  await workspace.getByLabel("核心主題", { exact: true }).fill(values.theme ?? "");
+  await workspace.getByLabel("敘事風格", { exact: true }).fill(values.style ?? "");
+  await workspace.getByLabel(/伏筆/u).fill(values.foreshadowing ?? "");
+  await workspace.getByLabel("未解線索", { exact: true }).fill(values.unresolved ?? "");
+  await workspace.getByLabel("禁止矛盾", { exact: true }).fill(values.contradictions ?? "");
+  await workspace.getByLabel("作者偏好", { exact: true }).fill(values.preferences ?? "");
+  await workspace.getByRole("button", { name: "加入 Story Bible 總庫", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Story Bible 已加入全域總庫" }).waitFor();
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByTestId("global-canon-characters").waitFor();
+  await page.getByRole("tab", { name: "Story Bible", exact: true }).click();
+  const persistedWorkspace = page.getByTestId("global-canon-story-bibles");
+  const record = persistedWorkspace.locator("article").filter({ hasText: title });
+  await record.waitFor();
+  check(`global Story Bible reload restores ${title}`, (await record.innerText()).includes(values.theme ?? "")
+    && (await record.innerText()).includes(values.style ?? ""));
+  await record.getByRole("button", { name: "整套複製為作品候選", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "複製成作品候選" }).waitFor();
 }
 
 async function blockedUpgradeAndRetry(browser) {
@@ -351,6 +360,7 @@ for (const endpoint of OPTIONAL_LOOPBACK_HEALTH_URLS) {
   await context.route(endpoint, fulfillUnavailableOptionalLoopbackHealth);
 }
 const page = await context.newPage();
+page.setDefaultNavigationTimeout(90_000);
 page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push({
     type: "console",
@@ -382,15 +392,17 @@ try {
   check("real IndexedDB readwrite transaction commits and cleans up", transaction.transactionCommitted && transaction.cleanupComplete, transaction);
   check("browser storage quota is available", Number.isFinite(transaction.quota) && transaction.quota > 0, transaction);
 
-  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(firstProjectId)}/tasks`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(firstProjectId)}/tasks`, { waitUntil: "domcontentloaded" });
   const runtime = page.getByTestId("project-indexeddb-runtime");
   check("fresh project runtime is indexeddb and non-degraded", await runtime.getAttribute("data-persistence-backend") === "indexeddb"
     && await runtime.getAttribute("data-persistence-degraded") === "false"
     && await runtime.getAttribute("data-memory-fallback") === "false");
   await page.goto(`${baseUrl}/professional?intent=library&projectId=${encodeURIComponent(firstProjectId)}#character-world-memory-home`, { waitUntil: "domcontentloaded" });
-  await page.getByTestId("character-relationship-workbench").waitFor();
-  check("Story Bible Canon editor is hosted on the project home surface", await page.getByTestId("character-relationship-workbench").getAttribute("data-canon-edit-surface") === "home"
-    && await page.getByTestId("story-bible-editor").getAttribute("data-project-id") === firstProjectId);
+  const firstProjectSummary = page.getByTestId("professional-canon-readonly-summary");
+  await firstProjectSummary.waitFor();
+  check("project management keeps Canon read-only and links to the global editor", await firstProjectSummary.getAttribute("data-canon-edit-surface") === "readonly-selection-links"
+    && await page.getByTestId("story-bible-editor").count() === 0
+    && await page.getByTestId("professional-canon-editor-link").getAttribute("href") === `/canon?targetProjectId=${encodeURIComponent(firstProjectId)}`);
   const firstValues = {
     theme: "RC6.2 第一作品唯一主題 7f9a",
     style: "第一作品敘事風格",
@@ -399,36 +411,12 @@ try {
     contradictions: "第一作品禁止矛盾",
     preferences: "第一作品作者偏好",
   };
-  const initialFirstRevision = Number(
-    await page.getByTestId("story-bible-record").getAttribute("data-revision"),
-  );
-  await page.getByTestId("story-bible-theme").fill(firstValues.theme);
-  await page.getByTestId("story-bible-style").fill(firstValues.style);
-  await page.getByTestId("story-bible-foreshadowing").fill(firstValues.foreshadowing);
-  await page.getByTestId("story-bible-unresolved").fill(firstValues.unresolved);
-  await page.getByTestId("story-bible-contradictions").fill(firstValues.contradictions);
-  await page.getByTestId("story-bible-preferences").fill(firstValues.preferences);
-  await page.getByTestId("story-bible-save").click();
-  await page.getByRole("status").filter({ hasText: "Story Bible 已保存" }).waitFor();
-  const persistedFirstStoryBible = await waitForPersistedStoryBible(page, firstProjectId, {
-    afterRevision: initialFirstRevision,
-    expectedFields: firstValues,
-  });
-  const firstRevision = Number(persistedFirstStoryBible.revision);
-  check("Story Bible write increments revision", firstRevision > initialFirstRevision, {
-    initialFirstRevision,
-    firstRevision,
-  });
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await waitForStoryBibleEditorValues(page, firstValues);
-  check("Story Bible reload restores every edited field", await page.getByTestId("story-bible-theme").inputValue() === firstValues.theme
-    && await page.getByTestId("story-bible-style").inputValue() === firstValues.style
-    && await page.getByTestId("story-bible-foreshadowing").inputValue() === firstValues.foreshadowing
-    && await page.getByTestId("story-bible-unresolved").inputValue() === firstValues.unresolved
-    && await page.getByTestId("story-bible-contradictions").inputValue() === firstValues.contradictions
-    && await page.getByTestId("story-bible-preferences").inputValue() === firstValues.preferences);
+  await createAndCopyGlobalStoryBible(page, firstProjectId, "RC6.2 第一作品全域 Bible", firstValues);
+  const persistedFirstStoryBible = await waitForProjectStoryBibleCandidate(page, firstProjectId, firstValues);
+  check("global Story Bible copy creates an immutable project candidate without changing it in place", Boolean(persistedFirstStoryBible.id)
+    && Number(persistedFirstStoryBible.revision) >= 1, persistedFirstStoryBible);
 
-  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(firstProjectId)}/story-bible`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(firstProjectId)}/story-bible`, { waitUntil: "domcontentloaded" });
   const selectionPage = page.getByTestId("story-stage-selection-page");
   const selectionSelector = page.getByTestId("story-stage-selector");
   await selectionSelector.waitFor();
@@ -437,7 +425,14 @@ try {
     && await page.getByTestId("story-bible-editor").count() === 0
     && await page.getByTestId("story-bible-save").count() === 0
     && await page.getByTestId("story-bible-theme").count() === 0);
-  check("story route renders the saved Story Bible as read-only", (await page.getByTestId("story-stage-bible-readonly").innerText()).includes(firstValues.theme));
+  const firstCandidateButton = page.getByTestId("story-stage-bible-candidate").filter({ hasText: firstValues.theme });
+  await firstCandidateButton.waitFor();
+  if (await firstCandidateButton.getAttribute("aria-pressed") !== "true") await firstCandidateButton.click();
+  await page.getByTestId("story-stage-bible-readonly").filter({ hasText: firstValues.theme }).waitFor();
+  check("story route selects and renders the copied Story Bible as read-only", (await page.getByTestId("story-stage-bible-readonly").innerText()).includes(firstValues.theme));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByTestId("story-stage-bible-readonly").filter({ hasText: firstValues.theme }).waitFor();
+  check("selected Story Bible survives a browser reload", (await page.getByTestId("story-stage-bible-readonly").innerText()).includes(firstValues.theme));
   const conversationLink = page.locator(`nav[aria-label="作品導覽"] a[href="/studio/project/${encodeURIComponent(firstProjectId)}/chat"]`).first();
   check("selection-only Story Bible links to the same project chat", await conversationLink.count() === 1);
   await conversationLink.click();
@@ -447,34 +442,33 @@ try {
   const secondProjectId = await createProject(page, "RC6.2 Fresh Story Two");
   check("second project has a distinct id", secondProjectId !== firstProjectId, { firstProjectId, secondProjectId });
   await page.goto(`${baseUrl}/professional?intent=library&projectId=${encodeURIComponent(secondProjectId)}#character-world-memory-home`, { waitUntil: "domcontentloaded" });
-  await page.getByTestId("story-bible-editor").waitFor();
-  check("second project editor does not retain first project state", !(await page.getByTestId("story-bible-theme").inputValue()).includes("第一作品")
-    && !(await page.getByTestId("story-bible-foreshadowing").inputValue()).includes("alpha-only")
-    && !(await page.locator("body").innerText()).includes(firstValues.foreshadowing));
+  const secondProjectSummary = page.getByTestId("professional-canon-readonly-summary");
+  await secondProjectSummary.waitFor();
+  check("second project management surface is also read-only", await secondProjectSummary.getAttribute("data-canon-edit-surface") === "readonly-selection-links"
+    && await page.getByTestId("story-bible-editor").count() === 0
+    && await page.getByTestId("professional-canon-editor-link").getAttribute("href") === `/canon?targetProjectId=${encodeURIComponent(secondProjectId)}`);
   const secondValues = {
     theme: "RC6.2 第二作品唯一主題 3c1b",
+    style: "第二作品敘事風格",
     foreshadowing: "第二作品伏筆 beta-only",
   };
-  const initialSecondRevision = Number(
-    await page.getByTestId("story-bible-record").getAttribute("data-revision"),
-  );
-  await page.getByTestId("story-bible-theme").fill(secondValues.theme);
-  await page.getByTestId("story-bible-foreshadowing").fill(secondValues.foreshadowing);
-  await page.getByTestId("story-bible-save").click();
-  await waitForPersistedStoryBible(page, secondProjectId, {
-    afterRevision: initialSecondRevision,
-    expectedFields: secondValues,
-  });
-  await page.getByRole("status").filter({ hasText: "Story Bible 已保存" }).waitFor();
+  await createAndCopyGlobalStoryBible(page, secondProjectId, "RC6.2 第二作品全域 Bible", secondValues);
+  await waitForProjectStoryBibleCandidate(page, secondProjectId, secondValues);
+  await page.goto(`${baseUrl}/studio/project/${encodeURIComponent(secondProjectId)}/story-bible`, { waitUntil: "domcontentloaded" });
+  await page.getByTestId("story-stage-selector").waitFor();
+  check("second project candidate list does not contain the first project's copied Bible", !(await page.getByTestId("story-stage-selector").innerText()).includes(firstValues.theme));
+  const secondCandidateButton = page.getByTestId("story-stage-bible-candidate").filter({ hasText: secondValues.theme });
+  await secondCandidateButton.waitFor();
+  if (await secondCandidateButton.getAttribute("aria-pressed") !== "true") await secondCandidateButton.click();
+  await page.getByTestId("story-stage-bible-readonly").filter({ hasText: secondValues.theme }).waitFor();
   await page.reload({ waitUntil: "domcontentloaded" });
-  await waitForStoryBibleEditorValues(page, secondValues);
-  check("second Story Bible reload is exact", await page.getByTestId("story-bible-theme").inputValue() === secondValues.theme
-    && await page.getByTestId("story-bible-foreshadowing").inputValue() === secondValues.foreshadowing);
+  await page.getByTestId("story-stage-bible-readonly").filter({ hasText: secondValues.theme }).waitFor();
+  check("second selected Story Bible reload is exact", (await page.getByTestId("story-stage-bible-readonly").innerText()).includes(secondValues.theme));
   const isolated = await storyBiblesByProject(page, [firstProjectId, secondProjectId]);
-  check("Story Bible records are isolated by project", isolated[firstProjectId].length === 1
-    && isolated[secondProjectId].length === 1
-    && isolated[firstProjectId][0].theme.value === firstValues.theme
-    && isolated[secondProjectId][0].theme.value === secondValues.theme
+  check("Story Bible candidate snapshots are isolated by project", isolated[firstProjectId].length === 2
+    && isolated[secondProjectId].length === 2
+    && isolated[firstProjectId].some((candidate) => candidate.theme.value === firstValues.theme)
+    && isolated[secondProjectId].some((candidate) => candidate.theme.value === secondValues.theme)
     && !JSON.stringify(isolated[firstProjectId]).includes("beta-only")
     && !JSON.stringify(isolated[secondProjectId]).includes("alpha-only"), {
       firstCount: isolated[firstProjectId].length,
