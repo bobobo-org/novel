@@ -4,4 +4,5 @@ export * from "./repository";
 export * from "./copy-to-project";
 export * from "./copy-story-bible-to-project";
 export * from "./catalog-memory";
+export * from "./catalog-character";
 export * from "./import-from-project";

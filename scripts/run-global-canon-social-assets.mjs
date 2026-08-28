@@ -45,13 +45,36 @@ const directory = buildStoryOrganizationDirectory({
   blueprints,
   institutions: blueprints.map((_, index) => matrix.getInstitution(index)),
 });
+assert.equal(directory.length, 30, "each indexed world must expose at least 30 organizations");
+assert.equal(new Set(directory.map((organization) => organization.name)).size, 30);
+assert.ok(new Set(directory.map((organization) => organization.era)).size > 1, "cross-era world must keep era-specific organizations");
+assert.ok(new Set(directory.map((organization) => organization.specializationId)).size >= 10);
+assert.equal(matrix.cacheStats().materializedCharacters, 0, "directory construction must remain lazy");
+const relationshipNetwork = [...new Map(
+  directory.flatMap((organization) => organization.relationships)
+    .map((relationship) => [relationship.relationshipId, relationship]),
+).values()];
+assert.ok(directory.every((organization) => organization.relationships.length >= 2));
+assert.ok(new Set(relationshipNetwork.map((relationship) => relationship.kind)).size >= 7);
+assert.ok(relationshipNetwork.every((relationship) => (
+  relationship.eraGate === "same-era"
+  && relationship.classificationGate === "same-world-classification"
+  && relationship.cause.length >= 12
+  && relationship.history.length >= 12
+  && relationship.currentStatus.length >= 12
+  && relationship.publicStance.length >= 12
+  && relationship.secretMotive.length >= 12
+)));
 
 for (const archetype of ["family", "sect", "enterprise"]) {
   const organization = directory.find((candidate) => candidate.archetype === archetype);
   assert.ok(organization, `missing ${archetype} organization`);
   assert.ok(organization.memberCapacity >= 1 && organization.memberCapacity <= 10_000);
+  assert.ok(organization.specializationLabel.length >= 2);
+  assert.ok(organization.hierarchy.children.some((node) => node.nodeId.endsWith(":node:specialization")));
   const saved = createGlobalOrganizationMemory({
     organization,
+    organizationDirectory: directory,
     catalogWorldId: "global-world-000001",
     catalogWorldLabel: "第000001世界",
   });
@@ -59,6 +82,12 @@ for (const archetype of ["family", "sect", "enterprise"]) {
   assert.match(saved.id, /^global-organization:/u);
   assert.match(saved.content, /在籍：.+容量上限：.+10,000/u);
   assert.match(saved.content, /階層、房系與資產/u);
+  assert.match(saved.content, /專業定位：/u);
+  assert.match(saved.content, /組織關係網：/u);
+  assert.match(saved.content, /方向：.+(?:→|↔).+/u);
+  assert.match(saved.content, /本組織立場：本組織為(?:作用發起方|作用承受方|雙向關係)/u);
+  assert.match(saved.content, /起因：.+\n\s+歷史：.+\n\s+現況：/u);
+  assert.doesNotMatch(saved.content, /對象：social-institution-/u, "saved relations should use readable organization names");
   if (archetype === "family") assert.match(saved.content, /家主|族長/u);
   if (archetype === "sect") assert.match(saved.content, /聖子|聖女/u);
   if (archetype === "enterprise") assert.match(saved.content, /董事長/u);
@@ -115,6 +144,7 @@ for (const marker of [
   'id: "organizations"',
   'id: "treasures"',
   'data-testid="global-family-genealogy"',
+  'data-testid="global-organization-relationships"',
   'data-testid="global-treasure-grid"',
   "saveOrganizationCandidate",
   "saveTreasureCandidate",
@@ -122,6 +152,13 @@ for (const marker of [
   "copyRecord(saved)",
   "proceduralTreasureVisualCssVariables",
   "<Image src={treasure.visual.baseAsset}",
+  "relationship.directed",
+  '`${source?.name ?? "未登錄組織"} → ${target?.name ?? "未登錄組織"}`',
+  '`${source?.name ?? selectedOrganization.name} ↔ ${target?.name ?? counterpart?.name ?? "未登錄組織"}`',
+  "本方角色",
+  "本組織是作用發起方",
+  "本組織是作用承受方",
+  "本組織是雙向關係的一方",
 ]) assert.ok(source.includes(marker), `canon UI missing ${marker}`);
 
 const mobileStart = css.indexOf("@media (max-width: 720px)");
@@ -130,7 +167,7 @@ assert.ok(mobileStart >= 0 && mobileEnd > mobileStart, "mobile breakpoint missin
 const mobile = css.slice(mobileStart, mobileEnd);
 for (const marker of [
   ".organizationBrowser { grid-template-columns: 1fr; }",
-  ".organizationFacts, .genealogyGrid, .rosterGrid { grid-template-columns: 1fr; }",
+  ".organizationFacts, .genealogyGrid, .rosterGrid, .organizationRelationGrid { grid-template-columns: 1fr; }",
   ".treasureGrid { grid-template-columns: 1fr; }",
   ".catalogActions { display: grid; grid-template-columns: 1fr; }",
 ]) assert.ok(mobile.includes(marker), `390px no-overflow contract missing ${marker}`);
@@ -140,6 +177,7 @@ console.log(JSON.stringify({
   suite: "global-canon-social-assets",
   status: "PASS",
   organizations: directory.length,
+  organizationRelationships: relationshipNetwork.length,
   maximumOrganizationCapacity: Math.max(...directory.map((entry) => entry.memberCapacity)),
   treasureEras: [ancient.era.sourceEra, modern.era.sourceEra],
   iconAssets: [ancient.visual.baseAsset, modern.visual.baseAsset],

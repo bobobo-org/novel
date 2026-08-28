@@ -191,6 +191,8 @@
 .libraryPanel > header { padding-bottom: 14px; border-bottom: 1px solid #2f4d68; }
 .cardGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 12px; }
 .recordCard { min-width: 0; padding: 15px; border: 1px solid #385773; border-radius: 11px; background: #09192d; overflow-wrap: anywhere; }
+.recordCard[data-focused="true"] { border-color: #f0c65f; background: linear-gradient(145deg, #11283a, #0a1a2e); box-shadow: 0 0 0 3px rgba(240, 198, 95, .22), 0 18px 42px rgba(0, 0, 0, .28); scroll-margin-block: 110px; }
+.recordCard[data-focused="true"] .revision::after { content: " · 已精確定位"; color: #f0c65f; }
 .recordCard h3 { margin: 5px 0 7px; color: #f3d786; font-size: 18px; }
 .recordCard > p { margin: 7px 0; color: #aec2d0; line-height: 1.65; white-space: pre-line; }
 .recordCard dl { display: grid; gap: 6px; margin: 10px 0; }
@@ -198,6 +200,7 @@
 .recordCard dt { color: #64d6c4; font-size: 11px; }
 .recordCard dd { margin: 0; color: #b7c8d3; font-size: 12px; }
 .recordCard footer { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+.masteryLoading { color: #e2bd62; }
 .revision { color: #6fcbbb; font-size: 10px; }
 .characterHeading { display: grid; grid-template-columns: 66px minmax(0, 1fr); align-items: center; gap: 10px; }
 .cardPortrait, .noPortrait { width: 66px; border-radius: 7px; }
@@ -266,6 +269,28 @@
   background: #071528;
 }
 .catalogToolbar p, .catalogNote { margin: 0; color: #9fb5c4; font-size: 13px; line-height: 1.65; }
+.characterCatalogToolbar {
+  display: grid;
+  grid-template-columns: minmax(300px, .8fr) minmax(230px, .7fr) minmax(260px, 1fr);
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.characterCatalogToolbar form { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; }
+.characterCatalogToolbar label { display: grid; min-width: 0; gap: 6px; color: #cfe0e9; font-size: 13px; }
+.characterCatalogToolbar input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 11px;
+  border: 1px solid #456780;
+  border-radius: 8px;
+  color: #f0f7fc;
+  background: #071528;
+}
+.characterCatalogToolbar input:focus { border-color: var(--mint); box-shadow: 0 0 0 3px rgba(98, 222, 202, .12); }
+.characterCatalogToolbar form button { min-height: 44px; padding: 0 14px; border: 1px solid #d2aa49; border-radius: 8px; color: #1a1204; font-weight: 800; background: #edc660; }
+.characterCatalogToolbar p { margin: 0; color: #9fb5c4; font-size: 13px; line-height: 1.65; }
 .organizationBrowser { display: grid; min-width: 0; grid-template-columns: minmax(230px, .55fr) minmax(0, 1.45fr); gap: 14px; }
 .organizationList { display: grid; min-width: 0; align-content: start; gap: 7px; }
 .organizationList button { display: grid; min-width: 0; min-height: 70px; gap: 3px; padding: 10px 12px; border: 1px solid #36536e; border-radius: 9px; color: #b7c9d5; text-align: left; background: #08172a; }
@@ -285,9 +310,19 @@
 .organizationFacts dd { margin: 4px 0 0; color: #b8cad5; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .catalogActions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
 .catalogActions button { min-height: 44px; padding: 0 13px; border: 1px solid #4b6c85; border-radius: 8px; color: #e5f0f7; background: #122840; }
-.hierarchyPanel, .genealogyPanel, .rosterPanel { min-width: 0; margin-top: 18px; padding-top: 16px; border-top: 1px solid #35526b; }
-.hierarchyPanel h4, .genealogyPanel h4, .rosterPanel h4 { margin: 4px 0 10px; color: #efd181; font-size: 18px; }
-.hierarchyPanel small, .genealogyPanel small, .rosterPanel small { color: var(--mint); font-size: 10px; letter-spacing: .12em; }
+.hierarchyPanel, .genealogyPanel, .rosterPanel, .organizationRelations { min-width: 0; margin-top: 18px; padding-top: 16px; border-top: 1px solid #35526b; }
+.hierarchyPanel h4, .genealogyPanel h4, .rosterPanel h4, .organizationRelations h4 { margin: 4px 0 10px; color: #efd181; font-size: 18px; }
+.hierarchyPanel small, .genealogyPanel small, .rosterPanel small, .organizationRelations small { color: var(--mint); font-size: 10px; letter-spacing: .12em; }
+.organizationRelations > p { margin: 0 0 12px; color: #9fb5c4; font-size: 12px; line-height: 1.6; }
+.organizationRelationGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.organizationRelationGrid article { min-width: 0; padding: 12px; border: 1px solid #3a5871; border-radius: 9px; background: rgba(5, 20, 36, .78); }
+.organizationRelationGrid article > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
+.organizationRelationGrid article > header span { color: #65d7c5; font-size: 11px; }
+.organizationRelationGrid article > header b { color: #f0cf78; font-size: 15px; }
+.organizationRelationGrid dl { display: grid; gap: 6px; margin: 10px 0 0; }
+.organizationRelationGrid dl div { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 7px; }
+.organizationRelationGrid dt { color: #dcb85e; font-size: 10px; }
+.organizationRelationGrid dd { margin: 0; color: #b5c8d3; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .hierarchyTree, .hierarchyTree ul { min-width: 0; margin: 0; padding: 0; list-style: none; }
 .hierarchyTree ul { display: grid; gap: 6px; margin: 7px 0 0 14px; padding-left: 10px; border-left: 1px solid rgba(98, 222, 202, .28); }
 .hierarchyBranch { min-width: 0; padding: 8px 10px; border: 1px solid rgba(69, 103, 128, .65); border-radius: 8px; background: rgba(5, 19, 35, .62); }
@@ -347,6 +382,8 @@
   .organizationList { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .treasureToolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .treasureToolbar form { grid-column: 1 / -1; }
+  .characterCatalogToolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .characterCatalogToolbar p { grid-column: 1 / -1; }
 }
 
 @media (max-width: 720px) {
@@ -388,14 +425,15 @@
   .worldDetail dl { grid-template-columns: 1fr; }
   .worldTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .worldTiles button { min-height: 84px; }
-  .catalogToolbar, .treasureToolbar, .genealogyControls { grid-template-columns: 1fr; }
+  .catalogToolbar, .treasureToolbar, .genealogyControls, .characterCatalogToolbar { grid-template-columns: 1fr; }
+  .characterCatalogToolbar p { grid-column: auto; }
   .treasureToolbar form { grid-column: auto; }
   .organizationBrowser { grid-template-columns: 1fr; }
   .organizationList { grid-template-columns: 1fr; }
   .organizationDetail { padding: 13px 11px; }
   .organizationDetail > header, .genealogyPanel > header, .rosterPanel > header { flex-direction: column; }
   .organizationDetail > header strong { text-align: left; }
-  .organizationFacts, .genealogyGrid, .rosterGrid { grid-template-columns: 1fr; }
+  .organizationFacts, .genealogyGrid, .rosterGrid, .organizationRelationGrid { grid-template-columns: 1fr; }
   .catalogActions { display: grid; grid-template-columns: 1fr; }
   .catalogActions button { width: 100%; }
   .hierarchyTree ul { margin-left: 4px; padding-left: 5px; }

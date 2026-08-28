@@ -56,6 +56,18 @@ function characterSignal(character: Character) {
   ].filter(Boolean).join("｜");
 }
 
+function portraitThemeFromSignal(signal: string) {
+  if (/蒸汽|齒輪|飞艇|飛空艇|維多利亞/u.test(signal)) return "steampunk";
+  if (/末日|廢土|灾变|災變|感染|生存/u.test(signal)) return "post-apocalypse";
+  if (/哥德|吸血鬼|詛咒|诅咒|靈媒|灵媒|驅魔|驱魔/u.test(signal)) return "gothic-mystery";
+  if (/西幻|歐美奇幻|骑士|騎士|法師|法师|精靈|精灵|德魯伊|德鲁伊/u.test(signal)) return "western-fantasy";
+  if (/修仙|仙俠|仙侠|玄幻|宗門|宗门|靈根|灵根|劍修|剑修/u.test(signal)) return "xianxia";
+  if (/未來|未来|星際|星际|太空|賽博|赛博|機甲|机甲|仿生|量子/u.test(signal)) return "scifi";
+  if (/古代|歷史|历史|王朝|朝廷|宮廷|宫廷|江湖|武俠|武侠|民國|民国/u.test(signal)) return "historical-east-asia";
+  if (/刑警|偵探|侦探|懸疑|悬疑|案件|律師|律师|記者|记者|鑑識|鉴识/u.test(signal)) return "modern-mystery";
+  return "warm-contemporary";
+}
+
 function portraitTheme(input: {
   character: Character;
   project: NovelProject;
@@ -69,15 +81,7 @@ function portraitTheme(input: {
     input.project.coreIdea.value,
     ...input.worlds.flatMap((world) => [world.name.value, world.era.value, world.summary.value]),
   ].filter(Boolean).join("｜");
-  if (/蒸汽|齒輪|飞艇|飛空艇|維多利亞/u.test(signal)) return "steampunk";
-  if (/末日|廢土|灾变|災變|感染|生存/u.test(signal)) return "post-apocalypse";
-  if (/哥德|吸血鬼|詛咒|诅咒|靈媒|灵媒|驅魔|驱魔/u.test(signal)) return "gothic-mystery";
-  if (/西幻|歐美奇幻|骑士|騎士|法師|法师|精靈|精灵|德魯伊|德鲁伊/u.test(signal)) return "western-fantasy";
-  if (/修仙|仙俠|仙侠|玄幻|宗門|宗门|靈根|灵根|劍修|剑修/u.test(signal)) return "xianxia";
-  if (/未來|未来|星際|星际|太空|賽博|赛博|機甲|机甲|仿生|量子/u.test(signal)) return "scifi";
-  if (/古代|歷史|历史|王朝|朝廷|宮廷|宫廷|江湖|武俠|武侠|民國|民国/u.test(signal)) return "historical-east-asia";
-  if (/刑警|偵探|侦探|懸疑|悬疑|案件|律師|律师|記者|记者|鑑識|鉴识/u.test(signal)) return "modern-mystery";
-  return "warm-contemporary";
+  return portraitThemeFromSignal(signal);
 }
 
 const NON_DISTINCTIVE_PORTRAIT_TERMS = new Set([
@@ -138,6 +142,35 @@ function roleScore(portrait: CharacterPortraitAsset, signal: string) {
   return score;
 }
 
+/**
+ * Chooses a real atlas portrait for catalog-only characters that do not yet
+ * belong to a project.  The stable id keeps the same face and colour variant
+ * across reloads; the signal keeps role, era and world style aligned.
+ */
+export function suggestedCatalogCharacterPortrait(input: {
+  stableId: string;
+  signal: string;
+  preferredThemeId?: string;
+}): CharacterPortraitAsset {
+  const themeId = input.preferredThemeId?.trim() || portraitThemeFromSignal(input.signal);
+  const basePortraits = BASE_CHARACTER_PORTRAITS_BY_THEME.get(themeId)
+    ?? BASE_CHARACTER_PORTRAITS_BY_THEME.get("warm-contemporary")
+    ?? [];
+  const scored = basePortraits
+    .map((portrait) => ({ portrait, score: roleScore(portrait, input.signal) }))
+    .sort((left, right) => right.score - left.score);
+  const bestScore = scored[0]?.score ?? 0;
+  const eligible = bestScore > 0
+    ? scored.filter((entry) => entry.score === bestScore).map((entry) => entry.portrait)
+    : basePortraits;
+  const seed = `${input.stableId}|${input.signal}|${themeId}`;
+  const base = eligible[stableHash(`${seed}|base`) % eligible.length] ?? CHARACTER_PORTRAIT_CATALOG[0]!;
+  const variant = stableHash(`${seed}|variant`) % 100;
+  return CHARACTER_PORTRAIT_BY_ID.get(
+    `${base.id.replace(/-v\d{3}$/u, "")}-v${String(variant + 1).padStart(3, "0")}`,
+  ) ?? base;
+}
+
 export function suggestedCharacterPortrait(input: {
   character: Character;
   project: NovelProject;
@@ -148,20 +181,11 @@ export function suggestedCharacterPortrait(input: {
   }
   const themeId = portraitTheme(input);
   const signal = characterSignal(input.character);
-  const basePortraits = BASE_CHARACTER_PORTRAITS_BY_THEME.get(themeId) ?? [];
-  const scored = basePortraits
-    .map((portrait) => ({ portrait, score: roleScore(portrait, signal) }))
-    .sort((left, right) => right.score - left.score);
-  const bestScore = scored[0]?.score ?? 0;
-  const eligible = bestScore > 0
-    ? scored.filter((entry) => entry.score === bestScore).map((entry) => entry.portrait)
-    : basePortraits;
-  const seed = [input.project.id, input.character.id, signal, themeId].join("|");
-  const base = eligible[stableHash(`${seed}|base`) % eligible.length] ?? CHARACTER_PORTRAIT_CATALOG[0]!;
-  const variant = stableHash(`${seed}|variant`) % 100;
-  return CHARACTER_PORTRAIT_BY_ID.get(
-    `${base.id.replace(/-v\d{3}$/u, "")}-v${String(variant + 1).padStart(3, "0")}`,
-  ) ?? base;
+  return suggestedCatalogCharacterPortrait({
+    stableId: `${input.project.id}|${input.character.id}`,
+    signal,
+    preferredThemeId: themeId,
+  });
 }
 
 type PortraitReadySocialMatrixCharacter = SocialMatrixCharacter & Partial<Pick<

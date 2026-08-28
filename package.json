@@ -43,6 +43,8 @@
     "test:studio:topic-world-contract": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-topic-world-contract.mjs",
     "test:studio:global-world-index": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-global-world-index.mjs",
     "test:studio:global-canon": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-global-canon-contract.mjs",
+    "test:studio:global-character-index": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-global-character-index.mjs",
+    "test:studio:character-mastery": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs tests/character-mastery-library.test.mjs",
     "test:studio:selected-story-bible": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-selected-story-bible-contract.mjs",
     "test:studio:global-canon-social-assets": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-global-canon-social-assets.mjs",
     "test:studio:chapter-browser": "node scripts/run-studio-chapter-browser.mjs",

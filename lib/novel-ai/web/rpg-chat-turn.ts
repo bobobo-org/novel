@@ -417,6 +417,42 @@ function readerSafeLoreContent(value: string) {
     .trim();
 }
 
+export function readerSafeOrganizationLoreContent(value: string) {
+  const lines = readerSafeLoreContent(value).split(/\r?\n/u);
+  const safeLines: string[] = [];
+  let relationshipBlock: string[] | null = null;
+  const flushRelationship = () => {
+    if (!relationshipBlock) return;
+    const hidden = relationshipBlock.some((line) => /強度\s*[：:].*未公開/u.test(line));
+    if (!hidden) {
+      safeLines.push(...relationshipBlock.filter((line) => (
+        !/^(?:幕後動機|強度)\s*[：:]/u.test(line)
+      )));
+    }
+    relationshipBlock = null;
+  };
+  for (const line of lines) {
+    if (/^-\s*[^\n]+\uff5c對象\s*[：:]/u.test(line)) {
+      flushRelationship();
+      relationshipBlock = [line];
+      continue;
+    }
+    if (relationshipBlock && /^(?:階層、房系與資產|名冊規則)\s*[：:]/u.test(line)) {
+      flushRelationship();
+      safeLines.push(line);
+      continue;
+    }
+    if (relationshipBlock) {
+      relationshipBlock.push(line);
+      continue;
+    }
+    if (/^(?:幕後動機|隱藏衝突)\s*[：:]/u.test(line)) continue;
+    safeLines.push(line);
+  }
+  flushRelationship();
+  return safeLines.join("\n").trim();
+}
+
 function loreField(content: string, label: string) {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   const match = content.match(new RegExp(`(?:^|[；;\\n])\\s*${escaped}\\s*[：:]\\s*([^；;\\n。]+)`, "u"));
@@ -449,7 +485,36 @@ type FamilyStageOrganizationNarrative = {
   rivals: string | null;
   controlledAssets: string | null;
   contestedAssets: string | null;
+  relationships: Array<{
+    kind: string;
+    counterpart: string;
+    cause: string | null;
+    history: string | null;
+    currentStatus: string | null;
+    publicStance: string | null;
+    secretMotive: string | null;
+    publiclyKnown: boolean;
+  }>;
 };
+
+function organizationRelationshipLore(content: string): FamilyStageOrganizationNarrative["relationships"] {
+  const blocks = content.split(/(?=^-\s*[^\n]+\uff5c對象\s*[：:])/gmu);
+  return blocks.flatMap((block) => {
+    const heading = block.match(/^-\s*([^\uff5c\n]+)\uff5c對象\s*[：:]\s*([^\n]+)/mu);
+    if (!heading) return [];
+    const visibility = loreField(block, "強度") ?? "";
+    return [{
+      kind: heading[1]!.trim(),
+      counterpart: heading[2]!.trim(),
+      cause: loreField(block, "起因"),
+      history: loreField(block, "歷史"),
+      currentStatus: loreField(block, "現況"),
+      publicStance: loreField(block, "公開立場"),
+      secretMotive: loreField(block, "幕後動機"),
+      publiclyKnown: !visibility.includes("未公開"),
+    }];
+  }).slice(0, 8);
+}
 
 type FamilyStageAssetNarrative = {
   id: string;
@@ -485,20 +550,24 @@ function buildFamilyStageNarrativeContext(input: {
   const organizationLore = factionLore.filter((entry) => entry.id !== selectedFamilyLore?.id);
   const organizations: FamilyStageOrganizationNarrative[] = organizationLore.map((entry) => {
     const safeContent = readerSafeLoreContent(entry.content);
+    const modelSafeContent = readerSafeOrganizationLoreContent(entry.content);
     const parts = loreDisplayParts(entry);
     return {
       id: entry.id,
       kind: parts.prefix,
       name: parts.name,
-      situation: firstLoreNarrativeLine(safeContent),
-      territory: loreField(safeContent, "領域"),
-      doctrine: loreField(safeContent, "內部準則"),
-      publicGoal: loreField(safeContent, "公開目標"),
-      hiddenConflict: loreField(safeContent, "隱藏衝突"),
-      allies: loreField(safeContent, "盟友"),
-      rivals: loreField(safeContent, "對手"),
-      controlledAssets: loreField(safeContent, "控制"),
-      contestedAssets: loreField(safeContent, "爭奪"),
+      situation: firstLoreNarrativeLine(modelSafeContent),
+      territory: loreField(modelSafeContent, "領域"),
+      doctrine: loreField(modelSafeContent, "內部準則"),
+      publicGoal: loreField(modelSafeContent, "公開目標"),
+      hiddenConflict: null,
+      allies: loreField(modelSafeContent, "盟友"),
+      rivals: loreField(modelSafeContent, "對手"),
+      controlledAssets: loreField(modelSafeContent, "控制"),
+      contestedAssets: loreField(modelSafeContent, "爭奪"),
+      relationships: organizationRelationshipLore(safeContent)
+        .filter((relationship) => relationship.publiclyKnown)
+        .map((relationship) => ({ ...relationship, secretMotive: null })),
     };
   });
   const organizationByName = new Map(organizations.map((organization) => [organization.name, organization] as const));
@@ -549,8 +618,58 @@ function buildFamilyStageNarrativeContext(input: {
     readerSafeLore: prioritizedLore.slice(0, 20).map((entry) => ({
       kind: entry.kind,
       title: entry.title,
-      content: readerSafeLoreContent(entry.content),
+      content: entry.kind === "faction"
+        ? readerSafeOrganizationLoreContent(entry.content)
+        : readerSafeLoreContent(entry.content),
     })),
+  };
+}
+
+function qualitativeCapabilityScore(score: number) {
+  if (score >= 90) return "已臻專精";
+  if (score >= 75) return "高度熟練";
+  if (score >= 60) return "能穩定運用";
+  if (score >= 40) return "具備實用基礎";
+  return "仍在入門階段";
+}
+
+function qualitativeCapabilityEffect(multiplier: number) {
+  if (multiplier >= 1.25) return "能形成顯著助力";
+  if (multiplier >= 1.08) return "能形成有利助力";
+  if (multiplier >= 0.95) return "通常能穩定發揮";
+  if (multiplier >= 0.8) return "在此條件下略受限制";
+  return "在此條件下明顯受制";
+}
+
+function readerSafeCharacterNarrativeFact(value: string | null | undefined) {
+  if (!value?.trim()) return "";
+  return value.trim()
+    .replace(/力量層級\s*[：:]\s*([^；;，,\n]+)/gu, (_match, tier: string) => `整體實戰經驗已達${tier.trim()}層次`)
+    .replace(/(修行|武力|謀略|洞察|醫藥|技藝|領導|影響力)\s*[：:]?\s*(-?\d+)\s*\/\s*100/gu, (_match, label: string, score: string) => `${label}${qualitativeCapabilityScore(Number(score))}`)
+    .replace(/熟練\s*[：:]?\s*(-?\d+)\s*\/\s*100/gu, (_match, score: string) => `熟練程度${qualitativeCapabilityScore(Number(score))}`)
+    .replace(/實效\s*[：:]?\s*[×x]\s*(\d+(?:\.\d+)?)/giu, (_match, multiplier: string) => `實際運用時${qualitativeCapabilityEffect(Number(multiplier))}`)
+    .replace(/((?:五行)?(?:同屬|相生|相剋|受生|受剋))\s*[：:]?\s*[×x]\s*(\d+(?:\.\d+)?)/giu, (_match, relation: string, multiplier: string) => `${relation}${qualitativeCapabilityEffect(Number(multiplier))}`)
+    .replace(/時代\s*[：:]?\s*ancient/giu, "適用於古代背景")
+    .replace(/時代\s*[：:]?\s*early-modern/giu, "適用於近代背景")
+    .replace(/時代\s*[：:]?\s*modern/giu, "適用於現代背景")
+    .replace(/時代\s*[：:]?\s*future/giu, "適用於未來背景")
+    .replace(/五行\s*[：:]?\s*([金木水火土])/gu, "五行屬$1")
+    .replace(/-?\d+\s*\/\s*100/gu, "已依既有程度判斷")
+    .replace(/[×x]\s*\d+(?:\.\d+)?/giu, "依條件增減")
+    .replace(/；\s*；/gu, "；")
+    .replace(/^[；;，,\s]+|[；;，,\s]+$/gu, "")
+    .trim();
+}
+
+export function buildRpgReaderSafeCharacterContext(character: Character) {
+  return {
+    capabilities: [...new Set((character.capabilities ?? [])
+      .map((capability) => readerSafeCharacterNarrativeFact(capability))
+      .filter(Boolean))],
+    limitations: [...new Set((character.limitations ?? [])
+      .map((limitation) => readerSafeCharacterNarrativeFact(limitation))
+      .filter(Boolean))],
+    actionMastery: characterNarrativeMastery(character),
   };
 }
 
@@ -582,6 +701,9 @@ function buildDirectorContext(input: {
     input.storyBible.protagonistIds.includes(character.id))
     ?? input.characters[0]
     ?? null;
+  const protagonistStoryProfile = protagonist
+    ? buildRpgReaderSafeCharacterContext(protagonist)
+    : null;
   const nameById = new Map(input.characters.map((character) => [character.id, character.name]));
   const stagedCharacters = input.characters.slice(0, 14);
   const stagedFamilyMap = new Map<string, {
@@ -645,8 +767,9 @@ function buildDirectorContext(input: {
       personality: protagonist.personality.value,
       goal: protagonist.goal.value,
       values: protagonist.values ?? [],
-      capabilities: protagonist.capabilities ?? [],
-      limitations: protagonist.limitations ?? [],
+      capabilities: protagonistStoryProfile?.capabilities ?? [],
+      limitations: protagonistStoryProfile?.limitations ?? [],
+      actionMastery: protagonistStoryProfile?.actionMastery ?? null,
       family: characterNarrativeAffiliation(protagonist, familyStage.loreById).familyLabel,
       faction: characterNarrativeAffiliation(protagonist, familyStage.loreById).factionLabel,
     } : null,
@@ -655,13 +778,15 @@ function buildDirectorContext(input: {
       .slice(0, 10)
       .map((character) => {
         const affiliation = characterNarrativeAffiliation(character, familyStage.loreById);
+        const storyProfile = buildRpgReaderSafeCharacterContext(character);
         return {
           name: character.name,
           identity: character.identity.value,
           personality: character.personality.value,
           goal: character.goal.value,
-          capabilities: character.capabilities?.slice(0, 5) ?? [],
-          limitations: character.limitations?.slice(0, 3) ?? [],
+          capabilities: storyProfile.capabilities.slice(0, 5),
+          limitations: storyProfile.limitations.slice(0, 3),
+          actionMastery: storyProfile.actionMastery,
           hiddenMotivations: character.privateSecrets?.slice(0, 2) ?? [],
           family: affiliation.familyLabel,
           faction: affiliation.factionLabel,
@@ -676,9 +801,16 @@ function buildDirectorContext(input: {
       controlledAssets: familyStage.selectedStageFamily.controlledAssets,
     } : null,
     stagedOrganizations: familyStage.organizations.map((organization) => {
-      const { id, ...serializedOrganization } = organization;
+      const { id, hiddenConflict, relationships, ...serializedOrganization } = organization;
       void id;
-      return serializedOrganization;
+      void hiddenConflict;
+      return {
+        ...serializedOrganization,
+        relationships: relationships.map(({ secretMotive, ...readerSafeRelationship }) => {
+          void secretMotive;
+          return readerSafeRelationship;
+        }),
+      };
     }),
     stagedAssets: familyStage.assets.map((asset) => ({
       category: asset.category,
@@ -1442,13 +1574,13 @@ function existingCharacterAsCandidate(
   if (!character) return fallback;
   const name = embeddedNarrativeFact(narrativeFact(character.name, fallback.name, 24)) || fallback.name;
   const goal = quotationSafeNarrativeFact(narrativeFact(
-    character.goal?.value,
+    readerSafeCharacterNarrativeFact(character.goal?.value),
     fallback.goal,
     36,
   ));
-  const personality = character.personality?.value?.trim() || fallback.personality;
+  const personality = readerSafeCharacterNarrativeFact(character.personality?.value) || fallback.personality;
   const limitation = quotationSafeNarrativeFact(narrativeFact(
-    character.limitations?.find((value) => value.trim()),
+    readerSafeCharacterNarrativeFact(character.limitations?.find((value) => value.trim())),
     fallback.refusalCondition,
     40,
   ));
@@ -1476,6 +1608,69 @@ function existingCharacterAsCandidate(
       visualDescription: character.portrait.visualDescription,
     } : fallback.portrait,
   };
+}
+
+type CharacterNarrativeMastery = {
+  relation: "使用" | "製作" | "持有" | "栽培" | "專長";
+  name: string;
+  era: "ancient" | "early-modern" | "modern" | "future" | null;
+  element: "金" | "木" | "水" | "火" | "土" | null;
+  proficiency: string | null;
+  practicalEffect: string | null;
+  limitation: string | null;
+};
+
+function characterNarrativeMastery(
+  character: Character | null | undefined,
+): CharacterNarrativeMastery | null {
+  if (!character) return null;
+  const structured = (character.capabilities ?? []).map((capability) => ({
+    capability,
+    match: capability.match(/^(會使用|會製作|持有|栽培)[^「]{0,40}「([^」]{1,80})」/u),
+  })).find((candidate) => candidate.match);
+  if (structured?.match) {
+    const relation = structured.match[1] === "會使用"
+      ? "使用"
+      : structured.match[1] === "會製作"
+        ? "製作"
+        : structured.match[1] === "持有"
+          ? "持有"
+          : "栽培";
+    const name = structured.match[2]!.trim();
+    const eraMatch = structured.capability.match(/；\s*時代\s+(ancient|early-modern|modern|future)(?:；|$)/iu);
+    const elementMatch = structured.capability.match(/；\s*五行\s+([金木水火土])(?:；|$)/u);
+    const proficiencyMatch = structured.capability.match(/熟練\s*(-?\d+)\s*\/\s*100/u);
+    const effectMatch = structured.capability.match(/實效\s*[×x]\s*(\d+(?:\.\d+)?)/iu);
+    const limitation = (character.limitations ?? []).find((candidate) => candidate.includes(name)) ?? null;
+    return {
+      relation,
+      name,
+      era: (eraMatch?.[1]?.toLowerCase() as CharacterNarrativeMastery["era"] | undefined) ?? null,
+      element: (elementMatch?.[1] as CharacterNarrativeMastery["element"] | undefined) ?? null,
+      proficiency: proficiencyMatch
+        ? qualitativeCapabilityScore(Number(proficiencyMatch[1]))
+        : null,
+      practicalEffect: effectMatch
+        ? qualitativeCapabilityEffect(Number(effectMatch[1]))
+        : null,
+      limitation: limitation ? readerSafeCharacterNarrativeFact(limitation) : null,
+    };
+  }
+  const plain = (character.capabilities ?? []).find((capability) => (
+    capability.trim().length >= 2
+    && !/(?:力量層級|\d+\s*\/\s*100|實效\s*[×x])/u.test(capability)
+  ));
+  return plain ? {
+    relation: "專長",
+    name: narrativeFact(readerSafeCharacterNarrativeFact(plain), plain, 42),
+    era: null,
+    element: null,
+    proficiency: null,
+    practicalEffect: null,
+    limitation: character.limitations?.[0]
+      ? readerSafeCharacterNarrativeFact(character.limitations[0])
+      : null,
+  } : null;
 }
 
 function deterministicTurnContext(snapshot: RpgChatSnapshot) {
@@ -1592,6 +1787,7 @@ function deterministicTurnContext(snapshot: RpgChatSnapshot) {
   return {
     protagonist: protagonist?.name
       ?? (snapshot.language === "en" ? "The protagonist" : "主角"),
+    protagonistMastery: characterNarrativeMastery(protagonist),
     supporting: supporting.name,
     supportingCharacter: supporting,
     counterforce,
@@ -2105,6 +2301,17 @@ function buildTraditionalNovelFallback(input: {
   const arcProgress = embeddedArcGoal !== embeddedConflict
     ? `「${embeddedArcGoal}」也因此有了可驗證的進展。`
     : "";
+  const masteryAction = context.protagonistMastery
+    ? context.protagonistMastery.relation === "使用"
+      ? `${protagonist}只取「${quotationSafeNarrativeFact(context.protagonistMastery.name)}」中最熟的一式處理眼前破口，沒有把熟練當成必然成功。`
+      : context.protagonistMastery.relation === "製作"
+        ? `${protagonist}依「${quotationSafeNarrativeFact(context.protagonistMastery.name)}」的製作次序逐一核對接點，寧可慢一步，也不跳過會留下後患的工序。`
+        : context.protagonistMastery.relation === "持有"
+          ? `${protagonist}讓自己持有的「${quotationSafeNarrativeFact(context.protagonistMastery.name)}」只露出足以驗證的一角，所有權因此成了籌碼，也成了會被追索的痕跡。`
+          : context.protagonistMastery.relation === "栽培"
+            ? `${protagonist}憑栽培「${quotationSafeNarrativeFact(context.protagonistMastery.name)}」留下的經驗辨認環境差異，先排除一條看似安全、實則會毀掉材料的路。`
+            : `${protagonist}把「${quotationSafeNarrativeFact(context.protagonistMastery.name)}」用在最需要判斷的細節上；那項專長只能改變方法，不能替結果作保。`
+    : "";
   const chosenMove = snapshot.playMode === "management"
     ? choice.approach === "steady"
       ? `${protagonist}先停下尚未交付的批次，封存原單並讓經手者留在現場，誰也不能趁亂改寫時間。`
@@ -2127,7 +2334,7 @@ function buildTraditionalNovelFallback(input: {
     `${context.location}裡沒有人先開口。「${embeddedConflict}」再也拖不得。${catalyst}，迫使${protagonist}收回原先盤算；${weather}，${sensory}。`,
     `${context.location}留下的聲音忽然有了次序。「${embeddedConflict}」就在其中。${catalyst}，${protagonist}只能立刻回應；${weather}，${sensory}。`,
   ], 4);
-  const actionParagraph = `${protagonist}說出「${embeddedChoiceTitle}」後立刻動手。${chosenMove}手邊可用的仍只有${context.inventory}；${leverage}。${resourceProp}。${deadline}`;
+  const actionParagraph = `${protagonist}說出「${embeddedChoiceTitle}」後立刻動手。${chosenMove}${masteryAction}手邊可用的仍只有${context.inventory}；${leverage}。${resourceProp}。${deadline}`;
   const allyAction = chooseDeterministicProse(seed, [
     `${ally.name}搶在爭論前把側門鑰匙交給傷者，自己留在最容易被追問的位置。`,
     `${ally.name}將散落線索按先後排開，又把最可疑的一件推到燈下，拒絕讓任何人代答。`,
@@ -2157,8 +2364,16 @@ function buildTraditionalNovelFallback(input: {
       ].filter((value): value is string => Boolean(value)).join("")
     : `${witness.name}隔著布把${treasure.name}放在眾人之間，先讓每個人看清原有磨損。`;
   const assetParagraph = `${assetActors}它能${novelBeat(treasure.function || dimensions.resourceProp)}，卻也${novelBeat(treasure.limitation || "不能在沒有見證時啟用")}。${protagonist}只動用已經屬於眾人的部分，沒有憑空添出第二件籌碼。`;
-  const organizationAction = stageOrganization
-    ? `${stageOrganization.name}派來的人堵住另一端，見到${counterforce.name}抬手才停下。`
+  const stageOrganizationRelationship = stageOrganization?.relationships.length
+    ? stageOrganization.relationships[(input.turn + choice.key.charCodeAt(0)) % stageOrganization.relationships.length]!
+    : null;
+  const publicOrganizationRelationship = stageOrganizationRelationship?.publiclyKnown
+    ? stageOrganizationRelationship
+    : null;
+  const organizationAction = stageOrganization && publicOrganizationRelationship
+    ? `${stageOrganization.name}與${publicOrganizationRelationship.counterpart}之間那樁${publicOrganizationRelationship.kind}仍壓在場上；${novelBeat(publicOrganizationRelationship.publicStance || publicOrganizationRelationship.currentStatus || "雙方都不肯先撤回已公開的條件")}。${stageOrganization.name}派來的人因此堵住另一端，見到${counterforce.name}抬手才停下。`
+    : stageOrganization
+      ? `${stageOrganization.name}公開仍維持原有說法；派來的人沒有解釋彼此矛盾的動作，只堵住另一端，見到${counterforce.name}抬手才停下。`
     : `${counterforce.name}帶來的人無聲散開，把最容易走的方向封死。`;
   const counterAction = chooseDeterministicProse(seed, [
     `${counterforce.name}先踢開藏在桌腳下的空匣，讓一條被忽略的搬運路線露出來。`,

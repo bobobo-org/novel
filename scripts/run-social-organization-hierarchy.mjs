@@ -27,6 +27,13 @@ function flattenHierarchy(root) {
   return [root, ...root.children.flatMap(flattenHierarchy)];
 }
 
+function uniqueOrganizationRelationships(directory) {
+  return [...new Map(
+    directory.flatMap((organization) => organization.relationships)
+      .map((relationship) => [relationship.relationshipId, relationship]),
+  ).values()];
+}
+
 function makeDirectory(seed, setting) {
   const blueprints = buildStoryOrganizationBlueprints({ seed, setting });
   const context = organizationMatrixContext({
@@ -81,6 +88,10 @@ assert.match(activeModernWorldSetting.backgroundLabel, /家族企業/u);
 const cultivation = makeDirectory("organization-hierarchy-test-seed", cultivationSetting);
 assert.equal(cultivation.blueprints.length, STORY_ORGANIZATION_DIRECTORY_SIZE);
 assert.equal(cultivation.directory.length, STORY_ORGANIZATION_DIRECTORY_SIZE);
+assert.equal(STORY_ORGANIZATION_DIRECTORY_SIZE, 30);
+assert.equal(new Set(cultivation.directory.map((entry) => entry.name)).size, STORY_ORGANIZATION_DIRECTORY_SIZE);
+assert.equal(new Set(cultivation.directory.map((entry) => entry.specializationId)).size, 10);
+assert.ok(cultivation.directory.every((entry) => entry.worldClassificationId === "cultivation-sects"));
 assert.ok(cultivation.blueprints.some((entry) => entry.archetype === "sect"));
 assert.ok(cultivation.blueprints.some((entry) => entry.archetype === "family"));
 assert.ok(cultivation.blueprints.some((entry) => entry.archetype === "enterprise"));
@@ -105,12 +116,58 @@ for (const organization of cultivation.directory) {
     cultivation.matrix.getInstitution(organization.institutionIndex).name,
     organization.name,
   );
-  // The matrix retains a 10k virtual address space per institution. The
-  // organization directory separately records actual in-story membership.
-  assert.equal(
-    cultivation.matrix.getInstitution(organization.institutionIndex).memberCount,
-    STORY_ORGANIZATION_MEMBER_CAPACITY,
-  );
+  const virtualInstitutionMembers = cultivation.matrix.getInstitution(
+    organization.institutionIndex,
+  ).memberCount;
+  assert.ok(organization.memberCapacity <= virtualInstitutionMembers);
+  const hierarchyText = flattenHierarchy(organization.hierarchy)
+    .flatMap((entry) => [entry.label, ...entry.roles, ...entry.assets])
+    .join("｜");
+  assert.ok(hierarchyText.includes(organization.specializationLabel));
+  assert.ok(organization.hierarchy.children.some((node) => node.nodeId.endsWith(":node:specialization")));
+}
+assert.equal(
+  cultivation.directory.reduce((sum, organization) => (
+    sum + cultivation.matrix.getInstitution(organization.institutionIndex).memberCount
+  ), 0),
+  cultivation.matrix.populationSize,
+);
+assert.equal(cultivation.matrix.cacheStats().materializedCharacters, 0, "building 30 organizations must not eagerly materialize rosters");
+const cultivationRelationships = uniqueOrganizationRelationships(cultivation.directory);
+assert.ok(cultivationRelationships.length >= STORY_ORGANIZATION_DIRECTORY_SIZE * 2);
+assert.deepEqual(
+  new Set(cultivationRelationships.map((relationship) => relationship.kind)),
+  new Set([
+    "alliance",
+    "rivalry",
+    "vassalage",
+    "schism",
+    "marriage-kinship",
+    "resource-dependence",
+    "historic-blood-debt",
+    "covert-cooperation",
+  ]),
+);
+assert.ok(cultivation.directory.every((organization) => organization.relationships.length >= 2));
+for (const relationship of cultivationRelationships) {
+  const source = cultivation.directory.find((organization) => organization.organizationId === relationship.sourceOrganizationId);
+  const target = cultivation.directory.find((organization) => organization.organizationId === relationship.targetOrganizationId);
+  assert.ok(source && target);
+  assert.equal(source.era, target.era);
+  assert.equal(source.worldClassificationId, target.worldClassificationId);
+  assert.equal(relationship.eraGate, "same-era");
+  assert.equal(relationship.classificationGate, "same-world-classification");
+  assert.ok(relationship.cause.includes(source.name) || relationship.cause.includes(target.name));
+  for (const value of [relationship.history, relationship.currentStatus, relationship.publicStance, relationship.secretMotive]) {
+    assert.ok(value.length >= 12);
+  }
+  assert.ok(relationship.intensity >= 35 && relationship.intensity <= 100);
+  assert.ok(relationship.trust >= -100 && relationship.trust <= 100);
+  if (relationship.kind === "marriage-kinship") {
+    assert.equal(source.archetype, "family");
+    assert.equal(target.archetype, "family");
+  }
+  if (relationship.kind === "schism") assert.equal(source.archetype, target.archetype);
 }
 
 const repeated = makeDirectory("organization-hierarchy-test-seed", cultivationSetting);
@@ -328,6 +385,57 @@ const contemporary = makeDirectory("modern-organization-seed", contemporarySetti
 assert.ok(contemporary.directory.some((entry) => entry.archetype === "enterprise"));
 assert.ok(contemporary.directory.some((entry) => entry.archetype === "family"));
 assert.ok(contemporary.directory.every((entry) => entry.archetype !== "sect"));
+
+const classificationCases = [
+  { id: "contemporary-life", genre: "當代生活", era: "現代", summary: "社區、醫療與家庭服務共同處理地方危機。" },
+  { id: "urban-workplace", genre: "都市職場", era: "現代", summary: "企業董事會、供應鏈與專業部門競逐市場。" },
+  { id: "school-youth", genre: "校園青春", era: "現代", summary: "學校、學生自治、社團與校隊共同生活。" },
+  { id: "mystery-justice", genre: "懸疑司法", era: "現代", summary: "刑偵、鑑識、證人保護與法庭程序維持證據鏈。" },
+  { id: "historical-court", genre: "歷史宮廷", era: "歷史古代", summary: "朝廷官署、宗族、軍鎮與漕運互相制衡。" },
+  { id: "wuxia-rivers", genre: "武俠江湖", era: "歷史古代", summary: "門派、鏢局、幫會、武館與地方官府並立。" },
+  { id: "cultivation-sects", genre: "修仙宗門", era: "架空幻想", summary: "宗門、修行家族、坊市與散修盟競逐靈脈。" },
+  { id: "mythic-otherworld", genre: "神話異界", era: "架空幻想", summary: "王國、神殿、魔法組織與異族議會共同定序。" },
+  { id: "near-future-cyber", genre: "近未來賽博", era: "未來", summary: "人工智慧、義體企業與資料治理機構進入日常。" },
+  { id: "deep-space-future", genre: "星際遠未來", era: "未來", summary: "星際議會、殖民政府、艦隊與跨星企業分治。" },
+  { id: "post-apocalypse", genre: "末日災變", era: "未來", summary: "避難據點、救援配給與倖存者自治會重建文明。" },
+];
+const classificationSignatures = new Set();
+for (const classificationCase of classificationCases) {
+  const setting = resolveStoryOrganizationSetting({
+    genre: classificationCase.genre,
+    coreIdea: classificationCase.summary,
+    worldEras: [classificationCase.era],
+    worldSummaries: [classificationCase.summary],
+    sourceWorldId: `global-world-${classificationCase.id}`,
+  });
+  const catalog = makeDirectory(`organization-profile:${classificationCase.id}`, setting);
+  assert.equal(catalog.directory.length, 30, `${classificationCase.id} must expose at least 30 organizations`);
+  assert.equal(new Set(catalog.directory.map((entry) => entry.name)).size, 30, `${classificationCase.id} organization names must be unique`);
+  assert.ok(catalog.directory.every((entry) => entry.worldClassificationId === classificationCase.id));
+  assert.ok(new Set(catalog.directory.map((entry) => entry.archetype)).size >= 4, `${classificationCase.id} needs multiple hierarchy archetypes`);
+  assert.ok(catalog.directory.every((entry) => {
+    const specialistNode = flattenHierarchy(entry.hierarchy).find((node) => node.nodeId.endsWith(":node:specialization"));
+    return specialistNode
+      && specialistNode.label.includes(entry.specializationLabel)
+      && specialistNode.roles.length >= 2
+      && specialistNode.assets.length >= 2;
+  }), `${classificationCase.id} specialization must change roles and assets, not only names`);
+  const relationships = uniqueOrganizationRelationships(catalog.directory);
+  assert.ok(catalog.directory.every((organization) => organization.relationships.length >= 2));
+  assert.ok(relationships.every((relationship) => (
+    relationship.worldClassificationId === classificationCase.id
+    && relationship.eraGate === "same-era"
+    && relationship.classificationGate === "same-world-classification"
+  )));
+  assert.ok(relationships.some((relationship) => relationship.kind === "marriage-kinship"));
+  assert.ok(relationships.some((relationship) => relationship.kind === "vassalage"));
+  assert.equal(catalog.matrix.cacheStats().materializedCharacters, 0);
+  classificationSignatures.add(catalog.directory
+    .slice(0, 10)
+    .map((entry) => `${entry.archetype}:${entry.specializationId}`)
+    .join("|"));
+}
+assert.equal(classificationSignatures.size, classificationCases.length, "all 11 world classifications need a distinct organization mix");
 
 const declaredModernSetting = resolveStoryOrganizationSetting({
   genre: "幻想隱喻",

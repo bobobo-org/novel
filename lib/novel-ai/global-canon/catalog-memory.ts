@@ -42,10 +42,14 @@ function hierarchyLines(
  */
 export function createGlobalOrganizationMemory(input: {
   organization: StoryOrganizationDirectoryEntry;
+  organizationDirectory?: readonly StoryOrganizationDirectoryEntry[];
   catalogWorldId: string;
   catalogWorldLabel: string;
 }): GlobalMemory {
   const { organization } = input;
+  const organizationNames = new Map(
+    input.organizationDirectory?.map((entry) => [entry.organizationId, entry.name]) ?? [],
+  );
   return createGlobalMemory({
     kind: "faction",
     title: `${organization.kindLabel}｜${organization.name}`,
@@ -55,12 +59,38 @@ export function createGlobalOrganizationMemory(input: {
       `來源世界：${input.catalogWorldLabel}`,
       `組織識別：${organization.organizationId}`,
       `類型：${organization.kindLabel}／${organization.sizeLabel}`,
+      `專業定位：${organization.specializationLabel}`,
       `時代：${organization.eraLabel}`,
       `據點：${organization.territory}`,
       `在籍：${organization.currentMemberCount}／容量上限：${organization.memberCapacity}（不超過 10,000 人）`,
       `內部準則：${organization.doctrine}`,
       `公開目標：${organization.publicGoal}`,
       `內部矛盾：${organization.hiddenConflict}`,
+      "組織關係網：",
+      ...organization.relationships.map((relationship) => {
+        const sourceName = organizationNames.get(relationship.sourceOrganizationId)
+          ?? relationship.sourceOrganizationId;
+        const targetName = organizationNames.get(relationship.targetOrganizationId)
+          ?? relationship.targetOrganizationId;
+        const counterpartId = relationship.sourceOrganizationId === organization.organizationId
+          ? relationship.targetOrganizationId
+          : relationship.sourceOrganizationId;
+        const perspective = relationship.directed
+          ? relationship.sourceOrganizationId === organization.organizationId
+            ? "本組織為作用發起方"
+            : "本組織為作用承受方"
+          : "雙向關係";
+        return [
+          `- ${relationship.kindLabel}｜對象：${organizationNames.get(counterpartId) ?? counterpartId}`,
+          `  方向：${relationship.directed ? `${sourceName} → ${targetName}` : `${sourceName} ↔ ${targetName}`}｜本組織立場：${perspective}`,
+          `  起因：${relationship.cause}`,
+          `  歷史：${relationship.history}`,
+          `  現況：${relationship.currentStatus}`,
+          `  公開立場：${relationship.publicStance}`,
+          `  幕後動機：${relationship.secretMotive}`,
+          `  強度：${relationship.intensity}/100｜信任：${relationship.trust}/100｜${relationship.publiclyKnown ? "公開" : "未公開"}`,
+        ].join("\n");
+      }),
       "階層、房系與資產：",
       ...hierarchyLines(organization.hierarchy),
       "名冊規則：人物與家族祖譜依組織識別與固定世界種子按頁重現；不預先展開一萬筆資料。",

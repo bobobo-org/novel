@@ -8,7 +8,12 @@ import {
   CHARACTER_PORTRAIT_THEME_OPTIONS,
   filterCharacterPortraitCatalog,
 } from "@/lib/novel-ai/character-portraits/catalog";
+import { suggestedCatalogCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import type { Character, CharacterPortrait, CharacterPortraitAsset, NovelProject } from "@/lib/novel-ai/domain";
+import {
+  characterMasteryProfileAt,
+  type CharacterMasteryProfile,
+} from "@/lib/novel-ai/game/character-mastery-library";
 import type { GlobalIndexedWorld, GlobalIndexedWorldSummary } from "@/lib/novel-ai/game/global-world-index";
 import { PROCEDURAL_TREASURE_KIND_DEFINITIONS, type ProceduralTreasureKind } from "@/lib/novel-ai/game/procedural-treasure-classification";
 import { createProceduralTreasureLibrary, type ProceduralTreasureRecord } from "@/lib/novel-ai/game/procedural-treasure-library";
@@ -16,6 +21,7 @@ import { proceduralTreasureVisualCssVariables } from "@/lib/novel-ai/game/proced
 import {
   copyGlobalCanonToProject,
   copyGlobalStoryBibleToProject,
+  createGlobalCharacterFromCatalog,
   createGlobalCanonRepository,
   createGlobalCharacter,
   createGlobalMemory,
@@ -26,6 +32,11 @@ import {
   createGlobalTimelineTemplate,
   createGlobalWorld,
   createGlobalWorldRule,
+  GLOBAL_CHARACTER_CATALOG_CAPACITY,
+  GLOBAL_CHARACTER_CATALOG_PAGE_SIZE,
+  globalCatalogCharacterAbilitySummary,
+  globalCatalogCharacterId,
+  globalCatalogCharacterNumber,
   importProjectCanonToGlobal,
   type GlobalCanonEraContext,
   type GlobalCanonRecord,
@@ -55,6 +66,7 @@ import {
   type StoryOrganizationDirectoryEntry,
   type StoryOrganizationHierarchyNode,
   type StoryOrganizationMember,
+  type SocialMatrixCharacter,
 } from "@/lib/novel-ai/social-matrix";
 import PortraitCrop from "./portrait-crop";
 import styles from "./canon.module.css";
@@ -198,6 +210,7 @@ const EMPTY_STORY_BIBLE: StoryBibleDraft = {
   authorPreferences: "",
 };
 const EMPTY_TIMELINE: TimelineDraft = { title: "", storyTime: "", summary: "", eraContext: "modern", placementHint: "" };
+const EMPTY_CHARACTER_MASTERIES: Partial<Record<number, CharacterMasteryProfile>> = {};
 
 const ERA_OPTIONS: Array<{ value: GlobalCanonEraContext; label: string }> = [
   { value: "modern", label: "現代" },
@@ -209,7 +222,7 @@ const ERA_OPTIONS: Array<{ value: GlobalCanonEraContext; label: string }> = [
 ];
 
 const TAB_LABELS: Array<{ id: CanonTab; label: string; short: string }> = [
-  { id: "characters", label: "人物總庫", short: "人物" },
+  { id: "characters", label: "十萬人物與總庫", short: "人物" },
   { id: "relationships", label: "關係網", short: "關係" },
   { id: "organizations", label: "組織與祖譜", short: "組織" },
   { id: "treasures", label: "寶物圖鑑", short: "寶物" },
@@ -306,6 +319,15 @@ export default function CanonClient({
   const [portraitQuery, setPortraitQuery] = useState("");
   const [portraitTheme, setPortraitTheme] = useState("all");
   const [portraitPage, setPortraitPage] = useState(0);
+  const [characterCatalogPageIndex, setCharacterCatalogPageIndex] = useState(0);
+  const [characterCatalogQuery, setCharacterCatalogQuery] = useState("");
+  const [characterCatalogOrdinal, setCharacterCatalogOrdinal] = useState("1");
+  const [focusedCharacterIndex, setFocusedCharacterIndex] = useState<number | null>(null);
+  const [characterFocusRequest, setCharacterFocusRequest] = useState(0);
+  const [characterMasteryBatch, setCharacterMasteryBatch] = useState<{
+    key: string;
+    profiles: Partial<Record<number, CharacterMasteryProfile>>;
+  }>({ key: "", profiles: {} });
 
   const [relationshipDraft, setRelationshipDraft] = useState<RelationshipDraft>(EMPTY_RELATIONSHIP);
   const [editingRelationship, setEditingRelationship] = useState<GlobalCharacterRelationship | null>(null);
@@ -375,6 +397,114 @@ export default function CanonClient({
     };
   }, [indexedWorld]);
 
+  const characterCatalogPageCount = Math.ceil(
+    organizationCatalog.matrix.populationSize / GLOBAL_CHARACTER_CATALOG_PAGE_SIZE,
+  );
+  const safeCharacterCatalogPage = Math.min(characterCatalogPageIndex, characterCatalogPageCount - 1);
+  const characterCatalogPage = useMemo(() => organizationCatalog.matrix.listCharacters({
+    cursor: `characters:${safeCharacterCatalogPage * GLOBAL_CHARACTER_CATALOG_PAGE_SIZE}`,
+    limit: GLOBAL_CHARACTER_CATALOG_PAGE_SIZE,
+  }), [organizationCatalog.matrix, safeCharacterCatalogPage]);
+  const catalogCharacterRows = useMemo(() => characterCatalogPage.items.map((character) => {
+    const signal = [
+      indexedWorld.classification.name,
+      indexedWorld.eraLabel,
+      indexedWorld.primaryTopic.topicName,
+      indexedWorld.logline,
+      character.name,
+      character.identity,
+      character.institutionRole,
+      character.familyRole,
+      character.storyAffinity,
+      ...character.personality.traits,
+      ...character.abilities.specialties,
+    ].filter(Boolean).join("｜");
+    return {
+      character,
+      portrait: suggestedCatalogCharacterPortrait({
+        stableId: `${indexedWorld.id}:${character.characterId}`,
+        signal,
+      }),
+    };
+  }), [characterCatalogPage.items, indexedWorld]);
+  const characterMasteryBatchKey = `${indexedWorld.id}:${safeCharacterCatalogPage}`;
+  const catalogCharacterMasteries = characterMasteryBatch.key === characterMasteryBatchKey
+    ? characterMasteryBatch.profiles
+    : EMPTY_CHARACTER_MASTERIES;
+  const characterMasteryLoadedCount = Object.keys(catalogCharacterMasteries).length;
+
+  useEffect(() => {
+    let cancelled = false;
+    let frame = 0;
+    let cursor = 0;
+    const items = characterCatalogPage.items;
+
+    const calculateNextPair = () => {
+      if (cancelled) return;
+      const profiles: Record<number, CharacterMasteryProfile> = {};
+      const stop = Math.min(items.length, cursor + 2);
+      while (cursor < stop) {
+        const character = items[cursor];
+        profiles[character.populationIndex] = characterMasteryProfileAt({
+          storySeed: organizationCatalog.matrix.seed,
+          populationIndex: character.populationIndex,
+          context: organizationCatalog.context,
+          socialMatrix: organizationCatalog.matrix,
+        });
+        cursor += 1;
+      }
+      if (cancelled) return;
+      setCharacterMasteryBatch((current) => ({
+        key: characterMasteryBatchKey,
+        profiles: current.key === characterMasteryBatchKey
+          ? { ...current.profiles, ...profiles }
+          : profiles,
+      }));
+      if (cursor < items.length) frame = window.requestAnimationFrame(calculateNextPair);
+    };
+
+    frame = window.requestAnimationFrame(calculateNextPair);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [characterCatalogPage.items, characterMasteryBatchKey, organizationCatalog.context, organizationCatalog.matrix]);
+
+  useEffect(() => {
+    if (focusedCharacterIndex === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-character-index="${focusedCharacterIndex}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [characterFocusRequest, focusedCharacterIndex, indexedWorld.id, safeCharacterCatalogPage]);
+
+  const visibleCatalogCharacterRows = useMemo(() => {
+    const query = characterCatalogQuery.normalize("NFKC").trim().toLocaleLowerCase("zh-TW");
+    if (!query) return catalogCharacterRows;
+    return catalogCharacterRows.filter(({ character }) => {
+      const mastery = catalogCharacterMasteries[character.populationIndex];
+      return [
+      globalCatalogCharacterNumber(character.populationIndex),
+      character.name,
+      character.identity,
+      character.institutionRole,
+      character.familyRole,
+      character.location,
+      character.goal,
+      character.storyAffinity,
+      ...character.personality.traits,
+      ...character.abilities.specialties,
+      mastery?.storyEraLabel ?? "",
+      ...(mastery?.assignments ?? []).flatMap((assignment) => [
+        assignment.relationLabel,
+        assignment.catalogLabel,
+        assignment.name,
+      ]),
+      ].join("｜").normalize("NFKC").toLocaleLowerCase("zh-TW").includes(query);
+    });
+  }, [catalogCharacterMasteries, catalogCharacterRows, characterCatalogQuery]);
+
   const filteredOrganizations = useMemo(() => {
     const query = organizationQuery.normalize("NFKC").trim().toLocaleLowerCase("zh-TW");
     if (!query) return organizationCatalog.directory;
@@ -384,12 +514,17 @@ export default function CanonClient({
       organization.sizeLabel,
       organization.territory,
       organization.doctrine,
+      organization.specializationLabel,
+      ...organization.relationships.flatMap((relationship) => [relationship.kindLabel, relationship.publicStance]),
     ].join("｜").normalize("NFKC").toLocaleLowerCase("zh-TW").includes(query));
   }, [organizationCatalog.directory, organizationQuery]);
 
   const selectedOrganization = filteredOrganizations.find(
     (organization) => organization.organizationId === selectedOrganizationId,
   ) ?? filteredOrganizations[0] ?? organizationCatalog.directory[0] ?? null;
+  const organizationById = useMemo(() => new Map(
+    organizationCatalog.directory.map((organization) => [organization.organizationId, organization]),
+  ), [organizationCatalog.directory]);
 
   const organizationMembers = useMemo(() => selectedOrganization
     ? organizationMemberPage({
@@ -613,6 +748,22 @@ export default function CanonClient({
     }, editingCharacter ? "人物資料已更新；作品中的既有快照不會被暗中改寫。" : "人物已加入跨作品總庫，可再明確複製到作品候選庫。");
   }
 
+  async function saveCatalogCharacter(
+    character: SocialMatrixCharacter,
+    portrait: CharacterPortraitAsset,
+    mastery: CharacterMasteryProfile,
+  ) {
+    const created = createGlobalCharacterFromCatalog({
+      character,
+      portrait: approvedPortrait(portrait)!,
+      world: indexedWorld,
+      mastery,
+    });
+    await perform(async () => {
+      await globalRepository.put("characters", created, 0);
+    }, `${globalCatalogCharacterNumber(character.populationIndex)}「${character.name}」已保存為可編輯的全域正式人物；尚未複製到作品，也沒有自動上場。`);
+  }
+
   function editCharacter(character: GlobalCharacter) {
     setEditingCharacter(character);
     setCharacterDraft({
@@ -627,7 +778,9 @@ export default function CanonClient({
       aliases: character.aliases.join("、"),
     });
     setPortrait(character.portrait);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.requestAnimationFrame(() => {
+      document.getElementById("global-character-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   async function saveRelationship(event: FormEvent) {
@@ -732,6 +885,7 @@ export default function CanonClient({
   async function saveOrganizationCandidate(organization: StoryOrganizationDirectoryEntry) {
     const created = createGlobalOrganizationMemory({
       organization,
+      organizationDirectory: organizationCatalog.directory,
       catalogWorldId: indexedWorld.id,
       catalogWorldLabel: `${indexedWorld.displayId}・${indexedWorld.title}`,
     });
@@ -922,10 +1076,10 @@ export default function CanonClient({
           <p>人物能力、關係、世界規則、記憶與時間線都在全域總庫修改。複製到作品時只建立一份可選候選快照；故事工作台不能在暗中改值。</p>
         </div>
         <dl>
-          <div><dt>人物</dt><dd>{library.characters.length}</dd></div>
-          <div><dt>世界</dt><dd>{library.worlds.length}</dd></div>
-          <div><dt>Story Bible</dt><dd>{library.storyBibles.length}</dd></div>
+          <div><dt>人物索引</dt><dd>100,000</dd></div>
+          <div><dt>正式人物</dt><dd>{library.characters.length}</dd></div>
           <div><dt>世界索引</dt><dd>100,000</dd></div>
+          <div><dt>Story Bible</dt><dd>{library.storyBibles.length}</dd></div>
         </dl>
       </section>
 
@@ -963,7 +1117,79 @@ export default function CanonClient({
 
       {loaded && tab === "characters" ? (
         <section className={styles.workspace} data-testid="global-canon-characters">
-          <form className={styles.editor} onSubmit={(event) => void saveCharacter(event)}>
+          <section className={styles.libraryPanel} data-testid="global-character-index">
+            <header>
+              <div><small>100,000 ORIGINAL CHARACTERS · LAZY INDEX</small><h2>{indexedWorld.displayId}的十萬人物候選</h2></div>
+              <span>完整 1–100,000 · 每次只計算 {GLOBAL_CHARACTER_CATALOG_PAGE_SIZE} 人</span>
+            </header>
+            <p className={styles.catalogNote}>這是原本的完整十萬人物引擎，不是組織名冊的子集。人物都符合目前世界的時代、制度與題材；只有你按下保存，才會成為可修改的全域正式人物。</p>
+            <div className={styles.characterCatalogToolbar}>
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const value = Number.parseInt(characterCatalogOrdinal, 10);
+                const ordinal = Math.max(1, Math.min(GLOBAL_CHARACTER_CATALOG_CAPACITY, Number.isFinite(value) ? value : 1));
+                setCharacterCatalogOrdinal(String(ordinal));
+                setCharacterCatalogQuery("");
+                setFocusedCharacterIndex(ordinal - 1);
+                setCharacterFocusRequest((request) => request + 1);
+                setCharacterCatalogPageIndex(Math.floor((ordinal - 1) / GLOBAL_CHARACTER_CATALOG_PAGE_SIZE));
+              }}>
+                <label>直接前往人物編號<input name="characterOrdinal" type="number" min="1" max={GLOBAL_CHARACTER_CATALOG_CAPACITY} value={characterCatalogOrdinal} onChange={(event) => setCharacterCatalogOrdinal(event.target.value)} /></label>
+                <button type="submit">前往</button>
+              </form>
+              <label>篩選本批人物<input type="search" value={characterCatalogQuery} onChange={(event) => setCharacterCatalogQuery(event.target.value)} placeholder="姓名、職位、家族、地點、專長" /></label>
+              <p>{indexedWorld.eraLabel} · {indexedWorld.classification.name}<br />{focusedCharacterIndex === null ? "切換「十萬世界」後，人物的職位、組織、能力與人像會隨世界種子固定重建。" : `已精確定位${globalCatalogCharacterNumber(focusedCharacterIndex)}；人物卡已標示並移入視野。`}</p>
+            </div>
+            <div className={styles.cardGrid} data-testid="global-character-candidate-grid" aria-busy={characterMasteryLoadedCount < characterCatalogPage.items.length}>
+              {visibleCatalogCharacterRows.map(({ character, portrait }) => {
+                const saved = library.characters.find((item) => item.id === globalCatalogCharacterId(indexedWorld.id, character.populationIndex)) ?? null;
+                const mastery = catalogCharacterMasteries[character.populationIndex];
+                const focused = focusedCharacterIndex === character.populationIndex;
+                return (
+                  <article className={styles.recordCard} key={character.characterId} data-testid="global-character-candidate" data-character-index={character.populationIndex} data-focused={focused} data-saved={Boolean(saved)} data-mastery-status={mastery ? "ready" : "loading"}>
+                    <div className={styles.characterHeading}>
+                      <PortraitCrop portrait={portrait} className={styles.cardPortrait} decorative />
+                      <div><small className={styles.revision}>{globalCatalogCharacterNumber(character.populationIndex)}</small><h3>{character.name}</h3><p>{character.identity} · {character.age} 歲</p></div>
+                    </div>
+                    <p>{character.personality.traits.join("、")}；{character.personality.publicFace}</p>
+                    <dl>
+                      <div><dt>位置</dt><dd>{character.location}</dd></div>
+                      <div><dt>家族</dt><dd>{character.familyRole}</dd></div>
+                      <div><dt>組織</dt><dd>{character.institutionRole}</dd></div>
+                      <div><dt>目標</dt><dd>{character.goal}</dd></div>
+                      <div><dt>強項</dt><dd>{globalCatalogCharacterAbilitySummary(character)} · {character.abilities.powerTier}</dd></div>
+                      <div><dt>專長</dt><dd>{character.abilities.specialties.join("、")}</dd></div>
+                      <div><dt>時代能力</dt><dd>{mastery ? <>{mastery.storyEraLabel}{mastery.primaryElement ? ` · ${mastery.assignments[0]?.catalogLabel ?? "五行功法"}` : ""}</> : <span className={styles.masteryLoading}>首屏後分批建立中……</span>}</dd></div>
+                      <div><dt>修習／持有</dt><dd>{mastery ? mastery.assignments.map((assignment) => `${assignment.relationLabel}${assignment.name}（熟練 ${assignment.proficiency}）`).join("；") : "尚未載入；不阻塞其他人物卡顯示。"}</dd></div>
+                    </dl>
+                    <footer>
+                      {saved
+                        ? <button type="button" onClick={() => editCharacter(saved)}>編輯已保存人物</button>
+                        : <button className={styles.primary} type="button" disabled={busy || !mastery} onClick={() => mastery && void saveCatalogCharacter(character, portrait, mastery)}>{mastery ? "保存為正式人物" : "能力載入中……"}</button>}
+                    </footer>
+                  </article>
+                );
+              })}
+              {!visibleCatalogCharacterRows.length ? <p className={styles.empty}>本批沒有符合篩選字詞的人物；請清除篩選或切換上一批／下一批。</p> : null}
+            </div>
+            <div className={styles.pager}>
+              <button type="button" disabled={safeCharacterCatalogPage === 0} onClick={() => {
+                const page = Math.max(0, safeCharacterCatalogPage - 1);
+                setCharacterCatalogPageIndex(page);
+                setCharacterCatalogOrdinal(String(page * GLOBAL_CHARACTER_CATALOG_PAGE_SIZE + 1));
+                setFocusedCharacterIndex(null);
+              }}>上一批人物</button>
+              <span>{safeCharacterCatalogPage * GLOBAL_CHARACTER_CATALOG_PAGE_SIZE + 1}–{Math.min(GLOBAL_CHARACTER_CATALOG_CAPACITY, safeCharacterCatalogPage * GLOBAL_CHARACTER_CATALOG_PAGE_SIZE + characterCatalogPage.items.length)} / {GLOBAL_CHARACTER_CATALOG_CAPACITY.toLocaleString("zh-TW")}（第 {safeCharacterCatalogPage + 1} / {characterCatalogPageCount} 批）</span>
+              <button type="button" disabled={safeCharacterCatalogPage + 1 >= characterCatalogPageCount} onClick={() => {
+                const page = Math.min(characterCatalogPageCount - 1, safeCharacterCatalogPage + 1);
+                setCharacterCatalogPageIndex(page);
+                setCharacterCatalogOrdinal(String(page * GLOBAL_CHARACTER_CATALOG_PAGE_SIZE + 1));
+                setFocusedCharacterIndex(null);
+              }}>下一批人物</button>
+            </div>
+          </section>
+
+          <form id="global-character-editor" className={styles.editor} onSubmit={(event) => void saveCharacter(event)}>
             <header><div><small>CHARACTER MASTER</small><h2>{editingCharacter ? `編輯 ${editingCharacter.name}` : "建立全域人物"}</h2></div><span>能力只在總庫修改</span></header>
             <div className={styles.formGrid}>
               <label>姓名<input required value={characterDraft.name} onChange={(event) => setCharacterDraft({ ...characterDraft, name: event.target.value })} /></label>
@@ -1067,12 +1293,12 @@ export default function CanonClient({
         <section className={styles.workspace} data-testid="global-canon-organizations">
           <section className={styles.libraryPanel}>
             <header>
-              <div><small>ORGANIZATION DIRECTORY · LAZY 10K ROSTER</small><h2>家族祖譜、宗門與企業階層</h2></div>
-              <span>{indexedWorld.displayId} · {organizationCatalog.setting.eraLabel}</span>
+              <div><small>30 ORGANIZATIONS · RELATION NETWORK · LAZY 10K ROSTER</small><h2>家族祖譜、宗門與企業階層</h2></div>
+              <span>{indexedWorld.displayId} · {organizationCatalog.setting.eraLabel} · 30 個組織</span>
             </header>
             <div className={styles.catalogToolbar}>
               <label>搜尋組織、類型或據點<input type="search" value={organizationQuery} onChange={(event) => { setOrganizationQuery(event.target.value); setOrganizationMemberPageIndex(0); setFamilyPageIndex(0); }} placeholder="例：家族、宗門、企業、丹堂" /></label>
-              <p>每個組織依規模容納 1–10,000 人；名冊、祖譜與職位按頁重現，不會一次塞入萬筆資料。</p>
+              <p>每個世界固定產生 30 個符合時代與背景的組織；每組織依規模容納 1–10,000 人。名冊、祖譜、職位及組織恩怨按需重現，不會一次塞入萬筆資料。</p>
             </div>
             <div className={styles.organizationBrowser}>
               <nav className={styles.organizationList} aria-label="世界組織清單">
@@ -1089,12 +1315,12 @@ export default function CanonClient({
                       setFamilyPageIndex(0);
                     }}
                   >
-                    <span>{organization.kindLabel} · {organization.eraLabel}</span>
+                    <span>{organization.kindLabel} · {organization.eraLabel} · {organization.specializationLabel}</span>
                     <b>{organization.name}</b>
                     <small>在籍 {organization.currentMemberCount.toLocaleString("zh-TW")}／上限 {organization.memberCapacity.toLocaleString("zh-TW")}</small>
                   </button>
                 ))}
-                {filteredOrganizations.length === 0 ? <p className={styles.empty}>這個世界的十個組織中沒有符合條件的項目。</p> : null}
+                {filteredOrganizations.length === 0 ? <p className={styles.empty}>這個世界的 30 個組織中沒有符合條件的項目。</p> : null}
               </nav>
 
               {selectedOrganization ? (
@@ -1105,9 +1331,11 @@ export default function CanonClient({
                   </header>
                   <dl className={styles.organizationFacts}>
                     <div><dt>據點</dt><dd>{selectedOrganization.territory}</dd></div>
+                    <div><dt>專業定位</dt><dd>{selectedOrganization.specializationLabel}</dd></div>
                     <div><dt>內部準則</dt><dd>{selectedOrganization.doctrine}</dd></div>
                     <div><dt>公開目標</dt><dd>{selectedOrganization.publicGoal}</dd></div>
                     <div><dt>內部矛盾</dt><dd>{selectedOrganization.hiddenConflict}</dd></div>
+                    <div><dt>組織關係</dt><dd>{selectedOrganization.relationships.length} 條固定恩怨與合作線</dd></div>
                   </dl>
                   <div className={styles.catalogActions}>
                     {(() => {
@@ -1119,6 +1347,42 @@ export default function CanonClient({
                       </>;
                     })()}
                   </div>
+
+                  <section className={styles.organizationRelations} data-testid="global-organization-relationships">
+                    <div><small>ORGANIZATION RELATION NETWORK</small><h4>盟約、宿敵、依附與歷史恩怨</h4></div>
+                    <p>公開立場與幕後動機分開保存；故事可以讓人物私交和組織命令互相衝突。</p>
+                    <div className={styles.organizationRelationGrid}>
+                      {selectedOrganization.relationships.map((relationship) => {
+                        const counterpartId = relationship.sourceOrganizationId === selectedOrganization.organizationId
+                          ? relationship.targetOrganizationId
+                          : relationship.sourceOrganizationId;
+                        const counterpart = organizationById.get(counterpartId);
+                        const source = organizationById.get(relationship.sourceOrganizationId);
+                        const target = organizationById.get(relationship.targetOrganizationId);
+                        const selectedIsSource = relationship.sourceOrganizationId === selectedOrganization.organizationId;
+                        const relationshipPath = relationship.directed
+                          ? `${source?.name ?? "未登錄組織"} → ${target?.name ?? "未登錄組織"}`
+                          : `${source?.name ?? selectedOrganization.name} ↔ ${target?.name ?? counterpart?.name ?? "未登錄組織"}`;
+                        const selectedPerspective = relationship.directed
+                          ? selectedIsSource ? "本組織是作用發起方" : "本組織是作用承受方"
+                          : "本組織是雙向關係的一方";
+                        return (
+                          <article key={relationship.relationshipId}>
+                            <header><span>{relationship.kindLabel}</span><b>{relationshipPath}</b></header>
+                            <dl>
+                              <div><dt>本方角色</dt><dd>{selectedPerspective}；對方為 {counterpart?.name ?? "未登錄組織"}</dd></div>
+                              <div><dt>起因</dt><dd>{relationship.cause}</dd></div>
+                              <div><dt>歷史</dt><dd>{relationship.history}</dd></div>
+                              <div><dt>現況</dt><dd>{relationship.currentStatus}</dd></div>
+                              <div><dt>公開立場</dt><dd>{relationship.publicStance}</dd></div>
+                              <div><dt>幕後動機</dt><dd>{relationship.secretMotive}</dd></div>
+                              <div><dt>張力</dt><dd>強度 {relationship.intensity}/100 · 信任 {relationship.trust}/100 · {relationship.publiclyKnown ? "公開關係" : "未公開關係"}</dd></div>
+                            </dl>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
 
                   <section className={styles.hierarchyPanel}>
                     <div><small>ORGANIZATION TREE</small><h4>{selectedOrganization.archetype === "family" ? "房系、家業與家族職位" : selectedOrganization.archetype === "sect" ? "峰、殿、堂、派系與內外門" : "董事會、事業群、部門與職位"}</h4></div>

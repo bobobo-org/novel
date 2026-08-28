@@ -428,8 +428,8 @@ export function validateRpgStoryTurnContract(
     throw new Error("RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE");
   }
   const visibleDatabaseDump = language === "en"
-    ? /(?:database field|record owner|asset controller|contract field)\s*[:=]/iu
-    : /(?:企業集團|題材勢力|家族企業)「[^」]{1,40}」(?:持有|掌握)|(?:拍攝時程|工作合約)\s*[：:]\s*由/u;
+    ? /(?:database field|record owner|asset controller|contract field|power tier|ability score|skill score|proficiency|effect multiplier)\s*[:=]/iu
+    : /(?:企業集團|題材勢力|家族企業)「[^」]{1,40}」(?:持有|掌握)|(?:拍攝時程|工作合約)\s*[：:]\s*由|組織關係網\s*[：:]|幕後動機\s*[：:]|力量層級\s*[：:]|能力值\s*[：:]|-?\d+\s*\/\s*100|×\s*\d+(?:\.\d+)?|(?:熟練|實效|倍率|加成|增益|衰減|(?:五行)?(?:同屬|相生|相剋|受生|受剋))\s*[：:]?\s*x\s*\d+(?:\.\d+)?/iu;
   if (visibleDatabaseDump.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_DATABASE_DUMP_VISIBLE");
   }
@@ -465,6 +465,17 @@ export function validateRpgStoryTurnContract(
     .split(/\n+/u)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean).length;
+  const proseParagraphs = value
+    .split(/\n+/u)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length >= 48 && !/^〈[^〉]+〉$/u.test(paragraph));
+  for (let left = 0; left < proseParagraphs.length; left += 1) {
+    for (let right = left + 1; right < proseParagraphs.length; right += 1) {
+      if (rpgTextSimilarity(proseParagraphs[left]!, proseParagraphs[right]!) >= 0.78) {
+        throw new Error("RPG_AI_CONTINUATION_INTERNAL_PARAGRAPH_LOOP");
+      }
+    }
+  }
   const sentenceCount = language === "en"
     ? value.match(/[.!?](?:\s|$)/gu)?.length ?? 0
     : value.match(/[。！？!?]/gu)?.length ?? 0;
@@ -521,9 +532,14 @@ export function buildRpgResolutionDirectorPrompt(input: {
       "把 context.stagedFamilies、supportingCharacters 與 relationships 視為會主動改變局勢的上場人物網絡，不可只讓主角自言自語。若既有資料提供至少兩名配角，正文至少讓主角與兩名具名配角登場；兩名配角必須各自採取不同且可見的行動，並由不同人物說出至少兩句推動衝突的對話。",
       "上場家族或派系必須透過成員、信使、資源、承諾、阻攔或旁觀者反應實際介入場景；不可只列家族名稱或把所有人都寫成服從主角的背景板。若既有資料不足兩名配角，可依世界規則創造原創臨時人物補足現場互動，但不得使用真實人物，也不得宣稱臨時人物已成為正式 Canon。",
       "若 context.selectedStageFamily、stagedOrganizations、stagedAssets 已提供資料，必須選用其中至少一個已核定資產，讓其控制勢力、目前持有人與聲索勢力透過行動形成可見因果；不得改名、換持有人或只把資料列成清單。資產的作用、限制與代價要成為場景阻力或解法。",
+      "寫作前先在內部完成能力判斷：只允許人物使用 protagonist／supportingCharacters 已列出的 actionMastery、capabilities、持有物或一般常識；核對故事時代、所有權、前置條件、限制與代價。資料沒有寫會使用、會製作、持有或栽培，就不可為了方便讓人物突然精通；若專長不適用，改用普通行動、求助或失敗，不得輸出這段判斷過程。",
+      "若人物資料含金木水火土，必須依既有相生、相剋、受生、受剋關係判斷手段是否合理；五行與熟練只能改變行動方式及阻力，不能推翻 lockedResolution，也不能在正文顯示倍率、熟練數字或人物卡欄位。現代、近代、未來專長同樣受設備、授權、物理條件與時代限制，禁止把現代技能改寫成修仙法術或反向混用。",
+      "能力資料只供內部判斷，正文不得逐欄轉錄；禁止出現『修行 82/100』『五行相生 ×1.18』『力量層級：宗師』或任何相似的分數、倍率與欄位式文字，必須把判斷化成動作是否熟練、受阻或需要協助。",
+      "若 stagedOrganizations 或 lore 提供組織恩怨，至少讓一條盟約、宿敵、依附、分裂、聯姻、資源依存、歷史血債或秘密合作影響現場選擇。只可讓角色知道公開立場與已揭露歷史；secretMotive／幕後動機只能轉化為可觀察的矛盾行為，除非證據已在當前章節揭露，不能由旁白直接公布。",
       "supportingCharacters.hiddenMotivations 只用來塑造角色行為；除非目前證據已揭露，不可讓角色直接說出秘密，也不可把欄位名稱寫入正文。",
       "人物的既有目標、拒絕底線與關係摘要要化成動作、語氣和選擇，不要列人物卡、設定表、家族 ID、派系 ID 或資料庫欄位。",
       "不同人物必須有不同措辭、句長、態度與談判方式；禁止兩人說出相同台詞，也禁止使用『我可以和你同行，但不是照單全收』之類可任意套人的模板句。",
+      "語氣要像作者在寫一場獨特的戲：每段都應承接前一個動作或反應，讓至少一個具體物件、身體細節或說話停頓承載潛台詞。不要用抽象名詞替代事件，不要把資料改寫成完整句後逐欄朗讀，也不要以同一句型換名字重播。",
       "所有組織、資產與契約資料都要改寫成現場可見的行動或物件反應；禁止出現『企業集團某某持有』『拍攝時程：由……』『工作合約：由……』等資料表式句子。",
       "小說標題後使用 8 到 16 個完整小說段落；不要另加分節標題、編號或小標，避免把同一段拆成只有一句的碎片。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",

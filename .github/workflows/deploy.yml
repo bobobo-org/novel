@@ -340,6 +340,9 @@ jobs:
             pnpm test:studio:topic-world-contract
             pnpm test:studio:global-world-index
             pnpm test:studio:global-canon
+            pnpm test:studio:global-character-index
+            pnpm test:studio:character-mastery
+            pnpm test:studio:social-matrix
             pnpm test:studio:selected-story-bible
             pnpm test:studio:global-canon-social-assets
             pnpm test:ai:topic-world-family-stage-matrix

@@ -14,8 +14,10 @@ import {
 import {
   buildDeterministicRpgChatTurnCandidate,
   buildDeterministicRpgTurnStory,
+  buildRpgReaderSafeCharacterContext,
   buildRpgTurnCausalContract,
   buildRpgOutcomeLines,
+  readerSafeOrganizationLoreContent,
   validateRpgOutcomeNarrative,
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
 import {
@@ -51,11 +53,30 @@ assert.throws(
 );
 
 const quoteClassificationParagraph = "雨勢壓低屋簷，林澄沿著泥痕追到廊下，發現封條已被人換過。他沒有急著伸手，只讓同伴守住出口，自己逐一核對證人的說法與燈影位置。窗邊吹進來的冷風捲起殘紙，對手終於承認搬運路線曾臨時改動，卻拒絕說出下令的人。";
-const properNounReuseStory = Array.from({ length: 10 }, (_, index) => {
-  if (index === 1) return `${quoteClassificationParagraph}林澄把「海銅護證星盤殘片」收進證物袋，另外封上一張新籤。`;
-  if (index === 7) return `${quoteClassificationParagraph}證人再次指向「海銅護證星盤殘片」，確認缺角正是昨夜碰撞留下。`;
-  return quoteClassificationParagraph;
-}).join("\n\n");
+const continuityDetails = [
+  "門邊水珠仍沿著舊痕往下爬，證明沒有人趁爭論時重新開門。",
+  "掌櫃隨後交出剪鉗登記簿，讓那份遲疑第一次有了可以核對的去向。",
+  "她把黑砂包進紙角，留下時間與見證人的姓名，才起身通知東巷接應。",
+  "航簿被放回桌上時，顧行舟主動退開半步，讓原本沉默的書記看清那頁。",
+  "薄紙背面還有乾透的藥汁，說明它曾在配藥桌旁停留，而非直接來自碼頭。",
+  "內室傳來短促咳聲，林澄因此縮短查問，只留下最可能改變判斷的三個問題。",
+  "巡察使伸手收封條前停了一瞬，蘇錦魚記住了他目光先落向哪一只抽屜。",
+  "銅屑落下的聲音很輕，卻讓剛才還互相指責的人同時閉嘴，轉而看向同一處缺角。",
+  "年輕信使的袖口沾著藥粉，這個細節把空箱、傷者與夜航船連到同一條路上。",
+  "第一班晨車經過街口時，卷宗已分成兩份保存，任何一方都不能再單獨改寫。",
+];
+const properNounReuseStory = [
+  quoteClassificationParagraph,
+  "林澄把「海銅護證星盤殘片」收進證物袋，另外封上一張新籤。老掌櫃看見那道缺口，忽然想起凌晨曾有人借走剪鉗；他說話時一直摩挲袖口，顯然還藏著不肯明講的顧慮。",
+  "後院水缸旁留著半枚濕鞋印，方向卻朝向封死的牆。蘇錦魚蹲下比對泥色，發現鞋底沾的不是院土，而是河岸卸貨區才有的黑砂，於是悄悄改守東側窄巷。",
+  "顧行舟沒有否認夜航船曾靠岸，只把航簿翻到其中一頁。那裡的墨跡比前後兩頁新，數字筆鋒也不屬於值夜書記；眾人的爭論第一次落到可以追查的人手上。",
+  "屋裡藥香被一陣冷風沖散，葉聞雪趁眾人掩鼻時抽走桌底薄紙。紙上沒有姓名，只有三次交貨的先後記號，而最後一筆恰好越過原先不能碰的界線。",
+  "巷口傳來木輪壓過碎石的聲音，接應者卻比約定少了一人。林澄沒有催問去向，只先讓傷者換到內室；這個次序使躲在門外監視的人誤判了證物所在。",
+  "巡察使敲門時語氣客氣，帶來的封條卻早已裁成合適長度。蘇錦魚故意問起另一宗舊案，對方回答得太快，反而證明他事前看過不該接觸的卷宗。",
+  "證人再次指向「海銅護證星盤殘片」，確認缺角正是昨夜碰撞留下。她沒有要求眾人相信，只把自己的手套翻過來，讓藏在縫線裡的同色銅屑落到白紙上。",
+  "顧氏的人開始撤離東巷，卻留下最年輕的信使守著空箱。林澄從那個不合常理的安排看出，真正要被帶走的從來不是箱中物，而是能指認交接時刻的人。",
+  "天色泛白以前，眾人把三段彼此衝突的證詞排回同一條時間線。沒有人因此洗清嫌疑，但失竊、改簿與假封條終於不再是三件偶然；下一步該追的人已有了名字。",
+].map((paragraph, index) => `${paragraph}${continuityDetails[index]}`).join("\n\n");
 assert.doesNotThrow(
   () => validateRpgStoryTurnContract(properNounReuseStory, "zh-TW"),
   "repeated quoted proper nouns are not duplicated character dialogue",
@@ -93,6 +114,44 @@ assert.throws(
   () => validateRpgStoryTurnContract(malformedQuoteStory, "zh-TW"),
   /RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES/u,
   "nested same-level Chinese quotation marks must be rejected",
+);
+for (const databaseFragment of [
+  "修行 82/100",
+  "體力 41/100",
+  "五行相生 ×1.18",
+  "屬性加成 ×1.31",
+  "力量層級：宗師",
+]) {
+  const databaseDumpStory = properNounReuseStory.replace(
+    quoteClassificationParagraph,
+    `${quoteClassificationParagraph}${databaseFragment}。`,
+  );
+  assert.throws(
+    () => validateRpgStoryTurnContract(databaseDumpStory, "zh-TW"),
+    /RPG_AI_CONTINUATION_DATABASE_DUMP_VISIBLE/u,
+    `${databaseFragment} must be rejected as a reader-visible character database field`,
+  );
+}
+const readerSafeMastery = buildRpgReaderSafeCharacterContext({
+  id: "safe-character",
+  name: "顧明心",
+  capabilities: [
+    "力量層級：宗師",
+    "修行 82/100",
+    "會使用金行功法「流光劍訣」；時代 ancient；五行 金；熟練 82/100；實效 ×1.18",
+  ],
+  limitations: ["流光劍訣限制：受剋 ×0.72；體力 41/100"],
+});
+const serializedReaderSafeMastery = JSON.stringify(readerSafeMastery);
+assert.doesNotMatch(serializedReaderSafeMastery, /82\s*\/\s*100|41\s*\/\s*100|[×x]\s*(?:1\.18|0\.72)|力量層級\s*[：:]/u);
+assert.equal(readerSafeMastery.actionMastery?.era, "ancient");
+assert.equal(readerSafeMastery.actionMastery?.element, "金");
+assert.match(serializedReaderSafeMastery, /高度熟練|顯著助力/u);
+const internalLoopStory = Array.from({ length: 10 }, () => quoteClassificationParagraph).join("\n\n");
+assert.throws(
+  () => validateRpgStoryTurnContract(internalLoopStory, "zh-TW"),
+  /RPG_AI_CONTINUATION_INTERNAL_PARAGRAPH_LOOP/u,
+  "near-identical filler paragraphs must fail before they can masquerade as a chapter",
 );
 
 assert.equal(PROCEDURAL_WORLD_DIRECTOR_VERSION, "procedural-world-director-v2");
@@ -233,14 +292,18 @@ for (const dimension of Object.values(frame.inferenceDimensions)) {
   assert.ok(Object.values(frame).some((value) => typeof value === "string" && value.includes(dimension)), `causal frame did not use ${dimension}`);
 }
 
-const story = buildDeterministicRpgTurnStory({
-  snapshot: {
+const storySnapshot = {
     project: { id: "project-1" },
     chapter: { id: "chapter-1", title: "雨夜期限" },
     storyState: { locationState: "雨夜藥鋪", worldFlags: {} },
     storyBible: { protagonistIds: ["hero"], unresolvedThreads: ["青楓派巡察將封鎖通路"] },
     characters: [
-      { id: "hero", name: "林澄" },
+      {
+        id: "hero",
+        name: "林澄",
+        capabilities: ["會使用現代專業「精密資料分析・進階模組」；熟練 82/100；實效 ×1.31"],
+        limitations: ["精密資料分析・進階模組限制：必須保留查核紀錄；代價：耗用時間與專業資源"],
+      },
       {
         id: "ally",
         name: `蘇錦魚${"長名".repeat(38)}`,
@@ -274,12 +337,32 @@ const story = buildDeterministicRpgTurnStory({
       { fromCharacterId: "hero", toCharacterId: "counterforce", kind: "競爭者", summary: "兩家曾因夜航權公開交鋒", trust: 24 },
       { fromCharacterId: "hero", toCharacterId: "witness", kind: "證人", summary: "彼此只以可核對的證據合作", trust: 48 },
     ],
+    lore: [{
+      id: "雨港藥盟",
+      kind: "faction",
+      title: "企業｜雨港藥盟",
+      content: [
+        "雨港藥盟掌握夜間藥材調度。",
+        "領域：雨港舊城",
+        "公開目標：維持救命藥材供應",
+        "組織關係網：",
+        "- 資源依存｜對象：顧氏航運",
+        "  起因：藥材夜航長期依賴對方船隊",
+        "  歷史：雙方曾因一次延誤互相追責",
+        "  現況：合作尚未中止，但每批貨都被加倍查驗",
+        "  公開立場：仍維持契約，拒絕無條件讓步",
+        "  幕後動機：等待對方先暴露改簿者",
+        "  強度：76/100｜信任：-12/100｜公開",
+      ].join("\n"),
+    }],
     progression: { turn: 3, inventory: [{ name: "帳冊與備用藥材", quantity: 1 }] },
     language: "zh-TW",
     playMode: "management",
     conflict: "天亮前保住最後一批客戶",
     rpgTurnReceipts: [{ outcome: "failure" }, { outcome: "partial_success" }, { outcome: "failure" }],
-  },
+};
+const story = buildDeterministicRpgTurnStory({
+  snapshot: storySnapshot,
   choice: {
     key: "B",
     title: "借勢調度",
@@ -314,6 +397,9 @@ for (const value of [
   assert.ok(value && story.includes(value), `novel fallback prose did not render ${value}`);
 }
 assert.match(story, /「.+」/u, "supporting characters must speak in the novel scene");
+assert.match(story, /精密資料分析・進階模組/u, "fallback must turn an approved mastery into a concrete action");
+assert.match(story, /資源依存[\s\S]{0,100}顧氏航運|顧氏航運[\s\S]{0,100}資源依存/u, "organization history must change the fallback scene");
+assert.doesNotMatch(story, /82\s*\/\s*100|實效\s*×|幕後動機\s*[：:]/u, "fallback must not dump mastery numbers or a secret field");
 assert.match(story, /蘇錦魚[\s\S]{0,180}「我先去做/u, "the allied family character must take a catalyst action and speak");
 assert.match(story, /顧行舟[\s\S]{0,220}「你可以試/u, "the rival family character must obstruct a route and speak from a different stance");
 assert.match(story, /葉聞雪[\s\S]{0,180}「我只交出/u, "the witness must verify evidence and speak from a third stance");
@@ -329,6 +415,45 @@ assert.doesNotMatch(
   "reader-facing prose leaked a data-table sentence or the retired fixed fallback skeleton",
 );
 validateRpgStoryTurnContract(story, "zh-TW");
+
+const hiddenOrganizationLore = [
+  "雨港藥盟掌握夜間藥材調度。",
+  "組織關係網：",
+  "- 祕密合作｜對象：灰橋協會",
+  "  起因：交換未公開名冊",
+  "  歷史：兩年前已開始暗中往來",
+  "  現況：仍透過無名信使聯繫",
+  "  公開立場：雙方公開否認往來",
+  "  幕後動機：等待港務署失去警戒",
+  "  強度：68/100｜信任：31/100｜未公開",
+].join("\n");
+const hiddenReaderLore = readerSafeOrganizationLoreContent(hiddenOrganizationLore);
+assert.doesNotMatch(
+  hiddenReaderLore,
+  /祕密合作|灰橋協會|交換未公開名冊|暗中往來|無名信使|幕後動機|港務署失去警戒/u,
+  "model-safe organization lore must remove the entire hidden relationship block",
+);
+const publicReaderLore = readerSafeOrganizationLoreContent(storySnapshot.lore[0].content);
+assert.doesNotMatch(publicReaderLore, /幕後動機|76\s*\/\s*100|-12\s*\/\s*100/u);
+const hiddenLoreWithStructure = readerSafeOrganizationLoreContent(`${hiddenOrganizationLore}\n階層、房系與資產：\nROOT 港務調度`);
+assert.match(hiddenLoreWithStructure, /階層、房系與資產：[\s\S]*ROOT 港務調度/u, "hidden relationship removal must preserve later public structure");
+const hiddenRelationSnapshot = structuredClone(storySnapshot);
+hiddenRelationSnapshot.lore[0].content = hiddenOrganizationLore;
+const hiddenRelationStory = buildDeterministicRpgTurnStory({
+  snapshot: hiddenRelationSnapshot,
+  choice: {
+    key: "B",
+    title: "借勢調度",
+    description: "重新配置現有人力與資金",
+    encounter,
+  },
+  resolution: { outcome: "failure" },
+});
+assert.doesNotMatch(
+  hiddenRelationStory,
+  /祕密合作|灰橋協會|交換未公開名冊|暗中往來|無名信使|幕後動機|港務署失去警戒/u,
+  "fallback prose must not confirm or describe a hidden organization relationship",
+);
 
 const familyDirectorPrompt = JSON.parse(buildRpgResolutionDirectorPrompt({
   context: {
@@ -352,6 +477,10 @@ assert.match(familyDirectorPrompt.instruction, /上場人物網絡/u);
 assert.match(familyDirectorPrompt.instruction, /兩名具名配角/u);
 assert.match(familyDirectorPrompt.instruction, /上場家族或派系/u);
 assert.match(familyDirectorPrompt.instruction, /不同人物說出至少兩句/u);
+assert.match(familyDirectorPrompt.instruction, /時代、所有權、前置條件、限制與代價/u);
+assert.match(familyDirectorPrompt.instruction, /金木水火土/u);
+assert.match(familyDirectorPrompt.instruction, /組織恩怨/u);
+assert.match(familyDirectorPrompt.instruction, /不能替結果作保|不能推翻 lockedResolution/u);
 
 // Browser reproduction guard: the closed-AI story may be rejected as too long,
 // so its deterministic replacement must remain valid even when every causal
