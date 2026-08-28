@@ -627,7 +627,7 @@ try {
     await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
     await page.getByTestId("global-canon-characters").waitFor({ state: "visible" });
     assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), projectId);
-    const canonTabs = ["人物總庫", "關係網", "組織與祖譜", "寶物圖鑑", "十萬世界", "世界規則", "記憶與資料", "Story Bible", "時間線模板"];
+    const canonTabs = ["十萬人物與總庫", "關係網", "組織與祖譜", "寶物圖鑑", "十萬世界", "世界規則", "記憶與資料", "Story Bible", "時間線模板"];
     assert.equal(await page.getByRole("tab").count(), canonTabs.length);
     for (const tabName of canonTabs) {
       assert.equal(await page.getByRole("tab", { name: tabName, exact: true }).isVisible(), true);
