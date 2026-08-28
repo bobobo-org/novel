@@ -661,6 +661,103 @@ try {
     });
   });
 
+  await check("world 2 organization and genealogy people open portrait-backed details", async () => {
+    await page.setViewportSize(mobileViewport);
+    await openFreshPage(`${baseUrl}/canon?world=2`);
+    await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
+    await page.getByRole("tab", { name: "組織與祖譜", exact: true }).tap();
+    await page.getByTestId("global-canon-organizations").waitFor({ state: "visible" });
+
+    async function verifyPersonCard(surface, view) {
+      const card = surface
+        .locator(`[data-testid="global-organization-member-card"][data-member-view="${view}"]`)
+        .first();
+      await card.scrollIntoViewIfNeeded();
+      const characterId = await card.getAttribute("data-character-id");
+      assert.ok(characterId, `${view} card must expose a stable character id`);
+      const name = String(await card.getAttribute("data-member-name") || "").trim();
+      const rank = String(await card.getAttribute("data-member-rank") || "").trim();
+      const unit = String(await card.getAttribute("data-member-unit") || "").trim();
+      const faction = String(await card.getAttribute("data-member-faction") || "").trim();
+      assert.ok(name, `${view} card must expose the character name`);
+      assert.ok(rank && unit && faction, `${view} card must expose organization identity`);
+      const accessibleName = await card.getAttribute("aria-label") ?? "";
+      for (const expected of [name, rank, unit]) assert.ok(accessibleName.includes(expected), `${view} accessible name missing ${expected}`);
+
+      const portrait = card.locator("[data-portrait-resource]").first();
+      await portrait.waitFor({ state: "visible" });
+      const cardPortrait = await portrait.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          resource: element.getAttribute("data-portrait-resource"),
+          cell: element.getAttribute("data-portrait-atlas-cell"),
+          filter: getComputedStyle(element).filter,
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+      assert.match(cardPortrait.resource ?? "", /^\/character-portraits\/atlas-.+\.webp$/u);
+      assert.ok(cardPortrait.cell, `${view} card must use a real portrait atlas cell`);
+      assert.ok(cardPortrait.width >= 44 && cardPortrait.height >= 44, JSON.stringify(cardPortrait));
+      const portraitAsset = await context.request.get(new URL(cardPortrait.resource, baseUrl).href);
+      assert.equal(portraitAsset.ok(), true);
+      assert.match(portraitAsset.headers()["content-type"] ?? "", /^image\/webp/u);
+
+      await card.tap();
+      const detail = page.getByTestId("global-organization-member-detail");
+      await detail.waitFor({ state: "visible" });
+      assert.equal(await detail.getAttribute("data-character-id"), characterId);
+      assert.equal(await detail.getByRole("heading", { name, exact: true }).count(), 1);
+      const detailText = await detail.innerText();
+      for (const expected of [rank, unit, faction]) assert.ok(detailText.includes(expected), `${view} detail missing ${expected}`);
+      const detailPortrait = detail.locator("[data-portrait-resource]").first();
+      assert.equal(await detailPortrait.getAttribute("data-portrait-resource"), cardPortrait.resource);
+      assert.equal(await detailPortrait.getAttribute("data-portrait-atlas-cell"), cardPortrait.cell);
+      assert.equal(await detailPortrait.evaluate((element) => getComputedStyle(element).filter), cardPortrait.filter);
+      assert.equal(await page.evaluate(() => document.body.style.overflow), "hidden");
+      assert.equal(await detail.evaluate((element) => element.contains(document.activeElement)), true);
+      await page.keyboard.press("Shift+Tab");
+      assert.equal(await detail.evaluate((element) => element.contains(document.activeElement)), true);
+      await page.keyboard.press("Tab");
+      assert.equal(await detail.evaluate((element) => element.contains(document.activeElement)), true);
+      const detailViewport = await detail.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          viewportWidth: document.documentElement.clientWidth,
+          overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        };
+      });
+      assert.ok(detailViewport.left >= -1 && detailViewport.right <= detailViewport.viewportWidth + 1, JSON.stringify(detailViewport));
+      assert.equal(detailViewport.overflow, false, JSON.stringify(detailViewport));
+
+      await page.keyboard.press("Escape");
+      await detail.waitFor({ state: "detached" });
+      await page.waitForFunction((id) => document.activeElement?.getAttribute("data-character-id") === id, characterId);
+      await page.waitForFunction(() => document.body.style.overflow !== "hidden");
+
+      await card.tap();
+      await page.getByTestId("global-organization-member-detail")
+        .getByRole("button", { name: "關閉人物詳情", exact: true })
+        .tap();
+      await detail.waitFor({ state: "detached" });
+      await page.waitForFunction((id) => document.activeElement?.getAttribute("data-character-id") === id, characterId);
+      await page.waitForFunction(() => document.body.style.overflow !== "hidden");
+    }
+
+    const organizationOptions = page.getByTestId("global-organization-option");
+    assert.ok(await organizationOptions.count() >= 30, "the world must expose at least 30 organizations");
+    await page.locator('[data-testid="global-organization-option"]:not([data-organization-archetype="family"])').first().tap();
+    await page.getByTestId("global-organization-roster").waitFor({ state: "visible" });
+    await verifyPersonCard(page.getByTestId("global-organization-roster"), "roster");
+
+    await page.locator('[data-testid="global-organization-option"][data-organization-archetype="family"]').first().tap();
+    await page.getByTestId("global-family-genealogy").waitFor({ state: "visible" });
+    await verifyPersonCard(page.getByTestId("global-family-genealogy"), "genealogy");
+    await assertCleanDiagnostics("world 2 organization member details");
+  });
+
   await check("real mobile reader keeps compact controls and readable width", async () => {
     await openFreshPage(`${baseUrl}/professional?intent=library&projectId=${encodeURIComponent(createdProjectId)}`);
     await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });

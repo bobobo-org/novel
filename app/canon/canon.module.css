@@ -341,12 +341,48 @@
 .genealogyControls button[aria-pressed="true"] { border-color: var(--mint); color: #ebfffb; background: #123c42; }
 .genealogyGrid, .rosterGrid { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .genealogyCard, .memberCard { min-width: 0; padding: 12px; border: 1px solid #385773; border-radius: 9px; background: #08182b; overflow-wrap: anywhere; }
-.genealogyCard h5, .memberCard h5 { margin: 5px 0; color: #f1d381; font-size: 17px; }
-.genealogyCard > p, .memberCard > p { margin: 5px 0; color: #aebfcb; font-size: 12px; }
+.memberCardButton { display: grid; width: 100%; min-width: 0; min-height: 76px; grid-template-columns: 62px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px; border: 1px solid transparent; border-radius: 9px; color: inherit; text-align: left; background: transparent; cursor: pointer; }
+.memberCardButton:hover { border-color: rgba(98, 222, 202, .55); background: rgba(20, 64, 69, .28); }
+.memberCardButton:focus-visible { outline: 3px solid #f3c865; outline-offset: 2px; }
+.memberCardPortrait { display: block; width: 62px; height: 72px; border: 1px solid rgba(98, 222, 202, .48); border-radius: 9px; background: #10243a; object-fit: cover; }
+.memberCardIdentity { display: grid; min-width: 0; gap: 4px; }
+.memberCardIdentity small { color: var(--mint); font-size: 10px; letter-spacing: .08em; }
+.memberCardIdentity strong { color: #f1d381; font-size: 17px; overflow-wrap: anywhere; }
+.memberCardIdentity > span { color: #aebfcb; font-size: 12px; }
+.memberCardOpen { color: #e8c365; font-size: 11px; white-space: nowrap; }
+.genealogyCard > p { margin: 8px 6px 5px; color: #aebfcb; font-size: 12px; }
 .genealogyCard dl, .memberCard dl { display: grid; gap: 5px; margin: 9px 0 0; }
 .genealogyCard dl div, .memberCard dl div { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 6px; }
 .genealogyCard dt, .memberCard dt { color: #60d2c0; font-size: 11px; }
 .genealogyCard dd, .memberCard dd { margin: 0; color: #b9cad5; font-size: 12px; line-height: 1.45; }
+
+.memberDialogBackdrop { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 12px; background: rgba(1, 7, 15, .82); backdrop-filter: blur(7px); }
+.memberDialog { width: min(980px, 100%); max-height: calc(100dvh - 24px); overflow: auto; overflow-x: hidden; border: 1px solid rgba(243, 200, 101, .6); border-radius: 16px; color: #dbe8ef; background: linear-gradient(145deg, #0b2234, #071426 68%); box-shadow: 0 28px 90px rgba(0, 0, 0, .58); }
+.memberDialogHeader { position: sticky; z-index: 2; top: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr) 44px; align-items: center; gap: 14px; padding: 15px; border-bottom: 1px solid #35546d; background: rgba(7, 22, 39, .96); }
+.memberDialogPortrait { display: block; width: 96px; height: 112px; border: 1px solid rgba(98, 222, 202, .55); border-radius: 12px; background: #10243a; object-fit: cover; }
+.memberDialogHeader small { color: var(--mint); font-size: 11px; letter-spacing: .08em; }
+.memberDialogHeader h2 { margin: 5px 0; color: #f5d67d; font-size: clamp(24px, 4vw, 38px); }
+.memberDialogHeader p { margin: 0; color: #b6c9d4; line-height: 1.55; }
+.memberDialogHeader > button { align-self: start; width: 44px; min-height: 44px; border: 1px solid #5b7183; border-radius: 999px; color: #f4dfab; font-size: 25px; background: #10243a; cursor: pointer; }
+.memberDialogHeader > button:focus-visible { outline: 3px solid #f3c865; outline-offset: 2px; }
+.memberDialogBody { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; padding: 14px; }
+.memberDetailPanel { min-width: 0; padding: 13px; border: 1px solid #35546d; border-radius: 11px; background: rgba(6, 20, 36, .72); }
+.memberDetailPanel h3 { margin: 0 0 10px; color: #efd181; font-size: 17px; }
+.memberDetailPanel > p { margin: 8px 0; color: #b8cad5; font-size: 13px; line-height: 1.6; }
+.memberDetailPanel dl { display: grid; gap: 7px; margin: 0; }
+.memberDetailPanel dl div { display: grid; min-width: 0; grid-template-columns: 78px minmax(0, 1fr); gap: 7px; }
+.memberDetailPanel dt { color: #63d7c4; font-size: 11px; }
+.memberDetailPanel dd { margin: 0; color: #c4d3dc; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.memberAbilityGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 10px 0; }
+.memberAbilityGrid span { display: grid; min-width: 0; gap: 3px; padding: 8px; border-radius: 7px; color: #f1d381; font-size: 14px; background: #10273d; }
+.memberAbilityGrid b { color: #78dccc; font-size: 10px; }
+.memberDetailList { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.memberDetailList li { display: grid; min-width: 0; gap: 3px; padding: 9px; border-left: 2px solid rgba(98, 222, 202, .55); background: #0b2137; }
+.memberDetailList b { color: #efd181; font-size: 13px; overflow-wrap: anywhere; }
+.memberDetailList span { color: #b8cad5; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.memberDetailList small { color: #8fa8b8; font-size: 11px; line-height: 1.45; letter-spacing: 0; overflow-wrap: anywhere; }
+.memberDialogActions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 15px; border-top: 1px solid #35546d; background: rgba(7, 22, 39, .97); }
+.memberDialogActions button { min-height: 44px; padding: 0 15px; border: 1px solid #52708a; border-radius: 8px; color: #e5f0f7; background: #122840; cursor: pointer; }
 
 .treasureToolbar { grid-template-columns: minmax(230px, .75fr) minmax(150px, .45fr) minmax(220px, 1fr); }
 .treasureToolbar form { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; }
@@ -434,6 +470,19 @@
   .organizationDetail > header, .genealogyPanel > header, .rosterPanel > header { flex-direction: column; }
   .organizationDetail > header strong { text-align: left; }
   .organizationFacts, .genealogyGrid, .rosterGrid, .organizationRelationGrid { grid-template-columns: 1fr; }
+  .memberCardButton { grid-template-columns: 56px minmax(0, 1fr); min-height: 70px; }
+  .memberCardPortrait { width: 56px; height: 66px; }
+  .memberCardOpen { display: none; }
+  .memberDialogBackdrop { padding: 0; }
+  .memberDialog { width: 100%; max-height: 100dvh; border-right: 0; border-left: 0; border-radius: 0; }
+  .memberDialogHeader { grid-template-columns: 72px minmax(0, 1fr) 44px; gap: 9px; padding: calc(10px + env(safe-area-inset-top)) 10px 10px; }
+  .memberDialogPortrait { width: 72px; height: 86px; }
+  .memberDialogHeader h2 { font-size: 25px; }
+  .memberDialogHeader p { font-size: 12px; }
+  .memberDialogBody { grid-template-columns: 1fr; padding: 10px; }
+  .memberAbilityGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .memberDialogActions { display: grid; grid-template-columns: 1fr; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .memberDialogActions button { width: 100%; }
   .catalogActions { display: grid; grid-template-columns: 1fr; }
   .catalogActions button { width: 100%; }
   .hierarchyTree ul { margin-left: 4px; padding-left: 5px; }

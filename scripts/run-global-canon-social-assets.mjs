@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { proceduralTreasureRecordAt } from "../lib/novel-ai/game/procedural-treasure-library.ts";
+import { suggestedCatalogCharacterPortrait } from "../lib/novel-ai/character-portraits/assignment.ts";
 import {
   createGlobalOrganizationMemory,
   createGlobalTreasureMemory,
@@ -111,6 +112,41 @@ for (let memberOffset = 0; memberOffset < Math.min(12, familyOrganization.curren
     assert.equal(member.familyRole, "外姓配偶（姻親入譜）");
   }
 }
+function portraitForOrganizationSurface(surfaceCharacter) {
+  const canonicalCharacter = matrix.getCharacter(surfaceCharacter.populationIndex);
+  return suggestedCatalogCharacterPortrait({
+    stableId: `global-world-000001:${canonicalCharacter.characterId}`,
+    signal: [
+      setting.classificationLabel,
+      setting.eraLabel,
+      canonicalCharacter.name,
+      canonicalCharacter.identity,
+      canonicalCharacter.institutionRole,
+      canonicalCharacter.familyRole,
+      canonicalCharacter.storyAffinity,
+      ...canonicalCharacter.personality.traits,
+      ...canonicalCharacter.abilities.specialties,
+    ].join("｜"),
+  });
+}
+
+const firstFamilyMember = organizationMemberAtOffset({ matrix, organization: familyOrganization, memberOffset: 0 });
+const firstFamilyPortrait = portraitForOrganizationSurface(firstFamilyMember);
+assert.match(firstFamilyPortrait.assetUri, /^\/character-portraits\/atlas-.+\.webp$/u);
+assert.ok(existsSync(join(root, "public", firstFamilyPortrait.assetUri.replace(/^\//u, ""))), "organization member portrait atlas must exist");
+for (const organization of directory) {
+  const sampledOffsets = [...new Set([0, Math.floor(organization.currentMemberCount / 2), organization.currentMemberCount - 1])]
+    .filter((offset) => offset >= 0);
+  for (const memberOffset of sampledOffsets) {
+    const organizationMember = organizationMemberAtOffset({ matrix, organization, memberOffset });
+    const canonicalMember = matrix.getCharacter(organizationMember.populationIndex);
+    assert.equal(
+      portraitForOrganizationSurface(organizationMember).id,
+      portraitForOrganizationSurface(canonicalMember).id,
+      `organization portrait must stay canonical for ${organization.organizationId}:${memberOffset}`,
+    );
+  }
+}
 
 const ancient = proceduralTreasureRecordAt({
   storySeed,
@@ -144,6 +180,8 @@ for (const marker of [
   'id: "organizations"',
   'id: "treasures"',
   'data-testid="global-family-genealogy"',
+  'data-testid="global-organization-member-card"',
+  'data-testid="global-organization-member-detail"',
   'data-testid="global-organization-relationships"',
   'data-testid="global-treasure-grid"',
   "saveOrganizationCandidate",
@@ -151,6 +189,9 @@ for (const marker of [
   "editSavedCatalogMemory",
   "copyRecord(saved)",
   "proceduralTreasureVisualCssVariables",
+  "catalogCharacterPortraitForWorld",
+  "const canonicalCharacter = matrix.getCharacter(character.populationIndex);",
+  "<PortraitCrop portrait={portrait} className={styles.memberCardPortrait}",
   "<Image src={treasure.visual.baseAsset}",
   "relationship.directed",
   '`${source?.name ?? "未登錄組織"} → ${target?.name ?? "未登錄組織"}`',
@@ -168,6 +209,7 @@ const mobile = css.slice(mobileStart, mobileEnd);
 for (const marker of [
   ".organizationBrowser { grid-template-columns: 1fr; }",
   ".organizationFacts, .genealogyGrid, .rosterGrid, .organizationRelationGrid { grid-template-columns: 1fr; }",
+  ".memberDialogBody { grid-template-columns: 1fr; padding: 10px; }",
   ".treasureGrid { grid-template-columns: 1fr; }",
   ".catalogActions { display: grid; grid-template-columns: 1fr; }",
 ]) assert.ok(mobile.includes(marker), `390px no-overflow contract missing ${marker}`);

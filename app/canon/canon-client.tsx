@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CHARACTER_PORTRAIT_THEME_OPTIONS,
   filterCharacterPortraitCatalog,
@@ -271,6 +271,34 @@ function eraForIndexedWorld(world: GlobalIndexedWorld): GlobalCanonEraContext {
   return world.classification.id === "cultivation-sects" ? "cultivation" : "other";
 }
 
+function catalogCharacterPortraitForWorld(
+  world: GlobalIndexedWorld,
+  character: SocialMatrixCharacter,
+  matrix: DeterministicSocialMatrix,
+): CharacterPortraitAsset {
+  // Organization and genealogy views enrich a member's role/name for that
+  // surface. Always derive the portrait from the canonical population record
+  // so the same person keeps the same face in every view.
+  const canonicalCharacter = matrix.getCharacter(character.populationIndex);
+  const signal = [
+    world.classification.name,
+    world.eraLabel,
+    world.primaryTopic.topicName,
+    world.logline,
+    canonicalCharacter.name,
+    canonicalCharacter.identity,
+    canonicalCharacter.institutionRole,
+    canonicalCharacter.familyRole,
+    canonicalCharacter.storyAffinity,
+    ...canonicalCharacter.personality.traits,
+    ...canonicalCharacter.abilities.specialties,
+  ].filter(Boolean).join("｜");
+  return suggestedCatalogCharacterPortrait({
+    stableId: `${world.id}:${canonicalCharacter.characterId}`,
+    signal,
+  });
+}
+
 function storeFor(record: GlobalCanonRecord): GlobalCanonStoreName {
   switch (record.recordType) {
     case "character": return "characters";
@@ -343,6 +371,8 @@ export default function CanonClient({
   const [editingTimeline, setEditingTimeline] = useState<GlobalTimelineTemplate | null>(null);
   const [organizationQuery, setOrganizationQuery] = useState("");
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [selectedOrganizationMember, setSelectedOrganizationMember] = useState<StoryOrganizationMember | null>(null);
+  const organizationMemberTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [organizationMemberPageIndex, setOrganizationMemberPageIndex] = useState(0);
   const [familyGeneration, setFamilyGeneration] = useState(0);
   const [familyBranch, setFamilyBranch] = useState<1 | 2 | 3 | null>(null);
@@ -405,28 +435,10 @@ export default function CanonClient({
     cursor: `characters:${safeCharacterCatalogPage * GLOBAL_CHARACTER_CATALOG_PAGE_SIZE}`,
     limit: GLOBAL_CHARACTER_CATALOG_PAGE_SIZE,
   }), [organizationCatalog.matrix, safeCharacterCatalogPage]);
-  const catalogCharacterRows = useMemo(() => characterCatalogPage.items.map((character) => {
-    const signal = [
-      indexedWorld.classification.name,
-      indexedWorld.eraLabel,
-      indexedWorld.primaryTopic.topicName,
-      indexedWorld.logline,
-      character.name,
-      character.identity,
-      character.institutionRole,
-      character.familyRole,
-      character.storyAffinity,
-      ...character.personality.traits,
-      ...character.abilities.specialties,
-    ].filter(Boolean).join("｜");
-    return {
-      character,
-      portrait: suggestedCatalogCharacterPortrait({
-        stableId: `${indexedWorld.id}:${character.characterId}`,
-        signal,
-      }),
-    };
-  }), [characterCatalogPage.items, indexedWorld]);
+  const catalogCharacterRows = useMemo(() => characterCatalogPage.items.map((character) => ({
+    character,
+    portrait: catalogCharacterPortraitForWorld(indexedWorld, character, organizationCatalog.matrix),
+  })), [characterCatalogPage.items, indexedWorld, organizationCatalog.matrix]);
   const characterMasteryBatchKey = `${indexedWorld.id}:${safeCharacterCatalogPage}`;
   const catalogCharacterMasteries = characterMasteryBatch.key === characterMasteryBatchKey
     ? characterMasteryBatch.profiles
@@ -534,6 +546,53 @@ export default function CanonClient({
       pageSize: 12,
     })
     : null, [organizationCatalog.matrix, organizationMemberPageIndex, selectedOrganization]);
+
+  const selectedOrganizationMemberPortrait = useMemo(() => selectedOrganizationMember
+    ? catalogCharacterPortraitForWorld(indexedWorld, selectedOrganizationMember, organizationCatalog.matrix)
+    : null, [indexedWorld, organizationCatalog.matrix, selectedOrganizationMember]);
+  const selectedOrganizationMemberMastery = useMemo(() => selectedOrganizationMember
+    ? characterMasteryProfileAt({
+      storySeed: organizationCatalog.matrix.seed,
+      populationIndex: selectedOrganizationMember.populationIndex,
+      context: organizationCatalog.context,
+      socialMatrix: organizationCatalog.matrix,
+    })
+    : null, [organizationCatalog.context, organizationCatalog.matrix, selectedOrganizationMember]);
+
+  useEffect(() => {
+    if (!selectedOrganizationMember) return;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleDialogKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSelectedOrganizationMember(null);
+        window.requestAnimationFrame(() => organizationMemberTriggerRef.current?.focus());
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const dialog = document.querySelector<HTMLElement>('[data-testid="global-organization-member-detail"]');
+      const focusable = dialog
+        ? [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+          .filter((element) => element.getClientRects().length > 0)
+        : [];
+      if (!dialog || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handleDialogKeyboard);
+    return () => {
+      window.removeEventListener("keydown", handleDialogKeyboard);
+      document.body.style.overflow = previousBodyOverflow;
+    };
+  }, [selectedOrganizationMember]);
 
   const familyMaximumGeneration = selectedOrganization?.archetype === "family"
     ? familyGenealogyPositionAt({
@@ -718,6 +777,16 @@ export default function CanonClient({
     const query = new URLSearchParams({ world: String(bounded) });
     if (targetProjectId) query.set("targetProjectId", targetProjectId);
     router.push(`/canon?${query.toString()}`);
+  }
+
+  function openOrganizationMemberDetail(member: StoryOrganizationMember, trigger: HTMLButtonElement) {
+    organizationMemberTriggerRef.current = trigger;
+    setSelectedOrganizationMember(member);
+  }
+
+  function closeOrganizationMemberDetail() {
+    setSelectedOrganizationMember(null);
+    window.requestAnimationFrame(() => organizationMemberTriggerRef.current?.focus());
   }
 
   async function saveCharacter(event: FormEvent) {
@@ -1306,6 +1375,8 @@ export default function CanonClient({
                   <button
                     type="button"
                     key={organization.organizationId}
+                    data-testid="global-organization-option"
+                    data-organization-archetype={organization.archetype}
                     aria-current={selectedOrganization?.organizationId === organization.organizationId ? "true" : undefined}
                     onClick={() => {
                       setSelectedOrganizationId(organization.organizationId);
@@ -1399,7 +1470,7 @@ export default function CanonClient({
                       <div className={styles.genealogyGrid}>
                         {familyGenealogy.positions.map((position) => {
                           const member = organizationMemberAtOffset({ matrix: organizationCatalog.matrix, organization: selectedOrganization, memberOffset: position.memberOffset });
-                          return <GenealogyMemberCard key={position.personId} member={member} position={position} resolveName={(offset) => organizationMemberAtOffset({ matrix: organizationCatalog.matrix, organization: selectedOrganization, memberOffset: offset }).name} />;
+                          return <GenealogyMemberCard key={position.personId} member={member} portrait={catalogCharacterPortraitForWorld(indexedWorld, member, organizationCatalog.matrix)} position={position} resolveName={(offset) => organizationMemberAtOffset({ matrix: organizationCatalog.matrix, organization: selectedOrganization, memberOffset: offset }).name} onOpen={openOrganizationMemberDetail} />;
                         })}
                         {familyGenealogy.positions.length === 0 ? <p className={styles.empty}>此世代與房系沒有在籍人物。</p> : null}
                       </div>
@@ -1408,7 +1479,7 @@ export default function CanonClient({
                   ) : (
                     <section className={styles.rosterPanel} data-testid="global-organization-roster" data-materialization="lazy-paged">
                       <header><div><small>MEMBER ROSTER</small><h4>人物名冊與正式職位</h4></div><span>峰堂／部門、位階與派系均可查</span></header>
-                      <div className={styles.rosterGrid}>{organizationMembers?.items.map((member) => <OrganizationMemberCard key={member.characterId} member={member} />)}</div>
+                      <div className={styles.rosterGrid}>{organizationMembers?.items.map((member) => <OrganizationMemberCard key={member.characterId} member={member} portrait={catalogCharacterPortraitForWorld(indexedWorld, member, organizationCatalog.matrix)} onOpen={openOrganizationMemberDetail} />)}</div>
                       <div className={styles.pager}><button type="button" disabled={organizationMemberPageIndex === 0} onClick={() => setOrganizationMemberPageIndex(Math.max(0, organizationMemberPageIndex - 1))}>上一頁名冊</button><span>第 {organizationMemberPageIndex + 1} 頁 · 共 {(organizationMembers?.total ?? 0).toLocaleString("zh-TW")} 人</span><button type="button" disabled={!organizationMembers?.nextCursor} onClick={() => setOrganizationMemberPageIndex(organizationMemberPageIndex + 1)}>下一頁名冊</button></div>
                     </section>
                   )}
@@ -1533,6 +1604,16 @@ export default function CanonClient({
         </section>
       ) : null}
 
+      {selectedOrganizationMember && selectedOrganizationMemberPortrait && selectedOrganizationMemberMastery ? (
+        <OrganizationMemberDetail
+          member={selectedOrganizationMember}
+          portrait={selectedOrganizationMemberPortrait}
+          mastery={selectedOrganizationMemberMastery}
+          resolveCharacterName={(characterId) => organizationCatalog.matrix.getCharacterById(characterId)?.name ?? "未登錄人物"}
+          onClose={closeOrganizationMemberDetail}
+        />
+      ) : null}
+
       <footer className={styles.boundary}>
         <b>資料邊界</b><span>全域總庫 → 明確複製候選快照 → 作品內唯讀選擇上場。沒有任何一步會自動覆寫正在進行的故事。</span>
       </footer>
@@ -1594,12 +1675,56 @@ function OrganizationHierarchyBranch({ branch }: { branch: StoryOrganizationHier
   );
 }
 
-function OrganizationMemberCard({ member }: { member: StoryOrganizationMember }) {
+type OrganizationMemberOpenHandler = (member: StoryOrganizationMember, trigger: HTMLButtonElement) => void;
+
+function OrganizationMemberButton({
+  member,
+  portrait,
+  view,
+  onOpen,
+}: {
+  member: StoryOrganizationMember;
+  portrait: CharacterPortraitAsset;
+  view: "roster" | "genealogy";
+  onOpen: OrganizationMemberOpenHandler;
+}) {
   return (
-    <article className={styles.memberCard}>
-      <small>{member.organizationFaction}</small>
-      <h5>{member.name}</h5>
-      <p>{member.organizationRank}</p>
+    <button
+      type="button"
+      className={styles.memberCardButton}
+      data-testid="global-organization-member-card"
+      data-member-view={view}
+      data-character-id={member.characterId}
+      data-member-name={member.name}
+      data-member-rank={member.organizationRank}
+      data-member-unit={member.organizationUnit}
+      data-member-faction={member.organizationFaction}
+      aria-label={`查看人物：${member.name}，${member.organizationRank}，${member.organizationUnit}`}
+      onClick={(event) => onOpen(member, event.currentTarget)}
+    >
+      <PortraitCrop portrait={portrait} className={styles.memberCardPortrait} decorative />
+      <span className={styles.memberCardIdentity}>
+        <small>{member.organizationFaction}</small>
+        <strong>{member.name}</strong>
+        <span>{member.organizationRank}</span>
+      </span>
+      <span className={styles.memberCardOpen} aria-hidden="true">查看 ›</span>
+    </button>
+  );
+}
+
+function OrganizationMemberCard({
+  member,
+  portrait,
+  onOpen,
+}: {
+  member: StoryOrganizationMember;
+  portrait: CharacterPortraitAsset;
+  onOpen: OrganizationMemberOpenHandler;
+}) {
+  return (
+    <article className={styles.memberCard} data-character-id={member.characterId}>
+      <OrganizationMemberButton member={member} portrait={portrait} view="roster" onOpen={onOpen} />
       <dl><div><dt>峰堂／部門</dt><dd>{member.organizationUnit}</dd></div><div><dt>位置</dt><dd>{member.location}</dd></div></dl>
     </article>
   );
@@ -1607,18 +1732,21 @@ function OrganizationMemberCard({ member }: { member: StoryOrganizationMember })
 
 function GenealogyMemberCard({
   member,
+  portrait,
   position,
   resolveName,
+  onOpen,
 }: {
   member: StoryOrganizationMember;
+  portrait: CharacterPortraitAsset;
   position: FamilyGenealogyPosition;
   resolveName: (offset: number) => string;
+  onOpen: OrganizationMemberOpenHandler;
 }) {
   return (
     <article className={styles.genealogyCard} data-lineage-role={position.lineageRole}>
-      <small>{position.generationLabel} · {position.branchLabel} · {position.lineageRole === "bloodline" ? "血親" : "配偶"}</small>
-      <h5>{member.name}</h5>
-      <p>{member.organizationRank} · {member.organizationUnit}</p>
+      <OrganizationMemberButton member={member} portrait={portrait} view="genealogy" onOpen={onOpen} />
+      <p>{position.generationLabel} · {position.branchLabel} · {position.lineageRole === "bloodline" ? "血親" : "配偶"}</p>
       <dl>
         <div><dt>父母</dt><dd>{position.parentMemberOffsets.length ? position.parentMemberOffsets.map(resolveName).join("、") : "始祖／外姓入譜"}</dd></div>
         <div><dt>配偶</dt><dd>{position.spouseMemberOffset === null ? "尚未入譜" : resolveName(position.spouseMemberOffset)}</dd></div>
@@ -1626,5 +1754,112 @@ function GenealogyMemberCard({
         <div><dt>子女</dt><dd>{position.childMemberOffsets.length ? `${position.childMemberOffsets.length} 人：${position.childMemberOffsets.map(resolveName).join("、")}` : "尚無入譜子女"}</dd></div>
       </dl>
     </article>
+  );
+}
+
+function OrganizationMemberDetail({
+  member,
+  portrait,
+  mastery,
+  resolveCharacterName,
+  onClose,
+}: {
+  member: StoryOrganizationMember;
+  portrait: CharacterPortraitAsset;
+  mastery: CharacterMasteryProfile;
+  resolveCharacterName: (characterId: string) => string;
+  onClose: () => void;
+}) {
+  const headingId = `organization-member-detail-${member.populationIndex}`;
+  const abilities = [
+    ["修行", member.abilities.cultivation],
+    ["武力", member.abilities.martial],
+    ["謀略", member.abilities.strategy],
+    ["洞察", member.abilities.perception],
+    ["醫藥", member.abilities.medicine],
+    ["技藝", member.abilities.crafting],
+    ["領導", member.abilities.leadership],
+    ["影響力", member.abilities.influence],
+  ] as const;
+
+  return (
+    <div className={styles.memberDialogBackdrop}>
+      <section
+        className={styles.memberDialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+        data-testid="global-organization-member-detail"
+        data-character-id={member.characterId}
+      >
+        <header className={styles.memberDialogHeader}>
+          <PortraitCrop portrait={portrait} className={styles.memberDialogPortrait} />
+          <div>
+            <small>第 {String(member.populationIndex + 1).padStart(6, "0")} 人物 · {mastery.storyEraLabel}</small>
+            <h2 id={headingId}>{member.name}</h2>
+            <p>{member.identity} · {member.age} 歲</p>
+          </div>
+          <button type="button" autoFocus aria-label="關閉人物詳情" onClick={onClose}>×</button>
+        </header>
+
+        <div className={styles.memberDialogBody}>
+          <section className={styles.memberDetailPanel}>
+            <h3>組織身分與行動核心</h3>
+            <dl>
+              <div><dt>職位</dt><dd>{member.organizationRank}</dd></div>
+              <div><dt>峰堂／部門</dt><dd>{member.organizationUnit}</dd></div>
+              <div><dt>派系</dt><dd>{member.organizationFaction}</dd></div>
+              <div><dt>所在地</dt><dd>{member.location}</dd></div>
+              <div><dt>家族位置</dt><dd>{member.familyRole}</dd></div>
+              <div><dt>人物目標</dt><dd>{member.goal}</dd></div>
+              <div><dt>私密線索</dt><dd>{member.secret}</dd></div>
+            </dl>
+          </section>
+
+          <section className={styles.memberDetailPanel}>
+            <h3>個性與能力</h3>
+            <p>{member.personality.traits.join("、")}；{member.personality.publicFace}</p>
+            <p><strong>內在需求：</strong>{member.personality.privateNeed}</p>
+            <div className={styles.memberAbilityGrid}>{abilities.map(([label, value]) => <span key={label}><b>{label}</b>{value}</span>)}</div>
+            <p><strong>能力層級：</strong>{member.abilities.powerTier}　<strong>專長：</strong>{member.abilities.specialties.join("、")}</p>
+          </section>
+
+          <section className={styles.memberDetailPanel}>
+            <h3>功法、戰技與持有物</h3>
+            <ul className={styles.memberDetailList}>
+              {mastery.assignments.map((assignment) => (
+                <li key={assignment.referenceId}>
+                  <b>{assignment.relationLabel}{assignment.name}</b>
+                  <span>{assignment.catalogLabel} · 熟練 {assignment.proficiency} · 加乘 ×{assignment.effectiveMultiplier.toFixed(2)}</span>
+                  <small>限制：{assignment.limitation}；代價：{assignment.cost}</small>
+                </li>
+              ))}
+              <li><b>持有 {mastery.heldTreasure.name}</b><span>固定人物資產，不會因開啟視窗而改值</span></li>
+            </ul>
+          </section>
+
+          <section className={styles.memberDetailPanel}>
+            <h3>關係與人物持有物</h3>
+            <ul className={styles.memberDetailList}>
+              {member.relationships.slice(0, 6).map((relationship) => (
+                <li key={relationship.relationshipId}>
+                  <b>{resolveCharacterName(relationship.targetCharacterId)} · {relationship.kind}</b>
+                  <span>信任 {relationship.trust} · 張力 {relationship.tension} · 義務 {relationship.obligation}</span>
+                  <small>{relationship.historyHook}</small>
+                </li>
+              ))}
+              {member.relationships.length === 0 ? <li><span>尚無已建立的人物關係。</span></li> : null}
+              {member.possessions.slice(0, 4).map((possession) => (
+                <li key={possession.possessionId}><b>{possession.ownership}：{possession.name}</b><span>{possession.kind} · {possession.rarity}</span><small>{possession.function}；限制：{possession.limitation}</small></li>
+              ))}
+            </ul>
+          </section>
+        </div>
+
+        <footer className={styles.memberDialogActions}>
+          <button type="button" className={styles.primary} onClick={onClose}>返回人物列表</button>
+        </footer>
+      </section>
+    </div>
   );
 }
