@@ -1730,7 +1730,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           <ul className={styles.truthList}>
             <li>已實作：原閉端 AI 知識層內建故事因果教師，分析觸發、目標、因果鏈、道具、關係、反轉、爽點、後果與追更鉤子。</li>
             <li>內建教師永遠可用；Local Ollama、OpenAI、Gemini、Grok 都只是選用的深化或交叉驗證算力，未設定時不阻塞分析。</li>
-            <li>受控網路研究：公開網址免填授權欄位；仍檢查 HTTPS、公開 DNS、robots、重新導向、內容大小與提示注入。</li>
+            <li>受控網路研究：公開網址不詢問標題、作者、出處或授權；仍檢查 HTTPS、公開 DNS、robots、重新導向、內容大小與提示注入。</li>
             <li>全站共享：因果教師只把非抄寫抽象規則寫回原知識層；閉端 AI 每次以索引、去重與快取讀取固定 Top-K。</li>
             <li>能力驗證：核准後用 Control／Treatment 比較規則是否真正進入執行期；分數代表整合完整度，不冒充模型權重品質。</li>
             <li>自我學習方式：核准規則＋本機 RAG／提示偏好，不會在背景偷偷改模型權重。</li>
