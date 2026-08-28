@@ -1133,9 +1133,9 @@ export default function CanonClient({
   return (
     <main className={styles.shell} data-testid="global-canon-editor">
       <header className={styles.topbar}>
-        <Link href="/" aria-label="回系統首頁">← 系統首頁</Link>
+        <Link prefetch={false} href="/" aria-label="回系統首頁">← 系統首頁</Link>
         <div><small>GLOBAL CANON LIBRARY · CROSS-PROJECT</small><h1>角色、世界與記憶總編輯</h1></div>
-        <Link href="/professional?intent=library" aria-label="前往作品管理中心">作品管理中心</Link>
+        <Link prefetch={false} href="/professional?intent=library" aria-label="前往作品管理中心">作品管理中心</Link>
       </header>
 
       <section className={styles.hero}>
@@ -1158,7 +1158,7 @@ export default function CanonClient({
           <option value="">尚未選擇作品</option>
           {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
         </select>
-        {selectedProject ? <Link href={`/studio/project/${encodeURIComponent(selectedProject.id)}/characters`}>到作品內唯讀選擇</Link> : <Link href="/studio/create">建立作品</Link>}
+        {selectedProject ? <Link prefetch={false} href={`/studio/project/${encodeURIComponent(selectedProject.id)}/characters`}>到作品內唯讀選擇</Link> : <Link prefetch={false} href="/studio/create">建立作品</Link>}
       </section>
 
       <section className={styles.importBar} aria-label="把既有作品正式設定匯入全域總庫">
