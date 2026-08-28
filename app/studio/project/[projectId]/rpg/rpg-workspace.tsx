@@ -19,6 +19,7 @@ import {
   type WorldRule,
 } from "@/lib/novel-ai/domain";
 import { activeStoryWorlds } from "@/lib/novel-ai/domain/active-story-context";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import { suggestedCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import {
   RPG_CHARACTER_LIBRARY_STORAGE_KEY,
@@ -600,7 +601,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       }, project.revision);
     }
     let storyState = states.find((item) => item.id === project.storyStateId) ?? states[0];
-    const storyBible = bibles.find((item) => item.id === project.storyBibleId) ?? bibles[0];
+    const storyBible = resolveProjectStoryBible(project, bibles);
     if (!chapter || !storyState || !storyBible) {
       throw new Error("作品缺少章節、故事狀態或 Story Bible，無法啟動 RPG。");
     }

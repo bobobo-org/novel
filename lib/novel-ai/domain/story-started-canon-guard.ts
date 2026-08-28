@@ -66,10 +66,10 @@ export function explicitCrossEraCanonAuthorization(input: {
   if (input.storyBible && containsExplicitCrossEraCanon([
     input.storyBible.theme.value,
     input.storyBible.style.value,
-    ...input.storyBible.foreshadowing,
-    ...input.storyBible.unresolvedThreads,
+    ...(input.storyBible.foreshadowing ?? []),
+    ...(input.storyBible.unresolvedThreads ?? []),
     ...(input.storyBible.resolvedThreads ?? []),
-    ...input.storyBible.authorPreferences,
+    ...(input.storyBible.authorPreferences ?? []),
   ])) {
     sources.push("story-bible");
   }

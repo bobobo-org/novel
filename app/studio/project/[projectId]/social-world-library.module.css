@@ -202,6 +202,7 @@
 }
 
 @media (max-width: 720px) {
+  .library { --social-mobile-aux-size: .75rem; --social-mobile-copy-size: .875rem; }
   .library button,
   .library input,
   .library select,
@@ -212,7 +213,7 @@
   .capacityGrid div { min-width: 0; padding: .75rem; }
   .capacityGrid strong { overflow-wrap: anywhere; font-size: 1.45rem; }
   .viewTabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
-  .viewTabs button { min-width: 0; padding: .7rem .45rem; font-size: .78rem; text-align: center; }
+  .viewTabs button { min-width: 0; padding: .7rem .45rem; font-size: var(--social-mobile-copy-size); text-align: center; }
   .viewTabs small { display: none; }
   .organizationDetail { padding: .85rem; }
   .organizationDetail > header { align-items: flex-start; flex-direction: column; }
@@ -232,6 +233,62 @@
   .worldLogline { min-height: 0; }
   .pageControls { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
   .pageControls span { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
+  .eyebrow,
+  .seedBadge span,
+  .settingGate span,
+  .organizationListHeading span,
+  .hierarchyHeading span,
+  .settingGate dt,
+  .organizationList button span,
+  .organizationList button small,
+  .organizationDetail > header span,
+  .organizationDetail > header > strong small,
+  .organizationFacts dt,
+  .hierarchyNodeButton span,
+  .hierarchyNodeButton small,
+  .genealogySearch label,
+  .generationSelect,
+  .sectionHeading span,
+  .clearHierarchyFilter,
+  .characterCard header span,
+  .treasureCard header span,
+  .kinshipSummary > span,
+  .kinshipSummary > small,
+  .kinshipSummary dt,
+  .goal b,
+  .traits span,
+  .abilities div,
+  .treasureImageFrame > span,
+  .treasureBadges span,
+  .treasureCard dt,
+  .topicFilter span,
+  .worldCard header span,
+  .worldMetrics span,
+  .worldDetails dt { font-size: var(--social-mobile-aux-size); }
+  .materializationNote,
+  .modeNotice,
+  .settingGate p,
+  .organizationListHeading p,
+  .hierarchyHeading p,
+  .settingGate dd,
+  .organizationFacts dd,
+  .hierarchyNodeButton b,
+  .hierarchyBranch > p,
+  .sectionHeading > div > small,
+  .characterCard header p,
+  .treasureCard header p,
+  .affiliation,
+  .kinshipSummary > strong,
+  .kinshipSummary dd,
+  .goal,
+  .characterCard details,
+  .treasureCard details,
+  .treasureCard > p,
+  .treasureCard dd,
+  .worldCard header p,
+  .worldDetails dd,
+  .worldCard details,
+  .worldCard h6 { font-size: var(--social-mobile-copy-size); }
 }
 
 @media (max-width: 430px) {

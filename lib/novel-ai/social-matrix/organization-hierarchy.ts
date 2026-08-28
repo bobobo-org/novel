@@ -5,6 +5,7 @@ import {
   socialMatrixHash,
   type SocialMatrixInstitutionProfile,
 } from "./social-matrix";
+import { familyGenealogyPositionAt } from "./family-genealogy";
 import type {
   SocialInstitution,
   SocialInstitutionKind,
@@ -119,6 +120,7 @@ const NAME_PREFIXES = [
   "清河", "晨曦", "瀚海", "白樺", "長鏡", "新港", "扶光", "雲汀", "北辰", "南華",
 ] as const;
 const FAMILY_SURNAMES = ["謝", "唐", "林", "楚", "白", "顧", "江", "夏", "沈", "景", "容", "陸"] as const;
+const FAMILY_GIVEN_NAME_FALLBACK = ["知", "衡", "寧", "昭", "遠", "清", "言", "安", "若", "承", "景", "和"] as const;
 
 const ROLE_CATALOG: Record<StoryOrganizationArchetype, readonly string[]> = {
   sect: ["掌門", "宗主", "聖子", "聖女", "太上長老", "執法長老", "傳功長老", "峰主", "堂主", "真傳弟子", "內門弟子", "外門弟子", "丹師", "符師", "陣師"],
@@ -128,6 +130,57 @@ const ROLE_CATALOG: Record<StoryOrganizationArchetype, readonly string[]> = {
   academy: ["院長", "副院長", "首席學者", "教授", "研究主持人", "講師", "研究員", "助理", "學員"],
   guild: ["盟主", "議事代表", "分會長", "資深仲介", "情報主管", "執行者", "聯絡人", "見習成員"],
 };
+
+export function familySurnameForOrganizationName(organizationName: string) {
+  const normalized = organizationName.normalize("NFKC").replace(/\s+/gu, "").trim();
+  const surname = /^([\p{Script=Han}]{1,2})氏/u.exec(normalized)?.[1];
+  if (!surname) throw new Error("STORY_FAMILY_ORGANIZATION_SURNAME_MISSING");
+  return surname;
+}
+
+function familyGivenName(originalName: string, organizationId: string, memberOffset: number) {
+  const hanCharacters = Array.from(originalName.normalize("NFKC"))
+    .filter((character) => /\p{Script=Han}/u.test(character));
+  if (hanCharacters.length >= 2) {
+    return hanCharacters.slice(-Math.min(2, hanCharacters.length - 1)).join("");
+  }
+  const first = FAMILY_GIVEN_NAME_FALLBACK[
+    socialMatrixHash(`${organizationId}:family-given-name:${memberOffset}:first`)
+      % FAMILY_GIVEN_NAME_FALLBACK.length
+  ]!;
+  const second = FAMILY_GIVEN_NAME_FALLBACK[
+    socialMatrixHash(`${organizationId}:family-given-name:${memberOffset}:second`)
+      % FAMILY_GIVEN_NAME_FALLBACK.length
+  ]!;
+  return `${first}${second}`;
+}
+
+function familyGenealogyDisplayName(input: {
+  originalName: string;
+  organizationId: string;
+  organizationSurname: string;
+  memberOffset: number;
+  lineageRole: "bloodline" | "spouse";
+}) {
+  const givenName = familyGivenName(
+    input.originalName,
+    input.organizationId,
+    input.memberOffset,
+  );
+  if (input.lineageRole === "bloodline") {
+    return `${input.organizationSurname}${givenName}`;
+  }
+  const original = input.originalName.normalize("NFKC").replace(/\s+/gu, "").trim();
+  if (original && !original.startsWith(input.organizationSurname)) return original;
+  const externalSurnames = FAMILY_SURNAMES.filter(
+    (surname) => surname !== input.organizationSurname,
+  );
+  const externalSurname = externalSurnames[
+    socialMatrixHash(`${input.organizationId}:family-spouse-surname:${input.memberOffset}`)
+      % externalSurnames.length
+  ]!;
+  return `${externalSurname}${givenName}`;
+}
 
 function compactVisible(value: string | null | undefined, maximum = 34) {
   const clean = (value ?? "").replace(/\s+/gu, " ").trim();
@@ -673,6 +726,35 @@ export function organizationMemberAtOffset(input: {
   }).items[0];
   if (!source) throw new Error("STORY_ORGANIZATION_MEMBER_SOURCE_MISSING");
   const membership = organizationMembershipForOffset(input.organization, memberOffset);
+  const genealogyPosition = input.organization.archetype === "family"
+    ? familyGenealogyPositionAt({
+        organizationId: input.organization.organizationId,
+        memberCount: input.organization.currentMemberCount,
+        memberOffset,
+      })
+    : null;
+  const organizationSurname = genealogyPosition
+    ? familySurnameForOrganizationName(input.organization.name)
+    : null;
+  const displayName = genealogyPosition && organizationSurname
+    ? familyGenealogyDisplayName({
+        originalName: source.name,
+        organizationId: input.organization.organizationId,
+        organizationSurname,
+        memberOffset,
+        lineageRole: genealogyPosition.lineageRole,
+      })
+    : source.name;
+  const familyRole = genealogyPosition?.lineageRole === "bloodline"
+    ? "本姓血親"
+    : genealogyPosition?.lineageRole === "spouse"
+      ? "外姓配偶（姻親入譜）"
+      : source.familyRole;
+  const genealogyIdentity = genealogyPosition?.lineageRole === "bloodline"
+    ? `${organizationSurname}氏本姓血親・${genealogyPosition.generationLabel}・${genealogyPosition.branchLabel}`
+    : genealogyPosition?.lineageRole === "spouse"
+      ? `外姓配偶（姻親入譜）・${genealogyPosition.generationLabel}・${genealogyPosition.branchLabel}`
+      : null;
   const specialistLocation = [
     ["丹堂", "丹堂藥圃"],
     ["符堂", "藏符閣"],
@@ -699,14 +781,17 @@ export function organizationMemberAtOffset(input: {
   return {
     ...source,
     ...membership,
+    name: displayName,
+    familyId: genealogyPosition ? input.organization.organizationId : source.familyId,
+    familyRole,
     storyAffinity: `${input.organization.eraLabel} · ${input.organization.kindLabel}`,
     location: `${input.organization.territory} · ${organizationLocation}`,
     portrait: {
       ...source.portrait,
-      description: `${input.organization.eraLabel}${input.organization.kindLabel}人物；${membership.organizationUnit}的${membership.organizationRank}，採固定原創抽象人像。`,
+      description: `${input.organization.eraLabel}${input.organization.kindLabel}人物；${genealogyIdentity ? `${genealogyIdentity}；` : ""}${membership.organizationUnit}的${membership.organizationRank}，採固定原創抽象人像。`,
     },
     institutionRole: membership.organizationRank,
-    identity: `${input.organization.name}的${membership.organizationRank}，隸屬${membership.organizationUnit}（${membership.organizationFaction}），目前常駐${input.organization.territory}的${organizationLocation}`,
+    identity: `${input.organization.name}的${membership.organizationRank}，${genealogyIdentity ? `${genealogyIdentity}，` : ""}隸屬${membership.organizationUnit}（${membership.organizationFaction}），目前常駐${input.organization.territory}的${organizationLocation}`,
   };
 }
 

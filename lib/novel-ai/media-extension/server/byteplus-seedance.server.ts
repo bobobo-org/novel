@@ -6,11 +6,16 @@ import {
   createBytePlusSeedanceAdapter,
 } from "./byteplus-seedance-protocol";
 import type { VideoJobDependencies } from "./video-job-service";
+import { listVideoProviders } from "../video-provider-registry";
 
 // No production durable job store or private validated MP4 artifact store exists yet.
 // Keep this null until both are implemented; an API key alone must never make the UI ready.
 const DURABLE_VIDEO_JOB_STORE: VideoJobDependencies["durableStore"] = null;
 const VALIDATED_PRIVATE_VIDEO_ARTIFACT_STORE_CONFIGURED = false;
+// The old LAS shape is retained only for regression tests. It is not proof of an
+// official Seedance 2.5 API. Keep execution fail-closed until an official adapter
+// is implemented and verified against the provider's published API contract.
+const OFFICIAL_VIDEO_PROVIDER_ADAPTER_CONFIGURED = false;
 
 type ServerEnvironment = Record<string, string | undefined>;
 
@@ -33,11 +38,18 @@ export function publicBytePlusSeedanceHealth(environment: ServerEnvironment = pr
   const jobStoreConfigured = Boolean(DURABLE_VIDEO_JOB_STORE?.configured);
   const artifactStoreConfigured = VALIDATED_PRIVATE_VIDEO_ARTIFACT_STORE_CONFIGURED;
   return {
-    configured: credentialConfigured && jobStoreConfigured && artifactStoreConfigured,
-    model: BYTEPLUS_SEEDANCE_MODEL,
+    schemaVersion: "novel-video-runtime-health-v2",
+    configured: OFFICIAL_VIDEO_PROVIDER_ADAPTER_CONFIGURED
+      && credentialConfigured
+      && jobStoreConfigured
+      && artifactStoreConfigured,
+    executionProviderId: null,
+    model: "no-official-video-model-connected",
     credentialConfigured,
     jobStoreConfigured,
     artifactStoreConfigured,
+    executionBlockedReason: "OFFICIAL_VIDEO_PROVIDER_API_NOT_CONNECTED",
+    providers: listVideoProviders(),
   } as const;
 }
 
@@ -58,9 +70,10 @@ export function createBytePlusSeedanceServerAdapter(environment: ServerEnvironme
 }
 
 export function serverVideoJobDependencies(environment: ServerEnvironment = process.env): VideoJobDependencies {
-  const configuration = readBytePlusSeedanceServerConfiguration(environment);
+  void environment;
   return {
-    providerConfigured: configuration.credentialConfigured,
+    providerConfigured: OFFICIAL_VIDEO_PROVIDER_ADAPTER_CONFIGURED,
+    executionProviderId: null,
     durableStore: DURABLE_VIDEO_JOB_STORE,
     artifactStoreConfigured: VALIDATED_PRIVATE_VIDEO_ARTIFACT_STORE_CONFIGURED,
     createAdapter: () => createBytePlusSeedanceServerAdapter(environment),

@@ -16,6 +16,7 @@ import { createNovelRepository } from "@/lib/novel-ai/repository";
 
 type Theme = "light" | "night" | "eye" | "paper";
 const themes: Array<[Theme, string]> = [["light", "明亮"], ["night", "夜間"], ["eye", "護眼"], ["paper", "紙本"]];
+const READER_SCROLL_SAVE_DELAY_MS = 900;
 
 function anchorFor(text: string, index: number) { return `${index}:${text.slice(0, 80)}`; }
 function stateDefaults(projectId: string): ReaderState { return { ...makeRecord(projectId), chapterId: null, positionType: "ratio", positionValue: 0, contentAnchor: null, scrollTop: 0, percentage: 0, theme: "night", fontFamily: "system-ui", fontSize: 20, lineHeight: 1.9, contentWidth: READER_CONTENT_WIDTH_DEFAULT, contentWidthPreferenceVersion: READER_CONTENT_WIDTH_PREFERENCE_VERSION, paragraphSpacing: 18, lastReadAt: null }; }
@@ -32,9 +33,12 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [directoryQuery, setDirectoryQuery] = useState("");
   const [controlsOpen, setControlsOpen] = useState(false);
+  const shellRef = useRef<HTMLElement>(null);
+  const readerTopRef = useRef<HTMLElement>(null);
   const articleRef = useRef<HTMLElement>(null);
   const stateRef = useRef<ReaderState | null>(null);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const flushScrollSaveRef = useRef<() => Promise<void>>(async () => {});
   const activeChapter = chapters.find((item) => item.id === state?.chapterId) ?? chapters[0] ?? null;
   const paragraphs = useMemo(() => (activeChapter?.content || "").split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean), [activeChapter]);
 
@@ -66,9 +70,9 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveState(patch: Partial<ReaderState>) {
-    if (!state) return;
+    if (!stateRef.current) return;
     try {
-      saveQueue.current = saveQueue.current.then(async () => {
+      saveQueue.current = saveQueue.current.catch(() => undefined).then(async () => {
         const current = stateRef.current;
         if (!current) return;
         const next = await repo.put("readerStates", { ...current, ...patch, lastReadAt: new Date().toISOString() }, current.revision);
@@ -79,6 +83,22 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
     catch { setNotice("閱讀位置儲存失敗，原有內容仍然安全。"); }
   }
   useEffect(() => {
+    const shell = shellRef.current;
+    const header = readerTopRef.current;
+    if (!shell || !header) return;
+    const syncHeaderHeight = () => {
+      shell.style.setProperty("--reader-top-height", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    };
+    syncHeaderHeight();
+    const observer = new ResizeObserver(syncHeaderHeight);
+    observer.observe(header);
+    window.addEventListener("resize", syncHeaderHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncHeaderHeight);
+    };
+  }, [project?.id, state?.id]);
+  useEffect(() => {
     if (!state || !activeChapter) return;
     const restore = () => {
       const anchor = state.contentAnchor && document.querySelector(`[data-reader-anchor="${CSS.escape(state.contentAnchor)}"]`);
@@ -87,15 +107,44 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
     requestAnimationFrame(restore);
   }, [activeChapter?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!state || !activeChapter) return;
-    let timer = 0;
-    const onScroll = () => { window.clearTimeout(timer); timer = window.setTimeout(() => {
+    if (!stateRef.current || !activeChapter) return;
+    let timer: number | null = null;
+    let dirty = false;
+    const snapshot = (): Partial<ReaderState> => {
       const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight); const ratio = Math.min(1, Math.max(0, window.scrollY / max));
       const index = Math.min(paragraphs.length - 1, Math.max(0, Math.floor(ratio * Math.max(1, paragraphs.length))));
-      void saveState({ positionType: "anchor", positionValue: ratio, contentAnchor: paragraphs[index] ? anchorFor(paragraphs[index], index) : null, scrollTop: window.scrollY, percentage: Math.round(ratio * 100) });
-    }, 250); };
-    window.addEventListener("scroll", onScroll, { passive: true }); return () => { window.removeEventListener("scroll", onScroll); window.clearTimeout(timer); };
-  }, [state?.id, state?.revision, activeChapter?.id, paragraphs.length]); // eslint-disable-line react-hooks/exhaustive-deps
+      return { positionType: "anchor", positionValue: ratio, contentAnchor: paragraphs[index] ? anchorFor(paragraphs[index], index) : null, scrollTop: window.scrollY, percentage: Math.round(ratio * 100) };
+    };
+    const flush = async () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      if (!dirty || stateRef.current?.chapterId !== activeChapter.id) return;
+      dirty = false;
+      await saveState(snapshot());
+    };
+    const onScroll = () => {
+      dirty = true;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void flush(), READER_SCROLL_SAVE_DELAY_MS);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") void flush();
+    };
+    const onPageHide = () => void flush();
+    flushScrollSaveRef.current = flush;
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (flushScrollSaveRef.current === flush) flushScrollSaveRef.current = async () => {};
+      void flush();
+    };
+  }, [activeChapter?.id, paragraphs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function addNote() {
     if (!state || !activeChapter || !noteText.trim()) return;
@@ -110,6 +159,7 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
     const saved = await repo.put("readerBookmarks", bookmark); setBookmarks((items) => [...items, saved]); setNotice("已加入書籤。");
   }
   async function switchChapter(chapterId: string) {
+    await flushScrollSaveRef.current();
     await saveState({ chapterId, positionType: "ratio", positionValue: 0, contentAnchor: null, scrollTop: 0, percentage: 0 });
     setDirectoryOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -120,9 +170,9 @@ export default function ReaderClient({ projectId }: { projectId: string }) {
   const previousChapter = activeIndex > 0 ? chapters[activeIndex - 1] : null;
   const nextChapter = activeIndex >= 0 && activeIndex < chapters.length - 1 ? chapters[activeIndex + 1] : null;
   const visibleChapters = chapters.filter((chapter) => !directoryQuery.trim() || chapter.title.toLowerCase().includes(directoryQuery.trim().toLowerCase()));
-  return <main className={`readerShell reader-${state.theme}`} style={{ "--reader-size": `${state.fontSize}px`, "--reader-line": state.lineHeight, "--reader-width": `${state.contentWidth}px`, "--reader-space": `${state.paragraphSpacing}px`, fontFamily: state.fontFamily } as React.CSSProperties}>
+  return <main ref={shellRef} className={`readerShell reader-${state.theme}`} style={{ "--reader-size": `${state.fontSize}px`, "--reader-line": state.lineHeight, "--reader-width": `${state.contentWidth}px`, "--reader-space": `${state.paragraphSpacing}px`, fontFamily: state.fontFamily } as React.CSSProperties}>
     <div className="readerProgress" aria-hidden="true"><span style={{ width: `${state.percentage}%` }} /></div>
-    <header className="readerTop"><div><Link prefetch={false} href={`/studio/project/${projectId}/write`}>返回寫作</Link><button onClick={() => setDirectoryOpen(true)}>章節目錄</button></div><span>{activeChapter?.title ?? "尚無章節"} · {state.percentage}%</span><div><button aria-expanded={controlsOpen} aria-controls="reader-controls" onClick={() => setControlsOpen((open) => !open)}>{controlsOpen ? "收起設定" : "閱讀設定"}</button><button className="readerResumeButton" aria-label="回到上次位置" onClick={() => window.scrollTo({ top: state.scrollTop, behavior: "smooth" })}>上次位置</button><button onClick={() => void toggleBookmark()}>{bookmarked ? "移除書籤" : "加入書籤"}</button></div></header>
+    <header ref={readerTopRef} className="readerTop"><div><Link prefetch={false} href={`/studio/project/${projectId}/write`}>返回寫作</Link><button onClick={() => setDirectoryOpen(true)}>章節目錄</button></div><span>{activeChapter?.title ?? "尚無章節"} · {state.percentage}%</span><div><button aria-expanded={controlsOpen} aria-controls="reader-controls" onClick={() => setControlsOpen((open) => !open)}>{controlsOpen ? "收起設定" : "閱讀設定"}</button><button className="readerResumeButton" aria-label="回到上次位置" onClick={() => window.scrollTo({ top: state.scrollTop, behavior: "smooth" })}>上次位置</button><button onClick={() => void toggleBookmark()}>{bookmarked ? "移除書籤" : "加入書籤"}</button></div></header>
     {controlsOpen ? <section id="reader-controls" className="readerControls" aria-label="閱讀設定"><label>主題<select value={state.theme} onChange={(event) => void saveState({ theme: event.target.value as Theme })}>{themes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>字級<input type="range" min="16" max="30" value={state.fontSize} onChange={(event) => void saveState({ fontSize: Number(event.target.value) })}/></label><label>行距<input type="range" min="1.4" max="2.5" step=".1" value={state.lineHeight} onChange={(event) => void saveState({ lineHeight: Number(event.target.value) })}/></label><label>內文寬度<input type="range" min={READER_CONTENT_WIDTH_MIN} max={READER_CONTENT_WIDTH_MAX} step={READER_CONTENT_WIDTH_STEP} value={state.contentWidth} onChange={(event) => void saveState({ contentWidth: Number(event.target.value) })}/></label></section> : null}
     {directoryOpen ? <><button className="readerDirectoryScrim" aria-label="關閉章節目錄" onClick={() => setDirectoryOpen(false)} /><nav className="readerDirectory" aria-label="章節目錄"><header><div><small>{project.title}</small><h2>章節目錄</h2></div><button onClick={() => setDirectoryOpen(false)}>關閉</button></header><input value={directoryQuery} onChange={(event) => setDirectoryQuery(event.target.value)} placeholder="搜尋章節" />{visibleChapters.map((chapter) => <button key={chapter.id} className={chapter.id === activeChapter?.id ? "active" : ""} onClick={() => void switchChapter(chapter.id)}><b>{chapter.order}. {chapter.title}</b><span>{chapter.content.replace(/\s/g, "").length} 字 · {chapter.status === "completed" ? "已完成" : "草稿"}</span></button>)}</nav></> : null}
     <article ref={articleRef} className="readerArticle"><header><small>{project.genreId || "小說"}</small><h1>{project.title}</h1><h2>{activeChapter?.title || "尚未建立章節"}</h2></header>{paragraphs.length ? paragraphs.map((paragraph, index) => <p key={index} data-reader-anchor={anchorFor(paragraph, index)}>{paragraph}</p>) : <p className="readerNoContent">這一章尚未有正文。回到寫作區開始創作。</p>}<footer><button disabled={!previousChapter} onClick={() => previousChapter && void switchChapter(previousChapter.id)}>← {previousChapter?.title ?? "已是第一章"}</button><button onClick={() => setDirectoryOpen(true)}>目錄</button><button disabled={!nextChapter} onClick={() => nextChapter && void switchChapter(nextChapter.id)}>{nextChapter?.title ?? "已是最後一章"} →</button></footer><section className="readerNote"><label>新增筆記<textarea value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="記下這段文字帶給你的想法"/></label><button onClick={() => void addNote()} disabled={!noteText.trim()}>儲存筆記</button></section><section className="readerNotes"><h2>本書筆記與書籤</h2>{notes.map((note) => <article key={note.id}><b>{note.needsRelocation ? "需要重新定位的筆記" : "筆記"}</b><p>{note.content}</p><button onClick={() => void repo.remove("readerNotes", note.id).then(() => setNotes((items) => items.filter((item) => item.id !== note.id)))}>刪除</button></article>)}{bookmarks.map((bookmark) => <article key={bookmark.id}><b>書籤</b><p>{bookmark.label || "未命名位置"}</p></article>)}</section></article>

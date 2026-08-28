@@ -302,7 +302,7 @@ for (const scenario of scenarios) {
   assert.doesNotMatch(candidate.story, /第零日|第一日/u);
   assert.doesNotMatch(
     candidate.story,
-    /沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
+    /我可以和你同行，但不是照單全收|沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
   );
   assert.ok(candidate.story.includes("林澄"));
   assert.ok(candidate.story.includes(stageCompanionName));

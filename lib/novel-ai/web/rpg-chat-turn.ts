@@ -14,14 +14,13 @@ import type {
   WorldRule,
 } from "../domain";
 import {
-  activeStoryCharacters,
+  activeStoryCast,
   activeStoryLore,
   activeStoryRelationships,
   activeStoryTimeline,
   activeStoryWorldRules,
-  activeStoryWorlds,
 } from "../domain/active-story-context";
-import { isCharacterEraCompatible } from "../character-portraits/assignment";
+import { resolveProjectStoryBible } from "../domain/story-bible-selection";
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import {
   isGameStoryPlayMode,
@@ -797,17 +796,20 @@ export async function loadRpgChatSnapshot(
     ?? [...chapters].sort((left, right) => left.order - right.order).at(-1)
     ?? null;
   let storyState = states.find((item) => item.id === project.storyStateId) ?? states[0] ?? null;
-  const storyBible = bibles.find((item) => item.id === project.storyBibleId) ?? bibles[0] ?? null;
+  const storyBible = resolveProjectStoryBible(project, bibles);
   if (!chapter || !storyState || !storyBible) {
     throw Object.assign(new Error("作品缺少章節、故事狀態或 Story Bible。"), {
       code: "RPG_CHAT_CANON_CONTEXT_INCOMPLETE",
     });
   }
-  const worlds = activeStoryWorlds(allWorlds, storyState, storyBible);
-  const characters = storyState.activeWorldId !== undefined && worlds.length === 0
-    ? []
-    : activeStoryCharacters(allCharacters, storyState, storyBible)
-    .filter((character) => isCharacterEraCompatible({ character, project, worlds }));
+  const { characters } = activeStoryCast({
+    project,
+    storyBible,
+    storyState,
+    worldRules: allWorldRules,
+    worlds: allWorlds,
+    characters: allCharacters,
+  });
   const relationships = activeStoryRelationships(allRelationships, characters);
   const worldRules = activeStoryWorldRules(allWorldRules, storyState, storyBible);
   const lore = activeStoryLore(allLore, storyState, storyBible);
@@ -1304,6 +1306,13 @@ function embeddedNarrativeFact(value: string) {
   return value.replace(/[。！？!?；;：:]+$/u, "").trim();
 }
 
+function quotationSafeNarrativeFact(value: string) {
+  return embeddedNarrativeFact(value)
+    .replace(/[「」『』“”"]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 function readableAffiliationName(value: string | null | undefined) {
   const compact = value?.replace(/\s+/gu, " ").trim() ?? "";
   if (
@@ -1432,13 +1441,13 @@ function existingCharacterAsCandidate(
 ): ProceduralCharacterCandidate {
   if (!character) return fallback;
   const name = embeddedNarrativeFact(narrativeFact(character.name, fallback.name, 24)) || fallback.name;
-  const goal = embeddedNarrativeFact(narrativeFact(
+  const goal = quotationSafeNarrativeFact(narrativeFact(
     character.goal?.value,
     fallback.goal,
     36,
   ));
   const personality = character.personality?.value?.trim() || fallback.personality;
-  const limitation = embeddedNarrativeFact(narrativeFact(
+  const limitation = quotationSafeNarrativeFact(narrativeFact(
     character.limitations?.find((value) => value.trim()),
     fallback.refusalCondition,
     40,
@@ -2089,8 +2098,10 @@ function buildTraditionalNovelFallback(input: {
     ?? context.castAffiliations.witness.factionLabel;
   const terminalAction = choice.encounter.arcNextAction
     ?? (choice.encounter.arcPhase === "resolution" ? "resolution" : null);
-  const embeddedConflict = embeddedNarrativeFact(context.conflict);
-  const embeddedArcGoal = embeddedNarrativeFact(narrativeFact(context.arcGoal, embeddedConflict, 32));
+  const embeddedConflict = quotationSafeNarrativeFact(context.conflict);
+  const embeddedArcGoal = quotationSafeNarrativeFact(narrativeFact(context.arcGoal, embeddedConflict, 32));
+  const embeddedUnresolved = quotationSafeNarrativeFact(context.unresolved);
+  const embeddedChoiceTitle = quotationSafeNarrativeFact(choice.title);
   const arcProgress = embeddedArcGoal !== embeddedConflict
     ? `「${embeddedArcGoal}」也因此有了可驗證的進展。`
     : "";
@@ -2116,13 +2127,13 @@ function buildTraditionalNovelFallback(input: {
     `${context.location}裡沒有人先開口。「${embeddedConflict}」再也拖不得。${catalyst}，迫使${protagonist}收回原先盤算；${weather}，${sensory}。`,
     `${context.location}留下的聲音忽然有了次序。「${embeddedConflict}」就在其中。${catalyst}，${protagonist}只能立刻回應；${weather}，${sensory}。`,
   ], 4);
-  const actionParagraph = `${protagonist}說出「${choice.title}」後立刻動手。${chosenMove}手邊可用的仍只有${context.inventory}；${leverage}。${resourceProp}。${deadline}`;
+  const actionParagraph = `${protagonist}說出「${embeddedChoiceTitle}」後立刻動手。${chosenMove}手邊可用的仍只有${context.inventory}；${leverage}。${resourceProp}。${deadline}`;
   const allyAction = chooseDeterministicProse(seed, [
     `${ally.name}搶在爭論前把側門鑰匙交給傷者，自己留在最容易被追問的位置。`,
     `${ally.name}將散落線索按先後排開，又把最可疑的一件推到燈下，拒絕讓任何人代答。`,
     `${ally.name}先遣走無關的人，隨後堵住唯一能悄悄離場的窄門，把自己的退路也一併押上。`,
   ], 5);
-  const allyParagraph = `${allyAction}${allySpeech}${context.castRelationships.supporting ? `兩人那段「${embeddedNarrativeFact(context.castRelationships.supporting)}」的舊關係，第一次有了必須當場兌現的重量。` : `${ally.name}不是來替${protagonist}補位，而是要親手守住${ally.goal}。`}`;
+  const allyParagraph = `${allyAction}${allySpeech}${context.castRelationships.supporting ? `兩人那段「${quotationSafeNarrativeFact(context.castRelationships.supporting)}」的舊關係，第一次有了必須當場兌現的重量。` : `${ally.name}不是來替${protagonist}補位，而是要親手守住${ally.goal}。`}`;
   const groupActions = [
     context.selectedStageFamily
       ? `${context.selectedStageFamily.name}派來接應的人先護住門外傷者，沒有替任何一方搶走決定。`
@@ -2177,18 +2188,18 @@ function buildTraditionalNovelFallback(input: {
     `${ally.name}沒有說完的話`,
   ], 3);
   const activeEnding = chooseDeterministicProse(seed, [
-    `${witness.name}把新畫出的路線壓在${treasure.name}下，終點正是${nextLocation}。那裡能解開「${context.unresolved}」，卻只容一組人先抵達；${protagonist}必須在對手收網前決定帶誰同行。`,
-    `${counterforce.name}離開前，把沾著同樣封蠟的碎片留給${protagonist}。碎片證明「${context.unresolved}」已牽動另一處據點；若立刻追去，${ally.name}就得獨自守住眼前成果。`,
-    `${ally.name}在殘頁背面找到一個通往${nextLocation}的舊記號，${witness.name}認出那是對方故意留下的邀請；「${context.unresolved}」終於有了方向，追查與保全卻成了兩條不能同時走完的路。`,
+    `${witness.name}把新畫出的路線壓在${treasure.name}下，終點正是${nextLocation}。那裡能解開「${embeddedUnresolved}」，卻只容一組人先抵達；${protagonist}必須在對手收網前決定帶誰同行。`,
+    `${counterforce.name}離開前，把沾著同樣封蠟的碎片留給${protagonist}。碎片證明「${embeddedUnresolved}」已牽動另一處據點；若立刻追去，${ally.name}就得獨自守住眼前成果。`,
+    `${ally.name}在殘頁背面找到一個通往${nextLocation}的舊記號，${witness.name}認出那是對方故意留下的邀請；「${embeddedUnresolved}」終於有了方向，追查與保全卻成了兩條不能同時走完的路。`,
   ], 8);
   const endingParagraph = terminalAction === "archive-ending"
-    ? `${protagonist}最後關上門，讓${titleImage}停在身後。「${context.unresolved}」已有不能推翻的答案，${ally.name}、${counterforce.name}與${witness.name}各自帶走應負責任；門扇合攏後，故事真正安靜了。`
+    ? `${protagonist}最後關上門，讓${titleImage}停在身後。「${embeddedUnresolved}」已有不能推翻的答案，${ally.name}、${counterforce.name}與${witness.name}各自帶走應負責任；門扇合攏後，故事真正安靜了。`
     : terminalAction === "epilogue"
-      ? `天色慢慢越過${context.location}，${titleImage}不再催促任何人。「${context.unresolved}」已被說清，三人各自安置傷痕、承諾與未完成的工作；即使旅程停在此處，他們也已有完整去向。`
+      ? `天色慢慢越過${context.location}，${titleImage}不再催促任何人。「${embeddedUnresolved}」已被說清，三人各自安置傷痕、承諾與未完成的工作；即使旅程停在此處，他們也已有完整去向。`
       : terminalAction === "new-arc"
-        ? `${titleImage}在清晨重新顯出輪廓。「${context.unresolved}」已留下答案，${ally.name}保留的證據卻指向另一個從未回答的問題；${protagonist}帶著已承擔的一切走向${nextLocation}，另一段故事由此開始。`
+        ? `${titleImage}在清晨重新顯出輪廓。「${embeddedUnresolved}」已留下答案，${ally.name}保留的證據卻指向另一個從未回答的問題；${protagonist}帶著已承擔的一切走向${nextLocation}，另一段故事由此開始。`
         : terminalAction === "resolution"
-          ? `${titleImage}終於安定。「${context.unresolved}」有了不能撤回的答案，${protagonist}只與三人確認誰留下、誰離開，以及什麼已不能挽回。最後一個人走出${context.location}時，這段紛爭抵達真正終點。`
+          ? `${titleImage}終於安定。「${embeddedUnresolved}」有了不能撤回的答案，${protagonist}只與三人確認誰留下、誰離開，以及什麼已不能挽回。最後一個人走出${context.location}時，這段紛爭抵達真正終點。`
           : activeEnding;
   const sceneShapes = [
     [actionParagraph, allyParagraph, groupParagraph, assetParagraph, counterParagraph, witnessParagraph],
@@ -2770,8 +2781,8 @@ export async function generateRpgChatTurnCandidate(input: {
             requiredParagraphs: "8-16",
             lockedOutcome: resolution.outcome,
             instruction: input.snapshot.language === "en"
-              ? "Discard the previous attempt. Regenerate from scratch; preserve the locked outcome, invent no numeric resource changes, and write exactly 10 substantial story paragraphs."
-              : "捨棄前次內容並從頭重寫；明確服從鎖定結果，不得自創任何資源數字；以文學標題起首，之後恰好寫 10 個完整小說段落，正文不得出現任何規則或系統術語。",
+              ? "Discard the previous attempt. Regenerate from scratch; preserve the locked outcome, invent no numeric resource changes, and write 8 to 16 substantial paragraphs whose rhythm follows the scene."
+              : "捨棄前次內容並從頭重寫；明確服從鎖定結果，不得自創任何資源數字；以文學標題起首，之後寫 8 至 16 個節奏自然的完整小說段落，正文不得出現任何規則或系統術語。",
           },
         })}`;
       }

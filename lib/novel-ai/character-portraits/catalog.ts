@@ -139,24 +139,32 @@ function themePortraits(theme: PortraitTheme, themeIndex: number): CharacterPort
 const BASE_CHARACTER_PORTRAIT_CATALOG = THEMES.flatMap(themePortraits);
 const VARIANT_ACCENTS = ["晨光", "月影", "暖金", "青碧", "冷銀", "霞紅", "墨藍", "松綠", "紫霧", "素白"] as const;
 
-export const CHARACTER_PORTRAIT_CATALOG: CharacterPortraitAsset[] = BASE_CHARACTER_PORTRAIT_CATALOG.flatMap(
-  (portrait, baseIndex) => Array.from({ length: 100 }, (_, variant) => {
-    const accent = VARIANT_ACCENTS[(baseIndex + variant) % VARIANT_ACCENTS.length];
-    const hueRotate = ((variant * 17 + baseIndex * 7) % 31) - 15;
-    const saturation = 0.9 + ((variant * 13 + baseIndex) % 21) / 100;
-    const brightness = 0.94 + ((variant * 7 + baseIndex) % 13) / 100;
-    const contrast = 0.94 + ((variant * 11 + baseIndex) % 15) / 100;
-    return {
-      ...portrait,
-      id: `${portrait.id}-v${String(variant + 1).padStart(3, "0")}`,
-      role: variant === 0 ? portrait.role : `${portrait.role}・${accent}型`,
-      visualDescription: `${portrait.visualDescription} ${accent}配色與第 ${variant + 1} 組原創虛擬造型變體。`,
-      traits: [...portrait.traits, accent, `造型變體 ${variant + 1}`],
-      generatedBy: variant === 0 ? portrait.generatedBy : "procedural-story-engine",
-      visualVariant: { variant, hueRotate, saturation, brightness, contrast, accentLabel: accent },
-    };
-  }),
-);
+function portraitVariant(portrait: CharacterPortraitAsset, baseIndex: number, variant: number) {
+  const accent = VARIANT_ACCENTS[(baseIndex + variant) % VARIANT_ACCENTS.length];
+  const hueRotate = ((variant * 17 + baseIndex * 7) % 31) - 15;
+  const saturation = 0.9 + ((variant * 13 + baseIndex) % 21) / 100;
+  const brightness = 0.94 + ((variant * 7 + baseIndex) % 13) / 100;
+  const contrast = 0.94 + ((variant * 11 + baseIndex) % 15) / 100;
+  return {
+    ...portrait,
+    id: `${portrait.id}-v${String(variant + 1).padStart(3, "0")}`,
+    role: variant === 0 ? portrait.role : `${portrait.role}・${accent}型`,
+    visualDescription: `${portrait.visualDescription} ${accent}配色與第 ${variant + 1} 組原創虛擬造型變體。`,
+    traits: [...portrait.traits, accent, `造型變體 ${variant + 1}`],
+    generatedBy: variant === 0 ? portrait.generatedBy : "procedural-story-engine",
+    visualVariant: { variant, hueRotate, saturation, brightness, contrast, accentLabel: accent },
+  };
+}
+
+// Browse base identities before their colour variants so an unfiltered page
+// shows genuinely different people. The stable portrait IDs and deterministic
+// assignment hashes are unchanged; only the discovery order is different.
+export const CHARACTER_PORTRAIT_CATALOG: CharacterPortraitAsset[] = Array.from(
+  { length: 100 },
+  (_, variant) => BASE_CHARACTER_PORTRAIT_CATALOG.map(
+    (portrait, baseIndex) => portraitVariant(portrait, baseIndex, variant),
+  ),
+).flat();
 
 if (BASE_CHARACTER_PORTRAIT_CATALOG.length !== 100 || CHARACTER_PORTRAIT_CATALOG.length !== CHARACTER_PORTRAIT_CAPACITY) {
   throw new Error(`Character portrait catalog must contain 100 bases and ${CHARACTER_PORTRAIT_CAPACITY} virtual portraits; received ${BASE_CHARACTER_PORTRAIT_CATALOG.length}/${CHARACTER_PORTRAIT_CATALOG.length}.`);

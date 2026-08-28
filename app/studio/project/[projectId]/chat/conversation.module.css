@@ -1678,7 +1678,10 @@
 @media (max-width: 900px) {
   .shell {
     position: fixed;
-    inset: 0;
+    top: var(--conversation-visual-top, 0px);
+    right: 0;
+    bottom: auto;
+    left: 0;
     width: 100%;
     height: var(--conversation-visual-height, 100dvh);
     min-height: 0;

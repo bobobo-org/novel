@@ -54,11 +54,9 @@ export function ConversationShell({
     const syncVisualViewport = () => {
       const shell = shellRef.current;
       if (!shell) return;
-      if (shell.scrollTop !== 0 || shell.scrollLeft !== 0) shell.scrollTo(0, 0);
       if (window.matchMedia("(max-width: 900px)").matches) {
         document.documentElement.style.overflow = "hidden";
         document.body.style.overflow = "hidden";
-        if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
       }
       const height = viewport?.height ?? window.innerHeight;
       const offsetTop = viewport?.offsetTop ?? 0;
@@ -71,15 +69,10 @@ export function ConversationShell({
     viewport?.addEventListener("resize", syncVisualViewport);
     viewport?.addEventListener("scroll", syncVisualViewport);
     window.addEventListener("resize", syncVisualViewport);
-    window.addEventListener("scroll", syncVisualViewport, { passive: true });
-    const shell = shellRef.current;
-    shell?.addEventListener("scroll", syncVisualViewport, { passive: true });
     return () => {
       viewport?.removeEventListener("resize", syncVisualViewport);
       viewport?.removeEventListener("scroll", syncVisualViewport);
       window.removeEventListener("resize", syncVisualViewport);
-      window.removeEventListener("scroll", syncVisualViewport);
-      shell?.removeEventListener("scroll", syncVisualViewport);
       document.documentElement.style.overflow = documentOverflow;
       document.body.style.overflow = bodyOverflow;
     };

@@ -24,12 +24,6 @@ import {
   migrateLegacyStudioProjects,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 import { discoverStudioClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
-import {
-  SOCIAL_WORLD_APPROVAL_VERSION,
-  type SocialWorldApprovalJournal,
-} from "@/lib/novel-ai/social-world-approval";
-import CharacterRelationshipWorkbench from "../studio/project/[projectId]/character-relationship-workbench";
-import SocialWorldLibrary from "../studio/project/[projectId]/social-world-library";
 
 type ProjectSummary = {
   project: NovelProject;
@@ -38,7 +32,6 @@ type ProjectSummary = {
   storyState: StoryState | null;
   characters: Character[];
   lore: LoreEntry[];
-  approvalJournals: SocialWorldApprovalJournal[];
   storyBibles: StoryBible[];
   worlds: World[];
 };
@@ -113,7 +106,6 @@ export default function ProfessionalClient({
   const [status, setStatus] = useState("正在開啟同一份正式作品庫……");
   const [aiStatus, setAIStatus] = useState("能力狀態讀取中（不連接本機服務）");
   const [error, setError] = useState("");
-  const [socialLibraryOpen, setSocialLibraryOpen] = useState(false);
   const aiDiscoveryController = useRef<AbortController | null>(null);
 
   const loadSummary = useCallback(async (projectId: string) => {
@@ -121,14 +113,13 @@ export default function ProfessionalClient({
       setSummary(null);
       return;
     }
-    const [project, chapters, backups, storyStates, characters, lore, operationJournals, storyBibles, worlds] = await Promise.all([
+    const [project, chapters, backups, storyStates, characters, lore, storyBibles, worlds] = await Promise.all([
       repository.get<NovelProject>("projects", projectId),
       repository.list<Chapter>("chapters", projectId),
       repository.list<ProjectBackup>("backups", projectId),
       repository.list<StoryState>("storyStates", projectId),
       repository.list<Character>("characters", projectId),
       repository.list<LoreEntry>("lore", projectId),
-      repository.list<SocialWorldApprovalJournal>("operationJournal", projectId),
       repository.list<StoryBible>("storyBibles", projectId),
       repository.list<World>("worlds", projectId),
     ]);
@@ -143,7 +134,6 @@ export default function ProfessionalClient({
       storyState: storyStates.find((item) => item.id === project.storyStateId) ?? storyStates[0] ?? null,
       characters,
       lore,
-      approvalJournals: operationJournals.filter((journal) => journal.operationType === SOCIAL_WORLD_APPROVAL_VERSION),
       storyBibles,
       worlds,
     });
@@ -257,39 +247,40 @@ export default function ProfessionalClient({
     setLoading(true);
     try {
       await loadSummary(projectId);
-      setStatus("已切換作品；閱讀、設定、管理與備份仍使用同一份正式資料。");
+      setStatus("已切換作品；此頁只顯示唯讀摘要，正式設定請到跨作品總編輯修改。");
     } finally {
       setLoading(false);
     }
   }
 
-  function revealCanonEditor() {
-    window.setTimeout(() => window.dispatchEvent(new Event("hashchange")), 0);
-  }
-
   const project = summary?.project ?? null;
   const projectRoot = project ? `/studio/project/${encodeURIComponent(project.id)}` : "";
   const canonEditorHref = project
-    ? `/professional?intent=library&projectId=${encodeURIComponent(project.id)}#character-world-memory-editor`
-    : "/professional?intent=library";
+    ? `/canon?targetProjectId=${encodeURIComponent(project.id)}`
+    : "/canon";
   const playMode = summary?.storyState ? resolveStoryPlayMode(summary.storyState) : "general";
   const primaryWorkspace = project ? storyPlayModeDashboardHref(project.id, playMode) : "";
   const localAIHref = project
     ? `/settings/local-ai?returnTo=${encodeURIComponent(primaryWorkspace)}`
     : "/settings/local-ai";
   const projectIdea = readableProjectIdea(project?.coreIdea.value)
-    || "尚未設定核心想法；可在作品設定或故事工作台中補上。";
+    || "尚未設定核心想法；故事工作台會沿用目前作品資料。";
   const projectIdeaPreview = projectIdea.length > 220
     ? `${projectIdea.slice(0, 220).trimEnd()}……`
     : projectIdea;
+  const storyEntry = isStoryIntent(intent);
+  const entryHeading = storyEntry ? "故事工作台入口" : "作品管理中心";
+  const entryDescription = storyEntry
+    ? "先選擇作品，再直接進入該作品唯一的故事工作台。正式人物、世界與記憶仍只能在跨作品總編輯修改。"
+    : "這裡管理作品、閱讀與工具入口，並以唯讀方式顯示本作品的候選快照。人物能力、世界、規則、記憶與時間線只能在跨作品總編輯修改。";
 
   return (
-    <main className="professionalModern" data-testid="professional-canonical-workbench">
+    <main className="professionalModern" data-testid="professional-canonical-workbench" data-intent={intent}>
       <header className="professionalModernHeader">
         <div>
-          <small>PROJECT MANAGEMENT · ONE CANONICAL WORKSPACE</small>
-          <h1>作品管理中心</h1>
-          <p>舊工作台的所有功能都已重新分配到這裡；章節、角色、世界、進度、備份、學習與 AI 設定共用同一份正式作品資料。</p>
+          <small>{storyEntry ? "STORY WORKBENCH · CHOOSE ONE PROJECT" : "PROJECT MANAGEMENT · READ-ONLY PROJECT SNAPSHOT"}</small>
+          <h1>{entryHeading}</h1>
+          <p>{entryDescription}</p>
         </div>
         <div className="professionalModernStatus">
           <span>正式作品庫：{error ? "需要檢查" : loading ? "讀取中" : "已統一"}</span>
@@ -307,7 +298,7 @@ export default function ProfessionalClient({
       {project ? (
         <nav className="professionalMobileQuick" aria-label="手機快速操作">
           <Link prefetch={false} className="primary" href={primaryWorkspace}><span aria-hidden="true">寫</span>繼續創作</Link>
-          <a href={canonEditorHref} onClick={revealCanonEditor}><span aria-hidden="true">編</span>編輯設定</a>
+          <Link prefetch={false} href={canonEditorHref}><span aria-hidden="true">總</span>全域總庫</Link>
           <a href="#professional-all-tools"><span aria-hidden="true">具</span>全部工具</a>
         </nav>
       ) : null}
@@ -355,32 +346,25 @@ export default function ProfessionalClient({
             </dl>
           </section>
 
-          <CharacterRelationshipWorkbench
-            project={project}
-            compact
-            onChanged={() => loadSummary(project.id)}
-          />
-
-          <details
-            className="professionalSocialLibrary"
-            data-testid="professional-social-world-library"
-            open={socialLibraryOpen}
-            onToggle={(event) => setSocialLibraryOpen(event.currentTarget.open)}
-          >
-            <summary>完整宗門、家族、企業、人物、寶物與世界資料庫</summary>
-            <p>在首頁可核准與編修正式設定；進入故事後，同一資料庫只提供搜尋與選擇上場內容。家族使用祖譜，宗門與企業使用組織樹。</p>
-            {socialLibraryOpen ? <SocialWorldLibrary
-              mode="home-edit"
-              project={project}
-              approvedCharacters={summary.characters}
-              approvedLore={summary.lore}
-              approvalJournals={summary.approvalJournals}
-              storyBibles={summary.storyBibles}
-              approvedWorlds={summary.worlds}
-              storyStarted={Boolean(summary.storyState || summary.chapters.some((chapter) => chapter.content.trim()))}
-              onChanged={() => loadSummary(project.id)}
-            /> : null}
-          </details>
+          <section className="professionalCanonSnapshot" data-testid="professional-canon-readonly-summary" data-canon-edit-surface="readonly-selection-links">
+            <header>
+              <div><small>PROJECT SNAPSHOT · READ ONLY</small><h2>本作品候選快照</h2></div>
+              <Link prefetch={false} data-testid="professional-canon-editor-link" href={canonEditorHref}>前往跨作品總編輯修改</Link>
+            </header>
+            <p>此頁不掛載 Canon 編輯器，也不能修改人物能力、關係、世界、規則、記憶或時間線。需要新增或修訂時前往全域總庫；回到故事後只選擇要上場的候選。</p>
+            <dl>
+              <div><dt>人物候選</dt><dd>{summary.characters.length}</dd></div>
+              <div><dt>世界候選</dt><dd>{summary.worlds.length}</dd></div>
+              <div><dt>記憶／寶物</dt><dd>{summary.lore.length}</dd></div>
+              <div><dt>Story Bible</dt><dd>{summary.storyBibles.length}</dd></div>
+            </dl>
+            <nav aria-label="作品內唯讀上場選擇">
+              <Link prefetch={false} href={`${projectRoot}/characters`}>選擇上場人物</Link>
+              <Link prefetch={false} href={`${projectRoot}/world`}>選擇上場世界與規則</Link>
+              <Link prefetch={false} href={`${projectRoot}/story-bible`}>選擇上場記憶</Link>
+              <Link prefetch={false} href={`${projectRoot}/timeline`}>選擇上場時間線</Link>
+            </nav>
+          </section>
 
           <section className="professionalActionGroups" id="professional-all-tools" aria-label="作品全部功能">
             <article id="story-and-chapters">
@@ -392,8 +376,8 @@ export default function ProfessionalClient({
             </article>
             <article id="world-and-characters">
               <small>CANON & WORLD</small><h2>角色、世界與記憶</h2>
-              <p>正式人物、能力、世界與 Story Bible 在本作品的正式設定編輯器修改；故事進行中只選擇目前上場的人物、規則與記憶。</p>
-              <a data-testid="professional-canon-editor-link" href={canonEditorHref} onClick={revealCanonEditor}>開啟角色、世界與記憶編輯器</a>
+              <p>跨作品總庫集中修改人物、能力、世界、規則、記憶與時間線；複製到本作品後只成為候選快照，故事內仍只能選擇上場內容。</p>
+              <Link prefetch={false} href={canonEditorHref}>開啟跨作品角色、世界與記憶總編輯</Link>
               <Link prefetch={false} href={`${projectRoot}/characters`}>故事內選擇上場人物（唯讀）</Link>
               <Link prefetch={false} href={`${projectRoot}/character-ai`}>角色視角模擬（非正式 Canon）</Link>
               <Link prefetch={false} href={`${projectRoot}/world`}>故事內選擇上場世界與規則（唯讀）</Link>
@@ -450,15 +434,15 @@ export default function ProfessionalClient({
         <section className="professionalProjectChoices" data-testid="canonical-project-picker">
           <header>
             <small>CHOOSE ONE CANONICAL PROJECT</small>
-            <h2>{intent === "play" ? "選擇要繼續遊玩的作品" : "選擇要繼續創作的作品"}</h2>
-            <p>選定後會直接進入該作品唯一的故事工作台；不會載入、覆蓋或混合其他作品的章節。</p>
+            <h2>{intent === "play" ? "選擇要繼續遊玩的作品" : storyEntry ? "選擇要進入故事工作台的作品" : "選擇要管理的作品"}</h2>
+            <p>{storyEntry ? "選定後會直接進入該作品唯一的故事工作台；不會載入、覆蓋或混合其他作品的章節。" : "選定後仍留在作品管理中心，載入該作品的唯讀摘要與工具入口；不會直接跳進故事。"}</p>
           </header>
           <div>
             {projects.map((item) => (
               <button type="button" key={item.id} onClick={() => void selectProject(item.id)}>
                 <strong>{item.title}</strong>
                 <span>最後保存：{formatTime(item.updatedAt)}</span>
-                <small>{intent === "play" ? "選擇後直接進入故事工作台的 RPG 模式" : "選擇後直接進入該作品的故事工作台"}</small>
+                <small>{intent === "play" ? "選擇後直接進入故事工作台的 RPG 模式" : storyEntry ? "選擇後直接進入該作品的故事工作台" : "選擇後在管理中心查看唯讀摘要與全部工具"}</small>
               </button>
             ))}
           </div>

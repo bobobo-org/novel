@@ -26,8 +26,8 @@ export default function StoryStageSelectionPage({
       data-canon-edit-surface="story-selection-only"
     >
       <header>
-        <a href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>
-          ← 首頁正式設定
+        <a href={`/canon?targetProjectId=${encodeURIComponent(projectId)}`}>
+          ← 全域角色、世界與記憶總編輯
         </a>
         <div><small>故事工作台 · 只讀與上場選擇</small><h1>{title}</h1></div>
         <span>Canon 內容鎖定</span>

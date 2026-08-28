@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { renderPortraitResource } from "../app/canon/portrait-resource.ts";
 import {
+  activeStoryCast,
   activeStoryCharacters,
   activeStoryLore,
   activeStoryRelationships,
@@ -9,6 +13,7 @@ import {
   activeStoryWorldRules,
   activeStoryWorlds,
 } from "../lib/novel-ai/domain/active-story-context.ts";
+import { stageAuthorToolSnapshot } from "../lib/novel-ai/author-tools.ts";
 import {
   assertStoryStartedCanonMutationAllowed,
   explicitCrossEraCanonAuthorization,
@@ -21,6 +26,7 @@ import {
 import {
   CHARACTER_PORTRAIT_CAPACITY,
   CHARACTER_PORTRAIT_CATALOG,
+  filterCharacterPortraitCatalog,
 } from "../lib/novel-ai/character-portraits/catalog.ts";
 import { composeProjectContext } from "../lib/novel-ai/web/project-context-composer.ts";
 
@@ -73,6 +79,22 @@ const bible = {
 };
 
 assert.equal(CHARACTER_PORTRAIT_CAPACITY, 10_000);
+const firstPortraitPage = filterCharacterPortraitCatalog({}).slice(0, 12);
+assert.equal(firstPortraitPage.length, 12);
+assert.equal(
+  new Set(firstPortraitPage.map((portrait) => portrait.id.replace(/-v\d{3}$/u, ""))).size,
+  12,
+  "the unfiltered first page must show twelve different base people instead of twelve tints of one face",
+);
+assert.equal(
+  new Set(firstPortraitPage.map((portrait) => [
+    portrait.assetUri,
+    portrait.atlas?.row,
+    portrait.atlas?.column,
+  ].join(":"))).size,
+  12,
+  "the unfiltered first page must expose twelve distinct local atlas crops",
+);
 const portraitAssetDigests = new Map(
   CHARACTER_PORTRAIT_CATALOG.map((portrait) => [portrait.assetUri, portrait.assetDigest]),
 );
@@ -99,6 +121,16 @@ assert.notEqual(
 );
 const allyPortrait = suggestedCharacterPortrait({ character: cast[1], project: modernProject, worlds: [modernWorld] });
 assert.notEqual(allyPortrait.id, firstPortrait.id, "different approved character attributes should select a different portrait");
+
+const portraitMarkup = renderToStaticMarkup(createElement(() => renderPortraitResource({
+  portrait: firstPortrait,
+  className: "portrait-contract",
+  label: firstPortrait.visualDescription,
+  decorative: false,
+})));
+assert.match(portraitMarkup, /<svg[^>]+data-portrait-resource="\/character-portraits\/atlas-modern-mystery\.webp"/u, "portrait DOM must identify its bundled local atlas resource");
+assert.match(portraitMarkup, /<image[^>]+href="\/character-portraits\/atlas-modern-mystery\.webp"/u, "portrait DOM must contain the actual atlas image instead of only a fallback rectangle");
+assert.match(portraitMarkup, /data-portrait-atlas-cell="\d+:\d+"/u, "portrait DOM must retain the deterministic character-specific atlas crop");
 
 const proceduralPortrait = {
   ...firstPortrait,
@@ -280,27 +312,136 @@ const requestedCrossEraWorld = {
   era: optional("cross-era"),
   summary: optional("候選世界自稱跨時代"),
 };
+const noCrossEraAuthorization = explicitCrossEraCanonAuthorization({
+  project: modernProject,
+  storyBible: canonicalBible,
+  worldRules: [],
+  baselineWorld: modernWorld,
+});
 assert.equal(
-  explicitCrossEraCanonAuthorization({
-    project: modernProject,
-    storyBible: canonicalBible,
-    worldRules: [],
-    baselineWorld: modernWorld,
-  }).authorized,
+  noCrossEraAuthorization.authorized,
   false,
   "a requested cross-era world is not itself Canon authorization",
 );
 assert.equal(isCharacterEraCompatible({ character: cast[2], project: modernProject, worlds: [requestedCrossEraWorld] }), true);
 assert.equal(
-  explicitCrossEraCanonAuthorization({
+  isCharacterEraCompatible({
+    character: { ...cast[2], eraContext: "future" },
     project: modernProject,
-    storyBible: { ...canonicalBible, theme: optional("古今穿越後的信任") },
-    worldRules: [],
-    baselineWorld: modernWorld,
-  }).authorized,
+    worlds: [requestedCrossEraWorld],
+    crossEraAuthorization: noCrossEraAuthorization,
+  }),
+  false,
+  "story staging must fail closed when a cross-era world has no formal authorization",
+);
+const explicitFutureSnapshot = {
+  ...cast[0],
+  id: "character:global-future-snapshot",
+  eraContext: "future",
+  identity: optional("在現代公司偽裝的星艦領航員"),
+};
+assert.equal(
+  isCharacterEraCompatible({
+    character: explicitFutureSnapshot,
+    project: modernProject,
+    worlds: [modernWorld],
+    crossEraAuthorization: noCrossEraAuthorization,
+  }),
+  false,
+  "an explicit imported era must override misleading identity keywords",
+);
+assert.equal(
+  isCharacterEraCompatible({
+    character: explicitFutureSnapshot,
+    project: modernProject,
+    worlds: [modernWorld],
+    crossEraAuthorization: { authorized: true, sources: [] },
+  }),
+  false,
+  "an authorization flag without a formal source is not valid",
+);
+const authorizedCrossEraCanon = explicitCrossEraCanonAuthorization({
+  project: modernProject,
+  storyBible: { ...canonicalBible, theme: optional("古今穿越後的信任") },
+  worldRules: [],
+  baselineWorld: modernWorld,
+});
+assert.equal(
+  authorizedCrossEraCanon.authorized,
   true,
   "an existing Story Bible can explicitly authorize cross-era selection",
 );
+assert.equal(
+  isCharacterEraCompatible({
+    character: explicitFutureSnapshot,
+    project: modernProject,
+    worlds: [modernWorld],
+    crossEraAuthorization: authorizedCrossEraCanon,
+  }),
+  true,
+  "a traceable formal cross-era authorization can admit a different-era character",
+);
+const authorizedStoryBible = {
+  ...canonicalBible,
+  theme: optional("古今穿越後的信任"),
+  characterIds: [cast[0].id, explicitFutureSnapshot.id],
+  relationshipIds: ["relationship:lead-future"],
+};
+const authorizedStoryState = {
+  ...storyState,
+  activeCharacterIds: [cast[0].id, explicitFutureSnapshot.id],
+  activeWorldId: modernWorld.id,
+};
+const authorizedActiveCast = activeStoryCast({
+  project: modernProject,
+  storyBible: authorizedStoryBible,
+  storyState: authorizedStoryState,
+  worldRules: [],
+  worlds: [modernWorld],
+  characters: [cast[0], explicitFutureSnapshot],
+});
+assert.deepEqual(
+  authorizedActiveCast.characters.map((character) => character.id),
+  [cast[0].id, explicitFutureSnapshot.id],
+  "the shared consumer boundary keeps a formally authorized future character active in a modern world",
+);
+const deniedActiveCast = activeStoryCast({
+  project: modernProject,
+  storyBible: { ...authorizedStoryBible, theme: optional("現代城市中的信任") },
+  storyState: authorizedStoryState,
+  worldRules: [],
+  worlds: [modernWorld],
+  characters: [cast[0], explicitFutureSnapshot],
+});
+assert.deepEqual(
+  deniedActiveCast.characters.map((character) => character.id),
+  [cast[0].id],
+  "the shared consumer boundary still rejects an unauthorized different-era character",
+);
+const authorizedAuthorSnapshot = stageAuthorToolSnapshot({
+  project: modernProject,
+  chapters: [],
+  characters: [cast[0], explicitFutureSnapshot],
+  relationships: [{
+    ...record("relationship:lead-future"),
+    fromCharacterId: cast[0].id,
+    toCharacterId: explicitFutureSnapshot.id,
+    kind: "穿越盟友",
+    summary: "兩人在跨時代危機中結盟",
+    trust: 65,
+  }],
+  worldRules: [],
+  storyBible: authorizedStoryBible,
+  storyState: authorizedStoryState,
+  timeline: [],
+  worlds: [modernWorld],
+});
+assert.deepEqual(
+  authorizedAuthorSnapshot.characters.map((character) => character.id),
+  [cast[0].id, explicitFutureSnapshot.id],
+  "author tools consume the same formally authorized cross-era cast",
+);
+assert.equal(authorizedAuthorSnapshot.relationships.length, 1);
 assert.deepEqual(
   explicitCrossEraCanonAuthorization({
     project: modernProject,
@@ -462,6 +603,43 @@ assert.match(multiParticipantText, /STAGED_FORMAL_RELATIONSHIP/u);
 assert.doesNotMatch(multiParticipantText, /曜七|OFFSTAGE_PROFILE_SECRET|OFFSTAGE_FORMAL_RELATIONSHIP_SECRET/u);
 assert.equal(multiParticipantComposition.contextSourceSummary.counts.characters, 2);
 
+const crossEraComposerBible = {
+  ...canonicalBible,
+  theme: optional("現代刑警與未來領航員穿越時代合作"),
+  characterIds: cast.map((character) => character.id),
+};
+const crossEraComposerState = {
+  ...storyState,
+  activeCharacterIds: [cast[0].id, cast[2].id],
+};
+const crossEraComposerStores = {
+  ...composerStores,
+  storyBibles: [crossEraComposerBible],
+  storyStates: [crossEraComposerState],
+  characters: [cast[0], cast[1], { ...cast[2], eraContext: "future" }],
+};
+const crossEraRepository = {
+  kind: "indexeddb",
+  async get(store, id) {
+    return (crossEraComposerStores[store] ?? []).find((item) => item.id === id) ?? null;
+  },
+  async list(store, projectId) {
+    return (crossEraComposerStores[store] ?? []).filter((item) => item.projectId === projectId);
+  },
+};
+const crossEraComposition = await composeProjectContext({
+  repository: crossEraRepository,
+  taskType: "novel.continuation",
+  projectId: modernProject.id,
+  privacyLevel: "local-private",
+  tokenBudget: 16_000,
+  audience: "author",
+});
+const crossEraCompositionText = crossEraComposition.context.map((item) => item.text).join("\n");
+assert.match(crossEraCompositionText, /曜七|OFFSTAGE_PROFILE_SECRET/u, "model context keeps a formally authorized different-era character");
+assert.match(crossEraCompositionText, /OFFSTAGE_FORMAL_RELATIONSHIP_SECRET/u, "authorized cross-era formal relationships reach the model context");
+assert.equal(crossEraComposition.contextSourceSummary.counts.characters, 2);
+
 const [
   projectSectionSource,
   homeSource,
@@ -470,6 +648,10 @@ const [
   rpgWorkspaceSource,
   messageTimelineSource,
   conversationSessionSource,
+  rpgChatTurnSource,
+  projectContextComposerSource,
+  authorToolsSource,
+  characterAgentWorkspaceSource,
 ] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/project-section-client.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/character-relationship-workbench.tsx", import.meta.url), "utf8"),
@@ -478,11 +660,24 @@ const [
   readFile(new URL("../app/studio/project/[projectId]/rpg/rpg-workspace.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/chat/components/message-timeline.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-session.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/web/rpg-chat-turn.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/web/project-context-composer.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/author-tools.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/character-ai/character-agent-workspace.tsx", import.meta.url), "utf8"),
 ]);
 assert.match(projectSectionSource, /mutation: existing \? "update-world" : "create-world"/u);
 assert.match(projectSectionSource, /disabled=\{storyStarted && !worldEditingId\}/u);
 assert.match(homeSource, /explicitCrossEraCanonAuthorization/u);
+assert.match(homeSource, /crossEraAuthorization:\s*crossEraCanon/u, "relationship workbench must apply its formal authorization to cast filtering");
 assert.doesNotMatch(homeSource, /baselineEra === "cross-era" \|\| requestedEra === "cross-era"/u);
+for (const [consumer, source] of [
+  ["rpg-chat-turn", rpgChatTurnSource],
+  ["project-context-composer", projectContextComposerSource],
+  ["author-tools", authorToolsSource],
+  ["character-agent-workspace", characterAgentWorkspaceSource],
+]) {
+  assert.match(source, /activeStoryCast\(\{/u, `${consumer} must consume the centralized era-authorized story cast`);
+}
 assert.match(homeSource, /data-canon-edit-surface="home"/u);
 assert.match(homeSource, /無論故事是否已開始，都可修改人物、能力值、世界、Story Bible、規則、記憶與時間線/u);
 assert.match(homeSource, /createCharacterRpgProfile\(\{/u);

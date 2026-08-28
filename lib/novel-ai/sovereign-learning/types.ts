@@ -17,27 +17,8 @@ export type LearningSourceKind =
 
 export type LearningWebSourceChannel = "article" | "youtube" | "novel_app" | "popular_web" | "classical_chinese";
 
-export type LearningEngagementMetric =
-  | "views"
-  | "reads"
-  | "installs"
-  | "ratings"
-  | "followers"
-  | "monthly_visits";
-
-export type LearningEngagementEvidence = {
-  metric: LearningEngagementMetric;
-  observedCount: number;
-  minimumRequired: 100_000;
-  thresholdPassed: true;
-  verification: "operator_attested";
-  evidenceReference: string;
-  observedAt: string;
-};
-
 export type LearningWebSourceProfile = {
   channel: LearningWebSourceChannel;
-  engagement: LearningEngagementEvidence | null;
 };
 
 export type ManualExternalHandoffEvidence = {
@@ -135,6 +116,7 @@ export type LearningSourceRecord = {
     redirects: number;
     sourceDigest: string;
     sourceProfile: LearningWebSourceProfile;
+    sourceTruncated?: boolean;
     rawContentRetained: false;
   } | null;
   teacherEvidence?: Array<{

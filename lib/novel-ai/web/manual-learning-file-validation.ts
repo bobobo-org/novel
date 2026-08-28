@@ -9,6 +9,8 @@ export type ManualLearningDocumentFormat =
   | "markdown"
   | "html"
   | "json"
+  | "srt"
+  | "vtt"
   | "pdf"
   | "docx";
 
@@ -25,6 +27,8 @@ const DOCUMENTS: Record<string, ManualLearningDocumentDescriptor> = {
   html: { documentFormat: "html", format: "text", mediaTypes: ["text/html", "text/plain"] },
   htm: { documentFormat: "html", format: "text", mediaTypes: ["text/html", "text/plain"] },
   json: { documentFormat: "json", format: "text", mediaTypes: ["application/json", "text/json", "text/plain"] },
+  srt: { documentFormat: "srt", format: "text", mediaTypes: ["application/x-subrip", "text/srt", "text/plain"] },
+  vtt: { documentFormat: "vtt", format: "text", mediaTypes: ["text/vtt", "text/plain"] },
   pdf: { documentFormat: "pdf", format: "pdf", mediaTypes: ["application/pdf"] },
   docx: {
     documentFormat: "docx",
@@ -90,7 +94,7 @@ export function manualLearningDocumentDescriptorFor(file: File) {
   if (!descriptor) {
     throw manualLearningFileError(
       "LEARNING_FILE_FORMAT_UNSUPPORTED",
-      "目前支援 TXT、Markdown、HTML、JSON、PDF 與 DOCX。",
+      "目前支援 TXT、Markdown、HTML、JSON、SRT、VTT、PDF 與 DOCX。",
     );
   }
   const mediaType = file.type.trim().toLowerCase().split(";", 1)[0];

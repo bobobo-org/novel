@@ -21,19 +21,18 @@ import type {
   WritingTask,
 } from "../domain";
 import { NOVEL_DOMAIN_VERSION } from "../domain";
+import { resolveProjectStoryBible } from "../domain/story-bible-selection";
 import {
-  activeStoryCharacters,
+  activeStoryCast,
   activeStoryLore,
   activeStoryRelationships,
   activeStoryTimeline,
   activeStoryWorldRules,
-  activeStoryWorlds,
 } from "../domain/active-story-context";
 import type { ClosedAIContextItem } from "../closed-agent-os";
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import type { NovelRepository, NovelStoreName } from "../repository/contracts";
 import { sanitizeRetrievedKnowledge } from "../security/retrieval-content-sanitizer";
-import { isCharacterEraCompatible } from "../character-portraits/assignment";
 
 export const PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION =
   "project-context-composer-v2" as const;
@@ -631,8 +630,7 @@ export async function composeProjectContext(
 
   const entries: PrioritizedContext[] = [];
   const privacyLevel = input.privacyLevel;
-  const selectedStoryBible = storyBibles.find((item) => item.id === project.storyBibleId)
-    ?? null;
+  const selectedStoryBible = resolveProjectStoryBible(project, storyBibles);
   const storyBible = selectedStoryBible
     && selectedStoryBible.schemaVersion === NOVEL_DOMAIN_VERSION
     && selectedStoryBible.projectId === input.projectId
@@ -653,15 +651,14 @@ export async function composeProjectContext(
   const activeBranch = branches.find((item) => item.branchId === input.branchId)
     ?? branches.find((item) => item.status === "active")
     ?? null;
-  const stagedWorlds = activeStoryWorlds(worlds, storyState, storyBible);
-  const stagedCharacters = storyState?.activeWorldId !== undefined && stagedWorlds.length === 0
-    ? []
-    : activeStoryCharacters(characters, storyState, storyBible)
-    .filter((character) => isCharacterEraCompatible({
-      character,
-      project,
-      worlds: stagedWorlds,
-    }));
+  const { worlds: stagedWorlds, characters: stagedCharacters } = activeStoryCast({
+    project,
+    storyBible,
+    storyState,
+    worldRules,
+    worlds,
+    characters,
+  });
   const stagedWorldRules = activeStoryWorldRules(worldRules, storyState, storyBible);
   const stagedLore = activeStoryLore(lore, storyState, storyBible);
   const stagedTimeline = activeStoryTimeline(timeline, storyState, storyBible);

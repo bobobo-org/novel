@@ -17,6 +17,7 @@ import {
   activeStoryTimeline,
   activeStoryWorldRules,
 } from "@/lib/novel-ai/domain/active-story-context";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import { explicitCrossEraCanonAuthorization } from "@/lib/novel-ai/domain/story-started-canon-guard";
 import {
   isCharacterEraCompatible,
@@ -40,6 +41,7 @@ type StageFocus = "characters" | "world" | "timeline" | "story-bible" | "all";
 
 type StageData = {
   project: NovelProject | null;
+  storyBibles: StoryBible[];
   storyBible: StoryBible | null;
   storyState: StoryState | null;
   characters: Character[];
@@ -51,6 +53,7 @@ type StageData = {
 
 const EMPTY_DATA: StageData = {
   project: null,
+  storyBibles: [],
   storyBible: null,
   storyState: null,
   characters: [],
@@ -123,7 +126,8 @@ export default function StoryStageSelector({
       ]);
       setData({
         project,
-        storyBible: storyBibles.find((item) => item.id === project.storyBibleId) ?? storyBibles[0] ?? null,
+        storyBibles,
+        storyBible: resolveProjectStoryBible(project, storyBibles),
         storyState: storyStates.find((item) => item.id === project.storyStateId) ?? storyStates[0] ?? null,
         characters: characters.sort((left, right) => left.name.localeCompare(right.name, "zh-Hant")),
         worlds,
@@ -162,7 +166,12 @@ export default function StoryStageSelector({
     : { authorized: false, sources: [] };
   const incompatibleCharacterIds = new Set(data.project
     ? data.characters
-        .filter((character) => !isCharacterEraCompatible({ character, project: data.project!, worlds: activeWorlds }))
+        .filter((character) => !isCharacterEraCompatible({
+          character,
+          project: data.project!,
+          worlds: activeWorlds,
+          crossEraAuthorization: crossEraCanon,
+        }))
         .map((character) => character.id)
     : []);
   const activeCharacterIds = new Set(
@@ -236,6 +245,29 @@ export default function StoryStageSelector({
     );
   }
 
+  async function selectStoryBible(storyBible: StoryBible) {
+    if (!data.project || storyBible.projectId !== projectId) {
+      setMessage("這份 Story Bible 不屬於目前作品，沒有變更任何設定。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const latest = await repository.get<NovelProject>("projects", projectId);
+      if (!latest || latest.deletedAt) throw new Error("PROJECT_NOT_FOUND");
+      const saved = await repository.put<NovelProject>(
+        "projects",
+        { ...latest, storyBibleId: storyBible.id },
+        latest.revision,
+      );
+      setData((current) => ({ ...current, project: saved, storyBible }));
+      setMessage("已選用這份 Story Bible；只切換作品目前採用的候選，沒有改寫 Bible、人物能力值或 StoryState 上場名單。");
+    } catch (cause) {
+      setMessage(`Story Bible 選擇失敗：${cause instanceof Error ? cause.message : "請重試"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function selectWorld(world: World) {
     const baseline = baselineWorld ?? data.worlds[0] ?? null;
     const baselineEra = baseline ? worldEraContext(baseline) : null;
@@ -248,7 +280,12 @@ export default function StoryStageSelector({
     }
     const nextWorlds = [world];
     const compatibleIds = new Set(data.characters
-      .filter((character) => data.project && isCharacterEraCompatible({ character, project: data.project, worlds: nextWorlds }))
+      .filter((character) => data.project && isCharacterEraCompatible({
+        character,
+        project: data.project,
+        worlds: nextWorlds,
+        crossEraAuthorization: crossEraCanon,
+      }))
       .map((character) => character.id));
     const nextCharacterIds = [...activeCharacterIds].filter((id) => compatibleIds.has(id));
     for (const protagonistId of data.storyBible?.protagonistIds ?? []) {
@@ -293,8 +330,8 @@ export default function StoryStageSelector({
       <p className="characterCanonLock" data-locked="true" role="status" data-testid="story-stage-selection-boundary">{message}</p>
       <p>
         要新增或修改正式設定，請回到{" "}
-        <a href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>
-          首頁「角色、世界與記憶」
+        <a href={`/canon?targetProjectId=${encodeURIComponent(projectId)}`}>
+          首頁「角色、世界與記憶總編輯」
         </a>。
       </p>
 
@@ -302,7 +339,7 @@ export default function StoryStageSelector({
         <header><div><h3 id={`story-stage-characters-${projectId}`}>上場人物</h3><p>關係會依上場人物自動帶入；故事內不能修改人物數值。</p></div></header>
         <label>
           查找既有人物
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="姓名、別名或身分" />
+          <input className="characterStageSearch" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="姓名、別名或身分" />
         </label>
         <div className="characterStageGrid">
           {visibleCharacters.map((character) => {
@@ -373,7 +410,29 @@ export default function StoryStageSelector({
           ))}
         </details>
         <details open={focus === "story-bible"}>
-          <summary>Story Bible 與上場記憶（{activeLoreIds.size}/{data.lore.length}）</summary>
+          <summary>Story Bible 與上場記憶（候選 · {activeLoreIds.size}/{data.lore.length}）</summary>
+          {data.storyBibles.length > 0 ? (
+            <div className="characterStageWorlds" aria-label="Story Bible 候選">
+              {data.storyBibles.map((candidate, index) => {
+                const active = candidate.id === data.storyBible?.id;
+                return (
+                  <button
+                    type="button"
+                    key={candidate.id}
+                    aria-pressed={active}
+                    data-testid="story-stage-bible-candidate"
+                    data-story-bible-id={candidate.id}
+                    disabled={busy || active}
+                    onClick={() => void selectStoryBible(candidate)}
+                  >
+                    <b>{candidate.theme.value || `Story Bible 候選 ${index + 1}`}</b>
+                    <span>{candidate.style.value || "敘事風格未設定"}</span>
+                    <small>{active ? "目前採用 · 內容唯讀" : "候選 · 點選後採用"}</small>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           {data.storyBible ? <article data-testid="story-stage-bible-readonly"><b>{data.storyBible.theme.value || "主題未設定"}</b><p>{data.storyBible.style.value || "風格未設定"}</p><small>未解線索：{data.storyBible.unresolvedThreads.join("、") || "無"}</small><br /><small>禁止矛盾：{data.storyBible.forbiddenContradictions.join("、") || "無"}</small></article> : <p>尚無 Story Bible。</p>}
           {data.lore.map((entry) => (
             <label key={entry.id} data-testid="story-stage-lore" data-lore-id={entry.id}>

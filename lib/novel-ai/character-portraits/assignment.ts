@@ -8,6 +8,7 @@ import {
 } from "../domain";
 import { professionWorldContext, type ProfessionWorldContext } from "../game/character-profession";
 import type { SocialMatrixCharacter, StoryOrganizationMember } from "../social-matrix";
+import type { CrossEraCanonAuthorization } from "../domain/story-started-canon-guard";
 import { CHARACTER_PORTRAIT_CATALOG } from "./catalog";
 
 const CHARACTER_PORTRAIT_BY_ID = new Map(
@@ -33,11 +34,11 @@ function stableHash(value: string) {
 function characterSignal(character: Character) {
   return [
     character.name,
-    ...character.aliases,
-    character.identity.value,
+    ...(character.aliases ?? []),
+    character.identity?.value,
     character.age === null || character.age === undefined ? null : `年齡${character.age}`,
-    character.personality.value,
-    character.goal.value,
+    character.personality?.value,
+    character.goal?.value,
     ...(character.values ?? []),
     ...(character.capabilities ?? []),
     ...(character.fears ?? []),
@@ -236,6 +237,16 @@ export function suggestedSocialMatrixCharacterPortrait(input: {
 }
 
 export function characterEraContext(character: Character): ProfessionWorldContext | null {
+  const explicitEra = character.eraContext;
+  if (
+    explicitEra === "modern"
+    || explicitEra === "historical"
+    || explicitEra === "cultivation"
+    || explicitEra === "future"
+    || explicitEra === "cross-era"
+  ) {
+    return explicitEra;
+  }
   const signal = [
     characterSignal(character),
     character.portrait?.themeId,
@@ -248,6 +259,16 @@ export function characterEraContext(character: Character): ProfessionWorldContex
 }
 
 export function worldEraContext(world: World): ProfessionWorldContext {
+  const explicitEra = (world as World & { eraContext?: string }).eraContext;
+  if (
+    explicitEra === "modern"
+    || explicitEra === "historical"
+    || explicitEra === "cultivation"
+    || explicitEra === "future"
+    || explicitEra === "cross-era"
+  ) {
+    return explicitEra;
+  }
   const signal = [world.name.value, world.era.value, world.summary.value]
     .filter(Boolean)
     .join("｜");
@@ -262,11 +283,26 @@ export function isCharacterEraCompatible(input: {
   character: Character;
   project: NovelProject;
   worlds: World[];
+  /**
+   * Story-stage callers pass the result of
+   * explicitCrossEraCanonAuthorization.  Omitting it preserves legacy
+   * read-only consumers, while an explicitly supplied false authorization
+   * fail-closes cross-era staging.
+   */
+  crossEraAuthorization?: CrossEraCanonAuthorization;
 }) {
   const storyEra = input.worlds.length === 1
     ? worldEraContext(input.worlds[0]!)
     : professionWorldContext(input.project, input.worlds);
-  if (storyEra === "cross-era") return true;
   const characterEra = characterEraContext(input.character);
-  return characterEra === null || characterEra === storyEra;
+  if (characterEra === null) return true;
+  const validCrossEraAuthorization = input.crossEraAuthorization?.authorized === true
+    && input.crossEraAuthorization.sources.length > 0;
+  if (storyEra === "cross-era") {
+    return input.crossEraAuthorization === undefined
+      ? true
+      : validCrossEraAuthorization;
+  }
+  if (characterEra === storyEra) return true;
+  return validCrossEraAuthorization;
 }

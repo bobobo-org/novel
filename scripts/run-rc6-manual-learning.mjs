@@ -16,6 +16,7 @@ import {
 import { ConversationRepositoryService } from "../lib/novel-ai/conversation/repository.ts";
 import { conversationCanonicalRecordDigest } from "../lib/novel-ai/conversation/approval-transaction.ts";
 import { MemorySovereignLearningRepository } from "../lib/novel-ai/sovereign-learning/repository.ts";
+import { ingestLearningSource } from "../lib/novel-ai/sovereign-learning/service.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import {
   createProjectBackup,
@@ -211,6 +212,42 @@ function registerFileContractTests() {
     assert.equal(result.rawContentRetained, false);
     assert.equal(result.dataLeftDevice, false);
     assert.match(result.contentHash, /^[a-f0-9]{64}$/u);
+  });
+
+  register("SRT and VTT extraction removes cue metadata but preserves dialogue", async () => {
+    const dialogue = "她看見門後的微光，先確認同伴的目標，再決定承擔這次選擇帶來的代價。這個決定改變兩人的信任，也讓下一條線索有了可追查的方向。";
+    const srt = Array.from({ length: 5 }, (_, index) => [
+      String(index + 1),
+      `00:00:${String(index * 2).padStart(2, "0")},000 --> 00:00:${String(index * 2 + 1).padStart(2, "0")},800`,
+      `<i>${dialogue}</i>`,
+    ].join("\n")).join("\n\n");
+    const vtt = `WEBVTT\n\n${srt.replaceAll(",", ".")}`;
+    const [srtResult, vttResult] = await Promise.all([
+      extractManualLearningFile(new File([srt], "dialogue.srt", { type: "application/x-subrip" })),
+      extractManualLearningFile(new File([vtt], "dialogue.vtt", { type: "text/vtt" })),
+    ]);
+    assert.equal(srtResult.documentFormat, "srt");
+    assert.equal(vttResult.documentFormat, "vtt");
+    assert.match(srtResult.text, /她看見門後的微光/u);
+    assert.match(vttResult.text, /下一條線索/u);
+    assert.doesNotMatch(srtResult.text, /-->/u);
+    assert.doesNotMatch(vttResult.text, /WEBVTT|-->/u);
+    assert.equal(srtResult.dataLeftDevice, false);
+    assert.equal(vttResult.rawContentRetained, false);
+    const transcriptLearning = await ingestLearningSource(new MemorySovereignLearningRepository(), {
+      projectId: "subtitle-learning-contract",
+      title: "使用者提供的正式字幕",
+      sourceKind: "video_transcript",
+      rightsBasis: "owned_by_user",
+      rightsEvidence: "user-owned-subtitle-file",
+      userConfirmedRights: true,
+      content: srtResult.text,
+    });
+    assert(transcriptLearning.rules.length > 0);
+    assert(transcriptLearning.rules.every((rule) => rule.status === "candidate"));
+    assert.equal(transcriptLearning.source.sourceKind, "video_transcript");
+    assert.equal(transcriptLearning.source.dataLeftDevice, false);
+    assert.equal(transcriptLearning.source.rawContentRetained, false);
   });
 
   register("MIME and magic-byte mismatches fail closed", async () => {

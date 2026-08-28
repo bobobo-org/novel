@@ -433,6 +433,27 @@ export function validateRpgStoryTurnContract(
   if (visibleDatabaseDump.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_DATABASE_DUMP_VISIBLE");
   }
+  const legacyTemplateHits = language === "en"
+    ? 0
+    : [
+        /我可以和你同行，但不是照單全收/u,
+        /沒有置身事外/u,
+        /就在這時被帶到眾人眼前/u,
+        /原本站在光線以外，此刻卻主動改變局面/u,
+        /直到人聲稍歇/u,
+        /事情只是改變了形狀/u,
+        /門外三聲叩響/u,
+      ].filter((pattern) => pattern.test(value)).length;
+  if (legacyTemplateHits >= 2 || /我可以和你同行，但不是照單全收/u.test(value)) {
+    throw new Error("RPG_AI_CONTINUATION_LEGACY_TEMPLATE_VISIBLE");
+  }
+  if (language !== "en") {
+    const openingQuotes = value.match(/「/gu)?.length ?? 0;
+    const closingQuotes = value.match(/」/gu)?.length ?? 0;
+    if (openingQuotes !== closingQuotes || /「[^」\n]{0,180}「/u.test(value)) {
+      throw new Error("RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES");
+    }
+  }
   const spokenLines = Array.from(value.matchAll(/「([^」]{8,})」/gu))
     .filter((match) => isLikelySpokenQuotation(value, match))
     .map((match) => normalized(match[1]));
@@ -508,11 +529,11 @@ export function buildRpgResolutionDirectorPrompt(input: {
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
       "故事要推進到需要玩家決定的自然停頓點，以門被推開、證據被交出、人物要求回答或迫近事件等具體畫面收尾；不要寫『下一回合』『下一輪』『等待下一步』等介面語句，不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
       input.language === "en"
-        ? "Write 1,100 to 2,200 characters. After the literary title, write exactly 10 complete story paragraphs with no extra headings; keep each paragraph substantial and continue until the scene reaches a genuine decision point."
-        : "正文需有 900 至 1,600 個中文字。小說標題後恰好寫 10 個完整小說段落，不加分節標題；每段約 130 至 155 個中文字，正文總長以 1,050 至 1,450 字為安全目標，未達最低篇幅時不得提早總結。",
+        ? "Write 1,100 to 2,200 characters. After the literary title, use 8 to 16 substantial story paragraphs with no extra headings; let paragraph length and rhythm follow the scene instead of a fixed template."
+        : "正文需有 900 至 1,600 個中文字。小說標題後寫 8 至 16 個完整小說段落，不加分節標題；段落長短要跟著動作、對話與情緒自然變化，不得用固定十段填格。",
       input.language === "en"
-        ? "Use the ten paragraphs in order for: immediate action, resistance, opposing reaction, sensory escalation, irreversible cost, result taking effect, relationship reaction, changed environment, new danger, and a genuine decision point. Do not print this plan."
-        : "十段依序完成：行動落地、阻力出現、對手反應、感官升壓、不可逆代價、判定結果生效、人物關係反應、環境改變、新危險逼近、自然決策點。不要把這份段落計畫印出來。",
+        ? "Across the scene, make the chosen action land, meet concrete resistance, pay an irreversible cost, produce the locked result, change at least one relationship or condition, and reach a genuine decision point. Do not print this plan or force one beat into each paragraph."
+        : "整場戲必須讓選定行動真正落地、遇到具體阻力、付出不可逆代價、產生鎖定結果，並改變至少一項人物關係或環境條件，最後抵達自然決策點；不可把每個節拍機械地各塞成一段。",
       "context.project.fixedPlayMode 只鎖定本回合的操作、數值與結算方式；世界規則與 Lore 已核定的修煉、宗門、家族、丹藥、符籙、陣法、法器或靈草等題材詞仍必須保留。不得憑空引入其他玩法的數值機制。",
       "不得透露或猜測任何預設回合總數、回合上限、內部故事弧階段、結局條件、門檻或判定機制。若 readerSafeCausalContract 提供 currentDirections，只能呈現當下方向，不得說明系統為何在此時允許收束。",
       "避免摘要、重述、例行訓練、空泛反應與工程說明。只輸出小說標題與小說正文；不得寫出核准規則、規則校準、本回合目標、關係張力、狀態更新、結算結果、下一輪可用資源、因果框架或任何系統術語。不要分節標題、行動結果、狀態面板、JSON、程式碼、規則解釋或下一組選項，這些會由介面在正文後另行顯示。",

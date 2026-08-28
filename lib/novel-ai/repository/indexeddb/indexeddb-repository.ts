@@ -37,6 +37,7 @@ import {
   INDEXEDDB_DATABASE_VERSION,
   IndexedDbRepositoryError,
 } from "../persistence-recovery";
+import { resolveProjectStoryBible } from "../../domain/story-bible-selection";
 
 const DB_NAME = "novel-intelligence-platform";
 const DB_VERSION = INDEXEDDB_DATABASE_VERSION;
@@ -229,17 +230,18 @@ export class IndexedDbNovelRepository implements NovelRepository {
     if (input.conversationApproval) {
       const preflightReplay = await this.get<IdempotencyRecord>("idempotencyRecords", input.idempotencyKey);
       if (!preflightReplay) {
-        const [project, chapter, candidate, storyState, storyBible, parentBranch, session, sourceMessage, artifact] = await Promise.all([
+        const [project, chapter, candidate, storyState, storyBibles, parentBranch, session, sourceMessage, artifact] = await Promise.all([
           this.get<NovelProject>("projects", input.projectId),
           this.get<Chapter>("chapters", input.chapterId),
           this.get<ChoiceCandidate>("candidates", input.candidateId),
           this.list<StoryState>("storyStates", input.projectId).then((rows) => rows[0] ?? null),
-          this.list<StoryBible>("storyBibles", input.projectId).then((rows) => rows[0] ?? null),
+          this.list<StoryBible>("storyBibles", input.projectId),
           input.parentBranchId ? this.get<StoryBranch>("storyBranches", input.parentBranchId) : Promise.resolve(null),
           this.get<ConversationSession>("conversationSessions", input.conversationApproval.sessionId),
           this.get<ConversationMessage>("conversationMessages", input.conversationApproval.sourceMessageId),
           this.get<ConversationArtifact>("conversationArtifacts", input.conversationApproval.artifactId),
         ]);
+        const storyBible = resolveProjectStoryBible(project, storyBibles);
         if (!project || !chapter || !candidate || !storyState || !storyBible || !session || !sourceMessage || !artifact) {
           throw new RepositoryOperationError("ACCEPT_CHOICE_RECORD_MISSING");
         }
@@ -301,13 +303,14 @@ export class IndexedDbNovelRepository implements NovelRepository {
       const replay = await request(tx.objectStore("idempotencyRecords").index("idempotencyKey").get(input.idempotencyKey)) as IdempotencyRecord | undefined;
       if (replay) {
         if (replay.projectId !== input.projectId || replay.payloadFingerprint !== acceptChoicePayloadFingerprint(input)) throw new RepositoryOperationError("IDEMPOTENCY_PAYLOAD_MISMATCH");
-        const [project, chapter, candidate, storyState, acceptedChoice, branch, storyBible, storyBibleDelta, approvalTransaction] = await Promise.all([
+        const [project, chapter, candidate, storyState, acceptedChoice, branch, storyBibles, storyBibleDelta, approvalTransaction] = await Promise.all([
           get<NovelProject>("projects", input.projectId), get<Chapter>("chapters", input.chapterId), get<ChoiceCandidate>("candidates", input.candidateId),
           request(tx.objectStore("storyStates").index("projectId").get(input.projectId)) as Promise<StoryState | undefined>,
           get<AcceptedChoice>("acceptedChoices", replay.acceptedChoiceId), get<StoryBranch>("storyBranches", replay.branchId),
-          request(tx.objectStore("storyBibles").index("projectId").get(input.projectId)) as Promise<StoryBible | undefined>,
+          request(tx.objectStore("storyBibles").index("projectId").getAll(input.projectId)) as Promise<StoryBible[]>,
           get<StoryBibleDelta>("storyBibleDeltas", replay.storyBibleDeltaId), get<ApprovalTransaction>("approvalTransactions", replay.transactionId),
         ]);
+        const storyBible = resolveProjectStoryBible(project, storyBibles);
         if (!project || !chapter || !candidate || !storyState || !acceptedChoice || !branch || !storyBible || !storyBibleDelta || !approvalTransaction) throw new RepositoryOperationError("IDEMPOTENCY_REPLAY_INCOMPLETE");
         let conversationArtifact: ConversationArtifact | undefined;
         let conversationApprovalTransaction: ConversationApprovalTransaction | undefined;
@@ -371,12 +374,13 @@ export class IndexedDbNovelRepository implements NovelRepository {
           conversationApprovalTransaction,
         };
       }
-      const [project, chapter, candidate, storyState, storyBible, parentBranch] = await Promise.all([
+      const [project, chapter, candidate, storyState, storyBibles, parentBranch] = await Promise.all([
         get<NovelProject>("projects", input.projectId), get<Chapter>("chapters", input.chapterId), get<ChoiceCandidate>("candidates", input.candidateId),
         request(tx.objectStore("storyStates").index("projectId").get(input.projectId)) as Promise<StoryState | undefined>,
-        request(tx.objectStore("storyBibles").index("projectId").get(input.projectId)) as Promise<StoryBible | undefined>,
+        request(tx.objectStore("storyBibles").index("projectId").getAll(input.projectId)) as Promise<StoryBible[]>,
         input.parentBranchId ? get<StoryBranch>("storyBranches", input.parentBranchId) : Promise.resolve(undefined),
       ]);
+      const storyBible = resolveProjectStoryBible(project, storyBibles);
       if (!project || !chapter || !candidate || !storyState || !storyBible) throw new RepositoryOperationError("ACCEPT_CHOICE_RECORD_MISSING");
       let records: ReturnType<typeof buildAcceptedChoiceRecords>;
       let conversationRecords: NonNullable<Awaited<ReturnType<typeof prepareAcceptedChoiceConversationApproval>>> | null = null;
@@ -814,7 +818,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
       if (!currentProject || !currentCanonLink) throw new RepositoryOperationError("DRAMA_PROJECTION_NOT_FOUND");
       const sourceProject = await request(tx.objectStore("projects").get(input.projectId)) as NovelProject | undefined;
       const sourceStoryBibles = await request(tx.objectStore("storyBibles").index("projectId").getAll(input.projectId)) as StoryBible[];
-      const sourceStoryBible = sourceStoryBibles[0];
+      const sourceStoryBible = resolveProjectStoryBible(sourceProject, sourceStoryBibles);
       if (!sourceProject || sourceProject.revision !== input.expectedSourceStoryRevision) {
         throw new RepositoryOperationError("DRAMA_SOURCE_REVISION_STALE", "小說內容已更新，請重新建立改編候選。");
       }
@@ -952,14 +956,15 @@ export class IndexedDbNovelRepository implements NovelRepository {
         request(tx.objectStore(canonicalStore).get(proposal.canonicalPatch.entityId)) as Promise<DomainRecord | undefined>,
         request(tx.objectStore("characterAgentEvaluations").get(proposal.evaluationId)) as Promise<CharacterAgentEvaluation | undefined>,
       ]);
+      const currentStoryBible = resolveProjectStoryBible(currentProject, storyBibles);
       if (
         !currentProposal
         || currentProposal.status !== proposal.status
         || currentProposal.revision !== proposal.revision
         || !currentProject
         || currentProject.revision !== input.expectedSourceRevision
-        || !storyBibles[0]
-        || storyBibles[0].revision !== input.expectedSourceStoryBibleVersion
+        || !currentStoryBible
+        || currentStoryBible.revision !== input.expectedSourceStoryBibleVersion
         || !currentCanonical
         || currentCanonical.revision !== canonicalRecord.revision
         || !currentEvaluation

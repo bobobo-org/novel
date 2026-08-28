@@ -142,14 +142,14 @@ function assertCreateInput(input: BytePlusSeedanceCreateInput) {
   if (!Number.isInteger(input.durationSeconds) || input.durationSeconds < 4 || input.durationSeconds > 30) {
     throw new BytePlusSeedanceError({
       code: "BYTEPLUS_REQUEST_INVALID",
-      message: "Seedance 2.5 單次影片長度必須是 4 至 30 秒的整數。",
+      message: "舊版 BytePlus 試驗契約的單次影片長度必須是 4 至 30 秒的整數。",
       status: 400,
     });
   }
   if (!BYTEPLUS_SEEDANCE_RESOLUTIONS.includes(input.resolution)) {
     throw new BytePlusSeedanceError({
       code: "BYTEPLUS_REQUEST_INVALID",
-      message: "Seedance 2.5 解析度只允許 480p 或 720p。",
+      message: "舊版 BytePlus 試驗契約的解析度只允許 480p 或 720p。",
       status: 400,
     });
   }

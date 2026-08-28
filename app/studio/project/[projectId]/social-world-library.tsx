@@ -16,6 +16,7 @@ import {
   type WorldRule,
 } from "@/lib/novel-ai/domain";
 import { activeStoryWorlds } from "@/lib/novel-ai/domain/active-story-context";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import { suggestedSocialMatrixCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import {
   characterRpgStatsForArchetype,
@@ -291,10 +292,8 @@ export default function SocialWorldLibrary({
   }), [approvedCharacters, project]);
   const [activeStoryState, setActiveStoryState] = useState<StoryState | null>(null);
   const activeStoryBible = useMemo(
-    () => storyBibles.find((storyBible) => storyBible.id === project.storyBibleId)
-      ?? storyBibles[0]
-      ?? null,
-    [project.storyBibleId, storyBibles],
+    () => resolveProjectStoryBible(project, storyBibles),
+    [project, storyBibles],
   );
   const portraitWorlds = useMemo(
     () => activeStoryWorlds(approvedWorlds, activeStoryState, activeStoryBible),

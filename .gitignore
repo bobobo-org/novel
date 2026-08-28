@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/tmp/
 /artifacts/p22/
 /artifacts/p21r4-legacy-build-provenance/
 

@@ -151,6 +151,7 @@ export type CharacterCultivationProfile = {
   techniqueIds: string[];
   approvedAt: string;
 };
+export type CharacterEraContext = "modern" | "historical" | "cultivation" | "future" | "cross-era" | "other";
 export type Character = DomainRecord & {
   name: string;
   aliases: string[];
@@ -161,6 +162,8 @@ export type Character = DomainRecord & {
   locationId: string | null;
   age?: number | null;
   ageVerified?: boolean;
+  /** Explicit formal era, especially for snapshots copied from Global Canon. */
+  eraContext?: CharacterEraContext;
   fears?: string[];
   privateSecrets?: string[];
   factionIds?: string[];
@@ -551,7 +554,7 @@ export type ConversationAttachment = DomainRecord & {
   sessionId: string;
   displayName: string;
   safeSourceAlias: string;
-  format: "txt" | "markdown" | "html" | "json" | "pdf" | "docx";
+  format: "txt" | "markdown" | "html" | "json" | "srt" | "vtt" | "pdf" | "docx";
   byteLength: number;
   contentHash: string;
   rightsBasis: string;

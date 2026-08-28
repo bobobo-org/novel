@@ -31,6 +31,7 @@ import {
   type ConversationArtifactApprovalInput,
 } from "../../conversation/approval-transaction";
 import { assertConversationRecordSafe } from "../../conversation/record-security";
+import { resolveProjectStoryBible } from "../../domain/story-bible-selection";
 
 export class MemoryNovelRepository implements NovelRepository {
   readonly kind = "memory" as const;
@@ -120,12 +121,13 @@ export class MemoryNovelRepository implements NovelRepository {
     const replay = (await this.list<IdempotencyRecord>("idempotencyRecords", input.projectId)).find((item) => item.idempotencyKey === input.idempotencyKey);
     if (replay) {
       if (replay.payloadFingerprint !== acceptChoicePayloadFingerprint(input)) throw new RepositoryOperationError("IDEMPOTENCY_PAYLOAD_MISMATCH");
-      const [project, chapter, candidate, acceptedChoice, branch, storyBible, storyBibleDelta, approvalTransaction] = await Promise.all([
+      const [project, chapter, candidate, acceptedChoice, branch, storyBibles, storyBibleDelta, approvalTransaction] = await Promise.all([
         this.get<NovelProject>("projects", input.projectId), this.get<Chapter>("chapters", input.chapterId), this.get<ChoiceCandidate>("candidates", input.candidateId),
         this.get<AcceptedChoice>("acceptedChoices", replay.acceptedChoiceId), this.get<StoryBranch>("storyBranches", replay.branchId),
-        (this.list<StoryBible>("storyBibles", input.projectId)).then((rows) => rows[0] ?? null), this.get<StoryBibleDelta>("storyBibleDeltas", replay.storyBibleDeltaId),
+        this.list<StoryBible>("storyBibles", input.projectId), this.get<StoryBibleDelta>("storyBibleDeltas", replay.storyBibleDeltaId),
         this.get<ApprovalTransaction>("approvalTransactions", replay.transactionId),
       ]);
+      const storyBible = resolveProjectStoryBible(project, storyBibles);
       const storyState = (await this.list<StoryState>("storyStates", input.projectId))[0] ?? null;
       if (!project || !chapter || !candidate || !storyState || !acceptedChoice || !branch || !storyBible || !storyBibleDelta || !approvalTransaction) throw new RepositoryOperationError("IDEMPOTENCY_REPLAY_INCOMPLETE");
       let conversationArtifact: ConversationArtifact | undefined;
@@ -188,7 +190,16 @@ export class MemoryNovelRepository implements NovelRepository {
         conversationApprovalTransaction,
       };
     }
-    const project = await this.get<NovelProject>("projects", input.projectId), chapter = await this.get<Chapter>("chapters", input.chapterId), candidate = await this.get<ChoiceCandidate>("candidates", input.candidateId), storyState = (await this.list<StoryState>("storyStates", input.projectId))[0] ?? null, storyBible = (await this.list<StoryBible>("storyBibles", input.projectId))[0] ?? null, parentBranch = input.parentBranchId ? await this.get<StoryBranch>("storyBranches", input.parentBranchId) : null;
+    const [project, chapter, candidate, storyStates, storyBibles, parentBranch] = await Promise.all([
+      this.get<NovelProject>("projects", input.projectId),
+      this.get<Chapter>("chapters", input.chapterId),
+      this.get<ChoiceCandidate>("candidates", input.candidateId),
+      this.list<StoryState>("storyStates", input.projectId),
+      this.list<StoryBible>("storyBibles", input.projectId),
+      input.parentBranchId ? this.get<StoryBranch>("storyBranches", input.parentBranchId) : Promise.resolve(null),
+    ]);
+    const storyState = storyStates[0] ?? null;
+    const storyBible = resolveProjectStoryBible(project, storyBibles);
     if (!project || !chapter || !candidate || !storyState || !storyBible) throw new RepositoryOperationError("ACCEPT_CHOICE_RECORD_MISSING");
     const records = buildAcceptedChoiceRecords(input, { project, chapter, candidate, storyState, storyBible, parentBranch });
     let conversationRecords: Awaited<ReturnType<typeof prepareAcceptedChoiceConversationApproval>> = null;
@@ -531,8 +542,11 @@ export class MemoryNovelRepository implements NovelRepository {
     const currentCanonLink = (await this.list<NarrativeCanonLink>("narrativeCanonLinks", input.projectId))
       .find((record) => record.dramaProjectId === input.dramaProjectId);
     if (!currentProject || !currentCanonLink) throw new RepositoryOperationError("DRAMA_PROJECTION_NOT_FOUND");
-    const sourceProject = await this.get<NovelProject>("projects", input.projectId);
-    const sourceStoryBible = (await this.list<StoryBible>("storyBibles", input.projectId))[0] ?? null;
+    const [sourceProject, sourceStoryBibles] = await Promise.all([
+      this.get<NovelProject>("projects", input.projectId),
+      this.list<StoryBible>("storyBibles", input.projectId),
+    ]);
+    const sourceStoryBible = resolveProjectStoryBible(sourceProject, sourceStoryBibles);
     if (!sourceProject || sourceProject.revision !== input.expectedSourceStoryRevision) {
       throw new RepositoryOperationError("DRAMA_SOURCE_REVISION_STALE", "小說內容已更新，請重新建立改編候選。");
     }
@@ -630,7 +644,7 @@ export class MemoryNovelRepository implements NovelRepository {
       this.get<NovelProject>("projects", input.projectId),
       this.list<StoryBible>("storyBibles", input.projectId),
     ]);
-    const storyBible = storyBibles[0] ?? null;
+    const storyBible = resolveProjectStoryBible(project, storyBibles);
     if (!evaluation || !project || !storyBible) throw new RepositoryOperationError("CHARACTER_APPROVAL_SOURCE_MISSING");
     if (project.revision !== input.expectedSourceRevision || storyBible.revision !== input.expectedSourceStoryBibleVersion) {
       throw new RepositoryOperationError("CHARACTER_APPROVAL_SOURCE_STALE");

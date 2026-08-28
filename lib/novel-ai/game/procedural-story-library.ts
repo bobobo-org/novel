@@ -560,7 +560,12 @@ export function proceduralCharacterAt(input: {
     stance,
     proactiveAction: `${name}先一步在${location}${action}，讓所有人不得不面對局面已經改變。`,
     refusalCondition,
-    directDialogue: `「我可以和你同行，但不是照單全收。」${name}直視主角，「先處理${goal}，否則我不會交出自己的選擇。」`,
+    directDialogue: [
+      `「先把${goal}的證據放到桌上。」${name}沒有移開視線，「碰到${refusalCondition}，我會立刻停手。」`,
+      `「別替我答應。」${name}指向仍未處理的線索，「我要先確認${goal}，而且不能越過${refusalCondition}。」`,
+      `「退路留給需要的人。」${name}收起原本要交出的東西，「等${goal}有了著落，我再決定走到哪一步。」`,
+      `「現在說合作還太早。」${name}把話截在眾人動身以前，「先處理${goal}；${refusalCondition}，這是我的底線。」`,
+    ][index % 4],
     portrait: {
       baseId: profile.portraitBaseId,
       assetUri: profile.portraitAssetUri,
@@ -732,7 +737,7 @@ export function proceduralCharacterTreasureScenarioAt(input: {
     treasure,
     relationshipArrangement: arrangement,
     causalDimensions: dimensions,
-    storyHook: `${trigger}${character.name}${character.proactiveAction.replace(`${character.name}`, "")}然而，${arrangement}。${character.directDialogue}${cast.counterforce.name}沒有附和，而是${cast.counterforce.storyFunction}；${cast.witness.name}則${cast.witness.storyFunction}。`,
+    storyHook: `${trigger}${character.name}${character.proactiveAction.replace(`${character.name}`, "")}然而，${arrangement}。${character.name}要守住${character.goal}，並在${character.refusalCondition}時拒絕繼續；${cast.counterforce.name}選擇${cast.counterforce.storyFunction}，${cast.witness.name}則${cast.witness.storyFunction}。`,
   };
 }
 

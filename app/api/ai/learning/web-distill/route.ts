@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchControlledWebResearch } from "@/lib/novel-ai/sovereign-learning/safe-web-research.server";
 import { distillControlledWebKnowledge } from "@/lib/novel-ai/sovereign-learning/web-knowledge-distillation.server";
 import {
+  classifyControlledWebContent,
   normalizeControlledWebSourceProfile,
   type ControlledTeacherProvider,
 } from "@/lib/novel-ai/sovereign-learning/web-knowledge-contract";
@@ -122,24 +123,23 @@ export async function POST(request: NextRequest) {
     try {
       sourceProfile = normalizeControlledWebSourceProfile({
         sourceChannel: body.sourceChannel,
-        engagementMetric: body.engagementMetric,
-        engagementCount: body.engagementCount,
-        engagementEvidence: body.engagementEvidence,
-        observedAt: new Date().toISOString(),
       });
     } catch (error) {
       const row = error as { code?: string; message?: string };
-      return json({ code: row.code || "POPULAR_SOURCE_PROFILE_INVALID", error: row.message || "熱門來源證據無效。" }, 400);
+      return json({ code: row.code || "WEB_SOURCE_PROFILE_INVALID", error: row.message || "公開來源類型無效。" }, 400);
     }
-    if (sourceProfile.channel === "youtube") {
-      try {
-        const hostname = new URL(url).hostname.toLowerCase();
-        if (hostname !== "youtu.be" && hostname !== "youtube.com" && !hostname.endsWith(".youtube.com")) {
-          return json({ code: "YOUTUBE_SOURCE_URL_REQUIRED", error: "YouTube 來源類型必須使用官方 youtube.com 或 youtu.be 網址。" }, 400);
-        }
-      } catch {
-        return json({ code: "WEB_RESEARCH_URL_INVALID", error: "來源網址格式無效。" }, 400);
-      }
+    const contentEligibility = classifyControlledWebContent({ url, sourceProfile });
+    if (!contentEligibility.ruleCreationAllowed) {
+      return json({
+        code: "VIDEO_TRANSCRIPT_REQUIRED",
+        error: "影片網址目前只能辨識為 metadata-only；標題、描述與頁面資訊不是字幕，不能建立或寫入學習規則。請貼上逐字稿，或上傳 SRT／VTT 字幕檔。",
+        sourceDisposition: "metadata_only",
+        transcriptStatus: "missing",
+        ruleCreationAllowed: false,
+        candidateRuleCount: 0,
+        sharedPublishAttempted: false,
+        canonicalMutationCount: 0,
+      }, 422);
     }
     const research = await fetchControlledWebResearch(url, { sourceProfile, signal: request.signal });
     const bundle = await distillControlledWebKnowledge({

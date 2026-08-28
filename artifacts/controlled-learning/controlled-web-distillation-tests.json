@@ -1,11 +1,21 @@
 {
   "status": "PASS",
-  "checks": 71,
+  "checks": 106,
   "expectedFailures": [
+    "VIDEO_TRANSCRIPT_REQUIRED",
+    "VIDEO_TRANSCRIPT_REQUIRED",
+    "VIDEO_TRANSCRIPT_REQUIRED",
+    "VIDEO_TRANSCRIPT_REQUIRED",
     "WEB_RESEARCH_ROBOTS_DISALLOWED",
     "WEB_RESEARCH_DNS_PRIVATE_ADDRESS_BLOCKED",
     "WEB_RESEARCH_PROMPT_INJECTION_BLOCKED",
-    "WEB_RESEARCH_PRIVATE_ADDRESS_BLOCKED"
+    "WEB_RESEARCH_PRIVATE_ADDRESS_BLOCKED",
+    "WEB_RESEARCH_TIMEOUT",
+    "WEB_RESEARCH_TIMEOUT",
+    "VIDEO_TRANSCRIPT_REQUIRED",
+    "VIDEO_TRANSCRIPT_REQUIRED",
+    "VIDEO_TRANSCRIPT_REQUIRED",
+    "VIDEO_TRANSCRIPT_REQUIRED"
   ],
   "teacherCount": 2,
   "ruleCount": 16,
@@ -18,8 +28,10 @@
   "rawSourceRetained": false,
   "rawTeacherResponseRetained": false,
   "canonicalMutationCount": 0,
-  "popularSourceChannel": "popular_web",
+  "sourceChannel": "popular_web",
+  "sourceTruncated": false,
+  "oversizedSourceSafelyExcerpted": true,
+  "legacyPopularityMetadataRemoved": true,
   "firstPartyAutoApproval": 24,
-  "firstPartyTargetedRevocation": 1,
-  "popularSourceObservedCount": 250000
+  "firstPartyTargetedRevocation": 1
 }

@@ -316,6 +316,7 @@ jobs:
             pnpm test:studio:conversation-first-contract
             pnpm test:studio:conversation-first-browser
             pnpm test:studio:conversation-mobile
+            pnpm test:mobile:workspace-contract
             pnpm test:studio:conversation-persistence
             pnpm test:studio:conversation-backup
             pnpm test:studio:conversation-branching
@@ -337,6 +338,10 @@ jobs:
             pnpm test:ai:mode-choice-curriculum
             pnpm test:ai:procedural-story-library
             pnpm test:studio:topic-world-contract
+            pnpm test:studio:global-world-index
+            pnpm test:studio:global-canon
+            pnpm test:studio:selected-story-bible
+            pnpm test:studio:global-canon-social-assets
             pnpm test:ai:topic-world-family-stage-matrix
             pnpm test:ai:topic-world-family-rpg-bridge
             pnpm test:ai:rules-story-fallback-variety

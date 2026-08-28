@@ -64,8 +64,25 @@ async function launchBrowser() {
   }
 }
 
-const css = (await readFile(new URL("../app/globals.css", import.meta.url), "utf8"))
-  .replace('@import "tailwindcss";', "");
+const [rawCss, readerSource] = await Promise.all([
+  readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/read/[projectId]/reader-client.tsx", import.meta.url), "utf8"),
+]);
+const css = rawCss.replace('@import "tailwindcss";', "");
+
+check("reader scroll persistence is throttled and flushed on leave", () => {
+  assert.match(readerSource, /READER_SCROLL_SAVE_DELAY_MS\s*=\s*900/u);
+  assert.match(readerSource, /addEventListener\("pagehide",\s*onPageHide\)/u);
+  assert.match(readerSource, /addEventListener\("visibilitychange",\s*onVisibilityChange\)/u);
+  assert.match(readerSource, /await flushScrollSaveRef\.current\(\)/u);
+});
+
+check("reader uses measured mobile header offset and deferred paragraph paint", () => {
+  assert.match(readerSource, /new ResizeObserver\(syncHeaderHeight\)/u);
+  assert.match(readerSource, /--reader-top-height/u);
+  assert.match(css, /\.readerArticle>p\[data-reader-anchor\]\{content-visibility:auto;contain-intrinsic-size:auto 4lh\}/u);
+  assert.match(css, /\.readerControls\{top:var\(--reader-top-height,/u);
+});
 const browser = await launchBrowser();
 
 try {
@@ -74,6 +91,11 @@ try {
   await page.setContent(`
     <style>${css}</style>
     <main class="readerShell reader-night" style="--reader-width:1480px">
+      <header class="readerTop">
+        <div><a href="#">返回寫作</a><button>章節目錄</button></div>
+        <span>${longTitle} · 48%</span>
+        <div><button>閱讀設定</button><button class="readerResumeButton">上次位置</button><button>加入書籤</button></div>
+      </header>
       <section class="readerControls" aria-label="閱讀設定">
         <label>內文寬度<input type="range" min="320" max="1480" value="1480"></label>
       </section>
@@ -85,20 +107,33 @@ try {
           <button>目錄</button>
           <button>${longTitle} →</button>
         </footer>
+        <div style="height:1200px" aria-hidden="true"></div>
       </article>
     </main>
   `);
 
   for (const width of [320, 375, 768]) {
     await page.setViewportSize({ width, height: 800 });
+    await page.evaluate(() => {
+      const shell = document.querySelector(".readerShell");
+      const header = document.querySelector(".readerTop");
+      if (!(shell instanceof HTMLElement) || !(header instanceof HTMLElement)) throw new Error("reader header fixture is incomplete");
+      shell.style.setProperty("--reader-top-height", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+      window.scrollTo(0, 500);
+    });
+    await page.waitForTimeout(50);
     const metrics = await page.evaluate(() => {
       const article = document.querySelector(".readerArticle");
       const footer = document.querySelector(".readerArticle > footer");
+      const header = document.querySelector(".readerTop");
+      const controls = document.querySelector(".readerControls");
       const buttons = [...document.querySelectorAll(".readerArticle > footer > button")];
-      if (!(article instanceof HTMLElement) || !(footer instanceof HTMLElement)) {
+      if (!(article instanceof HTMLElement) || !(footer instanceof HTMLElement) || !(header instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
         throw new Error("reader fixture is incomplete");
       }
       const articleRect = article.getBoundingClientRect();
+      const headerRect = header.getBoundingClientRect();
+      const controlsRect = controls.getBoundingClientRect();
       return {
         documentClientWidth: document.documentElement.clientWidth,
         documentScrollWidth: document.documentElement.scrollWidth,
@@ -118,6 +153,9 @@ try {
         }),
         articleLeft: articleRect.left,
         articleRight: articleRect.right,
+        headerBottom: headerRect.bottom,
+        controlsTop: controlsRect.top,
+        configuredHeaderHeight: getComputedStyle(document.querySelector(".readerShell")).getPropertyValue("--reader-top-height").trim(),
       };
     });
 
@@ -131,6 +169,8 @@ try {
         assert.ok(button.right <= metrics.articleRight + 1, JSON.stringify(metrics));
       }
       assert.equal(metrics.footerDisplay, width <= 520 ? "grid" : "flex");
+      assert.match(metrics.configuredHeaderHeight, /^\d+px$/u);
+      assert.ok(metrics.controlsTop >= metrics.headerBottom - 1, JSON.stringify(metrics));
     });
   }
 } finally {

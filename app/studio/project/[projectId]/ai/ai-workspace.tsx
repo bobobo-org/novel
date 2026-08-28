@@ -12,6 +12,7 @@ import type {
   TimelineEvent,
   WorldRule,
 } from "@/lib/novel-ai/domain";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import type {
   ClosedAIBackendId,
   ClosedAIProgressEvent,
@@ -223,7 +224,7 @@ export default function AiWorkspace({ projectId }: { projectId: string }) {
       repository.list<StoryState>("storyStates", projectId),
       repository.listStoryBranches(projectId),
     ]);
-    const storyBible = storyBibles.find((item) => item.id === project.storyBibleId) ?? storyBibles[0];
+    const storyBible = resolveProjectStoryBible(project, storyBibles);
     if (!chapter || !storyBible || !storyStates[0]) {
       throw new Error("作品缺少章節、Story Bible 或故事狀態；請先重新建立作品資料。");
     }

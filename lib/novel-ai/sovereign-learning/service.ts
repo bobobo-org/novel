@@ -24,6 +24,8 @@ import {
   splitForDeepExtraction,
 } from "./rule-extractor";
 import {
+  assertControlledWebContentCanCreateRules,
+  classifyControlledWebContent,
   CONTROLLED_WEB_KNOWLEDGE_VERSION,
   distilledWebKnowledgePayload,
   type DistilledWebKnowledgeBundle,
@@ -83,6 +85,21 @@ function now() {
 
 function learningError(code: string, message = code) {
   return Object.assign(new Error(message), { code });
+}
+
+function withoutLegacyPopularityMetadata(source: LearningSourceRecord): LearningSourceRecord {
+  return {
+    ...source,
+    warningCodes: source.warningCodes.filter((code) => (
+      !code.startsWith("POPULAR_SOURCE_") && !code.startsWith("POPULARITY_")
+    )),
+    ...(source.webProvenance ? {
+      webProvenance: {
+        ...source.webProvenance,
+        sourceProfile: { channel: source.webProvenance.sourceProfile.channel },
+      },
+    } : {}),
+  };
 }
 
 function scanCredentialCodes(value: string) {
@@ -733,6 +750,13 @@ export async function ingestDistilledWebKnowledge(
 ) {
   if (!input.projectId.trim()) throw learningError("LEARNING_SOURCE_IDENTITY_REQUIRED");
   const bundle = input.bundle;
+  // Repository boundary: even a forged or stale client bundle cannot turn
+  // video-page metadata into a learned rule.
+  assertControlledWebContentCanCreateRules(classifyControlledWebContent({
+    url: bundle.source.finalUrl,
+    sourceProfile: bundle.source.sourceProfile,
+  }));
+  assertControlledWebContentCanCreateRules(bundle.source.contentEligibility);
   if (bundle.privacy.dataLeftDevice && !input.externalConsent) {
     throw learningError("WEB_DISTILLATION_EXTERNAL_CONSENT_REQUIRED", "必須明確同意清理後的來源送往教師 AI。");
   }
@@ -759,6 +783,10 @@ export async function ingestDistilledWebKnowledge(
     || (!bundle.privacy.dataLeftDevice && bundle.privacy.externalRequestCount !== 0)
     || (bundle.privacy.externalRequestCount > 0 && !bundle.privacy.dataLeftDevice)
     || !bundle.source.sourceProfile
+    || bundle.source.contentEligibility.mode !== "narrative_page_text"
+    || bundle.source.contentEligibility.ruleCreationAllowed !== true
+    || bundle.source.contentEligibility.transcriptStatus !== "not_applicable"
+    || bundle.source.contentEligibility.reasonCode !== "ARTICLE_PAGE_TEXT"
     || !bundle.storyResearch
     || bundle.storyResearch.schemaVersion !== VERIFIED_STORY_RESEARCH_SCHEMA_VERSION
     || bundle.storyResearch.teacher.teacherId !== VERIFIED_STORY_TEACHER_CONTRACT.teacherId
@@ -774,11 +802,6 @@ export async function ingestDistilledWebKnowledge(
     || !Array.isArray(bundle.storyResearch.mechanisms)
     || bundle.storyResearch.mechanisms.length < 12
     || bundle.storyResearch.mechanisms.length > 24
-    || (bundle.source.sourceProfile.engagement && (
-      bundle.source.sourceProfile.engagement.thresholdPassed !== true
-      || bundle.source.sourceProfile.engagement.minimumRequired !== 100_000
-      || bundle.source.sourceProfile.engagement.observedCount < 100_000
-    ))
     || (["external_teacher", "hybrid"].includes(bundle.analysisMode) && !bundle.teachers.length)
     || (bundle.analysisMode === "local_deterministic" && bundle.teachers.length > 0)
     || (bundle.teachers.length > bundle.privacy.externalRequestCount)
@@ -864,10 +887,6 @@ export async function ingestDistilledWebKnowledge(
       "RAW_SOURCE_NOT_RETAINED",
       "RAW_TEACHER_RESPONSE_NOT_RETAINED",
       `SOURCE_CHANNEL_${bundle.source.sourceProfile.channel.toUpperCase()}`,
-      ...(bundle.source.sourceProfile.engagement ? [
-        `POPULAR_SOURCE_${bundle.source.sourceProfile.engagement.metric.toUpperCase()}_${bundle.source.sourceProfile.engagement.observedCount}`,
-        "POPULAR_SOURCE_OPERATOR_ATTESTED",
-      ] : []),
     ])],
     trustScore: scoreSourceTrust({
       sourceType: "web_content",
@@ -890,6 +909,7 @@ export async function ingestDistilledWebKnowledge(
       redirects: bundle.source.redirects,
       sourceDigest: bundle.source.sourceDigest,
       sourceProfile: bundle.source.sourceProfile,
+      sourceTruncated: bundle.source.sourceTruncated,
       rawContentRetained: false,
     },
     teacherEvidence: bundle.teachers.map((teacher) => ({
@@ -1551,19 +1571,20 @@ export async function getSovereignLearningDashboard(
     repository.getProfile(projectId),
     repository.listAudit(projectId),
   ]);
+  const sanitizedSources = sources.map(withoutLegacyPopularityMetadata);
   const activeRules = rules.filter((rule) =>
     rule.status === "approved"
-    && sources.some((source) => source.id === rule.sourceId && source.status === "active"));
+    && sanitizedSources.some((source) => source.id === rule.sourceId && source.status === "active"));
   return {
-    sources,
+    sources: sanitizedSources,
     rules,
     feedback,
     profile,
     audit,
     counts: {
-      activeSources: sources.filter((source) => source.status === "active").length,
-      quarantinedSources: sources.filter((source) => source.status === "quarantined").length,
-      revokedSources: sources.filter((source) => source.status === "revoked").length,
+      activeSources: sanitizedSources.filter((source) => source.status === "active").length,
+      quarantinedSources: sanitizedSources.filter((source) => source.status === "quarantined").length,
+      revokedSources: sanitizedSources.filter((source) => source.status === "revoked").length,
       candidateRules: rules.filter((rule) => rule.status === "candidate").length,
       approvedRules: activeRules.length,
       rejectedRules: rules.filter((rule) => rule.status === "rejected").length,
@@ -1574,11 +1595,11 @@ export async function getSovereignLearningDashboard(
     privacy: {
       rawSourceContentStored: false,
       rawOutputStored: false,
-      externalRequestCount: sources.reduce(
+      externalRequestCount: sanitizedSources.reduce(
         (total, source) => total + (source.externalRequestCount ?? 0),
         0,
       ),
-      dataLeftDevice: sources.some((source) => source.dataLeftDevice === true),
+      dataLeftDevice: sanitizedSources.some((source) => source.dataLeftDevice === true),
     },
   };
 }
@@ -1598,7 +1619,7 @@ export async function createSovereignLearningSnapshot(
     schemaVersion: SOVEREIGN_LEARNING_SNAPSHOT_VERSION,
     projectId,
     createdAt: now(),
-    sources,
+    sources: sources.map(withoutLegacyPopularityMetadata),
     rules,
     feedback,
     profile,
@@ -1642,7 +1663,7 @@ export async function restoreSovereignLearningSnapshot(
   }
   await repository.clearProject(expectedProjectId);
   const commit: LearningRepositoryCommit = {
-    sources: snapshot.sources,
+    sources: snapshot.sources.map(withoutLegacyPopularityMetadata),
     rules: snapshot.rules,
     feedback: snapshot.feedback,
     profiles: snapshot.profile ? [snapshot.profile] : [],

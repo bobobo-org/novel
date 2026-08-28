@@ -4,8 +4,10 @@
 .root>header h2{margin:6px 0;font-size:24px}
 .root>header p{max-width:720px;margin:0;color:#a8b7ca;line-height:1.65}
 .root label{display:grid;gap:7px;color:#d8c184}
-.root select,.root button{min-height:42px;padding:9px 13px;border:1px solid #405b7e;border-radius:4px;background:#0b1729;color:#eef4ff;font:inherit}
-.root button{cursor:pointer}
+.root select,.root button{min-height:44px;padding:9px 13px;border:1px solid #405b7e;border-radius:4px;background:#0b1729;color:#eef4ff;font:inherit}
+.root button{cursor:pointer;touch-action:manipulation}
+.root a{display:inline-flex;min-height:44px;align-items:center;touch-action:manipulation}
+.root summary{display:flex;min-height:44px;align-items:center;cursor:pointer;touch-action:manipulation}
 .root button:global(.gold){border-color:#d0a552;background:#654719;color:#fff1c6;font-weight:900}
 .root button:disabled{cursor:not-allowed;opacity:.5}
 .root :global(.dramaStatus){padding:12px 14px;border-left:3px solid #6ec2a1;background:#10241f}
@@ -36,16 +38,53 @@
 .root :global(.dramaBranches) p,.root :global(.dramaBranches) small,.root :global(.dramaRisks) li{color:#acbbcf;line-height:1.6}
 .root :global(.dramaLinearNotice){border-color:#3d6d67;background:#0d211f}
 .root :global(.dramaLinearNotice) p,.root :global(.dramaVideoPipeline) p,.root :global(.dramaVideoPipeline) li,.root :global(.dramaVideoPipeline)>small{color:#acbbcf;line-height:1.65}
-.root :global(.dramaVideoPipeline){display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,.8fr);gap:14px;align-items:center;background:linear-gradient(140deg,#0b1729,#17152c)}
+.root :global(.dramaVideoPipeline){display:grid;max-width:100%;min-width:0;gap:14px;background:linear-gradient(140deg,#0b1729,#17152c);overflow-wrap:anywhere}
+.root :global(.dramaVideoPipeline)>*,.root :global(.dramaVideoHeader)>*,.root :global(.dramaProviderCard)>*,.root :global(.dramaShotTimeline)>*{max-width:100%;min-width:0}
+.root :global(.dramaVideoHeader){display:grid;max-width:100%;min-width:0;grid-template-columns:minmax(0,1fr) minmax(260px,380px);gap:18px;align-items:end;padding-bottom:14px;border-bottom:1px solid #314765}
+.root :global(.dramaVideoHeader) label,.root :global(.dramaVideoHeader) select{max-width:100%;min-width:0;width:100%}
+.root :global(.dramaVideoHeader) h2{margin:5px 0;color:#f1d696;font-size:25px}
+.root :global(.dramaVideoHeader) p{max-width:850px;margin:0}
+.root :global(.dramaProviderCard){display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;padding:16px;border:1px solid #4c6481;background:#0a1b2b}
+.root :global(.dramaProviderCard)[data-provider-status="requires_vendor_onboarding"]{border-color:#b28a3d;background:#211d15}
+.root :global(.dramaProviderCard)>div{display:grid;align-content:start;gap:5px}
+.root :global(.dramaProviderCard)>div strong{color:#f3d78e;font-size:18px}
+.root :global(.dramaProviderCard)>p{margin:0}
+.root :global(.dramaProviderCard)>ul{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:0;padding:0;list-style:none}
+.root :global(.dramaProviderCard)>ul li{padding:9px;border:1px solid #314765;background:#091521;font-size:13px}
+.root :global(.dramaProviderCard)>a{grid-column:1/-1;color:#8fd8ff}
+.root :global(.dramaShotTimeline){display:grid;gap:12px;padding:16px;border:1px solid #315f68;background:#071a22}
+.root :global(.dramaShotTimeline)>header{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.root :global(.dramaShotTimeline)>header h3{margin:4px 0;color:#dff5ee}
+.root :global(.dramaShotTimeline)>header strong{color:#f1d696}
+.root :global(.dramaShotTimeline)>p{margin:0}
+.root :global(.dramaShotTimeline)>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-height:680px;overflow:auto;padding-right:4px}
+.root :global(.dramaShotTimeline) article{display:grid;align-content:start;gap:9px;min-width:0;padding:14px;border:1px solid #31506b;background:#0b1729;content-visibility:auto;contain-intrinsic-size:auto 320px}
+.root :global(.dramaShotTimeline) article>header{display:flex;justify-content:space-between;gap:8px;color:#e7c676}
+.root :global(.dramaShotTimeline) h4{margin:0;color:#edf4ff;line-height:1.55;overflow-wrap:anywhere}
+.root :global(.dramaShotTimeline) article>p{margin:0}
+.root :global(.dramaShotTimeline) pre{max-height:150px;overflow:auto;white-space:pre-wrap;color:#c8d7e9;font:inherit}
+.root :global(.dramaShotTimeline) details{padding:8px;border:1px solid #263d5c}
+.root :global(.dramaShotTimeline) article>label{grid-template-columns:minmax(0,1fr) 82px;align-items:center}
+.root :global(.dramaShotTimeline) input{width:100%;min-height:44px;padding:7px;border:1px solid #405b7e;background:#07111f;color:#fff;touch-action:manipulation}
+.root :global(.dramaVideoEmpty){padding:18px;border:1px dashed #4c6481;background:#091522}
+.root :global(.dramaVideoEmpty) h3{margin-top:0;color:#f1d696}
+.root :global(.dramaRuntimeTruth){display:grid;grid-template-columns:170px minmax(0,1fr);gap:14px;padding:14px;border:1px solid #3a526f;background:#091522}
+.root :global(.dramaRuntimeTruth)>div{display:grid;align-content:start;gap:5px}
+.root :global(.dramaRuntimeTruth)>div strong{font-size:18px;color:#f1d696}
+.root :global(.dramaRuntimeTruth) ol{margin:0;padding-left:22px}
+.root :global(.dramaVideoJob){display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:12px;border-left:3px solid #6ec2a1;background:#10241f}
+.root :global(.dramaVideoJob) strong{overflow-wrap:anywhere}
 .root :global(.dramaVideoConsents){display:grid;gap:9px;padding:13px;border:1px solid #31506b;background:#091522}
-.root :global(.dramaVideoConsents) label{display:flex;grid-template-columns:none;align-items:flex-start;gap:9px;color:#cbd8e8;line-height:1.55}
+.root :global(.dramaVideoConsents) label{display:flex;min-height:44px;grid-template-columns:none;align-items:center;gap:9px;color:#cbd8e8;line-height:1.55;touch-action:manipulation}
 .root :global(.dramaVideoConsents) input{flex:0 0 auto;width:18px;height:18px;margin-top:3px;accent-color:#d0a552}
-.root :global(.dramaVideoPipeline)>button,.root :global(.dramaVideoPipeline)>small{grid-column:2}
+.root :global(.dramaVideoActions){display:flex;flex-wrap:wrap;gap:10px}
+.root :global(.dramaVideoActions) button{flex:1 1 280px}
 .root :global(.dramaActions){display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
 .root :global(.dramaTechnical){margin-top:16px;padding:14px;border:1px solid #2d4565}
 .root :global(.dramaTechnical) dl{display:grid;gap:7px}
 .root :global(.dramaTechnical) dl>div{display:grid;grid-template-columns:160px minmax(0,1fr);gap:10px}
 .root :global(.dramaTechnical) dt{color:#93a5bd}
 .root :global(.dramaTechnical) dd{min-width:0;margin:0;overflow-wrap:anywhere}
-@media(max-width:900px){.root>header,.root :global(.dramaModePicker),.root :global(.dramaVideoPipeline){grid-template-columns:1fr 1fr}.root>header>div,.root :global(.dramaModePicker)>div,.root :global(.dramaVideoPipeline)>div{grid-column:1/-1}.root :global(.dramaVideoPipeline)>button,.root :global(.dramaVideoPipeline)>small{grid-column:auto}.root :global(.dramaSummary){grid-template-columns:1fr 1fr}.root :global(.dramaEpisodes){grid-template-columns:1fr}}
-@media(max-width:520px){.root>header,.root :global(.dramaModePicker),.root :global(.dramaSummary),.root :global(.dramaBranches)>div,.root :global(.dramaVideoPipeline){grid-template-columns:1fr}.root>header>div,.root :global(.dramaModePicker)>div,.root :global(.dramaVideoPipeline)>div{grid-column:auto}.root :global(.dramaEpisodes) dl>div,.root :global(.dramaTechnical) dl>div{grid-template-columns:1fr}.root :global(.dramaActions) button,.root :global(.dramaVideoPipeline)>button{width:100%}}
+@media(max-width:900px){.root>header,.root :global(.dramaModePicker){grid-template-columns:1fr 1fr}.root>header>div,.root :global(.dramaModePicker)>div{grid-column:1/-1}.root :global(.dramaSummary){grid-template-columns:1fr 1fr}.root :global(.dramaEpisodes){grid-template-columns:1fr}.root :global(.dramaProviderCard)>ul{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.root :global(.dramaVideoHeader),.root :global(.dramaProviderCard),.root :global(.dramaRuntimeTruth){grid-template-columns:1fr}.root :global(.dramaProviderCard)>ul,.root :global(.dramaShotTimeline)>div{grid-template-columns:1fr}.root :global(.dramaVideoJob){grid-template-columns:1fr}.root :global(.dramaShotTimeline)>div{max-height:none;overflow:visible}}
+@media(max-width:520px){.root>header,.root :global(.dramaModePicker),.root :global(.dramaSummary),.root :global(.dramaBranches)>div{grid-template-columns:1fr}.root>header>div,.root :global(.dramaModePicker)>div{grid-column:auto}.root :global(.dramaEpisodes) dl>div,.root :global(.dramaTechnical) dl>div{grid-template-columns:1fr}.root :global(.dramaActions) button,.root :global(.dramaVideoActions) button{width:100%}.root :global(.dramaVideoPipeline){padding:13px}.root :global(.dramaShotTimeline) article>label{grid-template-columns:1fr}.root :global(.dramaProviderCard)>ul{grid-template-columns:1fr}}

@@ -58,6 +58,10 @@ assert.match(shell, /data-testid="conversation-sidebar-toggle"/u, "桌機必須�
 assert.match(shell, /aria-expanded=\{sidebarOpen\}/u, "側欄按鈕必須向輔助科技揭露展開狀態");
 assert.match(shell, /aria-controls="conversation-session-sidebar"/u, "側欄按鈕必須指向實際受控區域");
 assert.match(shell, /專案／對話/u, "側欄入口必須使用讀者能理解的名稱");
+assert.match(shell, /const offsetTop = viewport\?\.offsetTop \?\? 0/u, "手機鍵盤開啟時必須讀取 visualViewport offsetTop");
+assert.match(shell, /--conversation-visual-top/u, "visualViewport offsetTop 必須傳給版面樣式");
+assert.doesNotMatch(shell, /window\.scrollTo\(0,\s*0\)/u, "visualViewport scroll 不得強制把頁面捲回頂端");
+assert.doesNotMatch(shell, /shell\.scrollTo\(0,\s*0\)/u, "視窗同步不得反覆改寫殼層捲動位置");
 assert.match(sidebar, /id="conversation-session-sidebar"/u, "專案／對話側欄必須具有穩定受控 ID");
 assert.match(sidebar, /data-testid="conversation-sidebar-close"/u, "展開後必須有明確的收合按鈕");
 
@@ -155,6 +159,7 @@ assert.match(styles, /@media \(max-width: 1040px\)[\s\S]*?\.choices\s*\{\s*grid-
 assert.match(styles, /\.sidebar\s*\{[\s\S]*?position:\s*fixed[\s\S]*?transform:\s*translateX\(-105%\)/u, "收合側欄必須預設離開閱讀畫面");
 assert.match(styles, /\.sidebar\[data-open=["']true["']\]\s*\{[\s\S]*?transform:\s*translateX\(0\)/u, "側欄展開時必須回到畫面並可操作");
 assert.match(styles, /@media \(max-width: 900px\)[\s\S]*?\.mobileBar\s*\{[\s\S]*?display:\s*flex/u, "窄畫面必須保留可叫出側欄的行動工具列");
+assert.match(styles, /@media \(max-width: 900px\)[\s\S]*?\.shell\s*\{[\s\S]*?top:\s*var\(--conversation-visual-top,\s*0px\)/u, "手機殼層必須實際套用 visualViewport offsetTop");
 assert.match(styles, /@media \(max-width: 480px\)[\s\S]*?\.choiceOutcome[^\{]*\{\s*grid-template-columns:\s*58px\s+minmax\(0,\s*1fr\)/u, "極窄畫面的收益、代價與風險必須可換行");
 
 console.log("PASS chat detailed dashboard");

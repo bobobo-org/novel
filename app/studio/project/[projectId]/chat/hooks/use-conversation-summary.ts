@@ -8,6 +8,7 @@ import type {
   StoryBible,
   StoryState,
 } from "@/lib/novel-ai/domain";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
 import { conversationCanonRevisionDigest } from "@/lib/novel-ai/web/project-context-composer";
@@ -21,11 +22,12 @@ export function useConversationSummaryController(input: {
   const currentCanonRevisionDigest = useCallback(async () => {
     const loadedProject = await input.repository.get<NovelProject>("projects", input.projectId);
     if (!loadedProject) throw new Error("CONVERSATION_PROJECT_NOT_FOUND");
-    const [chapters, storyBible, storyState] = await Promise.all([
+    const [chapters, storyBibles, storyState] = await Promise.all([
       input.repository.list<Chapter>("chapters", input.projectId),
-      input.repository.get<StoryBible>("storyBibles", loadedProject.storyBibleId),
+      input.repository.list<StoryBible>("storyBibles", input.projectId),
       input.repository.get<StoryState>("storyStates", loadedProject.storyStateId),
     ]);
+    const storyBible = resolveProjectStoryBible(loadedProject, storyBibles);
     return conversationCanonRevisionDigest({
       project: loadedProject,
       activeChapter: activeChapter(loadedProject, chapters),

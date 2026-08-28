@@ -17,6 +17,7 @@ import {
   type World,
   type WorldRule,
 } from "@/lib/novel-ai/domain";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import { explicitCrossEraCanonAuthorization } from "@/lib/novel-ai/domain/story-started-canon-guard";
 import {
   CHARACTER_PORTRAIT_CAPACITY,
@@ -217,7 +218,7 @@ export default function CharacterRelationshipWorkbench({
     applyCharacterForm(ordered.find((character) => character.id === nextSelectedId) ?? null);
     setFromId((current) => current || ordered[0]?.id || "");
     setToId((current) => current || ordered.find((character) => character.id !== (ordered[0]?.id || ""))?.id || "");
-    const storyBible = storyBibles.find((item) => item.id === project.storyBibleId) ?? storyBibles[0] ?? null;
+    const storyBible = resolveProjectStoryBible(project, storyBibles);
     const storyState = storyStates.find((item) => item.id === project.storyStateId) ?? storyStates[0] ?? null;
     const nextWorldId = storyState?.activeWorldId ?? storyBible?.worldId ?? worlds[0]?.id ?? "";
     setSelectedWorldId(nextWorldId);
@@ -280,7 +281,7 @@ export default function CharacterRelationshipWorkbench({
   }, [canonDataLoadedProjectId, project.id]);
 
   const selectedCharacter = data.characters.find((character) => character.id === selectedCharacterId) ?? null;
-  const storyBible = data.storyBibles.find((item) => item.id === project.storyBibleId) ?? data.storyBibles[0] ?? null;
+  const storyBible = resolveProjectStoryBible(project, data.storyBibles);
   const storyState = data.storyStates.find((item) => item.id === project.storyStateId) ?? data.storyStates[0] ?? null;
   const baselineWorld = storyBible?.worldId
     ? data.worlds.find((world) => world.id === storyBible.worldId) ?? null
@@ -319,7 +320,12 @@ export default function CharacterRelationshipWorkbench({
   const selectedSectBranchId = sectBranchId || sectBranches[0]?.id || "";
   const names = new Map(data.characters.map((character) => [character.id, character.name]));
   const charactersById = new Map(data.characters.map((character) => [character.id, character]));
-  const compatibleCharacters = data.characters.filter((character) => isCharacterEraCompatible({ character, project, worlds: activeWorlds }));
+  const compatibleCharacters = data.characters.filter((character) => isCharacterEraCompatible({
+    character,
+    project,
+    worlds: activeWorlds,
+    crossEraAuthorization: crossEraCanon,
+  }));
   const incompatibleCharacterIds = new Set(data.characters.filter((character) => !compatibleCharacters.includes(character)).map((character) => character.id));
   const defaultActiveCharacterIds = storyBible?.characterIds.length
     ? storyBible.characterIds.filter((id) => !incompatibleCharacterIds.has(id))

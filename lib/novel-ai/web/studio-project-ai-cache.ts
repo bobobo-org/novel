@@ -4,6 +4,7 @@ import type {
   StoryBible,
   StoryState,
 } from "../domain";
+import { resolveProjectStoryBible } from "../domain/story-bible-selection";
 import {
   CLOSED_AI_CACHE_LAYERS,
   type ClosedAICache,
@@ -66,26 +67,21 @@ async function resolveResumeSource(
   const project = await repository.get<NovelProject>("projects", projectId);
   if (!project) return null;
   const chapterId = sourceChapterId ?? project.activeChapterId;
-  const [directChapter, storyBible, storyState] = await Promise.all([
+  const [directChapter, storyBibles, storyState] = await Promise.all([
     chapterId ? repository.get<Chapter>("chapters", chapterId) : Promise.resolve(null),
-    project.storyBibleId
-      ? repository.get<StoryBible>("storyBibles", project.storyBibleId)
-      : Promise.resolve(null),
+    repository.list<StoryBible>("storyBibles", projectId),
     project.storyStateId
       ? repository.get<StoryState>("storyStates", project.storyStateId)
       : Promise.resolve(null),
   ]);
-  const [chapters, storyBibles, storyStates] = await Promise.all([
+  const [chapters, storyStates] = await Promise.all([
     directChapter ? Promise.resolve([] as Chapter[]) : repository.list<Chapter>("chapters", projectId),
-    storyBible ? Promise.resolve([] as StoryBible[]) : repository.list<StoryBible>("storyBibles", projectId),
     storyState ? Promise.resolve([] as StoryState[]) : repository.list<StoryState>("storyStates", projectId),
   ]);
   const chapter = directChapter
     ?? [...chapters].sort((left, right) => right.order - left.order)[0]
     ?? null;
-  const resolvedBible = storyBible
-    ?? [...storyBibles].sort((left, right) => right.revision - left.revision)[0]
-    ?? null;
+  const resolvedBible = resolveProjectStoryBible(project, storyBibles);
   const resolvedState = storyState
     ?? [...storyStates].sort((left, right) => right.revision - left.revision)[0]
     ?? null;

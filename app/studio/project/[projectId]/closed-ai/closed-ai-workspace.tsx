@@ -25,6 +25,7 @@ import type {
   WorldRule,
   WritingTask,
 } from "@/lib/novel-ai/domain";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   getStudioClosedAgentOS,
@@ -477,9 +478,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
         ? await repository.get<StoryState>("storyStates", project.storyStateId)
         : null;
       if (cancelled) return;
-      const storyBible = storyBibles.find((item) => item.id === project?.storyBibleId)
-        ?? storyBibles[0]
-        ?? null;
+      const storyBible = resolveProjectStoryBible(project, storyBibles);
       const storyState = referencedStoryState
         ?? storyStates.find((item) => item.id === project?.storyStateId)
         ?? storyStates[0]

@@ -17,6 +17,10 @@
 }
 
 .header a {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 8px 4px;
   color: #9cc8ff;
 }
 
@@ -217,6 +221,26 @@
   background: rgba(24, 92, 83, 0.22);
   color: #d5fff7;
   line-height: 1.6;
+}
+
+.metadataOnlyNotice {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 13px 14px;
+  border: 1px solid rgba(255, 191, 87, 0.58);
+  border-radius: 10px;
+  background: rgba(104, 67, 11, 0.24);
+  color: #f8e6bd;
+  line-height: 1.55;
+}
+
+.metadataOnlyNotice strong {
+  color: #ffd77a;
+}
+
+.metadataOnlyNotice button {
+  justify-self: start;
 }
 
 .researchProgressToast {
@@ -661,7 +685,7 @@
 
 @media (max-width: 640px) {
   .shell {
-    padding: 14px;
+    padding: 14px 14px calc(96px + env(safe-area-inset-bottom));
   }
 
   .header {
@@ -673,8 +697,52 @@
   }
 
   .statusGrid,
-  .twoColumns {
+  .twoColumns,
+  .researchSummaryGrid,
+  .mechanismGrid {
     grid-template-columns: 1fr;
+  }
+
+  .panel,
+  .manualTeacherRelay,
+  .storyResearchReport {
+    padding: 13px;
+  }
+
+  .panel button,
+  .importButton,
+  .teacherActions a,
+  .panel input,
+  .panel select,
+  .panel textarea,
+  .manualTeacherRelay summary,
+  .storyResearchReport summary,
+  .researchProgressToast button {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .manualTeacherRelay summary,
+  .storyResearchReport summary {
+    display: flex;
+    align-items: center;
+    line-height: 1.4;
+  }
+
+  .mechanismGrid header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mechanismGrid header span {
+    white-space: normal;
+  }
+
+  .ruleList,
+  .sourceList {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .capabilityCheck,
@@ -684,8 +752,9 @@
   }
 
   .researchProgressToast {
-    right: 12px;
-    bottom: 12px;
-    width: calc(100vw - 24px);
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    width: auto;
   }
 }

@@ -315,10 +315,11 @@ assert.match(socialWorldSource, /data-badge="era"/u);
 assert.match(socialWorldSource, /mode = "reference-only"/u);
 assert.match(socialWorldSource, /if \(!ensureHomeEdit\("核准寶物與持有人關係"\)\) return;/u);
 const professionalSource = await readFile(`${repoRoot}app/professional/professional-client.tsx`, "utf8");
-assert.match(professionalSource, /data-testid="professional-social-world-library"/u);
-assert.match(professionalSource, /mode="home-edit"/u);
-for (const store of ["characters", "lore", "operationJournal", "storyBibles", "worlds"]) {
-  assert.ok(professionalSource.includes(`"${store}"`), `Professional home summary must load ${store}`);
+assert.match(professionalSource, /data-testid="professional-canon-readonly-summary"/u);
+assert.match(professionalSource, /data-canon-edit-surface="readonly-selection-links"/u);
+assert.doesNotMatch(professionalSource, /CharacterRelationshipWorkbench|mode="home-edit"/u);
+for (const store of ["characters", "lore", "storyBibles", "worlds"]) {
+  assert.ok(professionalSource.includes(`"${store}"`), `Professional read-only summary must load ${store}`);
 }
 
 // Prove the forward/reverse ownership contract exhaustively on a small prime

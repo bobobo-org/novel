@@ -131,7 +131,7 @@ export async function assertConversationRecordSafe(store: string, record: Domain
       || (!legacyRightsConfirmationAbsent && !rightsConfirmationVerified)
       || attachment.localAnalysisOnly !== true
       || attachment.rawContentRetained !== false
-      || !["txt", "markdown", "html", "json", "pdf", "docx"].includes(attachment.format)
+      || !["txt", "markdown", "html", "json", "srt", "vtt", "pdf", "docx"].includes(attachment.format)
       || !["pending", "parsing", "completed", "failed", "cancelled", "ocr_required"].includes(attachment.parsingStatus)
       || !Number.isInteger(attachment.byteLength)
       || attachment.byteLength < 0

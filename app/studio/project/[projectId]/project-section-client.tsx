@@ -24,6 +24,7 @@ import {
   type WritingTask,
 } from "@/lib/novel-ai/domain";
 import { activeStoryWorlds } from "@/lib/novel-ai/domain/active-story-context";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import { assertStoryStartedCanonMutationAllowed } from "@/lib/novel-ai/domain/story-started-canon-guard";
 import type { SocialWorldApprovalJournal } from "@/lib/novel-ai/social-world-approval";
 import {
@@ -555,7 +556,7 @@ function SectionBody({
 }) {
   const project = data.project!;
   const storyStarted = data.chapters.some((chapter) => chapter.content.trim().length > 0);
-  const storyBible = data.bibles.find((item) => item.id === project.storyBibleId) ?? data.bibles[0];
+  const storyBible = resolveProjectStoryBible(project, data.bibles);
   const storyState = data.storyStates.find((item) => item.id === project.storyStateId) ?? data.storyStates[0];
   const portraitWorlds = activeStoryWorlds(data.worlds, storyState, storyBible);
   if (section === "characters") {
@@ -657,7 +658,7 @@ function StoryContextWorkspace({
   onChanged: () => Promise<void>;
 }) {
   const project = data.project!;
-  const storyBible = data.bibles.find((item) => item.id === project.storyBibleId) ?? data.bibles[0] ?? null;
+  const storyBible = resolveProjectStoryBible(project, data.bibles);
   const linkedChapterCount = new Set(
     data.timeline.map((event) => event.chapterId).filter((chapterId): chapterId is string => Boolean(chapterId)),
   ).size;

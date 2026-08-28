@@ -11,6 +11,7 @@ import {
   familyGenealogyGenerationPage,
   familyGenealogyPositionAt,
   familyGenealogySearchPage,
+  familySurnameForOrganizationName,
   organizationMatrixContext,
   organizationMemberAtOffset,
   organizationMemberPage,
@@ -134,6 +135,47 @@ for (const required of ["家主", "族長", "族老", "繼承人", "房系", "�
   assert.ok(familyText.includes(required), `family hierarchy is missing ${required}`);
 }
 
+const familySurname = familySurnameForOrganizationName(family.name);
+const familySampleSize = Math.min(24, family.currentMemberCount);
+for (let memberOffset = 0; memberOffset < familySampleSize; memberOffset += 1) {
+  const position = familyGenealogyPositionAt({
+    organizationId: family.organizationId,
+    memberCount: family.currentMemberCount,
+    memberOffset,
+  });
+  const member = organizationMemberAtOffset({
+    matrix: cultivation.matrix,
+    organization: family,
+    memberOffset,
+  });
+  if (position.lineageRole === "bloodline") {
+    assert.ok(member.name.startsWith(familySurname), `${family.name} bloodline member must use ${familySurname} surname: ${member.name}`);
+    assert.equal(member.familyRole, "本姓血親");
+    assert.match(member.identity, new RegExp(`${familySurname}氏本姓血親`, "u"));
+  } else {
+    assert.equal(member.name.startsWith(familySurname), false, `${family.name} spouse must remain visibly external: ${member.name}`);
+    assert.equal(member.familyRole, "外姓配偶（姻親入譜）");
+    assert.match(member.identity, /外姓配偶（姻親入譜）/u);
+  }
+  assert.equal(member.familyId, family.organizationId);
+}
+
+const whiteFamily = {
+  ...family,
+  name: "白氏世家",
+  hierarchy: { ...family.hierarchy, label: "白氏世家" },
+};
+const whiteBloodlineNames = Array.from(
+  { length: Math.min(8, Math.ceil(whiteFamily.currentMemberCount / 2)) },
+  (_, index) => organizationMemberAtOffset({
+    matrix: cultivation.matrix,
+    organization: whiteFamily,
+    memberOffset: index * 2,
+  }).name,
+);
+assert.ok(whiteBloodlineNames.length > 0);
+assert.ok(whiteBloodlineNames.every((name) => name.startsWith("白")), `白氏世家核心血親不得混用鄭／王／易等姓氏：${whiteBloodlineNames.join("、")}`);
+
 assert.equal(FAMILY_GENEALOGY_VERSION, "family-genealogy-v1");
 const virtualClanSize = 10_000;
 const genealogyOrganizationId = "organization:genealogy-contract";
@@ -190,6 +232,7 @@ assert.ok(boundedSearch.nextCursor !== null);
 
 const familyFounder = organizationMemberAtOffset({ matrix: cultivation.matrix, organization: family, memberOffset: 0 });
 assert.equal(familyFounder.institutionId, family.organizationId);
+assert.ok(familyFounder.name.startsWith(familySurname));
 
 const enterprise = cultivation.directory.find((entry) => entry.archetype === "enterprise");
 assert.ok(enterprise);
@@ -305,10 +348,10 @@ assert.ok(crossEra.directory.some((entry) => entry.archetype === "enterprise"));
 assert.ok(new Set(crossEra.directory.map((entry) => entry.era)).size > 1);
 assert.ok(crossEra.directory.every((entry) => storyOrganizationEraCompatible(crossEraSetting, entry.era)));
 
-const socialWorldSource = await readFile(
-  new URL("../app/studio/project/[projectId]/social-world-library.tsx", import.meta.url),
-  "utf8",
-);
+const [socialWorldSource, socialWorldStyles] = await Promise.all([
+  readFile(new URL("../app/studio/project/[projectId]/social-world-library.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/social-world-library.module.css", import.meta.url), "utf8"),
+]);
 assert.match(socialWorldSource, /filter-hierarchy-/u);
 assert.match(socialWorldSource, /character\.organizationUnit/u);
 assert.match(socialWorldSource, /character\.organizationRank/u);
@@ -318,6 +361,18 @@ assert.match(socialWorldSource, /checkpointSocialWorldApproval/u);
 assert.match(socialWorldSource, /data-testid="family-genealogy"/u);
 assert.match(socialWorldSource, /data-materialization="lazy-paged"/u);
 assert.match(socialWorldSource, /familyGenealogySearchPage/u);
+const mobileStylesStart = socialWorldStyles.lastIndexOf("@media (max-width: 720px)");
+const mobileStylesEnd = socialWorldStyles.indexOf("@media (max-width: 430px)", mobileStylesStart);
+assert.ok(mobileStylesStart >= 0 && mobileStylesEnd > mobileStylesStart, "social world mobile style block must exist");
+const mobileStyles = socialWorldStyles.slice(mobileStylesStart, mobileStylesEnd);
+assert.match(mobileStyles, /--social-mobile-aux-size:\s*\.75rem/u, "mobile auxiliary labels must be at least 12px");
+assert.match(mobileStyles, /--social-mobile-copy-size:\s*\.875rem/u, "mobile descriptive copy must be at least 14px");
+for (const selector of [".hierarchyNodeButton span", ".treasureImageFrame > span", ".worldMetrics span"]) {
+  assert.ok(mobileStyles.includes(selector), `${selector} must use the mobile auxiliary font floor`);
+}
+for (const selector of [".hierarchyBranch > p", ".characterCard header p", ".worldDetails dd"]) {
+  assert.ok(mobileStyles.includes(selector), `${selector} must use the mobile descriptive font floor`);
+}
 
 console.log(JSON.stringify({
   status: "PASS",

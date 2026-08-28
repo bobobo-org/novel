@@ -77,7 +77,7 @@ export type VerifiedStoryResearchProfile = {
     narrativeMarkerCount: number;
     narrativeMarkerDensity: number;
     sourceChannel: LearningWebSourceProfile["channel"];
-    popularityThresholdPassed: boolean;
+    sourceQualityBasis: "content_evidence_only";
   };
   classification: {
     format: "short_drama" | "serialized_story" | "long_form_story" | "story_analysis" | "unknown";
@@ -348,7 +348,7 @@ export async function analyzeStoryWithVerifiedTeacher(input: {
   sourceProfile?: LearningWebSourceProfile;
 }): Promise<VerifiedStoryResearchProfile> {
   const text = normalizeForLearning(input.sourceText).slice(0, 60_000);
-  const profile = input.sourceProfile ?? { channel: "article", engagement: null };
+  const profile = input.sourceProfile ?? { channel: "article" };
   const sentences = text.split(/(?<=[。！？!?…])|\n+/u).map((item) => item.trim()).filter(Boolean);
   const signalCounts = SIGNALS.map((definition) => countMatches(text, definition.pattern));
   const narrativeMarkerCount = signalCounts.reduce((total, value) => total + value, 0);
@@ -384,9 +384,6 @@ export async function analyzeStoryWithVerifiedTeacher(input: {
     ...(grade === "metadata_only" ? ["STORY_EVIDENCE_METADATA_ONLY"] : []),
     ...(grade === "insufficient" ? ["STORY_EVIDENCE_INSUFFICIENT"] : []),
     ...(missingStages.length ? ["CAUSAL_CHAIN_INCOMPLETE"] : []),
-    ...(["youtube", "novel_app", "popular_web"].includes(profile.channel) && !profile.engagement?.thresholdPassed
-      ? ["POPULARITY_EVIDENCE_NOT_PROVIDED"]
-      : []),
   ];
   return {
     schemaVersion: VERIFIED_STORY_RESEARCH_SCHEMA_VERSION,
@@ -406,7 +403,7 @@ export async function analyzeStoryWithVerifiedTeacher(input: {
       narrativeMarkerCount,
       narrativeMarkerDensity,
       sourceChannel: profile.channel,
-      popularityThresholdPassed: profile.engagement?.thresholdPassed === true,
+      sourceQualityBasis: "content_evidence_only",
     },
     classification: {
       format: classifyFormat(profile, text),
@@ -520,15 +517,6 @@ export async function getBaselineViralDramaCurriculum() {
     sourceText,
     sourceProfile: {
       channel: "youtube",
-      engagement: {
-        metric: "views",
-        observedCount: 100_000,
-        minimumRequired: 100_000,
-        thresholdPassed: true,
-        verification: "operator_attested",
-        evidenceReference: "built-in-curriculum",
-        observedAt: "2026-08-22T00:00:00.000Z",
-      },
     },
   });
   return buildVerifiedStoryTeacherRules(sourceText, {

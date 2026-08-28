@@ -25,6 +25,10 @@ import { createProjectBackup, validateBackupPayload } from "../lib/novel-ai/repo
 import { CHARACTER_AGENT_STORES, CONVERSATION_STORES, LEGACY_NOVEL_STORES, NOVEL_STORES, RPG_V3_STORES } from "../lib/novel-ai/repository/contracts/index.ts";
 import { CAPABILITY_REGISTRY } from "../lib/novel-ai/capabilities/capability-registry.ts";
 import { PlatformRouterError, resolvePlatformProvider } from "../lib/novel-ai/router/platform-router.ts";
+import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 
 const suite = process.argv[2] ?? "all";
 const evidenceDir = process.env.P24A_EVIDENCE_DIR || path.resolve("artifacts", "p24a-ci");
@@ -98,8 +102,21 @@ async function seedRepository(repo, input) {
   draft.projectId = input.storyId;
   draft.id = input.storyId;
   draft.title = input.storyTitle;
+  draft.genreId = "classic-topic-001";
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode: "general",
+  });
+  const selectedFamily = stageMatrix.stageFamilies[0];
+  const selectedProtagonist = selectedFamily.members[0];
+  draft.answers.stageFamily = optionalValue(serializeTopicWorldFamilyDraftSelection({
+    matrix: stageMatrix,
+    familyId: selectedFamily.familyId,
+    selectedProtagonistId: selectedProtagonist.characterId,
+  }), "user_defined");
   draft.coreIdea = optionalValue("名冊揭露城市祕密", "user_defined");
-  draft.protagonist = optionalValue("林昭", "user_defined");
+  draft.protagonist = optionalValue(selectedProtagonist.name, "user_defined");
   const bundle = buildProjectBundle(draft);
   bundle.project.revision = input.sourceRevision;
   bundle.storyBible.revision = input.storyBibleVersion;
@@ -530,7 +547,7 @@ function registerSecurityTests() {
 function registerUiTests() {
   const source = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/drama/drama-workspace.tsx"), "utf8");
   const css = fs.readFileSync(path.join(process.cwd(), "app/studio/project/[projectId]/drama/drama.module.css"), "utf8");
-  const requiredText = ["小說轉短劇", "Seedance 2.5 已安裝，但尚未可送件", "送出 Seedance 2.5 測試工作", "下載 JSON 交接資料（非影片）", "資料將離開本機", "可能依 BytePlus 當時費率收費", "來源章節", "目標長度", "播放方式", "一般線性短劇", "互動短劇", "單集規劃", "情緒曲線", "主要衝突", "開場 Hook", "結尾懸念", "集尾互動選項", "一般短劇不顯示 ABC", "風險提示", "接受並建立改編版本", "再產生一份", "放棄", "查看技術資訊"];
+  const requiredText = ["小說轉短劇", "影片製作中樞", "需申請並完成串接", "送出至已連接的影片供應商", "下載製作交接包 JSON（不是影片）", "資料將離開本機", "查看供應商當時費率", "逐鏡製作時間軸", "來源章節", "目標長度", "播放方式", "一般線性短劇", "互動短劇", "單集規劃", "情緒曲線", "主要衝突", "開場 Hook", "結尾懸念", "集尾互動選項", "一般短劇不顯示 ABC", "風險提示", "接受並建立改編版本", "再產生一份", "放棄", "查看技術資訊"];
   for (const value of requiredText) test(`UI contains ${value}`, () => assert(source.includes(value)));
   test("technical information is collapsed", () => assert(source.includes("<details className=\"dramaTechnical\">")));
   test("UI displays canonical mutation count", () => assert(source.includes("candidate.canonicalMutation")));
@@ -542,9 +559,11 @@ function registerUiTests() {
   test("grid tracks allow shrinking", () => assert(css.includes("minmax(0,1fr)")));
   test("engineering provider IDs are not visible labels", () => assert(!source.includes(">deterministic-local<")));
   test("ABC choices render only for interactive playback", () => assert(source.includes('candidatePlaybackMode === "interactive"')));
-  test("video handoff names the installed server contract without claiming execution", () => {
-    assert(source.includes('providerExecution: "not_connected"'));
-    assert(source.includes('installedAdapters: ["byteplus-las-seedance-2.5-server-contract"]'));
+  test("video handoff is provider neutral and never claims JSON is a video", () => {
+    assert(source.includes("createVideoProductionHandoffPackage"));
+    assert(source.includes("製作交接包 JSON 已下載"));
+    assert(!source.includes("Seedance 2.5 已安裝"));
+    assert(!source.includes("installedAdapters"));
   });
   test("video submission requires runtime, approval, consent and cost confirmation", () => {
     assert(source.includes("videoRuntimeReady"));

@@ -115,14 +115,21 @@ assert.doesNotMatch(selectorSource, /repository\.(?:put|remove)[\s\S]{0,80}\("(?
 assert.match(selectorSource, /data-canon-edit-surface="story-selection-only"/u);
 
 const professionalSource = source("app/professional/professional-client.tsx");
-assert.match(professionalSource, /mode="home-edit"/u);
 assert.match(professionalSource, /professional-canon-editor-link/u);
-assert.match(professionalSource, /character-world-memory-editor/u);
+assert.match(professionalSource, /\/canon\?targetProjectId=/u);
+assert.match(professionalSource, /data-testid="professional-canon-readonly-summary"/u);
+assert.match(professionalSource, /data-canon-edit-surface="readonly-selection-links"/u);
+assert.doesNotMatch(professionalSource, /CharacterRelationshipWorkbench/u);
+assert.doesNotMatch(professionalSource, /mode="home-edit"/u);
 const frontdoorSource = source("app/frontdoor-client.tsx");
 assert.match(frontdoorSource, /frontdoor-canon-editor/u);
-assert.match(frontdoorSource, /character-world-memory-editor/u);
+assert.match(frontdoorSource, /\/canon/u);
 assert.match(frontdoorSource, /novel_p2_active_project_id/u);
 assert.match(frontdoorSource, /item\.id === activeProjectId/u);
+const globalEditorSource = source("app/canon/canon-client.tsx");
+assert.match(globalEditorSource, /data-testid="global-canon-editor"/u);
+assert.match(globalEditorSource, /copyGlobalCanonToProject/u);
+assert.match(globalEditorSource, /不會自動上場/u);
 const homeWorkbenchSource = source("app/studio/project/[projectId]/character-relationship-workbench.tsx");
 assert.match(homeWorkbenchSource, /data-testid="home-canon-editor"/u);
 assert.match(homeWorkbenchSource, /setCharacterEditorsOpen\(true\)/u);
@@ -132,7 +139,7 @@ for (const editReturnFile of [
   "app/studio/project/[projectId]/story-stage-selection-page.tsx",
   "app/studio/project/[projectId]/story-stage-selector.tsx",
 ]) {
-  assert.match(source(editReturnFile), /#character-world-memory-editor/u, `${editReturnFile} must return to the editor, not the stage picker`);
+  assert.match(source(editReturnFile), /\/canon\?targetProjectId=/u, `${editReturnFile} must return to the global editor, not the stage picker`);
 }
 for (const label of [
   "故事內選擇上場人物（唯讀）",
@@ -145,7 +152,7 @@ for (const label of [
 
 const projectNavigationSource = source("app/studio/project/[projectId]/project-navigation.tsx");
 assert.match(projectNavigationSource, /人物與世界、故事脈絡只提供唯讀查詢與上場選擇/u);
-assert.match(projectNavigationSource, /正式設定管理（可編修）/u);
+assert.match(projectNavigationSource, /跨作品設定總編輯/u);
 assert.match(projectNavigationSource, /href=\{projectHome\}/u);
 
 const chatViewSource = source("app/studio/project/[projectId]/chat/components/conversation-workspace-view.tsx");

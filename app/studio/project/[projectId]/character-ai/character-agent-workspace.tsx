@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClosedAgentExecutionResult } from "@/lib/novel-ai/closed-agent-os";
-import type { Chapter, Character, CharacterRelationship, NovelProject, StoryBible, StoryState, World } from "@/lib/novel-ai/domain";
-import { activeStoryCharacters, activeStoryWorlds } from "@/lib/novel-ai/domain/active-story-context";
-import { isCharacterEraCompatible, suggestedCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
+import type { Chapter, Character, CharacterRelationship, NovelProject, StoryBible, StoryState, World, WorldRule } from "@/lib/novel-ai/domain";
+import { activeStoryCast } from "@/lib/novel-ai/domain/active-story-context";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
+import { suggestedCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   executeStudioClosedAgent,
@@ -58,6 +59,7 @@ type WorkspaceData = {
   storyStates: StoryState[];
   chapters: Chapter[];
   worlds: World[];
+  worldRules: WorldRule[];
   characters: Character[];
   formalRelationships: CharacterRelationship[];
   profiles: CharacterAgentProfile[];
@@ -154,12 +156,13 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
 
   async function load() {
     const repository = createNovelRepository();
-    const [project, bibles, storyStates, chapters, worlds, characters, formalRelationships, profiles, states, knowledge, beliefs, memories, relationships, relationshipEvents, privateArcs, simulations, turns, evaluations, proposals] = await Promise.all([
+    const [project, bibles, storyStates, chapters, worlds, worldRules, characters, formalRelationships, profiles, states, knowledge, beliefs, memories, relationships, relationshipEvents, privateArcs, simulations, turns, evaluations, proposals] = await Promise.all([
       repository.get<NovelProject>("projects", projectId),
       repository.list<StoryBible>("storyBibles", projectId),
       repository.list<StoryState>("storyStates", projectId),
       repository.list<Chapter>("chapters", projectId),
       repository.list<World>("worlds", projectId),
+      repository.list<WorldRule>("worldRules", projectId),
       repository.list<Character>("characters", projectId),
       repository.list<CharacterRelationship>("relationships", projectId),
       repository.list<CharacterAgentProfile>("characterAgentProfiles", projectId),
@@ -175,23 +178,27 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
       repository.list<CharacterAgentEvaluation>("characterAgentEvaluations", projectId),
       repository.list<CharacterProposalEnvelope>("characterProposals", projectId),
     ]);
-    if (!project || !bibles[0]) throw new Error("找不到作品或 Story Bible。");
+    const storyBible = resolveProjectStoryBible(project, bibles);
+    if (!project || !storyBible) throw new Error("找不到作品或 Story Bible。");
     const context = await createCharacterCanonContext({
       projectId,
       canonType: "NOVEL_CANON",
       novelRevision: project.revision,
-      storyBibleVersion: bibles[0].revision,
+      storyBibleVersion: storyBible.revision,
       timelinePosition: TIMELINE_POSITION,
       sourceCharacterRevisions: Object.fromEntries(characters.map((character) => [character.id, character.revision])),
     });
     setCanonContext(context);
     const storyState = storyStates.find((item) => item.id === project.storyStateId) ?? storyStates[0] ?? null;
-    const activeWorlds = activeStoryWorlds(worlds, storyState, bibles[0]);
-    const stagedCharacters = storyState?.activeWorldId !== undefined && !activeWorlds.length
-      ? []
-      : activeStoryCharacters(characters, storyState, bibles[0])
-        .filter((character) => isCharacterEraCompatible({ character, project, worlds: activeWorlds }));
-    setData({ project, storyBible: bibles[0], storyStates, chapters, worlds, characters, formalRelationships, profiles, states, knowledge, beliefs, memories, relationships, relationshipEvents, privateArcs, simulations, turns, evaluations, proposals });
+    const { characters: stagedCharacters } = activeStoryCast({
+      project,
+      storyBible,
+      storyState,
+      worldRules,
+      worlds,
+      characters,
+    });
+    setData({ project, storyBible, storyStates, chapters, worlds, worldRules, characters, formalRelationships, profiles, states, knowledge, beliefs, memories, relationships, relationshipEvents, privateArcs, simulations, turns, evaluations, proposals });
     setSelectedCharacterId((current) => current && stagedCharacters.some((character) => character.id === current) ? current : stagedCharacters[0]?.id ?? "");
     setParticipantIds((current) => current.length ? current.filter((id) => stagedCharacters.some((character) => character.id === id)) : stagedCharacters.slice(0, 3).map((character) => character.id));
     setSelectedSessionId((current) => current && simulations.some((session) => session.sessionId === current) ? current : simulations.at(-1)?.sessionId ?? "");
@@ -229,15 +236,18 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
   const activeStoryState = data?.storyStates.find((item) => item.id === data.project.storyStateId)
     ?? data?.storyStates[0]
     ?? null;
-  const activeWorlds = data
-    ? activeStoryWorlds(data.worlds, activeStoryState, data.storyBible)
-    : [];
-  const stagedCharacters = data
-    ? activeStoryState?.activeWorldId !== undefined && !activeWorlds.length
-      ? []
-      : activeStoryCharacters(data.characters, activeStoryState, data.storyBible)
-        .filter((character) => isCharacterEraCompatible({ character, project: data.project, worlds: activeWorlds }))
-    : [];
+  const activeCast = data
+    ? activeStoryCast({
+        project: data.project,
+        storyBible: data.storyBible,
+        storyState: activeStoryState,
+        worldRules: data.worldRules,
+        worlds: data.worlds,
+        characters: data.characters,
+      })
+    : { worlds: [], characters: [] };
+  const activeWorlds = activeCast.worlds;
+  const stagedCharacters = activeCast.characters;
   const stagedCharacterIds = new Set(stagedCharacters.map((character) => character.id));
   const selectedCharacter = stagedCharacters.find((character) => character.id === selectedCharacterId) ?? null;
   const selectedProfile = data?.profiles.filter((profile) => profile.characterId === selectedCharacterId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
@@ -756,7 +766,7 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
 
   return (
     <main className="p2ProjectShell">
-      <header><a href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>← 首頁正式設定</a><div><small>{data.project.title}</small><h1>角色視角模擬</h1></div><span>私人試演，不等於正式人物資料</span></header>
+      <header><a href={`/canon?targetProjectId=${encodeURIComponent(projectId)}`}>← 全域角色、世界與記憶總編輯</a><div><small>{data.project.title}</small><h1>角色視角模擬</h1></div><span>私人試演，不等於正式人物資料</span></header>
       <ProjectNavigation projectId={projectId} active="character-ai" />
       <ProjectContextTabs projectId={projectId} context="people-world" active="character-ai" />
       <section className={`${styles.root} characterAgentWorkspace`} data-testid="character-agent-workspace">
@@ -765,7 +775,7 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
           <button disabled={busy || !stagedCharacters.length} onClick={() => void syncProfiles()}>同步上場角色 AI 檔案</button>
         </header>
         <p className="characterAgentStatus" role="status">{message}</p>
-        {!stagedCharacters.length ? <section className="characterEmpty"><h2>目前沒有可試演的上場角色</h2><p>請先在首頁正式設定中加入與目前世界時代相容的角色；候場或跨時代不相容人物不會進入角色 AI。</p><a href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>回首頁選擇上場角色</a></section> : (
+        {!stagedCharacters.length ? <section className="characterEmpty"><h2>目前沒有可試演的上場角色</h2><p>請先從全域總庫複製相容人物，再到故事內選擇上場；跨時代不相容人物不會進入角色 AI。</p><a href={`/canon?targetProjectId=${encodeURIComponent(projectId)}`}>回全域總庫管理人物</a></section> : (
           <>
             <section className="characterSelector" aria-label="選擇角色">
               {stagedCharacters.map((character) => <button key={character.id} className={selectedCharacterId === character.id ? "active" : ""} onClick={() => setSelectedCharacterId(character.id)}><CharacterPortraitImage portrait={suggestedCharacterPortrait({ character, project: data.project, worlds: activeWorlds })} className="characterSelectorPortrait" decorative /><b>{character.name}</b><small>{character.goal.value || "目標尚未設定"}</small></button>)}
@@ -780,7 +790,7 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
             </section>
 
             <section className={styles.dynamicsLab} data-testid="character-dynamics-lab">
-              <header><div><small>PRIVATE DYNAMICS PREVIEW · CANON 0</small><h2>個性與朋友圈私人試算</h2><p>只探索上場人物可能形成的社交張力，不建立能力值、不改正式關係。要修改客觀人物與關係，請回首頁正式設定。</p></div><div><button type="button" disabled={busy || !stagedCharacters.length} onClick={generateDynamicsCandidate}>重新試算候選</button><a href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>回首頁管理 Canon</a></div></header>
+              <header><div><small>PRIVATE DYNAMICS PREVIEW · CANON 0</small><h2>個性與朋友圈私人試算</h2><p>只探索上場人物可能形成的社交張力，不建立能力值、不改正式關係。要修改客觀人物與關係，請回全域總編輯。</p></div><div><button type="button" disabled={busy || !stagedCharacters.length} onClick={generateDynamicsCandidate}>重新試算候選</button><a href={`/canon?targetProjectId=${encodeURIComponent(projectId)}`}>回全域總庫管理 Canon</a></div></header>
               {displayedComplexity ? <div className={styles.complexityGrid}><article><small>朋友圈</small><b>{displayedComplexity.label}</b><span>{displayedComplexity.complexityScore}/100</span></article><article><small>方向關係</small><b>{displayedComplexity.directedEdgeCount}</b><span>密度 {displayedComplexity.density}%</span></article><article><small>互惠程度</small><b>{displayedComplexity.reciprocity}%</b><span>三角連結 {displayedComplexity.triangleRatio}%</span></article><article><small>張力／凝聚</small><b>{displayedComplexity.tension}／{displayedComplexity.cohesion}</b><span>分化 {displayedComplexity.polarization}</span></article></div> : null}
               {selectedDynamicsCandidate ? <article className={styles.dynamicsCandidate}><header><div><small>私人預覽 · Canonical mutation = {dynamicsCandidate?.canonicalMutation}</small><h3>{selectedCharacter?.name}｜{selectedDynamicsCandidate.archetypeLabel}</h3></div><span>{selectedDynamicsCandidate.socialRole}</span></header><p>{selectedDynamicsCandidate.personalityTraits.join("、")}；需要：{selectedDynamicsCandidate.relationshipNeeds.join("、")}</p><div className={styles.axisGrid}>{Object.entries(selectedDynamicsCandidate.personalityAxes).map(([axis, value]) => <label key={axis}><span>{CHARACTER_PERSONALITY_AXIS_LABELS[axis as keyof typeof CHARACTER_PERSONALITY_AXIS_LABELS]}</span><progress max={100} value={value} /><b>{value}</b></label>)}</div><footer><span>不建立或覆蓋 RPG 能力</span><span>模擬關係 {dynamicsCandidate?.relationships.length ?? 0} 條</span></footer></article> : <p className={styles.dynamicsEmpty}>按「重新試算候選」後，這裡只顯示私人社交假設；正式人物、能力與關係維持不變。</p>}
             </section>
@@ -791,7 +801,7 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
             </section>
 
             <section className="setupGrid">
-              <article><h2>客觀 Canon 在首頁管理</h2><p>姓名、能力、世界、公開關係與 Story Bible 只有一份正式來源；角色 AI 不再另建第二套正式資料。</p><a href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>前往首頁正式設定</a></article>
+              <article><h2>客觀 Canon 在跨作品總庫管理</h2><p>姓名、能力、世界與公開關係只有一份全域來源；角色 AI 不再另建第二套正式資料。</p><a href={`/canon?targetProjectId=${encodeURIComponent(projectId)}`}>前往全域總編輯</a></article>
               <form onSubmit={(event) => void addBelief(event)}><h2>角色信念</h2><p>信念可以是錯的，不會改變正式真相。</p><label>角色目前相信<input value={beliefText} onChange={(event) => setBeliefText(event.target.value)} /></label><button type="submit">保存信念</button><ul>{data.beliefs.filter((belief) => belief.characterId === selectedCharacterId).map((belief) => <li key={belief.beliefId}>{belief.proposition} <small>{belief.beliefStatus}</small></li>)}</ul></form>
               <article><h2>視角資料只讀同步</h2><p>角色知道／不知道的資訊與視角關係由首頁正式資料和已發生章節投影而來；按上方同步不會改寫 Canon。</p><small>上場 {stagedCharacters.length} 人 · 視角關係 {data.relationships.filter((edge) => stagedCharacterIds.has(edge.fromCharacterId) && stagedCharacterIds.has(edge.toCharacterId)).length} 條</small></article>
             </section>
@@ -834,7 +844,7 @@ export default function CharacterAgentWorkspace({ projectId }: { projectId: stri
 
             <section className="proposalSection">
               <header><h2>待你決定的候選</h2><p>接受前都不會套用；有設定衝突時會阻擋核准。</p></header>
-              {data.proposals.length ? data.proposals.map((proposal) => <article key={proposal.proposalId} data-testid="character-proposal"><div><small>{proposal.proposalType}</small><h3>{proposal.status === "ACCEPTED" ? "舊版已核准紀錄" : proposal.status === "REJECTED" ? "已放棄的角色候選" : "私人模擬轉成的參考候選"}</h3><p>{proposal.detectedChanges.join("、")}</p>{proposal.warnings.length ? <p className="proposalWarning">發現角色設定衝突：{proposal.warnings.join("；")}</p> : null}</div>{["GENERATED", "REVIEWING"].includes(proposal.status) ? <footer><a href={`/professional?intent=library&projectId=${encodeURIComponent(projectId)}#character-world-memory-editor`}>到首頁人工核准正式變更</a><button onClick={() => void rejectProposal(proposal)}>放棄</button></footer> : <span>{proposal.status === "ACCEPTED" ? "歷史紀錄；目前版本不再由此頁寫入 Canon" : "正式內容未變更"}</span>}</article>) : <p>目前沒有待處理候選。</p>}
+              {data.proposals.length ? data.proposals.map((proposal) => <article key={proposal.proposalId} data-testid="character-proposal"><div><small>{proposal.proposalType}</small><h3>{proposal.status === "ACCEPTED" ? "舊版已核准紀錄" : proposal.status === "REJECTED" ? "已放棄的角色候選" : "私人模擬轉成的參考候選"}</h3><p>{proposal.detectedChanges.join("、")}</p>{proposal.warnings.length ? <p className="proposalWarning">發現角色設定衝突：{proposal.warnings.join("；")}</p> : null}</div>{["GENERATED", "REVIEWING"].includes(proposal.status) ? <footer><a href={`/canon?targetProjectId=${encodeURIComponent(projectId)}`}>到全域總編輯人工核准</a><button onClick={() => void rejectProposal(proposal)}>放棄</button></footer> : <span>{proposal.status === "ACCEPTED" ? "歷史紀錄；目前版本不再由此頁寫入 Canon" : "正式內容未變更"}</span>}</article>) : <p>目前沒有待處理候選。</p>}
             </section>
 
             <details className="characterTechnical"><summary>查看技術資訊</summary><p>角色視角與全局檢查分開建立；被拒絕的秘密會保持受限制狀態。系統只保存可稽核的決策摘要，不保存內部推理草稿。</p></details>

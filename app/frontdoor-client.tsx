@@ -150,8 +150,8 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
     return `/settings/local-ai?returnTo=${encodeURIComponent(returnTo)}`;
   }, [recentId]);
   const canonEditorHref = recentId
-    ? `/professional?intent=library&projectId=${encodeURIComponent(recentId)}#character-world-memory-editor`
-    : "/professional?intent=library";
+    ? `/canon?targetProjectId=${encodeURIComponent(recentId)}`
+    : "/canon";
   const directProjectHref = projectCount === 1 && recentId
     ? `/studio/project/${encodeURIComponent(recentId)}/chat`
     : "";
@@ -232,17 +232,15 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
               <a className="secondaryAction" href="/studio/create">探索 {classicTopics} 類題材</a>
             )}
           </div>
-          {recentProject && recentId ? (
-            <a
-              className={styles.canonShortcut}
-              data-testid="frontdoor-canon-editor"
-              href={canonEditorHref}
-            >
-              <span>角色、世界與記憶</span>
-              <b>編輯《{recentProject.title}》的正式設定</b>
-              <i aria-hidden="true">→</i>
-            </a>
-          ) : null}
+          <a
+            className={styles.canonShortcut}
+            data-testid="frontdoor-canon-editor"
+            href={canonEditorHref}
+          >
+            <span>跨作品總編輯 · 角色、世界與記憶</span>
+            <b>{recentProject ? `管理總庫，並可複製候選到《${recentProject.title}》` : "不必先建立作品，直接管理人物與十萬世界"}</b>
+            <i aria-hidden="true">→</i>
+          </a>
           <div className={styles.truthRow} aria-label="平台特色">
             <span><b>{classicTopics}</b> 類經典題材</span>
             <span><b>{packs}</b> 個世界分類</span>

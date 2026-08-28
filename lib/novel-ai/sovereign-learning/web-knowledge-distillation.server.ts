@@ -13,6 +13,8 @@ import {
   type VerifiedStoryResearchProfile,
 } from "./verified-story-teacher";
 import {
+  assertControlledWebContentCanCreateRules,
+  classifyControlledWebContent,
   CONTROLLED_WEB_KNOWLEDGE_VERSION,
   distilledWebKnowledgePayload,
   type ControlledTeacherProvider,
@@ -39,9 +41,6 @@ function distillationError(code: string, message: string, status = 400, detailCo
 
 function sourceChannelInstruction(research: ControlledWebResearchResult) {
   const profile = research.evidence.sourceProfile;
-  const engagement = profile.engagement
-    ? `人氣證據：${profile.engagement.metric}=${profile.engagement.observedCount}（由操作者提出證據，並非平台 API 獨立核驗）。`
-    : "此來源沒有設定人氣門檻。";
   const focus = profile.channel === "youtube"
     ? "聚焦影片開場承諾、觀看留存節拍、系列化包裝、社群互動與可移植的敘事技術。"
     : profile.channel === "novel_app"
@@ -51,7 +50,7 @@ function sourceChannelInstruction(research: ControlledWebResearchResult) {
       : profile.channel === "popular_web"
         ? "聚焦資訊架構、內容發現、回訪循環、互動設計與可移植的敘事呈現技術。"
         : "聚焦可泛化的小說敘事與修訂方法。";
-  return `來源類型：${profile.channel}。${engagement}${focus}`;
+  return `來源類型：${profile.channel}。不採用流量、排行或觀看數作為品質證明。${focus}`;
 }
 
 export function buildControlledDistillationPrompt(sourceText: string, sourceContext = "來源類型：article。") {
@@ -62,7 +61,7 @@ export function buildControlledDistillationPrompt(sourceText: string, sourceCont
     "治理邊界：輸出只能是候選規則，不能核准自己、不能寫入 Canon／Memory、不能要求工具或外部連線。",
     "目標：先辨識故事的來龍去脈，再抽象出可跨作品重用的創作機制。",
     "必查分類：故事前提與類型、人物目標、觸發事件、事件因果鏈、阻力與代價、關係變化、關鍵道具功能、資訊差、伏筆、揭露或反轉、情緒債、爽點回收、結果後果、集尾鉤子與追更循環。",
-    "爆紅研究：說明各機制如何影響留存、轉述、截圖、站隊或分享；只在來源證據足夠時提高信心，不得把人氣數字當成因果證明。",
+    "讀者反應假說：說明各機制可能如何影響續讀、轉述、站隊或分享；信心只依文本證據與完整因果提高，不得用人氣、排行或流量代替內容分析。",
     `研究焦點：${sourceContext}`,
     "只輸出 JSON，不要 Markdown。格式：",
     '{"rules":[{"family":"structure|pacing|character|relationship|dialogue|style|foreshadowing|worldbuilding|revision","dimension":"viewpoint|sentence_rhythm|paragraph_rhythm|dialogue_density|opening_hook|conflict_escalation|reveal_cadence|scene_transition|ending_hook|character_pressure|relationship_movement|world_rule_delivery|foreshadow_payoff|information_control|tone|other","statement":"至少十二字的抽象規則","tags":["標籤"],"parameters":{"key":"value"},"recipe":{"when":"適用時機","operation":"可執行操作","constraint":"不得越過的限制","evaluate":"可驗證的檢查方式"},"confidence":0.70,"conflictKey":null}]}',
@@ -143,7 +142,6 @@ async function runTeacher(input: {
       "受控蒸餾",
       `教師:${input.provider}`,
       `來源:${input.research.evidence.sourceProfile.channel}`,
-        ...(input.research.evidence.sourceProfile.engagement ? ["人氣門檻:10萬+"] : []),
     ])].slice(0, 10),
   }));
   return {
@@ -218,7 +216,6 @@ function buildLocalRules(research: ControlledWebResearchResult, storyResearch: V
         ...rule.tags,
         "本機抽象",
         `來源:${research.evidence.sourceProfile.channel}`,
-        ...(research.evidence.sourceProfile.engagement ? ["人氣門檻:10萬+"] : []),
       ])].slice(0, 10),
     }));
   // A bounded blend keeps the verified causal curriculum and the public
@@ -237,6 +234,11 @@ export async function distillControlledWebKnowledge(
   if (input.signal?.aborted) {
     throw distillationError("WEB_DISTILLATION_CANCELLED", "公開頁面分析已由使用者取消。", 499);
   }
+  assertControlledWebContentCanCreateRules(classifyControlledWebContent({
+    url: input.research.evidence.finalUrl,
+    sourceProfile: input.research.evidence.sourceProfile,
+  }));
+  assertControlledWebContentCanCreateRules(input.research.evidence.contentEligibility);
   const providers = [...new Set(input.providers)].filter((provider): provider is ControlledTeacherProvider =>
     provider === "openai" || provider === "gemini" || provider === "grok");
   if (providers.length > 3) {

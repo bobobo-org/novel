@@ -19,6 +19,7 @@ import type {
   World,
   WorldRule,
 } from "@/lib/novel-ai/domain";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import {
   AUTHOR_TOOL_IDS,
   buildBatchPlan,
@@ -165,7 +166,7 @@ export default function AuthorToolsWorkspace({
         relationships,
         worlds,
         worldRules,
-        storyBible: storyBibles.find((item) => item.id === project.storyBibleId) ?? storyBibles[0] ?? null,
+        storyBible: resolveProjectStoryBible(project, storyBibles),
         storyState: storyStates.find((item) => item.id === project.storyStateId) ?? storyStates[0] ?? null,
         timeline,
       }));

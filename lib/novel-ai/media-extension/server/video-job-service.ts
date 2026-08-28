@@ -5,7 +5,7 @@ import type {
   BytePlusSeedanceResolution,
 } from "./byteplus-seedance-protocol";
 
-export const VIDEO_SUBMISSION_SCHEMA_VERSION = "seedance-video-submit-v1" as const;
+export const VIDEO_SUBMISSION_SCHEMA_VERSION = "video-production-submit-v2" as const;
 
 export type VideoRuntimeErrorCode =
   | "VIDEO_REQUEST_INVALID"
@@ -36,6 +36,16 @@ export type ValidatedVideoSubmission = {
   schemaVersion: typeof VIDEO_SUBMISSION_SCHEMA_VERSION;
   idempotencyKey: string;
   projectId: string;
+  providerId: string;
+  plan: {
+    schemaVersion: "novel-video-production-v2";
+    planId: string;
+    totalShots: number;
+    shot: {
+      shotId: string;
+      order: number;
+    };
+  };
   approvedDrama: {
     dramaProjectId: string;
     storyId: string;
@@ -79,6 +89,7 @@ export type DurableVideoJobStore = {
 
 export type VideoJobDependencies = {
   providerConfigured: boolean;
+  executionProviderId: string | null;
   durableStore: DurableVideoJobStore | null;
   artifactStoreConfigured: boolean;
   createAdapter: () => BytePlusSeedanceAdapter;
@@ -111,17 +122,22 @@ export function validateVideoSubmission(value: unknown): ValidatedVideoSubmissio
     throw new VideoRuntimeError("VIDEO_REQUEST_INVALID", "影片要求版本無效。", 400);
   }
   const approvedDrama = object(input.approvedDrama);
+  const plan = object(input.plan);
+  const shot = object(plan?.shot);
+  if (!plan || plan.schemaVersion !== "novel-video-production-v2" || !shot) {
+    throw new VideoRuntimeError("VIDEO_REQUEST_INVALID", "影片製作計畫版本無效。", 400);
+  }
   if (!approvedDrama || approvedDrama.status !== "approved") {
     throw new VideoRuntimeError("VIDEO_APPROVED_DRAMA_REQUIRED", "必須先核准短劇改編，才能建立影片工作。", 412);
   }
   if (input.externalConsent !== true) {
-    throw new VideoRuntimeError("VIDEO_EXTERNAL_CONSENT_REQUIRED", "必須明確同意資料送往 BytePlus。", 412);
+    throw new VideoRuntimeError("VIDEO_EXTERNAL_CONSENT_REQUIRED", "必須明確同意資料送往所選的外部影片供應商。", 412);
   }
   if (input.costConfirmed !== true) {
     throw new VideoRuntimeError("VIDEO_COST_CONFIRMATION_REQUIRED", "必須先確認這次外部影片工作可能產生費用。", 412);
   }
   if (input.adultNamespace !== "general") {
-    throw new VideoRuntimeError("VIDEO_ADULT_NAMESPACE_UNSUPPORTED", "第一階段不會把成人內容送往 Seedance。", 412);
+    throw new VideoRuntimeError("VIDEO_ADULT_NAMESPACE_UNSUPPORTED", "目前不會把成人內容送往外部影片供應商。", 412);
   }
   const mediaPrompt = typeof input.mediaPrompt === "string" ? input.mediaPrompt.trim() : "";
   if (!mediaPrompt || new TextEncoder().encode(mediaPrompt).byteLength > 20_000) {
@@ -152,6 +168,16 @@ export function validateVideoSubmission(value: unknown): ValidatedVideoSubmissio
     schemaVersion: VIDEO_SUBMISSION_SCHEMA_VERSION,
     idempotencyKey: requiredId(input.idempotencyKey, "重送識別碼"),
     projectId,
+    providerId: requiredId(input.providerId, "影片供應商識別碼"),
+    plan: {
+      schemaVersion: "novel-video-production-v2",
+      planId: requiredId(plan.planId, "影片製作計畫識別碼"),
+      totalShots: positiveRevision(plan.totalShots, "逐鏡總數"),
+      shot: {
+        shotId: requiredId(shot.shotId, "鏡頭識別碼"),
+        order: positiveRevision(shot.order, "鏡頭順序"),
+      },
+    },
     approvedDrama: {
       dramaProjectId: requiredId(approvedDrama.dramaProjectId, "改編識別碼"),
       storyId: approvedStoryId,
@@ -171,25 +197,32 @@ export function validateVideoSubmission(value: unknown): ValidatedVideoSubmissio
   };
 }
 
-function assertRuntimeDependencies(dependencies: VideoJobDependencies) {
+function assertRuntimeDependencies(dependencies: VideoJobDependencies, providerId?: string) {
   if (!dependencies.providerConfigured) {
     throw new VideoRuntimeError(
       "VIDEO_PROVIDER_NOT_CONFIGURED",
-      "Seedance 2.5 尚未完成伺服器端設定。",
+      "尚未連接可驗證的官方影片供應商 API。",
+      503,
+    );
+  }
+  if (!dependencies.executionProviderId || (providerId && dependencies.executionProviderId !== providerId)) {
+    throw new VideoRuntimeError(
+      "VIDEO_PROVIDER_NOT_CONFIGURED",
+      "所選供應商沒有對應的官方影片轉接器。",
       503,
     );
   }
   if (!dependencies.durableStore?.configured) {
     throw new VideoRuntimeError(
       "VIDEO_DURABLE_STORE_NOT_CONFIGURED",
-      "永久工作儲存尚未完成；為避免重複付費，這次沒有送往 BytePlus。",
+      "永久工作儲存尚未完成；為避免重複付費，這次沒有送往外部供應商。",
       503,
     );
   }
   if (!dependencies.artifactStoreConfigured) {
     throw new VideoRuntimeError(
       "VIDEO_ARTIFACT_STORE_NOT_CONFIGURED",
-      "私有影片成品驗證儲存尚未完成；這次沒有送往 BytePlus。",
+      "私有影片成品驗證儲存尚未完成；這次沒有送往外部供應商。",
       503,
     );
   }
@@ -197,7 +230,7 @@ function assertRuntimeDependencies(dependencies: VideoJobDependencies) {
 
 export async function submitVideoGenerationJob(value: unknown, dependencies: VideoJobDependencies) {
   const input = validateVideoSubmission(value);
-  assertRuntimeDependencies(dependencies);
+  assertRuntimeDependencies(dependencies, input.providerId);
   const adapter = dependencies.createAdapter();
   return dependencies.durableStore!.submit(input, () => adapter.createTask({
     prompt: input.mediaPrompt,

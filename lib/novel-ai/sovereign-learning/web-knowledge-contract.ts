@@ -1,5 +1,4 @@
 import type {
-  LearningEngagementMetric,
   LearningRuleDraft,
   LearningWebSourceChannel,
   LearningWebSourceProfile,
@@ -8,8 +7,7 @@ import type {
 import type { VerifiedStoryResearchProfile } from "./verified-story-teacher";
 import type { SharedLearningPublishReceipt } from "./shared-learning-contract";
 
-export const CONTROLLED_WEB_KNOWLEDGE_VERSION = "controlled-web-knowledge-v4" as const;
-export const POPULAR_SOURCE_MINIMUM_ENGAGEMENT = 100_000 as const;
+export const CONTROLLED_WEB_KNOWLEDGE_VERSION = "controlled-web-knowledge-v6" as const;
 
 export type ControlledTeacherProvider = "openai" | "gemini" | "grok";
 export type ControlledWebAnalysisMode = "external_teacher" | "hybrid" | "local_deterministic";
@@ -36,56 +34,105 @@ export type ControlledWebSourceEvidence = {
   robotsPolicy: "allowed" | "not_present";
   sourceDigest: string;
   sourceProfile: LearningWebSourceProfile;
+  contentEligibility: ControlledWebContentEligibility;
+  sourceTruncated: boolean;
   fingerprint: TextFingerprint;
   sanitizationStatus: "unchanged" | "sanitized";
   warningCodes: string[];
   rawContentRetained: false;
 };
 
+export type ControlledWebContentEligibility = {
+  mode: "narrative_page_text" | "metadata_only";
+  ruleCreationAllowed: boolean;
+  transcriptStatus: "not_applicable" | "missing";
+  reasonCode: "ARTICLE_PAGE_TEXT" | "VIDEO_TRANSCRIPT_REQUIRED";
+};
+
+const VIDEO_PLATFORM_HOSTS = [
+  "youtube.com",
+  "youtu.be",
+  "tiktok.com",
+  "douyin.com",
+  "vimeo.com",
+  "dailymotion.com",
+  "twitch.tv",
+  "bilibili.com",
+  "kuaishou.com",
+] as const;
+
+function hostMatches(hostname: string, domain: string) {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+/**
+ * Video landing pages expose titles, descriptions and social metadata, not a
+ * trustworthy transcript. Those fields may identify a source but can never
+ * become narrative-learning evidence.
+ */
+export function classifyControlledWebContent(input: {
+  url: string;
+  sourceProfile: LearningWebSourceProfile;
+}): ControlledWebContentEligibility {
+  let hostname = "";
+  let pathname = "";
+  try {
+    const parsed = new URL(input.url);
+    hostname = parsed.hostname.toLowerCase();
+    pathname = parsed.pathname.toLowerCase();
+  } catch {
+    // URL validation belongs to the HTTPS/SSRF boundary. A selected video
+    // channel remains metadata-only even before a complete URL is entered.
+  }
+  const explicitVideoChannel = input.sourceProfile.channel === "youtube";
+  const knownVideoHost = VIDEO_PLATFORM_HOSTS.some((domain) => hostMatches(hostname, domain));
+  const socialVideoPath = (
+    (hostMatches(hostname, "instagram.com") && /^\/(?:reel|reels)\//u.test(pathname))
+    || (hostMatches(hostname, "facebook.com") && /^\/(?:watch|reel|videos)(?:\/|$)/u.test(pathname))
+    || hostMatches(hostname, "fb.watch")
+  );
+  if (explicitVideoChannel || knownVideoHost || socialVideoPath) {
+    return {
+      mode: "metadata_only",
+      ruleCreationAllowed: false,
+      transcriptStatus: "missing",
+      reasonCode: "VIDEO_TRANSCRIPT_REQUIRED",
+    };
+  }
+  return {
+    mode: "narrative_page_text",
+    ruleCreationAllowed: true,
+    transcriptStatus: "not_applicable",
+    reasonCode: "ARTICLE_PAGE_TEXT",
+  };
+}
+
+export function assertControlledWebContentCanCreateRules(
+  eligibility: ControlledWebContentEligibility | null | undefined,
+) {
+  if (
+    !eligibility
+    || eligibility.mode !== "narrative_page_text"
+    || eligibility.ruleCreationAllowed !== true
+    || eligibility.transcriptStatus !== "not_applicable"
+    || eligibility.reasonCode !== "ARTICLE_PAGE_TEXT"
+  ) {
+    throw Object.assign(new Error(
+      "影片網址目前只能辨識為 metadata-only；標題、描述與頁面資訊不是字幕，不能建立或寫入學習規則。請貼上逐字稿，或上傳 SRT／VTT 字幕檔。",
+    ), { code: "VIDEO_TRANSCRIPT_REQUIRED", status: 422 });
+  }
+}
+
 const SOURCE_CHANNELS = new Set<LearningWebSourceChannel>(["article", "youtube", "novel_app", "popular_web", "classical_chinese"]);
-const ENGAGEMENT_METRICS = new Set<LearningEngagementMetric>(["views", "reads", "installs", "ratings", "followers", "monthly_visits"]);
 
 export function normalizeControlledWebSourceProfile(input: {
   sourceChannel?: unknown;
-  engagementMetric?: unknown;
-  engagementCount?: unknown;
-  engagementEvidence?: unknown;
-  observedAt?: string;
 }): LearningWebSourceProfile {
   const channel = String(input.sourceChannel || "article") as LearningWebSourceChannel;
   if (!SOURCE_CHANNELS.has(channel)) {
-    throw Object.assign(new Error("不支援的熱門來源類型。"), { code: "POPULAR_SOURCE_CHANNEL_INVALID" });
+    throw Object.assign(new Error("不支援的公開來源類型。"), { code: "WEB_SOURCE_CHANNEL_INVALID" });
   }
-  if (channel === "article" || channel === "classical_chinese") return { channel, engagement: null };
-  const rawCount = input.engagementCount;
-  const rawEvidence = String(input.engagementEvidence || "").trim();
-  if ((rawCount === null || rawCount === undefined || rawCount === "") && !rawEvidence) {
-    return { channel, engagement: null };
-  }
-  const metric = String(input.engagementMetric || "views") as LearningEngagementMetric;
-  if (!ENGAGEMENT_METRICS.has(metric)) {
-    throw Object.assign(new Error("不支援的人氣衡量方式。"), { code: "POPULAR_SOURCE_METRIC_INVALID" });
-  }
-  const observedCount = Math.floor(Number(input.engagementCount));
-  if (!Number.isSafeInteger(observedCount) || observedCount < POPULAR_SOURCE_MINIMUM_ENGAGEMENT) {
-    throw Object.assign(new Error("熱門來源必須提供至少 100,000 次的可查證人氣指標。"), { code: "POPULAR_SOURCE_THRESHOLD_NOT_MET" });
-  }
-  const evidenceReference = rawEvidence.slice(0, 500);
-  if (evidenceReference.length < 4) {
-    throw Object.assign(new Error("熱門來源必須提供公開計數、平台頁面或其他可稽核證據。"), { code: "POPULAR_SOURCE_EVIDENCE_REQUIRED" });
-  }
-  return {
-    channel,
-    engagement: {
-      metric,
-      observedCount,
-      minimumRequired: POPULAR_SOURCE_MINIMUM_ENGAGEMENT,
-      thresholdPassed: true,
-      verification: "operator_attested",
-      evidenceReference,
-      observedAt: input.observedAt || new Date().toISOString(),
-    },
-  };
+  return { channel };
 }
 
 export type DistilledWebKnowledgeBundle = {

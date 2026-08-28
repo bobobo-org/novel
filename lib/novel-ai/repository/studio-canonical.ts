@@ -1,5 +1,6 @@
 import { buildProjectBundle, createDraft } from "../domain/creation";
 import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type RpgTurnSettlement, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
+import { resolveProjectStoryBible } from "../domain/story-bible-selection";
 import { createProjectBackup } from "./backup";
 import { RepositoryOperationError, type AcceptChoiceConversationApprovalInput, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
 import type { AdultExperienceProfile } from "../../novel-data/adult-experience-profile";
@@ -124,7 +125,8 @@ export async function ensureStudioCanonicalProject(repository: NovelRepository, 
     project = await repository.put("projects", { ...project, activeChapterId: chapter.id }, project.revision);
   }
   let storyState = (await repository.list<StoryState>("storyStates", input.id))[0];
-  const storyBible = (await repository.list<StoryBible>("storyBibles", input.id))[0];
+  const storyBibles = await repository.list<StoryBible>("storyBibles", input.id);
+  const storyBible = resolveProjectStoryBible(project, storyBibles);
   if (!storyState || !storyBible) throw new Error("CANONICAL_PROJECT_STATE_MISSING");
   const importedPlayMode = input.selectedPlayModeId;
   const existingWorldFlags = storyState.worldFlags ?? {};

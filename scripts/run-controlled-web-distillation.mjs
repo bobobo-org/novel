@@ -8,9 +8,13 @@ import {
   parseControlledWebUrl,
 } from "../lib/novel-ai/sovereign-learning/safe-web-research.server.ts";
 import { distillControlledWebKnowledge } from "../lib/novel-ai/sovereign-learning/web-knowledge-distillation.server.ts";
-import { normalizeControlledWebSourceProfile } from "../lib/novel-ai/sovereign-learning/web-knowledge-contract.ts";
+import {
+  classifyControlledWebContent,
+  normalizeControlledWebSourceProfile,
+} from "../lib/novel-ai/sovereign-learning/web-knowledge-contract.ts";
 import {
   approveLearningRule,
+  createSovereignLearningSnapshot,
   evaluateApprovedLearningCapability,
   getSovereignLearningDashboard,
   ingestDistilledWebKnowledge,
@@ -18,9 +22,11 @@ import {
   ingestLearningSource,
   MemorySovereignLearningRepository,
   runAutonomousLearningPractice,
+  restoreSovereignLearningSnapshot,
   revokeLearningSource,
   sha256Hex,
 } from "../lib/novel-ai/sovereign-learning/index.ts";
+import { stableStringify } from "../lib/novel-ai/sovereign-learning/hashing.ts";
 
 const expectedFailures = [];
 async function rejectsCode(run, code) {
@@ -49,19 +55,37 @@ assert.equal(isPathAllowedByRobots("User-agent: *\nDisallow: /private", "/privat
 
 assert.deepEqual(normalizeControlledWebSourceProfile({ sourceChannel: "classical_chinese" }), {
   channel: "classical_chinese",
-  engagement: null,
 });
-assert.throws(
-  () => normalizeControlledWebSourceProfile({ sourceChannel: "youtube", engagementMetric: "views", engagementCount: 99_999, engagementEvidence: "公開頁面" }),
-  (error) => error.code === "POPULAR_SOURCE_THRESHOLD_NOT_MET",
-);
-const popularSourceProfile = normalizeControlledWebSourceProfile({
+assert.deepEqual(normalizeControlledWebSourceProfile({
+  sourceChannel: "youtube",
+  engagementMetric: "views",
+  engagementCount: 99_999,
+  engagementEvidence: "舊版人氣欄位不應被保留",
+}), { channel: "youtube" });
+const contentSourceProfile = normalizeControlledWebSourceProfile({
   sourceChannel: "popular_web",
   engagementMetric: "views",
   engagementCount: 250_000,
   engagementEvidence: "來源頁面公開顯示 250,000 次瀏覽",
   observedAt: "2026-08-02T00:00:00.000Z",
 });
+assert.deepEqual(classifyControlledWebContent({
+  url: "https://www.youtube.com/watch?v=truth-boundary",
+  sourceProfile: { channel: "article" },
+}), {
+  mode: "metadata_only",
+  ruleCreationAllowed: false,
+  transcriptStatus: "missing",
+  reasonCode: "VIDEO_TRANSCRIPT_REQUIRED",
+});
+assert.equal(classifyControlledWebContent({
+  url: "https://www.tiktok.com/@creator/video/123456",
+  sourceProfile: { channel: "popular_web" },
+}).ruleCreationAllowed, false);
+assert.equal(classifyControlledWebContent({
+  url: "https://example.com/narrative-craft",
+  sourceProfile: { channel: "article" },
+}).ruleCreationAllowed, true);
 
 const sourceParagraph = "一個可靠的長篇故事會讓每個場景都有清楚目標、可見阻力與不可忽略的後果。角色面臨壓力時，選擇必須改變關係、資源或資訊狀態；章末留下的問題也要能推動下一個行動，而不是只靠突然中斷。世界規則應透過代價和結果被讀者理解，重要伏筆則需要在揭露前提供可回看的線索。";
 
@@ -168,11 +192,21 @@ assert.doesNotMatch(learningWorkspaceSource, /toggleTeacher/u);
 assert.doesNotMatch(learningWorkspaceSource, /checked=\{externalConsent\}/u);
 assert.doesNotMatch(learningWorkspaceSource, /type TeacherMode|manualTeacherProviders|setManualTeacherProviders/u);
 assert.doesNotMatch(learningWorkspaceSource, /<label>連線方式/u);
+assert.doesNotMatch(learningWorkspaceSource, /webEngagementMetric|webEngagementCount|公開數值（|人氣證據（|10 萬以上熱門網頁/u);
+assert.match(learningWorkspaceSource, /影片字幕／逐字稿/u);
+assert.match(learningWorkspaceSource, /\.srt,\.vtt/u);
+assert.match(learningWorkspaceSource, /metadata-only：影片網址不能直接學習/u);
+assert.match(learningWorkspaceSource, /不會呼叫教師、不會建立候選、不會寫入本機或共享規則/u);
 assert.match(writeWorkspaceSource, /syncChapterKnowledge\(projectId, saved\)/u);
 assert.match(writeWorkspaceSource, /sourceKey: `chapter:\$\{chapter\.id\}`/u);
 assert.match(webDistillRouteSource, /if \(!origin\) return false/u);
+assert.doesNotMatch(webDistillRouteSource, /engagementMetric|engagementCount|engagementEvidence/u);
+assert.match(webDistillRouteSource, /sourceDisposition: "metadata_only"/u);
+assert.match(webDistillRouteSource, /candidateRuleCount: 0/u);
+assert.match(webDistillRouteSource, /sharedPublishAttempted: false/u);
 assert.match(safeWebResearchSource, /fetchPinnedPublicHttps[\s\S]*lookup: pinnedLookup/u);
 assert.match(safeWebResearchSource, /pinResolvedAddress: boolean/u);
+assert.match(safeWebResearchSource, /Reject before DNS or page fetch/u);
 
 const sourceHtml = `<!doctype html><html><head><title>合法敘事研究</title><script>doBadThing()</script></head><body><article>${sourceParagraph.repeat(5)}</article></body></html>`;
 const publicDns = async () => [{ address: "93.184.216.34", family: 4 }];
@@ -185,13 +219,91 @@ const research = await fetchControlledWebResearch("https://example.com/research"
   fetchImpl: fetchAllowed,
   resolveHost: publicDns,
   now: () => "2026-08-02T00:00:00.000Z",
-  sourceProfile: popularSourceProfile,
+  sourceProfile: contentSourceProfile,
 });
 assert.equal(research.evidence.title, "合法敘事研究");
 assert.equal(research.evidence.rawContentRetained, false);
 assert.equal(research.transientSanitizedText.includes("doBadThing"), false);
 assert.match(research.evidence.sourceDigest, /^[a-f0-9]{64}$/u);
-assert.equal(research.evidence.sourceProfile.engagement.observedCount, 250_000);
+assert.deepEqual(research.evidence.sourceProfile, { channel: "popular_web" });
+assert.deepEqual(research.evidence.contentEligibility, {
+  mode: "narrative_page_text",
+  ruleCreationAllowed: true,
+  transcriptStatus: "not_applicable",
+  reasonCode: "ARTICLE_PAGE_TEXT",
+});
+assert.equal(research.evidence.sourceTruncated, false);
+assert.equal("engagement" in research.evidence.sourceProfile, false);
+
+const oversizedSourceHtml = `<!doctype html><html><head><title>大型內容節錄</title></head><body><article>${sourceParagraph.repeat(6_000)}</article></body></html>`;
+const excerptedResearch = await fetchControlledWebResearch("https://example.com/large-research", {
+  fetchImpl: async (input) => new URL(input).pathname === "/robots.txt"
+    ? new Response("", { status: 404, headers: { "content-type": "text/plain" } })
+    : new Response(oversizedSourceHtml, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-length": String(new TextEncoder().encode(oversizedSourceHtml).byteLength),
+      },
+    }),
+  resolveHost: publicDns,
+  sourceProfile: { channel: "article" },
+});
+assert.equal(excerptedResearch.evidence.sourceTruncated, true);
+assert(excerptedResearch.transientSanitizedText.length <= 60_000);
+assert(excerptedResearch.evidence.warningCodes.includes("WEB_SOURCE_BYTE_EXCERPT_ANALYZED"));
+
+let videoFetchAttemptCount = 0;
+await rejectsCode(
+  () => fetchControlledWebResearch("https://www.youtube.com/watch?v=metadata-is-not-transcript", {
+    resolveHost: publicDns,
+    fetchImpl: async () => {
+      videoFetchAttemptCount += 1;
+      return new Response(sourceHtml, { status: 200, headers: { "content-type": "text/html" } });
+    },
+    sourceProfile: { channel: "youtube" },
+  }),
+  "VIDEO_TRANSCRIPT_REQUIRED",
+);
+await rejectsCode(
+  () => fetchControlledWebResearch("https://www.tiktok.com/@creator/video/123456", {
+    resolveHost: publicDns,
+    fetchImpl: async () => {
+      videoFetchAttemptCount += 1;
+      return new Response(sourceHtml, { status: 200, headers: { "content-type": "text/html" } });
+    },
+    sourceProfile: { channel: "popular_web" },
+  }),
+  "VIDEO_TRANSCRIPT_REQUIRED",
+);
+assert.equal(videoFetchAttemptCount, 0, "video metadata pages must be rejected before any page or robots fetch");
+
+for (const redirectedVideoUrl of [
+  "https://www.youtube.com/watch?v=redirected-metadata",
+  "https://www.tiktok.com/@creator/video/redirected-metadata",
+]) {
+  const requestedArticleUrl = `https://example.com/redirect-to-video?target=${encodeURIComponent(redirectedVideoUrl)}`;
+  const fetchedUrls = [];
+  await rejectsCode(
+    () => fetchControlledWebResearch(requestedArticleUrl, {
+      resolveHost: publicDns,
+      fetchImpl: async (input) => {
+        const url = new URL(input);
+        fetchedUrls.push(url.toString());
+        if (url.pathname === "/robots.txt") {
+          return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+        }
+        if (url.hostname === "example.com") {
+          return new Response(null, { status: 302, headers: { location: redirectedVideoUrl } });
+        }
+        return new Response(sourceHtml, { status: 200, headers: { "content-type": "text/html" } });
+      },
+      sourceProfile: { channel: "article" },
+    }),
+    "VIDEO_TRANSCRIPT_REQUIRED",
+  );
+  assert.equal(fetchedUrls.includes(redirectedVideoUrl), true, "controlled fetch must expose and classify its final redirect URL");
+}
 
 await rejectsCode(
   () => fetchControlledWebResearch("https://example.com/private", {
@@ -349,6 +461,77 @@ assert.equal(localOnlyBundle.rules.some((rule) => rule.extractorKind === "local_
 assert.equal(localOnlyBundle.rules.some((rule) => rule.extractorKind === "external_teacher_ai"), false);
 assert.ok(localOnlyBundle.rules.length >= 12);
 
+let blockedVideoTeacherCallCount = 0;
+const metadataOnlyResearch = structuredClone(research);
+metadataOnlyResearch.evidence.sourceProfile = { channel: "youtube" };
+metadataOnlyResearch.evidence.contentEligibility = {
+  mode: "metadata_only",
+  ruleCreationAllowed: false,
+  transcriptStatus: "missing",
+  reasonCode: "VIDEO_TRANSCRIPT_REQUIRED",
+};
+await rejectsCode(
+  () => distillControlledWebKnowledge({
+    research: metadataOnlyResearch,
+    providers: ["openai"],
+    allowLocalFallback: true,
+    generate: async (request) => {
+      blockedVideoTeacherCallCount += 1;
+      return mockGenerate(request);
+    },
+  }),
+  "VIDEO_TRANSCRIPT_REQUIRED",
+);
+assert.equal(blockedVideoTeacherCallCount, 0, "metadata-only video pages must never reach a teacher");
+
+const forgedVideoResearch = structuredClone(research);
+forgedVideoResearch.evidence.requestedUrl = "https://www.youtube.com/watch?v=forged-eligibility";
+forgedVideoResearch.evidence.finalUrl = "https://www.youtube.com/watch?v=forged-eligibility";
+forgedVideoResearch.evidence.sourceProfile = { channel: "article" };
+forgedVideoResearch.evidence.contentEligibility = {
+  mode: "narrative_page_text",
+  ruleCreationAllowed: true,
+  transcriptStatus: "not_applicable",
+  reasonCode: "ARTICLE_PAGE_TEXT",
+};
+await rejectsCode(
+  () => distillControlledWebKnowledge({
+    research: forgedVideoResearch,
+    providers: [],
+    forceLocal: true,
+  }),
+  "VIDEO_TRANSCRIPT_REQUIRED",
+);
+
+await rejectsCode(
+  () => ingestDistilledWebKnowledge(new MemorySovereignLearningRepository(), {
+    projectId: "metadata-only-video-project",
+    bundle: {
+      ...localOnlyBundle,
+      source: metadataOnlyResearch.evidence,
+    },
+    rightsBasis: "public_abstract_research",
+    rightsEvidence: "metadata-only test",
+    userConfirmedRights: true,
+    externalConsent: false,
+  }),
+  "VIDEO_TRANSCRIPT_REQUIRED",
+);
+await rejectsCode(
+  () => ingestDistilledWebKnowledge(new MemorySovereignLearningRepository(), {
+    projectId: "forged-video-eligibility-project",
+    bundle: {
+      ...localOnlyBundle,
+      source: forgedVideoResearch.evidence,
+    },
+    rightsBasis: "public_abstract_research",
+    rightsEvidence: "forged eligibility test",
+    userConfirmedRights: true,
+    externalConsent: false,
+  }),
+  "VIDEO_TRANSCRIPT_REQUIRED",
+);
+
 const automaticFallbackBundle = await distillControlledWebKnowledge({
   research,
   providers: ["openai"],
@@ -402,7 +585,9 @@ const ingested = await ingestDistilledWebKnowledge(repository, {
 assert.equal(ingested.source.localAnalysisOnly, false);
 assert.equal(ingested.source.rawContentRetained, false);
 assert.equal(ingested.source.dataLeftDevice, true);
-assert.equal(ingested.source.webProvenance.sourceProfile.engagement.thresholdPassed, true);
+assert.deepEqual(ingested.source.webProvenance.sourceProfile, { channel: "popular_web" });
+assert.equal(ingested.source.webProvenance.sourceTruncated, false);
+assert.equal(ingested.source.warningCodes.some((code) => code.startsWith("POPULAR_SOURCE_") || code.startsWith("POPULARITY_")), false);
 assert.equal(ingested.rules.every((rule) => rule.status === "candidate"), true);
 assert.equal(JSON.stringify(ingested).includes(sourceParagraph), false);
 
@@ -416,6 +601,37 @@ assert.ok(capability.selectedRuleIds.length > 0);
 assert.ok(capability.scores.capabilityDelta > 0);
 assert.equal(capability.privacy.canonicalMutationCount, 0);
 assert.match(capability.evidenceDigest, /^[a-f0-9]{64}$/u);
+
+const legacySnapshot = structuredClone(await createSovereignLearningSnapshot(repository, "controlled-web-project"));
+legacySnapshot.sources[0].warningCodes.push("POPULAR_SOURCE_VIEWS_250000", "POPULARITY_EVIDENCE_NOT_PROVIDED");
+legacySnapshot.sources[0].webProvenance.sourceProfile = {
+  channel: "popular_web",
+  engagement: {
+    metric: "views",
+    observedCount: 250_000,
+    minimumRequired: 100_000,
+    thresholdPassed: true,
+    verification: "operator_attested",
+    evidenceReference: "legacy-public-count",
+    observedAt: "2026-08-02T00:00:00.000Z",
+  },
+};
+const legacyBody = Object.fromEntries(
+  Object.entries(legacySnapshot).filter(([key]) => key !== "contentHash"),
+);
+legacySnapshot.contentHash = await sha256Hex(stableStringify(legacyBody));
+const restoredLegacyRepository = new MemorySovereignLearningRepository();
+const restoredLegacyDashboard = await restoreSovereignLearningSnapshot(
+  restoredLegacyRepository,
+  legacySnapshot,
+  "controlled-web-project",
+);
+assert.equal(restoredLegacyDashboard.sources.some((source) => source.warningCodes.some((code) => code.startsWith("POPULAR_SOURCE_") || code.startsWith("POPULARITY_"))), false);
+assert.equal("engagement" in restoredLegacyDashboard.sources[0].webProvenance.sourceProfile, false);
+const sanitizedSnapshot = await createSovereignLearningSnapshot(restoredLegacyRepository, "controlled-web-project");
+assert.equal(JSON.stringify(sanitizedSnapshot).includes("POPULAR_SOURCE_"), false);
+assert.equal(JSON.stringify(sanitizedSnapshot).includes("POPULARITY_"), false);
+assert.equal(JSON.stringify(sanitizedSnapshot).includes("observedCount"), false);
 
 const autonomous = await runAutonomousLearningPractice({
   repository,
@@ -440,7 +656,7 @@ assert.equal(dashboard.counts.approvedRules, 0);
 
 const report = {
   status: "PASS",
-  checks: 73,
+  checks: 106,
   expectedFailures,
   teacherCount: bundle.teachers.length,
   ruleCount: bundle.rules.length,
@@ -453,18 +669,23 @@ const report = {
   rawSourceRetained: false,
   rawTeacherResponseRetained: false,
   canonicalMutationCount: 0,
-  popularSourceChannel: bundle.source.sourceProfile.channel,
+  sourceChannel: bundle.source.sourceProfile.channel,
+  sourceTruncated: bundle.source.sourceTruncated,
+  oversizedSourceSafelyExcerpted: excerptedResearch.evidence.sourceTruncated,
+  legacyPopularityMetadataRemoved: true,
   firstPartyAutoApproval: firstPartyV1.approvedRuleIds.length,
   firstPartyTargetedRevocation: firstPartyV2.revokedSourceIds.length,
-  popularSourceObservedCount: bundle.source.sourceProfile.engagement.observedCount,
 };
 const serialized = `${JSON.stringify(report, null, 2)}\n`;
 const artifactDirectory = new URL("../artifacts/controlled-learning/", import.meta.url);
 await mkdir(artifactDirectory, { recursive: true });
-await writeFile(new URL("controlled-web-distillation-tests.json", artifactDirectory), serialized, "utf8");
-await writeFile(
+async function writeEvidenceIfChanged(url, content) {
+  const current = await readFile(url, "utf8").catch(() => null);
+  if (current !== content) await writeFile(url, content, "utf8");
+}
+await writeEvidenceIfChanged(new URL("controlled-web-distillation-tests.json", artifactDirectory), serialized);
+await writeEvidenceIfChanged(
   new URL("controlled-web-distillation-tests.sha256", artifactDirectory),
   `${createHash("sha256").update(serialized).digest("hex")}  controlled-web-distillation-tests.json\n`,
-  "utf8",
 );
 console.log(serialized.trim());

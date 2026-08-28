@@ -14,6 +14,7 @@ import {
   type World,
   type WorldRule,
 } from "../domain";
+import { resolveProjectStoryBible } from "../domain/story-bible-selection";
 import {
   isStoryPlayModeId,
   type StoryPlayModeId,
@@ -180,8 +181,7 @@ export async function buildProjectPlaymodeCloneDraft(
   const seed = latest(seeds);
   const storyState = storyStates.find((item) => item.id === source.storyStateId)
     ?? latest(storyStates);
-  const storyBible = storyBibles.find((item) => item.id === source.storyBibleId)
-    ?? latest(storyBibles);
+  const storyBible = resolveProjectStoryBible(source, storyBibles);
   const protagonist = characters.find((item) => storyBible?.protagonistIds?.includes(item.id))
     ?? characters.find((item) => storyBible?.characterIds?.includes(item.id))
     ?? latest(characters);

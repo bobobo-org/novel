@@ -1,4 +1,5 @@
-import type { StoryBible } from "../domain/index";
+import type { NovelProject, StoryBible } from "../domain/index";
+import { resolveProjectStoryBible } from "../domain/story-bible-selection";
 import {
   LOCAL_EVIDENCE_RESOLVER_VERSION,
   LOCAL_QUALITY_SCHEMA_VERSION,
@@ -91,8 +92,11 @@ function approvalError(code: string, message: string) {
 }
 
 async function getStoryBible(repository: NovelRepository, projectId: string) {
-  const rows = await repository.list<StoryBibleWithLocalKnowledge>("storyBibles", projectId);
-  const storyBible = rows[0];
+  const [project, rows] = await Promise.all([
+    repository.get<NovelProject>("projects", projectId),
+    repository.list<StoryBibleWithLocalKnowledge>("storyBibles", projectId),
+  ]);
+  const storyBible = resolveProjectStoryBible(project, rows);
   if (!storyBible) throw approvalError("STORY_BIBLE_NOT_FOUND", "找不到這部作品的正式 Story Bible。");
   return storyBible;
 }

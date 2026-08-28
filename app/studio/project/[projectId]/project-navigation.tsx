@@ -174,7 +174,7 @@ export default function ProjectNavigation({
           <span className="p2NavLabel">全部作品功能</span>
           <span className="p2NavShort">功能</span>
         </summary>
-        <p>人物與世界、故事脈絡只提供唯讀查詢與上場選擇；要修改正式角色、能力、世界、記憶或時間線，請開啟「正式設定管理（可編修）」。故事創作與 RPG 請回故事工作台。</p>
+        <p>人物與世界、故事脈絡只提供唯讀查詢與上場選擇；要修改角色、能力、世界、記憶或時間線，請前往跨作品總編輯。故事創作與 RPG 請回故事工作台。</p>
         <div className="p2ProjectToolGrid">
           {PROJECT_LINKS.map(([path, label]) => {
             const { short } = PROJECT_LINK_PRESENTATION[path];
@@ -201,13 +201,13 @@ export default function ProjectNavigation({
           })}
           <Link
             className="p2NavWorkbench"
-            href={projectHome}
+            href={`/canon?targetProjectId=${encodeURIComponent(projectId)}`}
             prefetch={false}
-            {...guardedLink(projectHome, "正式設定管理（可編修）")}
+            {...guardedLink(`/canon?targetProjectId=${encodeURIComponent(projectId)}`, "跨作品設定總編輯")}
           >
             <ProjectNavIcon kind="data" />
-            <span className="p2NavLabel">正式設定管理（可編修）</span>
-            <span className="p2NavShort">資料</span>
+            <span className="p2NavLabel">跨作品設定總編輯</span>
+            <span className="p2NavShort">總庫</span>
           </Link>
           {playMode ? <Link
             className="p2NavCloneMode"

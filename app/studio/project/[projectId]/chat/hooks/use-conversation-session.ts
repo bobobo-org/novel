@@ -16,6 +16,7 @@ import type {
   StoryState,
   World,
 } from "@/lib/novel-ai/domain";
+import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import type { SovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
@@ -303,9 +304,7 @@ export function useConversationSessionController({
       const loadedStoryState = loadedStoryStates.find((item) => item.id === loadedProject.storyStateId)
         ?? loadedStoryStates[0]
         ?? null;
-      const loadedStoryBible = loadedStoryBibles.find((item) => item.id === loadedProject.storyBibleId)
-        ?? loadedStoryBibles[0]
-        ?? null;
+      const loadedStoryBible = resolveProjectStoryBible(loadedProject, loadedStoryBibles);
       if (!loadedStoryState) {
         throw Object.assign(new Error("作品玩法資料無法讀取；系統已停止，沒有把它誤當成一般小說。"), {
           code: "CONVERSATION_PLAY_MODE_UNAVAILABLE",

@@ -76,6 +76,24 @@ assert.throws(
   /RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED/u,
   "terse repeated dialogue without punctuation remains protected",
 );
+const legacyTemplateStory = properNounReuseStory.replace(
+  quoteClassificationParagraph,
+  `${quoteClassificationParagraph}「我可以和你同行，但不是照單全收。」`,
+);
+assert.throws(
+  () => validateRpgStoryTurnContract(legacyTemplateStory, "zh-TW"),
+  /RPG_AI_CONTINUATION_LEGACY_TEMPLATE_VISIBLE/u,
+  "the legacy generic companion line must never pass as novel prose",
+);
+const malformedQuoteStory = properNounReuseStory.replace(
+  quoteClassificationParagraph,
+  `${quoteClassificationParagraph}他依照「突破「傳承碑悟道」的計畫往前。`,
+);
+assert.throws(
+  () => validateRpgStoryTurnContract(malformedQuoteStory, "zh-TW"),
+  /RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES/u,
+  "nested same-level Chinese quotation marks must be rejected",
+);
 
 assert.equal(PROCEDURAL_WORLD_DIRECTOR_VERSION, "procedural-world-director-v2");
 assert.deepEqual(spaces, {
@@ -307,7 +325,7 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(
   story,
-  /沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
+  /我可以和你同行，但不是照單全收|沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
   "reader-facing prose leaked a data-table sentence or the retired fixed fallback skeleton",
 );
 validateRpgStoryTurnContract(story, "zh-TW");
@@ -554,7 +572,7 @@ for (let turn = 0; turn < 4; turn += 1) {
   assert.doesNotMatch(soloStory, /同行者|核准規則|本回合|下一回合|回合制|關係張力|結算結果/u);
   assert.doesNotMatch(
     soloStory,
-    /沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
+    /我可以和你同行，但不是照單全收|沒有置身事外|控制此物|此刻親自持有|持有人仍未現身|另有聲索|企業集團「|每個動作都能被看見，也因此無法假裝沒有做過|直到人聲稍歇|門外三聲叩響|新條件已送到門檻|必須決定先相信誰/u,
   );
   soloStories.push(soloStory);
   soloChoiceKeys.push(soloChoice.key);

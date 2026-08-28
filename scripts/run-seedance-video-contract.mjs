@@ -17,26 +17,31 @@ import {
   publicBytePlusSeedanceHealth,
   readBytePlusSeedanceServerConfiguration,
 } from "../lib/novel-ai/media-extension/server/byteplus-seedance.server.ts";
+import {
+  createVideoProductionHandoffPackage,
+  createVideoProductionPlan,
+  getVideoProvider,
+  listVideoProviders,
+  videoProviderSubmissionGate,
+} from "../lib/novel-ai/media-extension/index.ts";
 
 const secret = "test-secret-that-must-not-leak";
 
 assert.equal(BYTEPLUS_LAS_SEEDANCE_ENDPOINT, "https://operator.las.ap-southeast-1.bytepluses.com");
 assert.equal(BYTEPLUS_SEEDANCE_MODEL, "dreamina-seedance-2-5-260628");
-assert.deepEqual(publicBytePlusSeedanceHealth({}), {
-  configured: false,
-  model: BYTEPLUS_SEEDANCE_MODEL,
-  credentialConfigured: false,
-  jobStoreConfigured: false,
-  artifactStoreConfigured: false,
-});
+const disconnectedHealth = publicBytePlusSeedanceHealth({});
+assert.equal(disconnectedHealth.schemaVersion, "novel-video-runtime-health-v2");
+assert.equal(disconnectedHealth.configured, false);
+assert.equal(disconnectedHealth.executionProviderId, null);
+assert.equal(disconnectedHealth.model, "no-official-video-model-connected");
+assert.equal(disconnectedHealth.credentialConfigured, false);
+assert.equal(disconnectedHealth.jobStoreConfigured, false);
+assert.equal(disconnectedHealth.artifactStoreConfigured, false);
+assert.equal(disconnectedHealth.executionBlockedReason, "OFFICIAL_VIDEO_PROVIDER_API_NOT_CONNECTED");
 const credentialOnlyHealth = publicBytePlusSeedanceHealth({ BYTEPLUS_LAS_API_KEY: secret });
-assert.deepEqual(credentialOnlyHealth, {
-  configured: false,
-  model: BYTEPLUS_SEEDANCE_MODEL,
-  credentialConfigured: true,
-  jobStoreConfigured: false,
-  artifactStoreConfigured: false,
-});
+assert.equal(credentialOnlyHealth.configured, false, "a legacy credential must not enable an unverified official API");
+assert.equal(credentialOnlyHealth.credentialConfigured, true);
+assert.equal(credentialOnlyHealth.executionProviderId, null);
 assert(!JSON.stringify(credentialOnlyHealth).includes(secret), "public health must never contain the API key");
 assert.equal(readBytePlusSeedanceServerConfiguration({
   BYTEPLUS_LAS_API_KEY: secret,
@@ -142,6 +147,13 @@ const validSubmission = {
   schemaVersion: VIDEO_SUBMISSION_SCHEMA_VERSION,
   idempotencyKey: "seedance:drama-1:2:first-shot",
   projectId: "project-1",
+  providerId: "test-video-provider",
+  plan: {
+    schemaVersion: "novel-video-production-v2",
+    planId: "video-plan-1",
+    totalShots: 2,
+    shot: { shotId: "shot-1", order: 1 },
+  },
   approvedDrama: {
     dramaProjectId: "drama-1",
     storyId: "project-1",
@@ -159,6 +171,57 @@ const validSubmission = {
   externalConsent: true,
   costConfirmed: true,
 };
+
+const providers = listVideoProviders();
+const seedance25 = getVideoProvider("seedance-2.5-official");
+assert(seedance25);
+assert.equal(seedance25.availability, "requires_vendor_onboarding");
+assert.equal(seedance25.executionReady, false);
+assert.equal(seedance25.publicApiUrl, null);
+assert.equal(seedance25.capabilities.maxClipSeconds, 30);
+assert.equal(seedance25.capabilities.maxImageReferences, 30);
+assert.equal(seedance25.capabilities.maxVideoReferences, 10);
+assert.equal(seedance25.capabilities.maxAudioReferences, 10);
+assert.equal(providers.some((provider) => provider.executionReady), false, "no provider may pretend to be executable");
+
+const plan = createVideoProductionPlan({
+  planId: "video-plan-1",
+  projectId: "project-1",
+  projectRevision: "4",
+  approvedDramaId: "drama-1",
+  approvedDramaRevision: 2,
+  title: "逐鏡測試",
+  playbackMode: "linear",
+  providerId: seedance25.providerId,
+  now: new Date(0).toISOString(),
+  shots: [
+    { shotId: "shot-1", episodeId: "episode-1", sourceSceneId: "scene-1", durationSeconds: 8, visualPrompt: "角色推門進入雨夜。" },
+    { shotId: "shot-2", episodeId: "episode-1", sourceSceneId: "scene-2", durationSeconds: 12, visualPrompt: "對手在巷口轉身。" },
+  ],
+});
+assert.equal(plan.schemaVersion, "novel-video-production-v2");
+assert.equal(plan.totalDurationSeconds, 20);
+assert.equal(plan.shots[1].startSeconds, 8);
+assert.deepEqual(videoProviderSubmissionGate({
+  provider: seedance25,
+  plan,
+  approvedDrama: true,
+  externalConsent: true,
+  costConfirmed: true,
+  backendReady: true,
+  adultNamespace: "general",
+}), { allowed: false, reasons: ["PROVIDER_NOT_READY"] });
+const handoff = createVideoProductionHandoffPackage({
+  plan,
+  selectedProvider: seedance25,
+  approvedDrama: { dramaProjectId: "drama-1", status: "approved" },
+  now: new Date(0).toISOString(),
+});
+assert.equal(handoff.schemaVersion, "novel-video-production-handoff-v2");
+assert.equal(handoff.packageKind, "production_handoff_json_not_video");
+assert.equal(handoff.generatedVideo, false);
+assert.equal(handoff.artifact, null);
+assert.equal(handoff.artifactClaim, "none");
 
 let adapterFactoryCalls = 0;
 let providerCreateCalls = 0;
@@ -191,6 +254,7 @@ const fakeStore = {
 };
 const dependencies = (overrides = {}) => ({
   providerConfigured: true,
+  executionProviderId: "test-video-provider",
   durableStore: fakeStore,
   artifactStoreConfigured: true,
   createAdapter: () => {
@@ -216,6 +280,7 @@ await rejectsWithoutProvider({ ...validSubmission, approvedDrama: { ...validSubm
 await rejectsWithoutProvider({ ...validSubmission, externalConsent: false }, dependencies(), "VIDEO_EXTERNAL_CONSENT_REQUIRED");
 await rejectsWithoutProvider({ ...validSubmission, costConfirmed: false }, dependencies(), "VIDEO_COST_CONFIRMATION_REQUIRED");
 await rejectsWithoutProvider(validSubmission, dependencies({ providerConfigured: false }), "VIDEO_PROVIDER_NOT_CONFIGURED");
+await rejectsWithoutProvider(validSubmission, dependencies({ executionProviderId: "another-provider" }), "VIDEO_PROVIDER_NOT_CONFIGURED");
 await rejectsWithoutProvider(validSubmission, dependencies({ durableStore: null }), "VIDEO_DURABLE_STORE_NOT_CONFIGURED");
 await rejectsWithoutProvider(validSubmission, dependencies({ artifactStoreConfigured: false }), "VIDEO_ARTIFACT_STORE_NOT_CONFIGURED");
 
@@ -246,8 +311,9 @@ assert.match(serverSource, /^import "server-only";/u);
 const protocolSource = await readFile("lib/novel-ai/media-extension/server/byteplus-seedance-protocol.ts", "utf8");
 assert.match(protocolSource, /^import "server-only";/u);
 assert.match(serverSource, /const DURABLE_VIDEO_JOB_STORE:[\s\S]*= null;/u);
-assert.match(serverSource, /configured: credentialConfigured && jobStoreConfigured && artifactStoreConfigured/u);
+assert.match(serverSource, /configured: OFFICIAL_VIDEO_PROVIDER_ADAPTER_CONFIGURED[\s\S]*credentialConfigured[\s\S]*jobStoreConfigured[\s\S]*artifactStoreConfigured/u);
 assert.match(serverSource, /const VALIDATED_PRIVATE_VIDEO_ARTIFACT_STORE_CONFIGURED = false/u);
+assert.match(serverSource, /const OFFICIAL_VIDEO_PROVIDER_ADAPTER_CONFIGURED = false/u);
 assert.doesNotMatch(`${serverSource}\n${environmentExample}\n${uiSource}`, /NEXT_PUBLIC_[A-Z_]*BYTEPLUS|NEXT_PUBLIC_BYTEPLUS/u);
 assert.match(healthRoute, /publicBytePlusSeedanceHealth\(\)/u);
 assert.match(healthRoute, /VIDEO_SAFE_RESPONSE_HEADERS/u);
@@ -257,9 +323,11 @@ assert.match(submitRoute, /submitVideoGenerationJob\(body, serverVideoJobDepende
 assert.match(pollRoute, /pollVideoGenerationJob\(jobId, serverVideoJobDependencies\(\)\)/u);
 assert.match(uiSource, /\/api\/media\/video\/health/u);
 assert.match(uiSource, /videoRuntimeReady[\s\S]*externalVideoConsent[\s\S]*videoCostConfirmed/u);
-assert.match(uiSource, /送出 Seedance 2\.5 測試工作/u);
-assert.match(uiSource, /下載 JSON 交接資料（非影片）/u);
-assert.match(uiSource, /providerExecution: "not_connected"/u);
-assert.match(uiSource, /installedAdapters: \["byteplus-las-seedance-2\.5-server-contract"\]/u);
+assert.match(uiSource, /影片製作中樞/u);
+assert.match(uiSource, /逐鏡製作時間軸/u);
+assert.match(uiSource, /需申請並完成串接/u);
+assert.match(uiSource, /下載製作交接包 JSON（不是影片）/u);
+assert.doesNotMatch(uiSource, /Seedance 2\.5 已安裝/u);
+assert.doesNotMatch(uiSource, /installedAdapters/u);
 
-console.log("PASS Seedance 2.5 server-only and fail-closed contract");
+console.log("PASS provider-neutral video production v2 and fail-closed runtime contract");

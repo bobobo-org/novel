@@ -10,13 +10,11 @@ import type {
   WorldRule,
 } from "./domain";
 import {
-  activeStoryCharacters,
+  activeStoryCast,
   activeStoryRelationships,
   activeStoryTimeline,
   activeStoryWorldRules,
-  activeStoryWorlds,
 } from "./domain/active-story-context";
-import { isCharacterEraCompatible } from "./character-portraits/assignment";
 import { evaluateNovelContinuityGate } from "./web/story-output-quality";
 
 export const AUTHOR_TOOL_IDS = ["breakdown", "relay", "batch", "serial"] as const;
@@ -60,22 +58,14 @@ export type ClosedAuthorSuggestionValidation = {
 };
 
 export function stageAuthorToolSnapshot(snapshot: AuthorToolSnapshot): AuthorToolSnapshot {
-  const activeWorlds = activeStoryWorlds(
-    snapshot.worlds ?? [],
-    snapshot.storyState,
-    snapshot.storyBible,
-  );
-  const characters = snapshot.storyState?.activeWorldId !== undefined && !activeWorlds.length
-    ? []
-    : activeStoryCharacters(
-      snapshot.characters,
-      snapshot.storyState,
-      snapshot.storyBible,
-    ).filter((character) => !activeWorlds.length || isCharacterEraCompatible({
-      character,
-      project: snapshot.project,
-      worlds: activeWorlds,
-    }));
+  const { characters } = activeStoryCast({
+    project: snapshot.project,
+    storyBible: snapshot.storyBible,
+    storyState: snapshot.storyState,
+    worldRules: snapshot.worldRules,
+    worlds: snapshot.worlds ?? [],
+    characters: snapshot.characters,
+  });
   return {
     ...snapshot,
     characters,

@@ -23,6 +23,8 @@ function formatFromFileName(fileName: string): ManualLearningDocumentFormat {
   if (["md", "markdown"].includes(extension)) return "markdown";
   if (["html", "htm"].includes(extension)) return "html";
   if (extension === "json") return "json";
+  if (extension === "srt") return "srt";
+  if (extension === "vtt") return "vtt";
   if (extension === "pdf") return "pdf";
   if (extension === "docx") return "docx";
   throw Object.assign(new Error("Unsupported conversation attachment format."), {

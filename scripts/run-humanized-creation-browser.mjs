@@ -262,35 +262,33 @@ async function assertCleanDiagnostics(label, options = {}) {
     expectedNavigationCancellations.push(...accepted);
   }
 
-  const professionalLibraryProjectId = options.allowSupersededFrontdoorNavigationPrefetchesForProjectId || "";
-  if (professionalLibraryProjectId) {
+  const globalCanonProjectId = options.allowSupersededGlobalCanonNavigationPrefetchesForProjectId || "";
+  if (globalCanonProjectId) {
     const currentUrl = new URL(page.url());
-    assert.equal(currentUrl.pathname, "/professional");
-    assert.equal(currentUrl.searchParams.get("intent"), "library");
-    assert.equal(currentUrl.searchParams.get("projectId"), professionalLibraryProjectId);
-    assert.equal(currentUrl.hash, "#character-world-memory-editor");
-    assert.equal(await page.getByTestId("professional-canonical-workbench").isVisible(), true);
-    assert.equal(await page.getByTestId("home-canon-editor").isVisible(), true);
+    assert.equal(currentUrl.pathname, "/canon");
+    assert.equal(currentUrl.searchParams.get("targetProjectId"), globalCanonProjectId);
+    assert.equal(await page.getByTestId("global-canon-editor").isVisible(), true);
+    assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), globalCanonProjectId);
     const frontdoorTargets = [
       { pathname: "/" },
       { pathname: "/studio" },
       { pathname: "/studio/create" },
-      { pathname: "/studio/create", search: { cloneFrom: professionalLibraryProjectId } },
+      { pathname: "/studio/create", search: { cloneFrom: globalCanonProjectId } },
       { pathname: "/professional", search: { intent: "chat" } },
       { pathname: "/professional", search: { intent: "library" } },
       {
         pathname: "/professional",
-        search: { intent: "library", projectId: professionalLibraryProjectId },
+        search: { intent: "library", projectId: globalCanonProjectId },
       },
       {
         pathname: "/settings/local-ai",
-        search: { returnTo: `/studio/project/${professionalLibraryProjectId}/chat` },
+        search: { returnTo: `/studio/project/${globalCanonProjectId}/chat` },
       },
       {
-        pathname: `/studio/project/${professionalLibraryProjectId}/chat`,
+        pathname: `/studio/project/${globalCanonProjectId}/chat`,
         search: { mode: "play" },
       },
-      { pathname: `/studio/read/${professionalLibraryProjectId}` },
+      { pathname: `/studio/read/${globalCanonProjectId}` },
     ];
     const accepted = unacceptedRequestFailures.filter((failure) => (
       frontdoorTargets.some((target) => isSupersededRscCancellation(failure, target))
@@ -618,52 +616,35 @@ try {
 
     const canonEditorLink = page.getByTestId("professional-canon-editor-link");
     const canonEditorHref = new URL(await canonEditorLink.getAttribute("href"), baseUrl);
-    assert.equal(canonEditorHref.searchParams.get("projectId"), projectId);
-    assert.equal(canonEditorHref.hash, "#character-world-memory-editor");
+    assert.equal(canonEditorHref.pathname, "/canon");
+    assert.equal(canonEditorHref.searchParams.get("targetProjectId"), projectId);
     await Promise.all([
-      page.waitForURL((url) => url.hash === "#character-world-memory-editor", { timeout: 60_000 }),
+      page.waitForURL((url) => url.pathname === "/canon" && url.searchParams.get("targetProjectId") === projectId, { timeout: 60_000 }),
       canonEditorLink.tap(),
     ]);
-    await page.getByTestId("home-canon-editor").waitFor({ state: "visible" });
-    await page.waitForFunction(() => (
-      document.querySelector('[data-testid="home-character-editor"]')?.hasAttribute("open")
-      && document.querySelector('[data-testid="home-world-memory-editor"]')?.hasAttribute("open")
-    ));
-    assert.equal(await page.getByTestId("home-character-editor").getAttribute("open"), "");
-    assert.equal(await page.getByTestId("home-world-memory-editor").getAttribute("open"), "");
-    assert.equal(await page.getByTestId("home-character-name").isVisible(), true);
-    assert.equal(await page.getByTestId("story-bible-editor").isVisible(), true);
-    const editorViewport = await page.getByTestId("home-canon-editor").evaluate((element) => {
+    await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), projectId);
+    assert.equal(await page.getByTestId("global-canon-characters").isVisible(), true);
+    assert.equal(await page.getByRole("tab").count(), 6);
+    assert.ok(await page.getByRole("button", { name: /玄門劍修/u }).count() > 0, "the global character editor must render real portrait choices");
+    const editorViewport = await page.getByTestId("global-canon-editor").evaluate((element) => {
       const rect = element.getBoundingClientRect();
-      return { top: rect.top, bottom: rect.bottom, viewportHeight: innerHeight };
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportHeight: innerHeight,
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        shortTargets: [...element.querySelectorAll("button,a,select,input")]
+          .filter((target) => {
+            const targetRect = target.getBoundingClientRect();
+            return targetRect.width > 0 && targetRect.height > 0 && targetRect.height < 44;
+          }).length,
+      };
     });
     assert.ok(editorViewport.top >= 0 && editorViewport.top < editorViewport.viewportHeight, JSON.stringify(editorViewport));
     assert.ok(editorViewport.bottom > 0, JSON.stringify(editorViewport));
-    const characterName = page.getByTestId("home-character-name");
-    const originalName = (await characterName.inputValue()).trim();
-    assert.ok(originalName, "the started story must retain an editable formal character");
-    const editedName = `${originalName}・首頁編修`;
-    await characterName.fill(editedName);
-    await page.getByRole("button", { name: "儲存人物", exact: true }).click();
-    try {
-      await page.getByText("人物、能力值、境界與屬性配對人像已在首頁更新；故事內只會讀取並選擇這筆正式資料。", { exact: true }).waitFor({ state: "visible" });
-    } catch (error) {
-      throw new Error(`CHARACTER_SAVE_ACK_FAILED ${JSON.stringify({
-        currentUrl: page.url(),
-        inputValue: await characterName.inputValue(),
-        saveDisabled: await page.getByRole("button", { name: "儲存人物", exact: true }).isDisabled(),
-        statusTexts: await page.locator('[role="status"]').allTextContents(),
-        consoleErrors,
-        requestFailures,
-        pageErrors,
-      })}`, { cause: error });
-    }
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByTestId("home-character-name").waitFor({ state: "visible" });
-    await page.waitForFunction((expectedName) => (
-      document.querySelector('[data-testid="home-character-name"]')?.value === expectedName
-    ), editedName);
-    assert.equal(await page.getByTestId("home-character-name").inputValue(), editedName);
+    assert.equal(editorViewport.overflow, false, JSON.stringify(editorViewport));
+    assert.equal(editorViewport.shortTargets, 0, JSON.stringify(editorViewport));
   });
 
   await check("real mobile reader keeps compact controls and readable width", async () => {
@@ -728,15 +709,16 @@ try {
     });
     assert.ok(worldCardLayout.maxCardWidth <= worldCardLayout.stripClientWidth + 1, JSON.stringify(worldCardLayout));
     assert.ok(worldCardLayout.stripScrollWidth <= worldCardLayout.stripClientWidth + 1, JSON.stringify(worldCardLayout));
-    const returnLink = page.getByRole("link", { name: /首頁正式設定/u }).first();
+    const returnLink = page.getByRole("link", { name: /全域角色、世界與記憶總編輯/u }).first();
     const returnTarget = new URL(await returnLink.getAttribute("href"), baseUrl);
-    assert.equal(returnTarget.searchParams.get("projectId"), projectId);
-    assert.equal(returnTarget.hash, "#character-world-memory-editor");
+    assert.equal(returnTarget.pathname, "/canon");
+    assert.equal(returnTarget.searchParams.get("targetProjectId"), projectId);
     await Promise.all([
-      page.waitForURL((url) => url.pathname === "/professional" && url.hash === "#character-world-memory-editor", { timeout: 60_000 }),
+      page.waitForURL((url) => url.pathname === "/canon" && url.searchParams.get("targetProjectId") === projectId, { timeout: 60_000 }),
       returnLink.tap(),
     ]);
-    await page.getByTestId("home-character-name").waitFor({ state: "visible" });
+    await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), projectId);
   });
 
   await check("old project-home links converge on the complete management center", async () => {
@@ -748,7 +730,7 @@ try {
     assert.equal(new URL(page.url()).pathname, "/professional");
   });
 
-  await check("frontdoor opens the selected project's editable Canon surface", async () => {
+  await check("frontdoor opens the cross-project Canon editor with the selected copy target", async () => {
     const projectId = createdProjectId;
     assert.ok(projectId, "the created project identity must remain available");
     const competingProjectId = `${projectId}-newer`;
@@ -788,21 +770,16 @@ try {
     const canonEditorLink = page.getByTestId("frontdoor-canon-editor");
     await canonEditorLink.waitFor({ state: "visible" });
     const target = new URL(await canonEditorLink.getAttribute("href"), baseUrl);
-    assert.equal(target.searchParams.get("projectId"), projectId);
-    assert.equal(target.hash, "#character-world-memory-editor");
+    assert.equal(target.pathname, "/canon");
+    assert.equal(target.searchParams.get("targetProjectId"), projectId);
     await Promise.all([
-      page.waitForURL((url) => url.pathname === "/professional" && url.hash === "#character-world-memory-editor", { timeout: 60_000 }),
+      page.waitForURL((url) => url.pathname === "/canon" && url.searchParams.get("targetProjectId") === projectId, { timeout: 60_000 }),
       canonEditorLink.tap(),
     ]);
-    await page.getByTestId("home-canon-editor").waitFor({ state: "visible" });
-    await page.waitForFunction(() => (
-      document.querySelector('[data-testid="home-character-editor"]')?.hasAttribute("open")
-      && document.querySelector('[data-testid="home-world-memory-editor"]')?.hasAttribute("open")
-    ));
-    assert.equal(await page.getByTestId("home-character-editor").getAttribute("open"), "");
-    assert.equal(await page.getByTestId("home-world-memory-editor").getAttribute("open"), "");
+    await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
+    assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), projectId);
     frontdoorCanonEditorArrivedAt = Date.now();
-    const editorViewport = await page.getByTestId("home-canon-editor").evaluate((element) => {
+    const editorViewport = await page.getByTestId("global-canon-editor").evaluate((element) => {
       const rect = element.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, viewportHeight: innerHeight };
     });
@@ -830,7 +807,7 @@ try {
   await check("browser console has no unexpected errors or repeated native permission probes", async () => {
     await assertCleanDiagnostics("frontdoor Canon navigation and legacy management redirect", {
       allowCompletedLegacyRedirectForProjectId: createdProjectId,
-      allowSupersededFrontdoorNavigationPrefetchesForProjectId: createdProjectId,
+      allowSupersededGlobalCanonNavigationPrefetchesForProjectId: createdProjectId,
       frontdoorVisitStartedAt: frontdoorCanonVisitStartedAt,
       frontdoorEditorArrivedAt: frontdoorCanonEditorArrivedAt,
     });

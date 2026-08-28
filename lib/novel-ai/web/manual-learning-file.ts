@@ -271,6 +271,14 @@ function extractSafeHtmlText(value: string) {
     .replace(/&gt;/giu, ">");
 }
 
+function extractSubtitleText(value: string) {
+  return value
+    .replace(/^\uFEFF?WEBVTT[^\n]*$/gimu, " ")
+    .replace(/^\s*\d+\s*$/gmu, " ")
+    .replace(/^\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s*-->\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}.*$/gmu, " ")
+    .replace(/<[^>]+>/gu, " ");
+}
+
 async function extractPdf(
   file: File,
   bytes: Uint8Array,
@@ -391,6 +399,9 @@ function extractStructuredText(
   const decoded = decodeText(bytes);
   let value = decoded;
   if (descriptor.documentFormat === "html") value = extractSafeHtmlText(decoded);
+  if (descriptor.documentFormat === "srt" || descriptor.documentFormat === "vtt") {
+    value = extractSubtitleText(decoded);
+  }
   if (descriptor.documentFormat === "json") {
     try {
       value = JSON.stringify(JSON.parse(decoded), null, 2);

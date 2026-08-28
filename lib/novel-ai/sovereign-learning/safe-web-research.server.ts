@@ -8,7 +8,11 @@ import {
   normalizeForLearning,
   sha256Hex,
 } from "./hashing";
-import type { ControlledWebSourceEvidence } from "./web-knowledge-contract";
+import {
+  assertControlledWebContentCanCreateRules,
+  classifyControlledWebContent,
+  type ControlledWebSourceEvidence,
+} from "./web-knowledge-contract";
 import type { LearningWebSourceProfile } from "./types";
 
 const USER_AGENT = "NovelControlledLearningBot/1.0";
@@ -228,14 +232,12 @@ async function readLimitedText(
   controller: AbortController,
 ) {
   const declared = Number(response.headers.get("content-length") || 0);
-  if (declared > maximumBytes) {
-    throw webResearchError("WEB_RESEARCH_RESPONSE_TOO_LARGE", "來源內容超過安全大小限制。", 413);
-  }
-  if (!response.body) return "";
+  if (!response.body) return { text: "", truncated: false };
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let total = 0;
   let text = "";
+  let truncated = declared > maximumBytes;
   try {
     while (true) {
       const { done, value } = await withinDeadline(
@@ -244,14 +246,21 @@ async function readLimitedText(
         () => controller.abort("WEB_RESEARCH_TIMEOUT"),
       );
       if (done) break;
-      total += value.byteLength;
-      if (total > maximumBytes) {
-        throw webResearchError("WEB_RESEARCH_RESPONSE_TOO_LARGE", "來源內容超過安全大小限制。", 413);
+      const remaining = maximumBytes - total;
+      if (remaining <= 0) {
+        truncated = true;
+        break;
       }
-      text += decoder.decode(value, { stream: true });
+      const accepted = value.byteLength > remaining ? value.slice(0, remaining) : value;
+      total += accepted.byteLength;
+      text += decoder.decode(accepted, { stream: true });
+      if (accepted.byteLength < value.byteLength || total >= maximumBytes) {
+        truncated = true;
+        break;
+      }
     }
     text += decoder.decode();
-    return text;
+    return { text, truncated };
   } catch (error) {
     if (controller.signal.aborted) {
       throw controllerError(controller);
@@ -392,7 +401,7 @@ async function checkRobots(
   if (!result.response.ok) {
     throw webResearchError("WEB_RESEARCH_ROBOTS_UNAVAILABLE", "無法確認來源網站的 robots 規則，已採取保守阻擋。", 503);
   }
-  const robotsText = await result.readText();
+  const { text: robotsText } = await result.readText();
   if (!isPathAllowedByRobots(robotsText, `${url.pathname}${url.search}`)) {
     throw webResearchError("WEB_RESEARCH_ROBOTS_DISALLOWED", "來源網站的 robots 規則不允許讀取此頁。", 403);
   }
@@ -510,6 +519,15 @@ export async function fetchControlledWebResearch(
   const pinResolvedAddress = dependencies.fetchImpl === undefined;
   const resolveHost = dependencies.resolveHost ?? defaultResolveHost;
   const requestedUrl = parseControlledWebUrl(rawUrl);
+  const sourceProfile = dependencies.sourceProfile ?? { channel: "article" as const };
+  const contentEligibility = classifyControlledWebContent({
+    url: requestedUrl.toString(),
+    sourceProfile,
+  });
+  // A video landing page contains metadata, recommendations and interface
+  // labels, not a verified subtitle track. Reject before DNS or page fetch so
+  // none of it can reach a teacher, rule extractor or repository.
+  assertControlledWebContentCanCreateRules(contentEligibility);
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort("WEB_RESEARCH_CALLER_ABORTED");
   if (dependencies.signal?.aborted) abortFromCaller();
@@ -537,6 +555,19 @@ export async function fetchControlledWebResearch(
       controller,
       pinResolvedAddress,
     });
+    const finalContentEligibility = classifyControlledWebContent({
+      url: result.finalUrl.toString(),
+      sourceProfile,
+    });
+    // Redirects are part of the untrusted source boundary. A URL that looked
+    // like an article may end on a video landing page, whose title,
+    // description and social metadata are not a transcript. Reclassify the
+    // controlled final URL before reading any response body so redirected
+    // metadata can never reach teachers, rule extraction or shared storage.
+    if (!finalContentEligibility.ruleCreationAllowed) {
+      await result.response.body?.cancel().catch(() => undefined);
+    }
+    assertControlledWebContentCanCreateRules(finalContentEligibility);
   if (!result.response.ok) {
     throw webResearchError("WEB_RESEARCH_HTTP_FAILED", `來源網站回傳 HTTP ${result.response.status}。`, 502);
   }
@@ -552,7 +583,8 @@ export async function fetchControlledWebResearch(
     await result.response.body?.cancel().catch(() => undefined);
     throw webResearchError("WEB_RESEARCH_CONTENT_TYPE_BLOCKED", "此來源不是可安全分析的文字網頁。", 415);
   }
-  const raw = await result.readText();
+  const sourceRead = await result.readText();
+  const raw = sourceRead.text;
   const extracted = contentType.includes("html")
     ? textFromHtml(raw)
     : { title: "", text: normalizeForLearning(raw), metadataCharacters: 0 };
@@ -568,10 +600,11 @@ export async function fetchControlledWebResearch(
     );
   }
   const heuristicOnly = boundary.sanitizationStatus === "quarantined" && !blockingFindings.length;
-  const sanitizedText = normalizeForLearning(
+  const normalizedSanitizedText = normalizeForLearning(
     heuristicOnly ? stripHeuristicOverrideSentences(extracted.text) : boundary.sanitizedText,
-  )
-    .slice(0, MAX_SOURCE_CHARACTERS);
+  );
+  const characterTruncated = normalizedSanitizedText.length > MAX_SOURCE_CHARACTERS;
+  const sanitizedText = normalizedSanitizedText.slice(0, MAX_SOURCE_CHARACTERS);
   if (sanitizedText.length < 240) {
     throw webResearchError("WEB_RESEARCH_CONTENT_TOO_SHORT", "安全清理後的來源內容不足以蒸餾可靠規則。", 422);
   }
@@ -587,12 +620,16 @@ export async function fetchControlledWebResearch(
       redirects: result.redirects,
         robotsPolicy,
       sourceDigest,
-      sourceProfile: dependencies.sourceProfile ?? { channel: "article", engagement: null },
+      sourceProfile,
+      contentEligibility: finalContentEligibility,
+      sourceTruncated: sourceRead.truncated || characterTruncated,
       fingerprint: createTextFingerprint(sanitizedText),
       sanitizationStatus: boundary.findings.length ? "sanitized" : "unchanged",
       warningCodes: [...new Set(boundary.findings.map((finding) =>
         `${heuristicOnly ? "HEURISTIC_REVIEW" : "UNTRUSTED_CONTENT"}_${finding.code}`)
-        .concat(extracted.metadataCharacters > 0 ? ["PUBLIC_METADATA_ENRICHED"] : []))],
+        .concat(extracted.metadataCharacters > 0 ? ["PUBLIC_METADATA_ENRICHED"] : [])
+        .concat(sourceRead.truncated ? ["WEB_SOURCE_BYTE_EXCERPT_ANALYZED"] : [])
+        .concat(characterTruncated ? ["WEB_SOURCE_TEXT_EXCERPT_ANALYZED"] : []))],
       rawContentRetained: false,
       },
       transientSanitizedText: sanitizedText,
