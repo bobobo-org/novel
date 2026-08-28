@@ -270,6 +270,7 @@ async function assertCleanDiagnostics(label, options = {}) {
     assert.equal(await page.getByTestId("global-canon-editor").isVisible(), true);
     assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), globalCanonProjectId);
     const frontdoorTargets = [
+      { pathname: "/canon", search: { targetProjectId: globalCanonProjectId } },
       { pathname: "/" },
       { pathname: "/studio" },
       { pathname: "/studio/create" },
@@ -618,14 +619,19 @@ try {
     const canonEditorHref = new URL(await canonEditorLink.getAttribute("href"), baseUrl);
     assert.equal(canonEditorHref.pathname, "/canon");
     assert.equal(canonEditorHref.searchParams.get("targetProjectId"), projectId);
+    const managementCanonVisitStartedAt = Date.now();
     await Promise.all([
       page.waitForURL((url) => url.pathname === "/canon" && url.searchParams.get("targetProjectId") === projectId, { timeout: 60_000 }),
       canonEditorLink.tap(),
     ]);
     await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
+    await page.getByTestId("global-canon-characters").waitFor({ state: "visible" });
     assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), projectId);
-    assert.equal(await page.getByTestId("global-canon-characters").isVisible(), true);
-    assert.equal(await page.getByRole("tab").count(), 6);
+    const canonTabs = ["人物總庫", "關係網", "組織與祖譜", "寶物圖鑑", "十萬世界", "世界規則", "記憶與資料", "Story Bible", "時間線模板"];
+    assert.equal(await page.getByRole("tab").count(), canonTabs.length);
+    for (const tabName of canonTabs) {
+      assert.equal(await page.getByRole("tab", { name: tabName, exact: true }).isVisible(), true);
+    }
     assert.ok(await page.getByRole("button", { name: /玄門劍修/u }).count() > 0, "the global character editor must render real portrait choices");
     const editorViewport = await page.getByTestId("global-canon-editor").evaluate((element) => {
       const rect = element.getBoundingClientRect();
@@ -645,9 +651,19 @@ try {
     assert.ok(editorViewport.bottom > 0, JSON.stringify(editorViewport));
     assert.equal(editorViewport.overflow, false, JSON.stringify(editorViewport));
     assert.equal(editorViewport.shortTargets, 0, JSON.stringify(editorViewport));
+    const managementCanonEditorArrivedAt = Date.now();
+    await assertCleanDiagnostics("mobile workspace and management Canon journey", {
+      allowSupersededGlobalCanonNavigationPrefetchesForProjectId: createdProjectId,
+      allowSupersededHealthRequest: true,
+      allowBoundedSharedLearningRequest: true,
+      frontdoorVisitStartedAt: managementCanonVisitStartedAt,
+      frontdoorEditorArrivedAt: managementCanonEditorArrivedAt,
+    });
   });
 
   await check("real mobile reader keeps compact controls and readable width", async () => {
+    await openFreshPage(`${baseUrl}/professional?intent=library&projectId=${encodeURIComponent(createdProjectId)}`);
+    await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });
     const readerLink = page.getByRole("link", { name: "閱讀作品", exact: true }).first();
     try {
       await Promise.all([
@@ -681,7 +697,7 @@ try {
     assert.equal(readerState.overflow, false);
     assert.ok(readerState.articleRight <= readerState.viewport + 1);
     assert.equal(readerState.shortTargets, 0);
-    await assertCleanDiagnostics("mobile workspace, management, and reader journey", {
+    await assertCleanDiagnostics("mobile reader journey", {
       allowSupersededReaderNavigationForProjectId: createdProjectId,
       allowSupersededHealthRequest: true,
       allowBoundedSharedLearningRequest: true,
@@ -718,6 +734,7 @@ try {
       returnLink.tap(),
     ]);
     await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
+    await page.getByTestId("global-canon-characters").waitFor({ state: "visible" });
     assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), projectId);
   });
 
@@ -728,6 +745,9 @@ try {
     await openFreshPage(`${baseUrl}/studio?screen=home&projectId=${encodeURIComponent(projectId)}`);
     await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });
     assert.equal(new URL(page.url()).pathname, "/professional");
+    await assertCleanDiagnostics("legacy project-home management redirect", {
+      allowCompletedLegacyRedirectForProjectId: projectId,
+    });
   });
 
   await check("frontdoor opens the cross-project Canon editor with the selected copy target", async () => {
@@ -769,6 +789,11 @@ try {
     await openFreshPage(baseUrl);
     const canonEditorLink = page.getByTestId("frontdoor-canon-editor");
     await canonEditorLink.waitFor({ state: "visible" });
+    await page.waitForFunction((expectedProjectId) => {
+      const link = document.querySelector('[data-testid="frontdoor-canon-editor"]');
+      return link instanceof HTMLAnchorElement
+        && new URL(link.href).searchParams.get("targetProjectId") === expectedProjectId;
+    }, projectId, { timeout: 60_000 });
     const target = new URL(await canonEditorLink.getAttribute("href"), baseUrl);
     assert.equal(target.pathname, "/canon");
     assert.equal(target.searchParams.get("targetProjectId"), projectId);
@@ -777,6 +802,7 @@ try {
       canonEditorLink.tap(),
     ]);
     await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
+    await page.getByTestId("global-canon-characters").waitFor({ state: "visible" });
     assert.equal(await page.getByTestId("global-canon-target-project").inputValue(), projectId);
     frontdoorCanonEditorArrivedAt = Date.now();
     const editorViewport = await page.getByTestId("global-canon-editor").evaluate((element) => {
@@ -805,8 +831,7 @@ try {
   });
 
   await check("browser console has no unexpected errors or repeated native permission probes", async () => {
-    await assertCleanDiagnostics("frontdoor Canon navigation and legacy management redirect", {
-      allowCompletedLegacyRedirectForProjectId: createdProjectId,
+    await assertCleanDiagnostics("frontdoor Canon navigation", {
       allowSupersededGlobalCanonNavigationPrefetchesForProjectId: createdProjectId,
       frontdoorVisitStartedAt: frontdoorCanonVisitStartedAt,
       frontdoorEditorArrivedAt: frontdoorCanonEditorArrivedAt,
