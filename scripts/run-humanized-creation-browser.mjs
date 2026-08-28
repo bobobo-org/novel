@@ -344,6 +344,22 @@ async function assertCleanDiagnostics(label, options = {}) {
     expectedNavigationCancellations.push(...accepted);
   }
 
+  if (options.allowSupersededCanonCreatePrefetch) {
+    const currentUrl = new URL(page.url());
+    assert.equal(currentUrl.pathname, "/canon");
+    assert.equal(await page.getByTestId("global-canon-editor").isVisible(), true);
+    const target = { pathname: "/studio/create" };
+    const accepted = unacceptedRequestFailures.filter((failure) => (
+      isSupersededRscCancellation(failure, target)
+    ));
+    assert.ok(
+      accepted.length <= 1,
+      `${label}: at most one superseded Canon create-link prefetch is allowed: ${JSON.stringify(accepted)}`,
+    );
+    unacceptedRequestFailures = unacceptedRequestFailures.filter((failure) => !accepted.includes(failure));
+    expectedNavigationCancellations.push(...accepted);
+  }
+
   assert.deepEqual(
     unexpectedLoopbackRequests,
     [],
@@ -755,7 +771,9 @@ try {
     await page.locator('[data-testid="global-organization-option"][data-organization-archetype="family"]').first().tap();
     await page.getByTestId("global-family-genealogy").waitFor({ state: "visible" });
     await verifyPersonCard(page.getByTestId("global-family-genealogy"), "genealogy");
-    await assertCleanDiagnostics("world 2 organization member details");
+    await assertCleanDiagnostics("world 2 organization member details", {
+      allowSupersededCanonCreatePrefetch: true,
+    });
   });
 
   await check("real mobile reader keeps compact controls and readable width", async () => {
