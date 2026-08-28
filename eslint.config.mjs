@@ -12,6 +12,7 @@ const eslintConfig = defineConfig([
     ".next-stale-*/**",
     "out/**",
     "build/**",
+    "tmp/**",
     "next-env.d.ts",
     "public/generated/manual-learning-worker.js",
   ]),
