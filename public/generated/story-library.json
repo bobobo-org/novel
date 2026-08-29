@@ -250,9 +250,11 @@
       "topicId": "classic-topic-001",
       "name": "附身變身",
       "description": "男生附身女生、女生附身男生、靈魂交換",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -270,7 +272,7 @@
         "路人甲附身"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "男生附身女生",
         "女生附身男生",
         "靈魂交換",
@@ -401,8 +403,9 @@
       "name": "少女漫畫",
       "description": "校園戀愛、偶像養成、青梅竹馬",
       "consumerGroupId": "group-3",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-10",
         "pack-8",
         "pack-1",
@@ -457,6 +460,7 @@
       "packId": "pack-9",
       "packIds": [
         "pack-9",
+        "pack-1",
         "pack-2",
         "pack-11"
       ],
@@ -554,10 +558,12 @@
       "topicId": "classic-topic-007",
       "name": "醫療重生",
       "description": "重生醫師、急診危機、豪門病案",
-      "consumerGroupId": "group-1",
-      "packId": "pack-5",
+      "consumerGroupId": "group-5",
+      "packId": "pack-9",
       "packIds": [
+        "pack-9",
         "pack-5",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -575,7 +581,7 @@
         "災難救援"
       ],
       "tags": [
-        "幻想冒險",
+        "懸疑驚悚",
         "重生醫師",
         "急診危機",
         "豪門病案",
@@ -606,6 +612,7 @@
       "packId": "pack-6",
       "packIds": [
         "pack-6",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -703,6 +710,7 @@
       "packId": "pack-6",
       "packIds": [
         "pack-6",
+        "pack-1",
         "pack-2",
         "pack-11"
       ],
@@ -752,6 +760,7 @@
       "packId": "pack-7",
       "packIds": [
         "pack-7",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -895,8 +904,9 @@
       "name": "遊戲系統",
       "description": "攻略面板、好感度系統、副本闖關",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-1",
         "pack-11"
@@ -950,6 +960,7 @@
       "packId": "pack-7",
       "packIds": [
         "pack-7",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -997,8 +1008,9 @@
       "name": "諸天穿梭",
       "description": "副本任務、萬界交易、主神空間",
       "consumerGroupId": "group-4",
-      "packId": "pack-6",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-6",
         "pack-1",
         "pack-2",
@@ -1150,9 +1162,11 @@
       "topicId": "classic-topic-019",
       "name": "年代重生",
       "description": "七零隨軍、八零創業、知青返城",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-4",
+      "packId": "pack-6",
       "packIds": [
+        "pack-6",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -1170,7 +1184,7 @@
         "小城煙火"
       ],
       "tags": [
-        "幻想冒險",
+        "歷史權謀",
         "七零隨軍",
         "八零創業",
         "知青返城",
@@ -1247,8 +1261,10 @@
       "name": "都市高手",
       "description": "神醫歸來、出獄逆襲、鑑寶異能",
       "consumerGroupId": "group-2",
-      "packId": "pack-1",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
+        "pack-6",
         "pack-1",
         "pack-2",
         "pack-11"
@@ -1495,8 +1511,9 @@
       "name": "N次元輕小說",
       "description": "異世界轉生、惡役路線修正、魔法學院",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-7",
         "pack-1",
@@ -1552,6 +1569,7 @@
       "packIds": [
         "pack-8",
         "pack-5",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -1651,6 +1669,7 @@
       "packId": "pack-6",
       "packIds": [
         "pack-6",
+        "pack-1",
         "pack-2",
         "pack-11"
       ],
@@ -1747,8 +1766,9 @@
       "name": "高武世界",
       "description": "全民武考、武館踢館、氣血覺醒",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-6",
       "packIds": [
+        "pack-6",
         "pack-11"
       ],
       "subCategories": [
@@ -2035,8 +2055,9 @@
       "name": "虛擬網遊",
       "description": "開服首殺、隱藏職業、公會爭霸",
       "consumerGroupId": "group-2",
-      "packId": "pack-5",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-5",
         "pack-1",
         "pack-11"
@@ -2086,8 +2107,9 @@
       "name": "電子競技",
       "description": "戰隊重組、替補上場、冠軍復仇",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-5",
       "packIds": [
+        "pack-5",
         "pack-11"
       ],
       "subCategories": [
@@ -2133,8 +2155,9 @@
       "name": "軍事戰爭",
       "description": "特種小隊、邊境任務、情報滲透",
       "consumerGroupId": "group-1",
-      "packId": "pack-5",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-5",
         "pack-11"
       ],
@@ -2181,8 +2204,9 @@
       "name": "古典名著新編",
       "description": "三國謀士新視角、水滸山寨經營、西游取經旁支",
       "consumerGroupId": "group-5",
-      "packId": "pack-9",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-9",
         "pack-2",
         "pack-11"
@@ -2232,8 +2256,9 @@
       "name": "歐美奇幻冒險",
       "description": "魔戒式遠征、龍與騎士、黑暗精靈流亡",
       "consumerGroupId": "group-1",
-      "packId": "pack-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-7",
         "pack-11"
       ],
@@ -2281,8 +2306,9 @@
       "name": "全本爽文庫",
       "description": "完本逆襲、百章長線伏筆、結局回收",
       "consumerGroupId": "group-1",
-      "packId": "pack-2",
+      "packId": "pack-1",
       "packIds": [
+        "pack-1",
         "pack-2",
         "pack-11"
       ],
@@ -2329,8 +2355,9 @@
       "name": "台灣原創言情",
       "description": "校園愛情、都會愛情、古代愛情",
       "consumerGroupId": "group-4",
-      "packId": "pack-6",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-6",
         "pack-5",
         "pack-1",
@@ -2438,6 +2465,7 @@
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -2485,8 +2513,9 @@
       "name": "生活風格",
       "description": "小店日記、料理修復人生、旅宿經營",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-1",
         "pack-11"
@@ -2535,8 +2564,9 @@
       "name": "心靈療癒",
       "description": "創傷修復、自我和解、陪伴書信",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-11"
       ],
@@ -2583,8 +2613,9 @@
       "name": "人文科普",
       "description": "博物館奇案、歷史冷知識、科普推理",
       "consumerGroupId": "group-5",
-      "packId": "pack-9",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-9",
         "pack-2",
         "pack-11"
@@ -2636,6 +2667,7 @@
       "packId": "pack-5",
       "packIds": [
         "pack-5",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -2829,8 +2861,9 @@
       "name": "跨區多語創作",
       "description": "繁中原創、港澳都會、馬華青春",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-7",
         "pack-1",
@@ -2928,10 +2961,10 @@
       "name": "LitRPG數值流",
       "description": "角色面板、職業轉職、技能冷卻",
       "consumerGroupId": "group-7",
-      "packId": "pack-5",
+      "packId": "pack-4",
       "packIds": [
-        "pack-5",
         "pack-4",
+        "pack-5",
         "pack-11"
       ],
       "subCategories": [
@@ -2979,8 +3012,10 @@
       "name": "迷宮核心經營",
       "description": "地下城核心、怪物房間配置、入侵者防線",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -3028,8 +3063,9 @@
       "name": "舒適奇幻",
       "description": "魔法咖啡館、小鎮藥草店、龍族書店",
       "consumerGroupId": "group-1",
-      "packId": "pack-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-7",
         "pack-11"
       ],
@@ -3273,8 +3309,9 @@
       "name": "書信日記體",
       "description": "交換日記、未寄出的信、角色部落格",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -3320,10 +3357,10 @@
       "name": "互動選擇小說",
       "description": "章末投票、多結局分歧、角色路線",
       "consumerGroupId": "group-7",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
-        "pack-10",
         "pack-4",
+        "pack-10",
         "pack-11"
       ],
       "subCategories": [
@@ -3472,9 +3509,12 @@
       "topicId": "classic-topic-066",
       "name": "快穿任務",
       "description": "任務世界救場、炮灰逆襲、反派拯救",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
+        "pack-1",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -3492,7 +3532,7 @@
         "退休快穿員"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "任務世界救場",
         "炮灰逆襲",
         "反派拯救",
@@ -3524,6 +3564,7 @@
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-1",
         "pack-2",
         "pack-11"
       ],
@@ -3570,8 +3611,9 @@
       "name": "女強馬甲",
       "description": "多重馬甲、天才黑客、神秘醫師",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-2",
       "packIds": [
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -3669,6 +3711,7 @@
       "packId": "pack-6",
       "packIds": [
         "pack-6",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -3715,8 +3758,9 @@
       "name": "無限流副本",
       "description": "主神任務、恐怖副本、團隊分工",
       "consumerGroupId": "group-5",
-      "packId": "pack-9",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-9",
         "pack-11"
       ],
@@ -3816,6 +3860,7 @@
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -3864,6 +3909,7 @@
       "packId": "pack-1",
       "packIds": [
         "pack-1",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -3909,9 +3955,10 @@
       "topicId": "classic-topic-075",
       "name": "Dungeon Core",
       "description": "核心覺醒、房間配置、怪物生態",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -3929,7 +3976,7 @@
         "地城名聲"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "核心覺醒",
         "房間配置",
         "怪物生態",
@@ -4006,8 +4053,9 @@
       "name": "男頻反派流",
       "description": "反派自救、天命主角壓制、劇情漏洞",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-2",
       "packIds": [
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -4252,9 +4300,10 @@
       "topicId": "classic-topic-082",
       "name": "秘密關係",
       "description": "匿名互助、隱藏身分交往、鄰里誤會",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-3",
+      "packId": "pack-8",
       "packIds": [
+        "pack-8",
         "pack-11"
       ],
       "subCategories": [
@@ -4272,7 +4321,7 @@
         "公開選擇"
       ],
       "tags": [
-        "幻想冒險",
+        "情感關係",
         "匿名互助",
         "隱藏身分交往",
         "鄰里誤會",
@@ -4397,9 +4446,10 @@
       "topicId": "classic-topic-085",
       "name": "旅途邂逅",
       "description": "海邊民宿、夜車同行、轉機滯留",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-3",
+      "packId": "pack-8",
       "packIds": [
+        "pack-8",
         "pack-11"
       ],
       "subCategories": [
@@ -4417,7 +4467,7 @@
         "明信片約定"
       ],
       "tags": [
-        "幻想冒險",
+        "情感關係",
         "海邊民宿",
         "夜車同行",
         "轉機滯留",
@@ -4593,9 +4643,11 @@
       "topicId": "classic-topic-089",
       "name": "關係反轉短篇",
       "description": "開場即誤會、中段真相翻面、最後一則訊息",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-3",
+      "packId": "pack-8",
       "packIds": [
+        "pack-8",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -4613,7 +4665,7 @@
         "下一集爆點"
       ],
       "tags": [
-        "幻想冒險",
+        "情感關係",
         "開場即誤會",
         "中段真相翻面",
         "最後一則訊息",
@@ -4641,8 +4693,10 @@
       "name": "御獸契約",
       "description": "靈獸覺醒、御獸學院、契約失控",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
+        "pack-7",
         "pack-11"
       ],
       "subCategories": [
@@ -4688,8 +4742,9 @@
       "name": "道門娛樂圈",
       "description": "道士出道、玄學綜藝、直播破謠",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-6",
       "packIds": [
+        "pack-6",
         "pack-11"
       ],
       "subCategories": [
@@ -4738,6 +4793,7 @@
       "packId": "pack-6",
       "packIds": [
         "pack-6",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -4782,9 +4838,13 @@
       "topicId": "classic-topic-093",
       "name": "公廚美食探案",
       "description": "衙門公廚、飯堂升級、菜譜破案",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-5",
+      "packId": "pack-9",
       "packIds": [
+        "pack-9",
+        "pack-5",
+        "pack-1",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -4802,7 +4862,7 @@
         "美食安撫人心"
       ],
       "tags": [
-        "幻想冒險",
+        "懸疑驚悚",
         "衙門公廚",
         "飯堂升級",
         "菜譜破案",
@@ -4878,9 +4938,10 @@
       "topicId": "classic-topic-095",
       "name": "年代漁獵生活",
       "description": "重回年代、山林打獵、漁村生活",
-      "consumerGroupId": "group-2",
-      "packId": "pack-1",
+      "consumerGroupId": "group-4",
+      "packId": "pack-6",
       "packIds": [
+        "pack-6",
         "pack-1",
         "pack-11"
       ],
@@ -4899,7 +4960,7 @@
         "慢生活逆襲"
       ],
       "tags": [
-        "都市現實",
+        "歷史權謀",
         "重回年代",
         "山林打獵",
         "漁村生活",
@@ -4982,6 +5043,7 @@
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -5028,9 +5090,12 @@
       "name": "跨站男頻爆款",
       "description": "退婚流開局、家族廢材翻身、宗門外門逆襲",
       "consumerGroupId": "group-5",
-      "packId": "pack-9",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-9",
+        "pack-7",
+        "pack-6",
         "pack-1",
         "pack-2",
         "pack-11"
@@ -5079,11 +5144,13 @@
       "name": "跨站女頻爆款",
       "description": "先婚後愛拉扯、真假千金回歸、追妻火葬場",
       "consumerGroupId": "group-4",
-      "packId": "pack-6",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-6",
         "pack-5",
         "pack-1",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -5135,6 +5202,7 @@
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -5180,9 +5248,11 @@
       "name": "起點式長線升級",
       "description": "境界層級突破、宗門任務鏈、大地圖遠征",
       "consumerGroupId": "group-4",
-      "packId": "pack-6",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-6",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -5331,8 +5401,9 @@
       "name": "POPO式青春愛情",
       "description": "校園暗戀、社團舞台、畢業前告白",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-1",
         "pack-11"
@@ -5379,12 +5450,12 @@
       "topicId": "classic-topic-105",
       "name": "WebNovel式全球題材",
       "description": "西幻學院、狼人族群、吸血鬼契約",
-      "consumerGroupId": "group-7",
+      "consumerGroupId": "group-3",
       "packId": "pack-10",
       "packIds": [
         "pack-10",
+        "pack-8",
         "pack-7",
-        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -5402,7 +5473,7 @@
         "全球讀者節奏"
       ],
       "tags": [
-        "互動實驗",
+        "情感關係",
         "西幻學院",
         "狼人族群",
         "吸血鬼契約",
@@ -5431,10 +5502,10 @@
       "name": "RoyalRoad式進階流",
       "description": "Progression Fantasy、LitRPG面板、Dungeon Core",
       "consumerGroupId": "group-7",
-      "packId": "pack-7",
+      "packId": "pack-4",
       "packIds": [
-        "pack-7",
         "pack-4",
+        "pack-7",
         "pack-11"
       ],
       "subCategories": [
@@ -5482,8 +5553,9 @@
       "name": "Wattpad式社群青春",
       "description": "同居誤會、校園人氣王、社群留言推進",
       "consumerGroupId": "group-3",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-10",
         "pack-8",
         "pack-1",
@@ -5639,6 +5711,7 @@
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -5684,10 +5757,12 @@
       "name": "出版書庫質感",
       "description": "歷史懸疑、社會派推理、家族年代史",
       "consumerGroupId": "group-5",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-10",
         "pack-9",
+        "pack-6",
         "pack-1",
         "pack-2",
         "pack-11"
@@ -5788,10 +5863,10 @@
       "name": "APP書城功能題材",
       "description": "免費等待解鎖、每日更新任務、書架追更提醒",
       "consumerGroupId": "group-7",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
-        "pack-10",
         "pack-4",
+        "pack-10",
         "pack-11"
       ],
       "subCategories": [
@@ -5838,11 +5913,11 @@
       "name": "少女漫畫養成",
       "description": "偶像訓練生、魔法少女社團、服裝設計大賽",
       "consumerGroupId": "group-7",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-10",
         "pack-7",
-        "pack-4",
         "pack-1",
         "pack-11"
       ],
@@ -5896,6 +5971,7 @@
       "packIds": [
         "pack-10",
         "pack-5",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -6043,8 +6119,10 @@
       "name": "輕小說日常",
       "description": "社團喜劇、異世界便利店、轉生路人甲",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-1",
       "packIds": [
+        "pack-1",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -6138,8 +6216,9 @@
       "name": "現實職業百態",
       "description": "外送員奇遇、護理師夜班、社工個案",
       "consumerGroupId": "group-2",
-      "packId": "pack-5",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-5",
         "pack-11"
       ],
@@ -6184,39 +6263,40 @@
     },
     {
       "topicId": "classic-topic-121",
-      "name": "AI未來新題",
-      "description": "AI共同作者、虛擬偶像人格、記憶備份公司",
+      "name": "數位遺產與死後人格",
+      "description": "逝者人格託管、數位遺囑爭議、記憶副本要求被遺忘",
       "consumerGroupId": "group-6",
       "packId": "pack-7",
       "packIds": [
         "pack-7",
+        "pack-9",
         "pack-11"
       ],
       "subCategories": [
-        "AI共同作者",
-        "虛擬偶像人格",
-        "記憶備份公司",
-        "仿生人家庭",
-        "生成式夢境",
-        "演算法婚配",
-        "數位分身失控",
-        "腦機學院",
-        "AI審判系統",
-        "資料幽靈",
-        "量子社群",
-        "人機共創小說"
+        "逝者人格託管",
+        "數位遺囑爭議",
+        "記憶副本要求被遺忘",
+        "家屬與AI人格監護權",
+        "死後帳號繼承案",
+        "虛擬墓園失蹤者",
+        "人格備份冒名犯罪",
+        "不完整記憶復原",
+        "數位分身拒絕關機",
+        "保險公司人格鑑定",
+        "百年後甦醒的訊息",
+        "最後一次刪除同意"
       ],
       "tags": [
         "科幻未來",
-        "AI共同作者",
-        "虛擬偶像人格",
-        "記憶備份公司",
-        "仿生人家庭",
-        "生成式夢境"
+        "逝者人格託管",
+        "數位遺囑爭議",
+        "記憶副本要求被遺忘",
+        "家屬與AI人格監護權",
+        "死後帳號繼承案"
       ],
       "supportedPlayModes": [
         "general",
-        "rpg"
+        "interactive"
       ],
       "recommendedProtagonists": [],
       "recommendedWorlds": [],
@@ -6225,8 +6305,10 @@
       "adultOnly": false,
       "enabled": true,
       "classic": true,
-      "sourceVersion": "legacy-218-audited",
+      "sourceVersion": "story-topic-editorial-v2",
       "legacyAliases": [
+        "數位遺產與死後人格",
+        "theme:數位遺產與死後人格",
         "AI未來新題",
         "theme:AI未來新題"
       ]
@@ -6240,6 +6322,7 @@
       "packIds": [
         "pack-8",
         "pack-7",
+        "pack-5",
         "pack-1",
         "pack-11"
       ],
@@ -6287,9 +6370,11 @@
       "name": "舒適奇幻CozyFantasy",
       "description": "魔法咖啡館、龍族書店、異世界旅館",
       "consumerGroupId": "group-1",
-      "packId": "pack-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-7",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -6386,8 +6471,9 @@
       "name": "LitRPG數值冒險",
       "description": "角色面板覺醒、副本掉落、隱藏職業",
       "consumerGroupId": "group-2",
-      "packId": "pack-5",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-5",
         "pack-1",
         "pack-11"
@@ -6633,38 +6719,41 @@
     },
     {
       "topicId": "classic-topic-130",
-      "name": "氣候科幻CliFi",
-      "description": "海平面城市、沙漠農場、碳配額陰謀",
+      "name": "氣候正義CliFi",
+      "description": "跨世代氣候訴訟、消失島國外交、極端氣候難民家庭",
       "consumerGroupId": "group-6",
       "packId": "pack-7",
       "packIds": [
         "pack-7",
+        "pack-9",
+        "pack-8",
         "pack-11"
       ],
       "subCategories": [
-        "海平面城市",
-        "沙漠農場",
-        "碳配額陰謀",
-        "氣候移民",
-        "生態避難所",
-        "水權戰爭",
-        "太陽能公社",
-        "雨林資料庫",
-        "海上學院",
-        "綠能企業黑幕",
-        "災害預報員",
-        "修復地球計畫"
+        "跨世代氣候訴訟",
+        "消失島國外交",
+        "極端氣候難民家庭",
+        "原住土地遷移爭議",
+        "排碳企業吹哨者",
+        "青年氣候陪審團",
+        "水權跨境談判",
+        "保險撤離紅線",
+        "災後重建不平等",
+        "生態債務追索",
+        "最後一座可居城市",
+        "修復世代的承諾"
       ],
       "tags": [
         "科幻未來",
-        "海平面城市",
-        "沙漠農場",
-        "碳配額陰謀",
-        "氣候移民",
-        "生態避難所"
+        "跨世代氣候訴訟",
+        "消失島國外交",
+        "極端氣候難民家庭",
+        "原住土地遷移爭議",
+        "排碳企業吹哨者"
       ],
       "supportedPlayModes": [
-        "general"
+        "general",
+        "interactive"
       ],
       "recommendedProtagonists": [],
       "recommendedWorlds": [],
@@ -6673,8 +6762,10 @@
       "adultOnly": false,
       "enabled": true,
       "classic": true,
-      "sourceVersion": "legacy-218-audited",
+      "sourceVersion": "story-topic-editorial-v2",
       "legacyAliases": [
+        "氣候正義CliFi",
+        "theme:氣候正義CliFi",
         "氣候科幻CliFi",
         "theme:氣候科幻CliFi"
       ]
@@ -6684,8 +6775,9 @@
       "name": "文青書卷Poetcore",
       "description": "詩人咖啡館、書店繼承人、圖書館夜班",
       "consumerGroupId": "group-5",
-      "packId": "pack-9",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-9",
         "pack-1",
         "pack-11"
@@ -6783,10 +6875,11 @@
       "topicId": "classic-topic-133",
       "name": "Webtoon直式敘事",
       "description": "直式分鏡節奏、三秒開場畫面、章尾視覺鉤子",
-      "consumerGroupId": "group-1",
+      "consumerGroupId": "group-7",
       "packId": "pack-10",
       "packIds": [
         "pack-10",
+        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -6804,7 +6897,7 @@
         "下一話預告"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "直式分鏡節奏",
         "三秒開場畫面",
         "章尾視覺鉤子",
@@ -6832,10 +6925,10 @@
       "name": "社群共創小說",
       "description": "讀者留言改劇情、粉絲稱號任務、角色人氣榜",
       "consumerGroupId": "group-7",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
-        "pack-10",
         "pack-4",
+        "pack-10",
         "pack-11"
       ],
       "subCategories": [
@@ -6881,9 +6974,12 @@
       "topicId": "classic-topic-135",
       "name": "手機短章連載",
       "description": "800字強鉤子、三段式反轉、通勤閱讀節奏",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
+        "pack-10",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -6901,7 +6997,7 @@
         "一章一選擇"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "800字強鉤子",
         "三段式反轉",
         "通勤閱讀節奏",
@@ -6982,6 +7078,8 @@
       "packId": "pack-4",
       "packIds": [
         "pack-4",
+        "pack-10",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -7029,9 +7127,12 @@
       "topicId": "classic-topic-138",
       "name": "Audio聽書劇場",
       "description": "有聲書旁白、角色聲線切換、章節音效節點",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-7",
+      "packId": "pack-10",
       "packIds": [
+        "pack-10",
+        "pack-5",
+        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -7049,7 +7150,7 @@
         "聽眾留言回饋"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "有聲書旁白",
         "角色聲線切換",
         "章節音效節點",
@@ -7077,8 +7178,9 @@
       "name": "青少年YA冒險",
       "description": "校園祕密社團、青春超能力、友情試煉",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-1",
         "pack-11"
@@ -7132,6 +7234,7 @@
         "pack-8",
         "pack-5",
         "pack-1",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -7179,8 +7282,9 @@
       "name": "男頻長線升級",
       "description": "外門起步、資源爭奪、宗門試煉",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-2",
       "packIds": [
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -7226,9 +7330,11 @@
       "topicId": "classic-topic-142",
       "name": "同人式原創安全",
       "description": "原型精神萃取、相似設定避讓、角色功能重組",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-3",
+      "packId": "pack-10",
       "packIds": [
+        "pack-10",
+        "pack-8",
         "pack-11"
       ],
       "subCategories": [
@@ -7246,7 +7352,7 @@
         "結局方向重寫"
       ],
       "tags": [
-        "幻想冒險",
+        "情感關係",
         "原型精神萃取",
         "相似設定避讓",
         "角色功能重組",
@@ -7274,8 +7380,9 @@
       "name": "AI互動小說迴圈",
       "description": "AI主持人接力、玩家A/B/C行動、自訂行動解析",
       "consumerGroupId": "group-6",
-      "packId": "pack-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-7",
         "pack-11"
       ],
@@ -7322,10 +7429,11 @@
       "topicId": "classic-topic-144",
       "name": "篇幅與載體分類",
       "description": "微型小說、短篇小說、中篇小說",
-      "consumerGroupId": "group-1",
+      "consumerGroupId": "group-7",
       "packId": "pack-10",
       "packIds": [
         "pack-10",
+        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -7343,7 +7451,7 @@
         "單元劇短篇"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "微型小說",
         "短篇小說",
         "中篇小說",
@@ -7473,6 +7581,7 @@
       "packId": "pack-9",
       "packIds": [
         "pack-9",
+        "pack-5",
         "pack-2",
         "pack-11"
       ],
@@ -7815,8 +7924,9 @@
       "name": "兒童與青少年補漏",
       "description": "兒童奇幻、中年級冒險、青少年成長",
       "consumerGroupId": "group-5",
-      "packId": "pack-9",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-9",
         "pack-7",
         "pack-1",
@@ -7973,6 +8083,7 @@
       "packIds": [
         "pack-8",
         "pack-5",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -8019,8 +8130,9 @@
       "name": "地理冒險與特殊場域",
       "description": "航海冒險、西部荒野、極地求生",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-1",
       "packIds": [
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -8067,8 +8179,9 @@
       "name": "跨媒介小說形態",
       "description": "電影小說、劇本殺小說、遊戲小說",
       "consumerGroupId": "group-5",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-10",
         "pack-9",
         "pack-2",
@@ -8118,9 +8231,12 @@
       "topicId": "classic-topic-160",
       "name": "YouTube爽劇題材補漏",
       "description": "保安隱藏大佬、外賣員真首富、保潔阿姨逆襲",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-7",
+      "packId": "pack-10",
       "packIds": [
+        "pack-10",
+        "pack-4",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -8138,7 +8254,7 @@
         "低調富豪打臉"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "保安隱藏大佬",
         "外賣員真首富",
         "保潔阿姨逆襲",
@@ -8219,6 +8335,8 @@
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-1",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -8268,6 +8386,7 @@
       "packIds": [
         "pack-10",
         "pack-6",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -8318,6 +8437,7 @@
         "pack-10",
         "pack-7",
         "pack-6",
+        "pack-2",
         "pack-11"
       ],
       "subCategories": [
@@ -8417,6 +8537,7 @@
       "packIds": [
         "pack-10",
         "pack-5",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -8511,9 +8632,11 @@
       "topicId": "classic-topic-168",
       "name": "爽劇分鏡劇本工具",
       "description": "一分鐘冷開場、三秒衝突鉤子、十秒身份落差",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-7",
+      "packId": "pack-10",
       "packIds": [
+        "pack-10",
+        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -8531,7 +8654,7 @@
         "下一集選擇鉤子"
       ],
       "tags": [
-        "幻想冒險",
+        "互動實驗",
         "一分鐘冷開場",
         "三秒衝突鉤子",
         "十秒身份落差",
@@ -8659,11 +8782,11 @@
       "name": "電子書平台幻想",
       "description": "雲端書庫失控、書籤定位平行世界、高亮句子改命",
       "consumerGroupId": "group-7",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-10",
         "pack-7",
-        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -8761,6 +8884,7 @@
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -8954,8 +9078,9 @@
       "name": "心理驚悚與家庭祕密",
       "description": "失憶日記、不可靠婚姻、鄰居監視",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-11"
       ],
@@ -9051,8 +9176,9 @@
       "name": "女性成長讀書會",
       "description": "離婚後讀書會、母女共讀和解、職場女性書單",
       "consumerGroupId": "group-3",
-      "packId": "pack-8",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-8",
         "pack-5",
         "pack-1",
@@ -9153,8 +9279,9 @@
       "name": "氣候與希望龐克",
       "description": "海上漂浮書城、太陽能小鎮、雨水銀行",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-11"
       ],
       "subCategories": [
@@ -9247,9 +9374,10 @@
       "topicId": "classic-topic-183",
       "name": "黑暗學院與祕社",
       "description": "禁書社團、鐘樓第十三課、古典學院暗號",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-5",
+      "packId": "pack-9",
       "packIds": [
+        "pack-9",
         "pack-11"
       ],
       "subCategories": [
@@ -9267,7 +9395,7 @@
         "午夜圖書館"
       ],
       "tags": [
-        "幻想冒險",
+        "懸疑驚悚",
         "禁書社團",
         "鐘樓第十三課",
         "古典學院暗號",
@@ -9298,6 +9426,8 @@
       "packId": "pack-9",
       "packIds": [
         "pack-9",
+        "pack-7",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -9346,6 +9476,7 @@
       "packId": "pack-9",
       "packIds": [
         "pack-9",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -9391,8 +9522,9 @@
       "name": "間諜諜報與雙面身份",
       "description": "冷戰遺產密碼、雙重間諜失憶、外交宴會竊聽",
       "consumerGroupId": "group-5",
-      "packId": "pack-9",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-9",
         "pack-11"
       ],
@@ -9438,9 +9570,10 @@
       "topicId": "classic-topic-187",
       "name": "劫案團隊Heist",
       "description": "博物館零傷亡劫案、賭場時間窗、天才開鎖師",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-5",
+      "packId": "pack-9",
       "packIds": [
+        "pack-9",
         "pack-11"
       ],
       "subCategories": [
@@ -9458,7 +9591,7 @@
         "最後一票洗白"
       ],
       "tags": [
-        "幻想冒險",
+        "懸疑驚悚",
         "博物館零傷亡劫案",
         "賭場時間窗",
         "天才開鎖師",
@@ -9485,9 +9618,11 @@
       "topicId": "classic-topic-188",
       "name": "災難群像求生",
       "description": "地震後七十二小時、海嘯避難高樓、火山城撤離",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-5",
+      "packId": "pack-9",
       "packIds": [
+        "pack-9",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -9505,7 +9640,7 @@
         "災後臨時社區"
       ],
       "tags": [
-        "幻想冒險",
+        "懸疑驚悚",
         "地震後七十二小時",
         "海嘯避難高樓",
         "火山城撤離",
@@ -9684,6 +9819,8 @@
       "packId": "pack-8",
       "packIds": [
         "pack-8",
+        "pack-5",
+        "pack-1",
         "pack-11"
       ],
       "subCategories": [
@@ -9778,8 +9915,9 @@
       "name": "悲傷女性與內在成長",
       "description": "失眠日記、分手後城市散步、母女沉默修復",
       "consumerGroupId": "group-2",
-      "packId": "pack-1",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-1",
         "pack-11"
       ],
@@ -9826,8 +9964,9 @@
       "name": "辦公室諷刺與荒誕職場",
       "description": "無意義會議迷宮、KPI怪物、公司吉祥物失蹤",
       "consumerGroupId": "group-2",
-      "packId": "pack-5",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-5",
         "pack-11"
       ],
@@ -9875,9 +10014,11 @@
       "topicId": "classic-topic-196",
       "name": "傳記式小說與人生回溯",
       "description": "未寄出的自傳、人生訪談錄、老照片重排",
-      "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "consumerGroupId": "group-2",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
+        "pack-5",
         "pack-11"
       ],
       "subCategories": [
@@ -9895,7 +10036,7 @@
         "普通人的史詩"
       ],
       "tags": [
-        "幻想冒險",
+        "都市現實",
         "未寄出的自傳",
         "人生訪談錄",
         "老照片重排",
@@ -9923,8 +10064,9 @@
       "name": "死後辦事處與來世幻想",
       "description": "亡者櫃台、來世排隊系統、記憶審核官",
       "consumerGroupId": "group-1",
-      "packId": "pack-11",
+      "packId": "pack-7",
       "packIds": [
+        "pack-7",
         "pack-11"
       ],
       "subCategories": [
@@ -10021,10 +10163,10 @@
       "name": "遊戲書與單人RPG",
       "description": "段落編號迷宮、骰子命運戰鬥、裝備欄抉擇",
       "consumerGroupId": "group-7",
-      "packId": "pack-10",
+      "packId": "pack-4",
       "packIds": [
-        "pack-10",
         "pack-4",
+        "pack-10",
         "pack-11"
       ],
       "subCategories": [
@@ -10265,8 +10407,9 @@
       "name": "原住民未來主義",
       "description": "非線性時間河、祖靈衛星、土地條約AI",
       "consumerGroupId": "group-6",
-      "packId": "pack-7",
+      "packId": "pack-4",
       "packIds": [
+        "pack-4",
         "pack-7",
         "pack-11"
       ],
@@ -10456,10 +10599,10 @@
       "topicId": "classic-topic-208",
       "name": "東歐寓言與黑色童話",
       "description": "雪地麵包店魔女、邊境傀儡劇場、舊公寓牆內聲音",
-      "consumerGroupId": "group-8",
-      "packId": "pack-3",
+      "consumerGroupId": "group-4",
+      "packId": "pack-6",
       "packIds": [
-        "pack-3",
+        "pack-6",
         "pack-11"
       ],
       "subCategories": [
@@ -10477,7 +10620,7 @@
         "黑海港口童話"
       ],
       "tags": [
-        "文化地域",
+        "歷史權謀",
         "雪地麵包店魔女",
         "邊境傀儡劇場",
         "舊公寓牆內聲音",
@@ -10890,40 +11033,42 @@
     },
     {
       "topicId": "classic-topic-217",
-      "name": "網站平台功能包",
-      "description": "首頁探索牆、分類書庫篩選、多榜單排行",
+      "name": "創作者平台生存戰",
+      "description": "新人作者首發、榜單演算法黑箱、獨家合約權利爭奪",
       "consumerGroupId": "group-7",
       "packId": "pack-10",
       "packIds": [
         "pack-10",
         "pack-4",
+        "pack-5",
         "pack-11"
       ],
       "subCategories": [
-        "首頁探索牆",
-        "分類書庫篩選",
-        "多榜單排行",
-        "追更書架",
-        "標籤雲與相似推薦",
-        "作者中心工具",
-        "讀者互動機制",
-        "活動徵文中心",
-        "連載儀表板",
-        "ChatGPT 接力遊玩",
-        "手機閱讀優化",
-        "IP 改編素材庫"
+        "新人作者首發",
+        "榜單演算法黑箱",
+        "獨家合約權利爭奪",
+        "匿名編輯的最後通牒",
+        "斷更危機倒數",
+        "抄襲指控攻防",
+        "讀者社群炎上",
+        "競爭作者聯盟",
+        "IP改編競標",
+        "平台併購風暴",
+        "數據造假調查",
+        "完結日前的背叛"
       ],
       "tags": [
         "互動實驗",
-        "首頁探索牆",
-        "分類書庫篩選",
-        "多榜單排行",
-        "追更書架",
-        "標籤雲與相似推薦"
+        "新人作者首發",
+        "榜單演算法黑箱",
+        "獨家合約權利爭奪",
+        "匿名編輯的最後通牒",
+        "斷更危機倒數"
       ],
       "supportedPlayModes": [
         "general",
-        "interactive"
+        "interactive",
+        "management"
       ],
       "recommendedProtagonists": [],
       "recommendedWorlds": [],
@@ -10932,16 +11077,18 @@
       "adultOnly": false,
       "enabled": true,
       "classic": true,
-      "sourceVersion": "legacy-218-audited",
+      "sourceVersion": "story-topic-editorial-v2",
       "legacyAliases": [
+        "創作者平台生存戰",
+        "theme:創作者平台生存戰",
         "網站平台功能包",
         "theme:網站平台功能包"
       ]
     },
     {
       "topicId": "classic-topic-218",
-      "name": "讀者成長系統",
-      "description": "閱讀足跡回訪、章末投票分歧、角色人氣變化",
+      "name": "全民投票改寫命運",
+      "description": "章末投票成真、人氣角色覺醒、留言預言殺人",
       "consumerGroupId": "group-7",
       "packId": "pack-10",
       "packIds": [
@@ -10951,26 +11098,26 @@
         "pack-11"
       ],
       "subCategories": [
-        "閱讀足跡回訪",
-        "章末投票分歧",
-        "角色人氣變化",
-        "留言觸發番外",
-        "粉絲稱號升級",
-        "追更提醒事件",
-        "相似題材推薦",
-        "收藏轉化任務",
-        "完本回收活動",
-        "讀券解鎖節奏",
-        "新書入庫曝光",
-        "社群討論升溫"
+        "章末投票成真",
+        "人氣角色覺醒",
+        "留言預言殺人",
+        "讀者選擇具現化",
+        "被淘汰角色復仇",
+        "作者失去劇情控制",
+        "粉絲陣營對決",
+        "收藏數換取時間",
+        "斷更引發世界崩塌",
+        "角色跨章求救",
+        "完本後世界重啟",
+        "最終票決定現實"
       ],
       "tags": [
         "互動實驗",
-        "閱讀足跡回訪",
-        "章末投票分歧",
-        "角色人氣變化",
-        "留言觸發番外",
-        "粉絲稱號升級"
+        "章末投票成真",
+        "人氣角色覺醒",
+        "留言預言殺人",
+        "讀者選擇具現化",
+        "被淘汰角色復仇"
       ],
       "supportedPlayModes": [
         "general",
@@ -10984,8 +11131,10 @@
       "adultOnly": false,
       "enabled": true,
       "classic": true,
-      "sourceVersion": "legacy-218-audited",
+      "sourceVersion": "story-topic-editorial-v2",
       "legacyAliases": [
+        "全民投票改寫命運",
+        "theme:全民投票改寫命運",
         "讀者成長系統",
         "theme:讀者成長系統"
       ]

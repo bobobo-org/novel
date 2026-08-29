@@ -16,6 +16,7 @@ import {
   activeStoryLore,
   activeStoryTimeline,
   activeStoryWorldRules,
+  assertStoryStageEraCompatibility,
 } from "@/lib/novel-ai/domain/active-story-context";
 import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-selection";
 import { explicitCrossEraCanonAuthorization } from "@/lib/novel-ai/domain/story-started-canon-guard";
@@ -210,6 +211,18 @@ export default function StoryStageSelector({
     try {
       const latest = await repository.get<StoryState>("storyStates", data.storyState.id);
       if (!latest || latest.projectId !== projectId) throw new Error("STORY_STATE_NOT_FOUND");
+      if (!data.project) throw new Error("PROJECT_NOT_FOUND");
+      if ("activeCharacterIds" in patch || "activeWorldId" in patch) {
+        assertStoryStageEraCompatibility({
+          project: data.project,
+          storyBible: data.storyBible,
+          latestStoryState: latest,
+          patch,
+          worldRules: data.worldRules,
+          worlds: data.worlds,
+          characters: data.characters,
+        });
+      }
       const saved = await repository.put<StoryState>("storyStates", { ...latest, ...patch }, latest.revision);
       setData((current) => ({ ...current, storyState: saved }));
       setMessage(nextMessage);

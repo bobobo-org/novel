@@ -175,6 +175,16 @@ export type Character = DomainRecord & {
   dynamicsProfile?: CharacterDynamicsProfile | null;
   socialMatrixProfile?: CharacterSocialMatrixProfile | null;
   cultivationProfile?: CharacterCultivationProfile | null;
+  /** Bounded author-approved history for power changes made after prose exists. */
+  canonChangeHistory?: Array<{
+    schemaVersion: "character-canon-change-audit-v1";
+    changedAt: string;
+    previousRevision: number;
+    reason: string;
+    changedFields: Array<"profession" | "rpgProfile" | "cultivationProfile">;
+    previousSummary: string;
+    nextSummary: string;
+  }>;
   voiceStyle?: {
     formality: number;
     directness: number;

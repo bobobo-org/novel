@@ -41,6 +41,7 @@ import {
 import { stageStoryWorkspaceHandoff } from "@/lib/novel-ai/web/story-workspace-handoff";
 import ProjectNavigation from "../project-navigation";
 import styles from "./author-tools.module.css";
+import WholeNovelReviewPanel from "./whole-novel-review-panel";
 
 const TOOL_COPY: Record<AuthorToolId, { title: string; summary: string; action: string }> = {
   breakdown: {
@@ -62,6 +63,11 @@ const TOOL_COPY: Record<AuthorToolId, { title: string; summary: string; action: 
     title: "連載、讀者與 IP 研究",
     summary: "用本機可驗證的作品結構檢查節奏、章尾鉤子與改編準備度；不冒充平台流量數據。",
     action: "執行連載研究",
+  },
+  "completion-review": {
+    title: "全書完稿審查",
+    summary: "固定完稿版本後，由真實閉端 AI 完整覆蓋全文、輸出全書大綱、七項加權評鑑與可匯出資格契約。",
+    action: "開始全書完稿審查",
   },
 };
 
@@ -170,7 +176,7 @@ export default function AuthorToolsWorkspace({
         storyState: storyStates.find((item) => item.id === project.storyStateId) ?? storyStates[0] ?? null,
         timeline,
       }));
-      setStatus(`已載入《${project.title}》；四個本機報告與閉端 AI 作者顧問共用同一份正式 Canon，但只產生可複製候選。`);
+      setStatus(`已載入《${project.title}》；四個本機報告、全書完稿審查與閉端 AI 作者顧問共用同一份正式 Canon，但都不會自動公開。`);
     }).catch((cause) => {
       if (active) setStatus(cause instanceof Error ? `作品資料讀取失敗：${cause.message}` : "作品資料目前無法讀取");
     }).finally(() => {
@@ -191,6 +197,10 @@ export default function AuthorToolsWorkspace({
   function run() {
     if (!snapshot) {
       setStatus("尚未載入作品，沒有執行分析。");
+      return;
+    }
+    if (tool === "completion-review") {
+      setStatus("請使用下方全書完稿審查面板；固定規則不會替閉端 AI 產生小說品質分。 ");
       return;
     }
     const nextOutput = tool === "breakdown"
@@ -340,7 +350,7 @@ export default function AuthorToolsWorkspace({
         <div>
           <span>RESEARCH & AUTHOR TOOLS</span>
           <h1>研究與作者輔助</h1>
-          <p>四項本機可驗證報告保留原樣；需要真正小說判斷時，再使用下方閉端 AI 作者顧問。</p>
+          <p>四項本機可驗證報告保留原樣；全書完稿審查與作者顧問只接受具 verified receipt 的真實閉端模型結果。</p>
         </div>
         <strong>{snapshot?.project.title ?? "尚未載入作品"}</strong>
       </header>
@@ -362,6 +372,10 @@ export default function AuthorToolsWorkspace({
         ))}
       </nav>
 
+      {tool === "completion-review" ? (
+        snapshot ? <WholeNovelReviewPanel projectId={projectId} snapshot={snapshot} /> : null
+      ) : (
+        <>
       <section className={styles.workbench}>
         <div>
           <small>目前工具</small>
@@ -516,6 +530,8 @@ export default function AuthorToolsWorkspace({
           </article>
         ) : null}
       </section>
+        </>
+      )}
     </main>
   );
 }

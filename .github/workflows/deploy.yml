@@ -338,7 +338,9 @@ jobs:
             pnpm test:ai:mode-choice-curriculum
             pnpm test:ai:procedural-story-library
             pnpm test:studio:topic-world-contract
+            pnpm test:studio:story-topic-audit
             pnpm test:studio:global-world-index
+            pnpm test:studio:global-world-rule-workspace
             pnpm test:studio:global-canon
             pnpm test:studio:global-character-index
             pnpm test:studio:character-mastery
@@ -374,6 +376,8 @@ jobs:
             pnpm test:ai:external:request-guard
             pnpm test:media:seedance-contract
             pnpm test:ai:closed:cloud-sync
+            pnpm test:ai:whole-novel-review
+            pnpm test:public-lounge
             pnpm test:ai:closed:model-verification-timeout
             pnpm test:ai:closed:super-agent-rpg
             pnpm test:ai:closed:cache-runtime
@@ -1108,6 +1112,9 @@ jobs:
 
       - name: Provision and verify encrypted cloud sync private storage
         run: node scripts/provision-cloud-sync-storage.mjs --env-file .vercel/.env.production.local --required
+
+      - name: Provision and verify public lounge private storage
+        run: node scripts/provision-public-lounge-storage.mjs --env-file .vercel/.env.production.local --required
 
       - name: Build production and record the actual build window
         id: production_build_window

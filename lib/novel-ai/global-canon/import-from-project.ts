@@ -27,6 +27,7 @@ import {
   type GlobalCanonStoredRecord,
   type GlobalCanonStoreName,
   type GlobalCanonEraContext,
+  type GlobalCharacterAbilityProfile,
   type ProjectCanonSourceStore,
 } from "./types";
 
@@ -71,6 +72,10 @@ type SourceAwareWorld = World & Partial<{
   globalClassificationLabel: string;
   eraContext: GlobalCanonEraContext;
   crossEraBridge: string | null;
+}>;
+
+type SourceAwareCharacter = Character & Partial<{
+  globalAbilityProfile: GlobalCharacterAbilityProfile | null;
 }>;
 
 type SourceAwareRule = WorldRule & Partial<{ eraContexts: GlobalCanonEraContext[] }>;
@@ -191,7 +196,7 @@ function fallbackEra(worlds: readonly SourceAwareWorld[]) {
 
 function prepareCharacter(
   project: NovelProject,
-  source: Character,
+  source: SourceAwareCharacter,
   importedAt: string,
 ): PreparedProjectCanonImportRecord {
   const ref = importRef({ project, sourceStore: "characters", source, importedAt });
@@ -211,6 +216,7 @@ function prepareCharacter(
     values: [...(source.values ?? [])],
     capabilities: [...(source.capabilities ?? [])],
     limitations: [...(source.limitations ?? [])],
+    abilityProfile: source.globalAbilityProfile ? cloneValue(source.globalAbilityProfile) : null,
     portrait: source.portrait ? cloneValue(source.portrait) : null,
   }, migrationMeta(project, "characters", source)), ref);
   return {
@@ -384,7 +390,7 @@ export async function prepareProjectCanonImport(input: {
   if (!project || project.deletedAt) throw new Error("GLOBAL_CANON_IMPORT_PROJECT_NOT_FOUND");
   const importedAt = input.importedAt ?? new Date().toISOString();
   const [characters, relationships, worlds, worldRules, lore, storyBibles, timeline] = await Promise.all([
-    input.projectRepository.list<Character>("characters", project.id),
+    input.projectRepository.list<SourceAwareCharacter>("characters", project.id),
     input.projectRepository.list<CharacterRelationship>("relationships", project.id),
     input.projectRepository.list<SourceAwareWorld>("worlds", project.id),
     input.projectRepository.list<SourceAwareRule>("worldRules", project.id),

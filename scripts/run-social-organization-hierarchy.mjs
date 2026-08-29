@@ -95,6 +95,50 @@ assert.ok(cultivation.directory.every((entry) => entry.worldClassificationId ===
 assert.ok(cultivation.blueprints.some((entry) => entry.archetype === "sect"));
 assert.ok(cultivation.blueprints.some((entry) => entry.archetype === "family"));
 assert.ok(cultivation.blueprints.some((entry) => entry.archetype === "enterprise"));
+assert.equal(cultivation.matrix.cacheStats().materializedCharacters, 0, "building 30 organizations must not eagerly materialize rosters");
+
+const cultivationCapacities = cultivation.directory.map((organization) => organization.memberCapacity);
+assert.equal(
+  cultivationCapacities.reduce((sum, capacity) => sum + capacity, 0),
+  cultivation.matrix.populationSize,
+  "30 organization capacity buckets must partition the bounded 100,000-person catalog",
+);
+assert.ok(
+  cultivationCapacities.filter((capacity) => capacity >= 5_000).length >= 2,
+  "the directory needs real 5,000-10,000-person giant organizations",
+);
+assert.ok(
+  Math.min(...cultivationCapacities) < 300,
+  "giant organizations must be balanced by genuinely small organizations",
+);
+const allInstitutionPopulationIndexes = new Set();
+for (let institutionIndex = 0; institutionIndex < cultivation.matrix.institutionCount; institutionIndex += 1) {
+  const institutionMemberCount = cultivation.matrix.getInstitution(institutionIndex).memberCount;
+  const sampledMemberOrdinals = new Set([
+    0,
+    Math.floor(institutionMemberCount / 2),
+    institutionMemberCount - 1,
+  ]);
+  for (let memberOrdinal = 0; memberOrdinal < institutionMemberCount; memberOrdinal += 1) {
+    const populationIndex = cultivation.matrix.institutionMemberPopulationIndexAt(institutionIndex, memberOrdinal);
+    assert.equal(
+      allInstitutionPopulationIndexes.has(populationIndex),
+      false,
+      `population index ${populationIndex} must belong to exactly one organization`,
+    );
+    allInstitutionPopulationIndexes.add(populationIndex);
+    if (sampledMemberOrdinals.has(memberOrdinal)) {
+      assert.equal(
+        cultivation.matrix.getCharacter(populationIndex).institutionId,
+        cultivation.matrix.institutionId(institutionIndex),
+        "partition index and materialized character institution must agree",
+      );
+    }
+  }
+}
+assert.equal(allInstitutionPopulationIndexes.size, cultivation.matrix.populationSize);
+assert.equal(allInstitutionPopulationIndexes.has(0), true);
+assert.equal(allInstitutionPopulationIndexes.has(cultivation.matrix.populationSize - 1), true);
 
 for (const organization of cultivation.directory) {
   assert.ok(organization.memberCapacity >= 1);
@@ -119,7 +163,7 @@ for (const organization of cultivation.directory) {
   const virtualInstitutionMembers = cultivation.matrix.getInstitution(
     organization.institutionIndex,
   ).memberCount;
-  assert.ok(organization.memberCapacity <= virtualInstitutionMembers);
+  assert.equal(organization.memberCapacity, virtualInstitutionMembers);
   const hierarchyText = flattenHierarchy(organization.hierarchy)
     .flatMap((entry) => [entry.label, ...entry.roles, ...entry.assets])
     .join("｜");
@@ -132,7 +176,10 @@ assert.equal(
   ), 0),
   cultivation.matrix.populationSize,
 );
-assert.equal(cultivation.matrix.cacheStats().materializedCharacters, 0, "building 30 organizations must not eagerly materialize rosters");
+assert.ok(
+  cultivation.matrix.cacheStats().materializedCharacters <= cultivation.matrix.cacheLimit,
+  "partition verification must remain cache-bounded",
+);
 const cultivationRelationships = uniqueOrganizationRelationships(cultivation.directory);
 assert.ok(cultivationRelationships.length >= STORY_ORGANIZATION_DIRECTORY_SIZE * 2);
 assert.deepEqual(
@@ -410,6 +457,15 @@ for (const classificationCase of classificationCases) {
   });
   const catalog = makeDirectory(`organization-profile:${classificationCase.id}`, setting);
   assert.equal(catalog.directory.length, 30, `${classificationCase.id} must expose at least 30 organizations`);
+  assert.equal(
+    catalog.directory.reduce((sum, organization) => sum + organization.memberCapacity, 0),
+    catalog.matrix.populationSize,
+    `${classificationCase.id} organization buckets must stay within the 100,000-person catalog`,
+  );
+  assert.ok(
+    catalog.directory.some((organization) => organization.memberCapacity >= 5_000),
+    `${classificationCase.id} must support a giant organization without duplicating members`,
+  );
   assert.equal(new Set(catalog.directory.map((entry) => entry.name)).size, 30, `${classificationCase.id} organization names must be unique`);
   assert.ok(catalog.directory.every((entry) => entry.worldClassificationId === classificationCase.id));
   assert.ok(new Set(catalog.directory.map((entry) => entry.archetype)).size >= 4, `${classificationCase.id} needs multiple hierarchy archetypes`);
@@ -451,10 +507,15 @@ const crossEraSetting = resolveStoryOrganizationSetting({
 assert.equal(crossEraSetting.era, "cross-era");
 assert.equal(crossEraSetting.allowsCrossEra, true);
 const crossEra = makeDirectory("cross-era-organization-seed", crossEraSetting);
+assert.equal(crossEra.directory.length, STORY_ORGANIZATION_DIRECTORY_SIZE);
 assert.ok(crossEra.directory.some((entry) => entry.archetype === "sect"));
 assert.ok(crossEra.directory.some((entry) => entry.archetype === "enterprise"));
 assert.ok(new Set(crossEra.directory.map((entry) => entry.era)).size > 1);
 assert.ok(crossEra.directory.every((entry) => storyOrganizationEraCompatible(crossEraSetting, entry.era)));
+assert.equal(
+  crossEra.directory.reduce((sum, organization) => sum + organization.memberCapacity, 0),
+  crossEra.matrix.populationSize,
+);
 
 const [socialWorldSource, socialWorldStyles] = await Promise.all([
   readFile(new URL("../app/studio/project/[projectId]/social-world-library.tsx", import.meta.url), "utf8"),

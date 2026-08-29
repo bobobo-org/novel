@@ -20,6 +20,7 @@ import {
   type GlobalCanonSourceRef,
   type GlobalCanonStoreName,
   type GlobalCharacter,
+  type GlobalCharacterAbilityProfile,
   type GlobalCharacterRelationship,
   type GlobalMemory,
   type GlobalTimelineTemplate,
@@ -33,6 +34,8 @@ type GlobalCanonSnapshotMetadata = {
 
 export type ProjectCharacterCanonSnapshot = Character & GlobalCanonSnapshotMetadata & {
   eraContext: GlobalCanonEraContext;
+  /** Exact global ability snapshot; copying never aliases or edits its source. */
+  globalAbilityProfile: GlobalCharacterAbilityProfile | null;
 };
 
 export type ProjectRelationshipCanonSnapshot = CharacterRelationship & GlobalCanonSnapshotMetadata;
@@ -180,6 +183,7 @@ function prepareCharacter(
     values: [...source.values],
     capabilities: [...source.capabilities],
     limitations: [...source.limitations],
+    globalAbilityProfile: source.abilityProfile ? structuredCloneSafe(source.abilityProfile) : null,
     portrait: source.portrait ? structuredCloneSafe(source.portrait) : null,
     eraContext: source.eraContext,
     globalCanonSourceRef: ref,

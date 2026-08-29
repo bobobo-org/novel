@@ -3,6 +3,7 @@ import type { CharacterMasteryProfile } from "../game/character-mastery-library"
 import type { GlobalIndexedWorld } from "../game/global-world-index";
 import type { SocialMatrixAbilities, SocialMatrixCharacter } from "../social-matrix";
 import { createGlobalCharacter } from "./factories";
+import { createGlobalCatalogCharacterAbilityProfile } from "./hero-abilities";
 import type { GlobalCanonEraContext, GlobalCharacter } from "./types";
 
 const ABILITY_LABELS: Record<keyof Omit<SocialMatrixAbilities, "powerTier" | "specialties">, string> = {
@@ -115,6 +116,16 @@ export function createGlobalCharacterFromCatalog(input: {
       ...(mastery?.assignments.map((assignment) =>
         `${assignment.name}限制：${assignment.limitation}；代價：${assignment.cost}`) ?? []),
     ],
+    abilityProfile: createGlobalCatalogCharacterAbilityProfile({
+      cultivation: character.abilities.cultivation,
+      martial: character.abilities.martial,
+      strategy: character.abilities.strategy,
+      perception: character.abilities.perception,
+      medicine: character.abilities.medicine,
+      crafting: character.abilities.crafting,
+      leadership: character.abilities.leadership,
+      influence: character.abilities.influence,
+    }),
     portrait,
   }, {
     id: globalCatalogCharacterId(world.id, character.populationIndex),

@@ -1,7 +1,8 @@
 import type { CharacterPortraitAsset } from "../domain";
 
-export const CHARACTER_PORTRAIT_CATALOG_VERSION = "character-portraits-v3-webp-10000" as const;
+export const CHARACTER_PORTRAIT_CATALOG_VERSION = "character-portraits-v4-webp-diverse-10000" as const;
 export const CHARACTER_PORTRAIT_CAPACITY = 10_000;
+export const CHARACTER_PORTRAIT_BASE_CAPACITY = 108;
 
 type PortraitTheme = {
   id: string;
@@ -109,9 +110,17 @@ const THEMES: PortraitTheme[] = [
 
 export const CHARACTER_PORTRAIT_THEME_OPTIONS = THEMES.map(({ id, label }) => ({ id, label }));
 
-function themePortraits(theme: PortraitTheme, themeIndex: number): CharacterPortraitAsset[] {
-  const visibleCount = themeIndex < THEMES.length - 1 ? 11 : 12;
-  return theme.roles.slice(0, visibleCount).map((role, index) => {
+export function characterPortraitBaseIdentity(portrait: CharacterPortraitAsset) {
+  if (!portrait.atlas) return `${portrait.assetUri}|${portrait.id.replace(/-v\d{3}$/u, "")}`;
+  return [
+    portrait.assetUri,
+    portrait.atlas.row,
+    portrait.atlas.column,
+  ].join("|");
+}
+
+function themePortraits(theme: PortraitTheme): CharacterPortraitAsset[] {
+  return theme.roles.map((role, index) => {
     const mood = theme.moods[index] ?? "鮮明";
     const number = String(index + 1).padStart(2, "0");
     return {
@@ -136,7 +145,7 @@ function themePortraits(theme: PortraitTheme, themeIndex: number): CharacterPort
     };
   });
 }
-const BASE_CHARACTER_PORTRAIT_CATALOG = THEMES.flatMap(themePortraits);
+export const CHARACTER_PORTRAIT_BASE_CATALOG = THEMES.flatMap(themePortraits);
 const VARIANT_ACCENTS = ["晨光", "月影", "暖金", "青碧", "冷銀", "霞紅", "墨藍", "松綠", "紫霧", "素白"] as const;
 
 function portraitVariant(portrait: CharacterPortraitAsset, baseIndex: number, variant: number) {
@@ -156,18 +165,30 @@ function portraitVariant(portrait: CharacterPortraitAsset, baseIndex: number, va
   };
 }
 
-// Browse base identities before their colour variants so an unfiltered page
-// shows genuinely different people. The stable portrait IDs and deterministic
-// assignment hashes are unchanged; only the discovery order is different.
+// Browse many base identities before their colour variants so an unfiltered
+// page shows genuinely different people instead of repeated tints of one face.
+// The nine bundled atlases contain 108 genuinely different face crops. Keep
+// the public catalog at its established 10,000-entry capacity, while rotating
+// which eight bases are omitted from each colour-variant round. This exposes
+// every real base identity instead of silently discarding the final cell from
+// eight atlases, and still keeps every catalog id deterministic and unique.
 export const CHARACTER_PORTRAIT_CATALOG: CharacterPortraitAsset[] = Array.from(
   { length: 100 },
-  (_, variant) => BASE_CHARACTER_PORTRAIT_CATALOG.map(
-    (portrait, baseIndex) => portraitVariant(portrait, baseIndex, variant),
-  ),
+  (_, variant) => {
+    const excludedStart = (100 + variant * 8) % CHARACTER_PORTRAIT_BASE_CATALOG.length;
+    const excludedBaseIndexes = new Set(
+      Array.from({ length: 8 }, (_, offset) => (
+        (excludedStart + offset) % CHARACTER_PORTRAIT_BASE_CATALOG.length
+      )),
+    );
+    return CHARACTER_PORTRAIT_BASE_CATALOG.flatMap((portrait, baseIndex) => (
+      excludedBaseIndexes.has(baseIndex) ? [] : [portraitVariant(portrait, baseIndex, variant)]
+    ));
+  },
 ).flat();
 
-if (BASE_CHARACTER_PORTRAIT_CATALOG.length !== 100 || CHARACTER_PORTRAIT_CATALOG.length !== CHARACTER_PORTRAIT_CAPACITY) {
-  throw new Error(`Character portrait catalog must contain 100 bases and ${CHARACTER_PORTRAIT_CAPACITY} virtual portraits; received ${BASE_CHARACTER_PORTRAIT_CATALOG.length}/${CHARACTER_PORTRAIT_CATALOG.length}.`);
+if (CHARACTER_PORTRAIT_BASE_CATALOG.length !== CHARACTER_PORTRAIT_BASE_CAPACITY || CHARACTER_PORTRAIT_CATALOG.length !== CHARACTER_PORTRAIT_CAPACITY) {
+  throw new Error(`Character portrait catalog must contain ${CHARACTER_PORTRAIT_BASE_CAPACITY} bases and ${CHARACTER_PORTRAIT_CAPACITY} virtual portraits; received ${CHARACTER_PORTRAIT_BASE_CATALOG.length}/${CHARACTER_PORTRAIT_CATALOG.length}.`);
 }
 
 export function filterCharacterPortraitCatalog(input: {
@@ -191,4 +212,34 @@ export function filterCharacterPortraitCatalog(input: {
     ].join(" ").toLocaleLowerCase("zh-TW");
     return terms.every((term) => haystack.includes(term));
   });
+}
+
+/**
+ * Picker-only discovery order. Keep the filtered result set and its total
+ * unchanged, but visit every real atlas crop once before showing a colour
+ * variant of the same person. This prevents a 12-card picker page from
+ * repeating a face whenever at least twelve matching base portraits remain.
+ */
+export function filterCharacterPortraitPickerCatalog(input: {
+  themeId?: string;
+  query?: string;
+}) {
+  const filtered = filterCharacterPortraitCatalog(input);
+  const groups = new Map<string, CharacterPortraitAsset[]>();
+  for (const portrait of filtered) {
+    const identity = characterPortraitBaseIdentity(portrait);
+    const group = groups.get(identity) ?? [];
+    group.push(portrait);
+    groups.set(identity, group);
+  }
+
+  const ordered: CharacterPortraitAsset[] = [];
+  const maxVariants = Math.max(0, ...Array.from(groups.values(), (group) => group.length));
+  for (let variantIndex = 0; variantIndex < maxVariants; variantIndex += 1) {
+    for (const group of groups.values()) {
+      const portrait = group[variantIndex];
+      if (portrait) ordered.push(portrait);
+    }
+  }
+  return ordered;
 }

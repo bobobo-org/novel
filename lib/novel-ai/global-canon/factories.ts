@@ -36,6 +36,10 @@ export function createGlobalCharacter(
     values: [...(input.values ?? [])],
     capabilities: [...(input.capabilities ?? [])],
     limitations: [...(input.limitations ?? [])],
+    abilityProfile: input.abilityProfile ? {
+      ...input.abilityProfile,
+      stats: { ...input.abilityProfile.stats },
+    } : null,
     portrait: input.portrait ?? null,
   };
 }

@@ -72,6 +72,8 @@ export type StudioClosedAITaskInput = {
   qualityMode?: ClosedAIQualityMode;
   browserComputePolicy?: PlatformAIRequest["browserComputePolicy"];
   generationOptions?: PlatformAIRequest["generationOptions"];
+  /** Caller-owned wall-clock budget used only by pre-creation provider coordination. */
+  coordinationBudgetMs?: number;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
@@ -86,6 +88,11 @@ const BROWSER_TO_LOCAL_RETRY_CODES = new Set([
   "BROWSER_AI_QUALITY_INSUFFICIENT",
   "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTOR_UNAVAILABLE",
   "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+]);
+const DEFINITELY_UNAVAILABLE_PROVIDER_STATUSES = new Set<PlatformProviderSnapshot["status"]>([
+  "runtime_unavailable",
+  "auth_required",
+  "disabled",
 ]);
 const CLOSED_REGENERATION_BACKENDS = new Set<ClosedAIBackendId>([
   "browser-ai",
@@ -159,6 +166,83 @@ function settleOnCallerAbort<T>(
 function studioClosedAIErrorCode(error: unknown) {
   if (!error || typeof error !== "object" || !("code" in error)) return "";
   return String((error as { code?: unknown }).code ?? "");
+}
+
+export type PreCreationProviderAvailability =
+  | "ready"
+  | "loading"
+  | "unavailable"
+  | "unknown";
+
+/** Distinguishes an in-progress model load from a proven no-provider state. */
+export function classifyPreCreationProviderAvailability(
+  snapshots: PlatformProviderSnapshot[],
+): PreCreationProviderAvailability {
+  const closedById = new Map(
+    snapshots
+      .filter((snapshot) => (
+        snapshot.id === "browser-ai" || snapshot.id === "local-ollama"
+      ))
+      .map((snapshot) => [snapshot.id, snapshot] as const),
+  );
+  const closed = [...closedById.values()];
+  if (closed.some((snapshot) => snapshot.status === "ready")) return "ready";
+  if (closed.some((snapshot) => (
+    /preparing|installing|downloading|inference_not_verified|verifying|connecting/iu
+      .test(snapshot.detail ?? "")
+  ))) return "loading";
+  if (
+    closedById.has("browser-ai")
+    && closedById.has("local-ollama")
+    && closed.every((snapshot) => (
+      DEFINITELY_UNAVAILABLE_PROVIDER_STATUSES.has(snapshot.status)
+      || (
+        snapshot.status === "runtime_not_installed"
+        && /install_required|runtime_required|not_paired|pairing_required/iu
+          .test(snapshot.detail ?? "")
+      )
+    ))
+  ) return "unavailable";
+  return "unknown";
+}
+
+/**
+ * A failed or incomplete status probe is not proof that both closed providers
+ * are unavailable.  Keep coordinating until the caller's deadline unless the
+ * two providers each return an explicit terminal state.
+ */
+export async function probePreCreationProviderAvailability(
+  signal?: AbortSignal,
+  readSnapshots: SnapshotReader = localProviderSnapshots,
+): Promise<{
+  availability: PreCreationProviderAvailability;
+  snapshots: PlatformProviderSnapshot[];
+}> {
+  try {
+    const snapshots = await readSnapshots(signal);
+    return {
+      availability: classifyPreCreationProviderAvailability(snapshots),
+      snapshots,
+    };
+  } catch {
+    if (signal?.aborted) throw callerAbortReason(signal);
+    return { availability: "unknown", snapshots: [] };
+  }
+}
+
+function waitForPreCreationRetry(delayMs: number, signal?: AbortSignal) {
+  if (signal?.aborted) return Promise.reject(callerAbortReason(signal));
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(callerAbortReason(signal!));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /**
@@ -697,6 +781,11 @@ export async function runStudioPreCreationClosedAI(
   execute: PlatformExecutor = executePlatformAI,
 ) {
   return settleOnCallerAbort(input.signal, async () => {
+    const coordinatorStartedAt = Date.now();
+    const coordinationBudgetMs = Math.min(
+      60_000,
+      Math.max(1_000, input.coordinationBudgetMs ?? 60_000),
+    );
     if (execute === executePlatformAI) {
       const runtime = getStudioClosedAIRuntimeCoordinator();
       if (runtime.localClient.hasActiveOrRememberedSession()) {
@@ -710,25 +799,94 @@ export async function runStudioPreCreationClosedAI(
         }
       }
     }
-    try {
-      return await runStudioClosedAI(input, execute);
-    } catch (error) {
-      const mayRetryOnLocalOllama =
-        hasExplicitLocalComputeAuthorization(
-          resolveStudioClosedComputePolicy(input.browserComputePolicy),
-        )
-        && !input.signal?.aborted
-        && BROWSER_TO_LOCAL_RETRY_CODES.has(studioClosedAIErrorCode(error));
-      if (!mayRetryOnLocalOllama) throw error;
+    const localEscalationAuthorized = hasExplicitLocalComputeAuthorization(
+      resolveStudioClosedComputePolicy(input.browserComputePolicy),
+    );
+    let preferredProvider: "local-ollama" | undefined;
+    let retryCount = 0;
+    while (true) {
+      if (input.signal?.aborted) throw callerAbortReason(input.signal);
+      try {
+        return await runStudioClosedAI(
+          input,
+          preferredProvider
+            ? (request) => execute({ ...request, preferredProvider })
+            : execute,
+        );
+      } catch (error) {
+        if (input.signal?.aborted) throw error;
+        const code = studioClosedAIErrorCode(error);
+        const browserRequestedLocal = localEscalationAuthorized
+          && BROWSER_TO_LOCAL_RETRY_CODES.has(code);
+        if (browserRequestedLocal && preferredProvider !== "local-ollama") {
+          preferredProvider = "local-ollama";
+          retryCount += 1;
+          input.onProgress?.({
+            taskId: `precreation-coordinator:${input.projectId}`,
+            phase: "routing",
+            label: "瀏覽器 AI 尚未完成，正在同一個 60 秒預算內轉交本機 Ollama；尚未啟用裝置後備。",
+            percent: 46,
+            occurredAt: new Date().toISOString(),
+            backendId: "local-ollama",
+          });
+          continue;
+        }
 
-      // Creation has no canonical project yet, so it uses the context-free
-      // platform executor. When Browser AI explicitly asks for Local Ollama,
-      // preserve that empty-context boundary while locking the retry to the
-      // already authorised device-local backend.
-      return runStudioClosedAI(input, (request) => execute({
-        ...request,
-        preferredProvider: "local-ollama",
-      }));
+        // Injected executors are test/integration seams and have no truthful
+        // provider snapshot reader. Preserve their original error rather than
+        // pretending a provider is loading.
+        if (execute !== executePlatformAI) throw error;
+
+        const elapsedMs = Date.now() - coordinatorStartedAt;
+        const remainingMs = coordinationBudgetMs - elapsedMs;
+        if (remainingMs <= 0) throw error;
+        const { availability, snapshots } = await probePreCreationProviderAvailability(
+          input.signal,
+        );
+        if (availability === "unavailable") {
+          throw Object.assign(
+            new Error("Browser AI and Local Ollama are both unavailable."),
+            {
+              code: "NO_CLOSED_PROVIDER_AVAILABLE",
+              retryable: false,
+              cause: error,
+            },
+          );
+        }
+        const localReady = snapshots.some((snapshot) => (
+          snapshot.id === "local-ollama" && snapshot.status === "ready"
+        ));
+        if (
+          localEscalationAuthorized
+          && localReady
+          && preferredProvider !== "local-ollama"
+        ) {
+          preferredProvider = "local-ollama";
+          retryCount += 1;
+          input.onProgress?.({
+            taskId: `precreation-coordinator:${input.projectId}`,
+            phase: "routing",
+            label: "瀏覽器 AI 此次未完成；已找到可用的本機 Ollama，正在繼續生成，尚未啟用裝置後備。",
+            percent: 52,
+            occurredAt: new Date().toISOString(),
+            backendId: "local-ollama",
+          });
+          continue;
+        }
+        retryCount += 1;
+        const delayMs = Math.min(1_000, Math.max(100, remainingMs));
+        input.onProgress?.({
+          taskId: `precreation-coordinator:${input.projectId}`,
+          phase: "probing",
+          label: availability === "loading"
+            ? `閉端模型仍在載入或驗證（第 ${retryCount} 次檢查）；會在 60 秒上限內繼續等候，不會提前誤判為後備。`
+            : `閉端模型回報可重試狀態（第 ${retryCount} 次檢查）；正在 60 秒上限內重新協調。`,
+          percent: Math.min(82, 50 + retryCount * 4),
+          occurredAt: new Date().toISOString(),
+          backendId: preferredProvider,
+        });
+        await waitForPreCreationRetry(delayMs, input.signal);
+      }
     }
   });
 }

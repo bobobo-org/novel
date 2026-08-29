@@ -453,12 +453,30 @@ assert.equal(lastPage.items.length, 16);
 assert.equal(lastPage.items.at(-1).ordinal, 99_999);
 assert.equal(lastPage.hasNextPage, false);
 assert.equal(library.diagnostics().materializedEntries, 3);
+const filteredPillPage = library.pageByKind("pill", 10, 24);
+assert.equal(filteredPillPage.items.length, 24);
+assert.equal(filteredPillPage.totalItems, 10_000);
+assert.equal(filteredPillPage.totalPages, 417);
+assert.equal(filteredPillPage.hasPreviousPage, true);
+assert.equal(filteredPillPage.hasNextPage, true);
+assert.ok(filteredPillPage.items.every((item) => item.kind === "pill"));
+assert.ok(filteredPillPage.items.every((item, index, items) => (
+  index === 0 || item.ordinal - items[index - 1].ordinal === PROCEDURAL_TREASURE_KIND_DEFINITIONS.length
+)));
+const lastFilteredPillPage = library.pageByKind("pill", 416, 24);
+assert.equal(lastFilteredPillPage.items.length, 16);
+assert.equal(lastFilteredPillPage.totalItems, 10_000);
+assert.equal(lastFilteredPillPage.hasNextPage, false);
+assert.ok(lastFilteredPillPage.items.every((item) => item.kind === "pill"));
+assert.equal(library.diagnostics().materializedEntries, 3);
 library.clearCache();
 assert.equal(library.diagnostics().materializedEntries, 0);
 
 assert.throws(() => library.at(100_000), /TREASURE_LIBRARY_ORDINAL_OUT_OF_RANGE/u);
 assert.throws(() => library.page(0, 101), /TREASURE_LIBRARY_PAGE_SIZE_INVALID/u);
 assert.throws(() => library.page(4_167, 24), /TREASURE_LIBRARY_PAGE_INDEX_OUT_OF_RANGE/u);
+assert.throws(() => library.pageByKind("pill", 417, 24), /TREASURE_LIBRARY_PAGE_INDEX_OUT_OF_RANGE/u);
+assert.throws(() => library.pageByKind("not-a-kind", 0, 24), /TREASURE_LIBRARY_KIND_INVALID/u);
 assert.throws(
   () => createProceduralTreasureLibrary({ storySeed, maxCacheEntries: 2_049 }),
   /TREASURE_LIBRARY_CACHE_LIMIT_INVALID/u,

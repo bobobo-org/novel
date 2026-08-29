@@ -1,0 +1,36 @@
+{
+  "auditVersion": "p12-story-library-audit-v1",
+  "createdAt": "2026-08-28T22:26:12.292Z",
+  "schemaVersion": "story-library-v1",
+  "source": {
+    "formal": "data/story-library.json",
+    "legacy": "public/legacy/novel-system.html",
+    "legacyRole": "historical bootstrap only",
+    "snapshot": "public/generated/story-library.json"
+  },
+  "counts": {
+    "packs": 11,
+    "consumerGroups": 8,
+    "classicTopics": 218,
+    "adultTopics": 7,
+    "allTopics": 225,
+    "subCategoryRelations": 2616,
+    "uniqueTopicIds": 225
+  },
+  "stale97": {
+    "foundInLegacyHelp": false,
+    "explanation": "97 是早期公開頁的歷史統計文字；正式資料經程式稽核為 218 類經典題材。",
+    "resolution": "首頁、API 與 Studio 全部改讀正式故事庫的動態統計。"
+  },
+  "integrity": {
+    "uniqueIds": true,
+    "classic218": true,
+    "packs11": true,
+    "adultIsolated": true,
+    "snapshotMatches": true
+  },
+  "hashes": {
+    "canonicalSha256": "e8a63729bcd4852c7a7b8d952af386325a29f7746fee61b22bff36201f8e9bdb",
+    "snapshotSha256": "e8a63729bcd4852c7a7b8d952af386325a29f7746fee61b22bff36201f8e9bdb"
+  }
+}

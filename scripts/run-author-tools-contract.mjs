@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  AUTHOR_TOOL_IDS,
   buildBatchPlan,
   buildClosedAuthorSuggestionHandoff,
   buildClosedAuthorSuggestionObjective,
@@ -306,6 +307,9 @@ assert.match(professional, /authorToolHref\(project\.id, "breakdown"\)/u);
 assert.match(professional, /authorToolHref\(project\.id, "relay"\)/u);
 assert.match(professional, /authorToolHref\(project\.id, "batch"\)/u);
 assert.match(professional, /authorToolHref\(project\.id, "serial"\)/u);
+assert.match(professional, /authorToolHref\(project\.id, "completion-review"\)/u);
+assert.equal(AUTHOR_TOOL_IDS.length, 5);
+assert.ok(AUTHOR_TOOL_IDS.includes("completion-review"));
 assert.doesNotMatch(professional, /coordinatorTaskHref\(project\.id, "請拆解目前作品/u);
 assert.match(page, /AuthorToolsWorkspace[^>]*projectId=\{projectId\}/u);
 assert.match(workspace, /找不到指定作品；沒有改用其他作品代替/u);
@@ -338,7 +342,7 @@ assert.match(characterWorkspace, /minimumParagraphs: 4/u);
 console.log(JSON.stringify({
   status: "PASS",
   projectIsolation: true,
-  realToolCount: 4,
+  realToolCount: 5,
   trueClosedAuthorAdvisor: true,
   readableTraditionalChineseCandidateGate: true,
   opaqueSessionHandoff: true,

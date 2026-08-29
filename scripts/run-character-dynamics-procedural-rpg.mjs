@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
-import { CHARACTER_PORTRAIT_CATALOG } from "../lib/novel-ai/character-portraits/catalog.ts";
+import {
+  CHARACTER_PORTRAIT_BASE_CAPACITY,
+  CHARACTER_PORTRAIT_CATALOG,
+} from "../lib/novel-ai/character-portraits/catalog.ts";
 import {
   approveCharacterDynamicsProfile,
   buildCharacterDynamicsCandidate,
@@ -63,12 +66,24 @@ function character(id, name, age = 24) {
 
 const characters = [character("char-a", "映河"), character("char-b", "清晏"), character("char-c", "懷序")];
 
-await test("10,000 portrait catalog entries are unique and complete", () => {
+await test("10,000 stable portrait choices expose all real base identities truthfully", () => {
   assert.equal(CHARACTER_PORTRAIT_CATALOG.length, 10_000);
   assert.equal(new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.id)).size, 10_000);
   assert.ok(CHARACTER_PORTRAIT_CATALOG.every((item) => item.assetDigest.length === 64 && item.visualDescription.length > 8));
   assert.equal(new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.visualVariant?.variant)).size, 100);
-  return { count: 10_000, baseArt: 100, variantsPerBase: 100, themes: new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.themeId)).size };
+  const baseIdentityCounts = new Map();
+  for (const portrait of CHARACTER_PORTRAIT_CATALOG) {
+    const key = [portrait.assetDigest, portrait.atlas?.row, portrait.atlas?.column].join(":");
+    baseIdentityCounts.set(key, (baseIdentityCounts.get(key) ?? 0) + 1);
+  }
+  assert.equal(baseIdentityCounts.size, CHARACTER_PORTRAIT_BASE_CAPACITY);
+  assert.ok([...baseIdentityCounts.values()].every((count) => count >= 92 && count <= 93));
+  return {
+    count: 10_000,
+    realBaseIdentities: CHARACTER_PORTRAIT_BASE_CAPACITY,
+    stableVariantsPerBase: { min: Math.min(...baseIdentityCounts.values()), max: Math.max(...baseIdentityCounts.values()) },
+    themes: new Set(CHARACTER_PORTRAIT_CATALOG.map((item) => item.themeId)).size,
+  };
 });
 
 await test("character dynamics are deterministic per seed and distinct across playthroughs", () => {

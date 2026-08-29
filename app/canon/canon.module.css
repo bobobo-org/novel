@@ -133,6 +133,20 @@
 .editor header small, .libraryPanel header small, .worldExplorer header small { color: var(--mint); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
 .editor h2, .libraryPanel h2, .worldExplorer h2 { margin: 4px 0 0; color: #ffe3a0; font: 650 clamp(22px, 2.3vw, 34px)/1.25 "Noto Serif TC", "Microsoft JhengHei", serif; }
 .editor header > span, .libraryPanel header > span { color: #9fb5c4; font-size: 12px; text-align: right; }
+.editor[data-collapsed="true"] > header { margin-bottom: 0; }
+.editorHeaderActions { display: grid; justify-items: end; gap: 8px; color: #9fb5c4; font-size: 12px; text-align: right; }
+.editorToggle {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #4b6c85;
+  border-radius: 8px;
+  color: #e5f0f7;
+  font-weight: 700;
+  background: #122840;
+}
+.editorToggle:hover { border-color: var(--mint); color: #f3fffc; background: #17374a; }
+.editorToggle:focus-visible { outline: 3px solid rgba(98, 222, 202, .35); outline-offset: 2px; }
+.editorBody[hidden] { display: none; }
 
 .formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .formGrid label, .portraitToolbar label, .worldJump label { display: grid; min-width: 0; gap: 7px; color: #d7e3eb; font-size: 13px; }
@@ -154,6 +168,17 @@
 .formGrid .check input { width: 20px; min-height: 20px; }
 .formActions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 .editorNote { margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid var(--mint); color: #b9ced9; line-height: 1.65; background: #0a2733; }
+.purposeNote { display: grid; gap: 8px; margin: 0 0 18px; padding: 12px 14px; border-left: 3px solid var(--mint); color: #b9ced9; line-height: 1.7; background: #0a2733; }
+.purposeNote span { min-width: 0; overflow-wrap: anywhere; }
+.purposeNote b { color: #78e1ce; }
+.heroAbilityEditor { min-width: 0; margin: 20px 0 0; padding: 16px; border: 1px solid #a98237; border-radius: 12px; background: linear-gradient(135deg, rgba(70, 48, 15, .55), rgba(9, 24, 42, .92)); }
+.heroAbilityEditor legend { padding: 0 7px; color: #ffd97d; font-weight: 800; }
+.heroAbilityEditor > p { margin: 0 0 14px; color: #c9d5dd; font-size: 13px; line-height: 1.65; }
+.heroAbilityEditor > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.heroAbilityEditor label { display: grid; min-width: 0; gap: 6px; color: #f2d890; font-size: 12px; }
+.heroAbilityEditor input { width: 100%; min-width: 0; min-height: 44px; padding: 9px 10px; border: 1px solid #7f6638; border-radius: 8px; color: #fff2c7; font-weight: 800; background: #151b27; }
+.heroAbilityEditor input:focus { border-color: #f3c865; outline: none; box-shadow: 0 0 0 3px rgba(243, 200, 101, .13); }
+.heroAbilityEditor input:disabled { color: #b7c4cc; background: #172331; }
 .formActions button, .recordCard footer button, .relationList footer button, .pager button, .savedPager button, .worldJump button, .worldDetail > button {
   min-height: 44px;
   padding: 0 15px;
@@ -420,6 +445,7 @@
   .treasureToolbar form { grid-column: 1 / -1; }
   .characterCatalogToolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .characterCatalogToolbar p { grid-column: 1 / -1; }
+  .heroAbilityEditor > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
@@ -443,9 +469,11 @@
   .editor, .libraryPanel, .worldExplorer { padding: 14px 12px; border-radius: 11px; }
   .editor > header, .libraryPanel > header, .worldExplorer > header { align-items: flex-start; gap: 10px; }
   .editor h2, .libraryPanel h2, .worldExplorer h2 { font-size: 22px; }
-  .editor header > span { max-width: 110px; }
+  .editor header > span, .editorHeaderActions { max-width: 132px; }
+  .editorToggle { width: 100%; min-width: 0; padding: 0 9px; }
   .formGrid { grid-template-columns: 1fr; }
   .formGrid .wide, .formGrid .check { grid-column: auto; }
+  .heroAbilityEditor { padding: 12px; }
   .portraitStudio { padding: 10px; }
   .portraitToolbar { grid-template-columns: 1fr; }
   .portraitToolbar > span { min-height: 40px; }
@@ -502,6 +530,7 @@
   .portraitGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .worldTiles { grid-template-columns: 1fr; }
   .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .heroAbilityEditor > div { grid-template-columns: 1fr; }
   .treasureHeading { grid-template-columns: 78px minmax(0, 1fr); }
   .treasureImageFrame { width: 78px; }
 }

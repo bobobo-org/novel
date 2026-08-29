@@ -9,6 +9,11 @@ import {
   resolveStoryTopic,
 } from "@/lib/novel-data/story-library";
 import {
+  filterStoryTopicsByPlayMode,
+  storyTopicPlayFit,
+  type StoryTopicModeFilter,
+} from "@/lib/novel-data/story-topic-mode-filter";
+import {
   buildProjectBundle,
   buildSeedCandidate,
   createDraft,
@@ -53,17 +58,22 @@ import {
   type ProjectCloneSourceSummary,
 } from "@/lib/novel-ai/repository/project-playmode-clone";
 import {
+  createDeviceFallbackStorySeed,
   createCreationStorySeedRequestGate,
+  creationStorySeedVariationSeed,
   creationStorySeedPrompt,
   mergeCreationStorySeed,
   parseCreationStorySeed,
+  releaseCreationStorySeedRun,
+  tryAcquireCreationStorySeedRun,
   type CreationStorySeed,
+  type CreationStorySeedVariation,
 } from "@/lib/novel-ai/web/creation-story-seed";
 import { runStudioPreCreationClosedAI } from "@/lib/novel-ai/web/studio-closed-ai";
 import PersistenceRecoveryNotice from "../persistence-recovery-notice";
 
 const DRAFT_KEY = "novel_p2_creation_draft";
-const CREATION_AI_DEADLINE_MS = 24_000;
+const CREATION_AI_DEADLINE_MS = 60_000;
 const MODE_NEUTRAL_STORY_SEED_LABEL = "尚未選定創作／遊玩方式；只產生不綁定玩法的共同故事核心，不替作者選擇玩法";
 const CLOSED_AI_UNAVAILABLE_CODES = new Set([
   "NO_CLOSED_PROVIDER_AVAILABLE",
@@ -107,27 +117,6 @@ const questions = [
 const proceduralNames = [
   "林知微", "沈星河", "江離", "蘇晚晴", "顧明川", "葉清和", "陸沉舟", "程予安",
   "夏青禾", "周既白", "聞人月", "段雲歸", "艾琳・沃克", "諾亞・陳", "米拉・宋", "里昂・顧",
-];
-const proceduralGoals = [
-  "找回被奪走的選擇權", "守住一個即將消失的家", "查清一段被集體遺忘的真相",
-  "在期限前救回重要的人", "阻止熟悉的世界被另一套規則取代", "證明一場被判定失敗的選擇仍有意義",
-];
-const proceduralWorlds = [
-  "一座會記錄每次承諾的山城", "一個以記憶交換資源的群島", "一座白天正常、夜裡重排街道的都市",
-  "資源與商路同時中斷的邊境聚落", "由五個互不信任勢力共同維持的空中聚落", "每逢月蝕便會顯露過去分支的古國",
-];
-const proceduralRules = [
-  "任何力量都會留下可追查的代價", "人物只能依自己實際接觸過的情報行動",
-  "已發生的事件不能無故重置", "每次改變關係都會同時改變資源與風險",
-  "秘密越接近真相，保護它的人就越必須作出選擇", "世界會記住承諾，但不保證用原意實現",
-];
-const proceduralOpenings = [
-  "主角在最熟悉的地方，看見一件只有失蹤者才知道的物品。",
-  "一封寫著明日日期的信，要求主角在今晚背叛最信任的人。",
-  "原本例行的交易突然中止，而所有人都假裝從未見過主角。",
-  "主角醒來後發現自己的名字仍在，卻被另一個人合法使用。",
-  "一場不該失敗的儀式成功了，代價卻落在完全無關的人身上。",
-  "城門關閉前最後一位旅人，帶來了主角已親手銷毀的證據。",
 ];
 
 const MIN_SUPPORTING_CAST = 4;
@@ -353,20 +342,6 @@ function enrichedSeedFromDraft(draft: ProjectCreationDraft, seed = draft.seedCan
   };
 }
 
-type CandidatePayload = {
-  logline?: string;
-  protagonist?: string;
-  goal?: string;
-  weakness?: string;
-  world?: string;
-  worldRule?: string;
-  conflict?: string;
-  opposition?: string;
-  opening?: string;
-  style?: string;
-  directions?: string[];
-};
-
 function safeLoadDraft(storageKey: string, cloneFrom: string | null) {
   if (typeof localStorage === "undefined") return null;
   const keys = [storageKey];
@@ -381,20 +356,6 @@ function safeLoadDraft(storageKey: string, cloneFrom: string | null) {
     }
   }
   return null;
-}
-
-function randomIndex(length: number) {
-  const bytes = new Uint32Array(1);
-  crypto.getRandomValues(bytes);
-  return bytes[0] % length;
-}
-
-function pick<T>(items: readonly T[]) {
-  return items[randomIndex(items.length)];
-}
-
-function text(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
 }
 
 function playModeOf(draft: ProjectCreationDraft) {
@@ -630,46 +591,6 @@ function guidedSeedFromDraft(draft: ProjectCreationDraft): ProjectSeed {
   };
 }
 
-function proceduralPayload(draft: ProjectCreationDraft): CandidatePayload {
-  const hero = draft.protagonist.value?.trim() || draft.answers.protagonist?.value?.trim() || pick(proceduralNames);
-  const goal = pick(proceduralGoals);
-  const topicContract = topicContractForCreationDraft(draft);
-  const world = topicContract?.displaySummary || pick(proceduralWorlds);
-  const worldRule = topicContract?.canonRules.join("\n") || pick(proceduralRules);
-  const opening = pick(proceduralOpenings);
-  const topic = resolveStoryTopic(draft.genreId)?.name || "原創幻想";
-  const mode = playModeOf(draft) ?? "general";
-  return {
-    protagonist: hero,
-    goal,
-    weakness: pick(["害怕再次失去重要的人", "過度相信自己可以獨自承擔", "面對親密關係時容易退縮", "習慣把真相看得比人更重要"]),
-    world,
-    worldRule,
-    conflict: `${hero}若追查「${goal}」，就會失去眼前的安全；若退縮，危機會先傷害身邊的人。`,
-    opposition: pick(["相信犧牲少數才能維持秩序的執行者", "掌握舊規則並拒絕交出權力的聯盟", "與主角追求同一目標、卻採取相反方法的人"]),
-    opening,
-    logline: `${hero}在${world}裡，因${opening.replace(/[。！]$/u, "")}而被迫追查${goal}，並面對「${worldRule}」的代價。`,
-    style: `${topic}；場景先於說明，人物以行動表達情緒，每次選擇都留下後果。`,
-    directions: mode === "general"
-      ? ["人物關係先行", "謎團逐層揭露", "以具體代價推進章節"]
-      : ["穩健承擔代價", "交換資源取得情報", "高風險打破既有規則"],
-  };
-}
-
-function completeCreationStorySeed(payload: CandidatePayload): CreationStorySeed {
-  return {
-    logline: text(payload.logline),
-    protagonist: text(payload.protagonist),
-    goal: text(payload.goal),
-    weakness: text(payload.weakness),
-    world: text(payload.world),
-    worldRule: text(payload.worldRule),
-    conflict: text(payload.conflict),
-    opposition: text(payload.opposition),
-    opening: text(payload.opening),
-  };
-}
-
 function suggestedDraftValue(value: string, source: "closed-ai" | "device-fallback") {
   const next = optionalValue(value, source === "closed-ai" ? "ai_suggested" : "inferred");
   return {
@@ -682,13 +603,28 @@ function mergeCreationCoreCast(
   merged: ProjectCreationDraft,
   suggestion: CreationStorySeed,
   source: "closed-ai" | "device-fallback",
+  variation: CreationStorySeedVariation,
 ) {
-  const existing = supportingCastSlotsOf(merged);
+  const castValue = merged.answers.cast;
+  const preserveExistingCast = Boolean(castValue?.value?.trim()) && (
+    castValue?.status === "user_defined"
+    || castValue?.status === "ai_accepted"
+    || castValue?.source === "migration"
+  );
+  const existing = preserveExistingCast
+    ? supportingCastSlotsOf(merged)
+    : supportingCastSlotsOf({
+        ...merged,
+        answers: { ...merged.answers, cast: optionalValue<string>(null, "unset") },
+      });
   const mainName = splitProtagonist(suggestion.protagonist).name;
   const used = new Set([mainName, ...existing.map((entry) => entry.name).filter(Boolean)]);
+  let nameCursor = creationStorySeedVariationSeed(variation);
   const nextName = () => {
     const candidates = proceduralNames.filter((name) => !used.has(name));
-    const selected = pick(candidates.length ? candidates : proceduralNames);
+    const pool = candidates.length ? candidates : proceduralNames;
+    const selected = pool[nameCursor % pool.length];
+    nameCursor += 1;
     used.add(selected);
     return selected;
   };
@@ -705,14 +641,18 @@ function mergeCreationCoreCast(
     relationship: entry.relationship || SUPPORTING_CAST_ROLES[index]?.relationship || "與主角同屬上場群體，另有自己的責任與選擇",
     goal: entry.goal || generatedGoals[index] || `完成自己的群體責任，同時回應「${suggestion.goal}」造成的局勢變化`,
   }));
-  const castValue = serializeSupportingCast(completedCast);
-  const castAnswer = merged.answers.cast?.value?.trim() && existing.every((entry) => entry.complete)
+  const serializedCast = serializeSupportingCast(completedCast);
+  const castAnswer = preserveExistingCast && existing.every((entry) => entry.complete)
     ? merged.answers.cast
-    : suggestedDraftValue(castValue, source);
-  const worldAnswer = merged.answers.world?.value?.trim()
+    : suggestedDraftValue(serializedCast, source);
+  const worldAnswer = merged.answers.world?.status === "user_defined"
+    || merged.answers.world?.status === "ai_accepted"
+    || merged.answers.world?.source === "migration"
     ? merged.answers.world
     : suggestedDraftValue(suggestion.world, source);
-  const worldRuleAnswer = merged.answers.worldRule?.value?.trim()
+  const worldRuleAnswer = merged.answers.worldRule?.status === "user_defined"
+    || merged.answers.worldRule?.status === "ai_accepted"
+    || merged.answers.worldRule?.source === "migration"
     ? merged.answers.worldRule
     : suggestedDraftValue(suggestion.worldRule, source);
   const mergedWithCast = {
@@ -746,14 +686,18 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
   const [seedAssistantBusy, setSeedAssistantBusy] = useState(false);
   const [seedAssistantStatus, setSeedAssistantStatus] = useState("");
   const [seedAssistantSource, setSeedAssistantSource] = useState("");
+  const [seedAssistantBatch, setSeedAssistantBatch] = useState("");
   const [cloneSource, setCloneSource] = useState<ProjectCloneSourceSummary | null>(null);
   const [cloneSourceError, setCloneSourceError] = useState("");
   const [cloneReadAttempt, setCloneReadAttempt] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
   const requestId = useRef(crypto.randomUUID());
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const seedAssistantBusyRef = useRef(false);
   const seedAssistantControllerRef = useRef<AbortController | null>(null);
   const seedAssistantRequestGateRef = useRef(createCreationStorySeedRequestGate());
+  const seedAssistantBatchNonceRef = useRef(crypto.randomUUID());
+  const seedAssistantBatchOrdinalRef = useRef(0);
   const storageKey = draftStorageKey(cloneFrom);
 
   useEffect(() => {
@@ -1034,7 +978,14 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       setSeedAssistantStatus("請先選擇題材方向，再產生與該世界規則一致的故事雛形。");
       return;
     }
-    if (seedAssistantBusy) return;
+    if (!tryAcquireCreationStorySeedRun(seedAssistantBusyRef)) return;
+    const batchOrdinal = seedAssistantBatchOrdinalRef.current + 1;
+    seedAssistantBatchOrdinalRef.current = batchOrdinal;
+    const variation: CreationStorySeedVariation = {
+      batchNonce: seedAssistantBatchNonceRef.current,
+      batchOrdinal,
+    };
+    const batchLabel = `候選批次 ${String(batchOrdinal).padStart(3, "0")}`;
     const playModePending = !currentPlayMode;
     const controller = new AbortController();
     const requestRevision = seedAssistantRequestGateRef.current.begin(controller);
@@ -1046,17 +997,15 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
     seedAssistantControllerRef.current = controller;
     setSeedAssistantBusy(true);
     setSeedAssistantSource("");
+    setSeedAssistantBatch(batchLabel);
     setSeedAssistantStatus(playModePending
-      ? "尚未選擇創作／遊玩方式；正在先建立不綁定玩法的共同故事雛形。最多等待 24 秒，若確認裝置沒有可用模型會立即改用後備。"
-      : "正在由閉端 AI 自動協調器選擇可用算力；最多等待 24 秒，若確認裝置沒有可用模型會立即改用後備。");
+      ? "尚未選擇創作／遊玩方式；正在先建立不綁定玩法的共同故事雛形。最多等待 60 秒；瀏覽器 AI 若仍載入會繼續等候，並可轉交本機 Ollama。"
+      : "正在由閉端 AI 自動協調器選擇可用算力；最多等待 60 秒；瀏覽器 AI 若仍載入會繼續等候，並可轉交本機 Ollama。");
     setMessage(playModePending
       ? "已收到操作，正在補齊共同故事核心；不會替你選擇玩法，也不會自動建立作品。"
       : "已收到操作，正在建立世界觀、故事起點與多人核心陣容；不會自動建立作品，也不會覆蓋你已填的內容。");
     try {
-      const result = await runStudioPreCreationClosedAI({
-        projectId: draft.projectId,
-        task: "story_seed",
-        input: creationStorySeedPrompt({
+      const basePrompt = creationStorySeedPrompt({
           title: draft.title.trim(),
           language: storyLanguageOf(draft),
           playModeLabel: currentPlayMode
@@ -1064,31 +1013,46 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
             : MODE_NEUTRAL_STORY_SEED_LABEL,
           topic: topic?.name ?? null,
           existing: draft.seedCandidate ?? buildSeedCandidate(draft),
-        }),
-        targetLength: 520,
-        qualityMode: "fast",
-        browserComputePolicy: "balanced",
-        generationOptions: {
-          maxTokens: 280,
-          temperature: 0.82,
-          topP: 0.92,
-          repetitionPenalty: 1.08,
-        },
-        signal: controller.signal,
-        onProgress: (event) => {
-          if (
-            !controller.signal.aborted
-            && seedAssistantRequestGateRef.current.isCurrent(requestRevision)
-          ) {
-            setSeedAssistantStatus(event.label || "閉端 AI 正在整理故事因果、世界觀與核心陣容。");
-          }
-        },
+          variation,
+        });
+      const runSeedAI = (outputRepairAttempt: number) => runStudioPreCreationClosedAI({
+          projectId: draft.projectId,
+          task: "story_seed",
+          input: outputRepairAttempt === 0
+            ? basePrompt
+            : `${basePrompt}\n上一份輸出未通過完整 JSON 欄位檢查。這次必須只輸出可解析且九個值均非空白的 JSON。`,
+          targetLength: 520,
+          qualityMode: "fast",
+          browserComputePolicy: "balanced",
+          coordinationBudgetMs: CREATION_AI_DEADLINE_MS,
+          generationOptions: {
+            maxTokens: 280,
+            temperature: 0.82,
+            topP: 0.92,
+            repetitionPenalty: 1.08,
+            seed: (creationStorySeedVariationSeed(variation) + outputRepairAttempt) >>> 0,
+          },
+          signal: controller.signal,
+          onProgress: (event) => {
+            if (
+              !controller.signal.aborted
+              && seedAssistantRequestGateRef.current.isCurrent(requestRevision)
+            ) {
+              setSeedAssistantStatus(event.label || "閉端 AI 正在整理故事因果、世界觀與核心陣容。");
+            }
+          },
       });
+      let result = await runSeedAI(0);
       if (
         controller.signal.aborted
         || !seedAssistantRequestGateRef.current.isCurrent(requestRevision)
       ) return;
-      const suggestion = parseCreationStorySeed(result.content);
+      let suggestion = parseCreationStorySeed(result.content);
+      if (!suggestion) {
+        setSeedAssistantStatus("閉端 AI 第一份輸出欄位不完整，仍在 60 秒預算內要求模型自行修正；尚未啟用裝置後備。");
+        result = await runSeedAI(1);
+        suggestion = parseCreationStorySeed(result.content);
+      }
       if (!suggestion) {
         throw Object.assign(new Error("模型輸出未通過故事起點格式檢查。"), {
           code: "CREATE_STORY_SEED_INVALID_OUTPUT",
@@ -1098,6 +1062,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         mergeCreationStorySeed(current, suggestion, "closed-ai"),
         suggestion,
         "closed-ai",
+        variation,
       ));
       const source = closedAISeedSource(result.provider);
       setSeedAssistantSource(source);
@@ -1117,11 +1082,23 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         return;
       }
       setDraft((current) => {
-        const suggestion = completeCreationStorySeed(proceduralPayload(current));
+        const topicContract = topicContractForCreationDraft(current);
+        const suggestion = createDeviceFallbackStorySeed({
+          ...variation,
+          protagonist: current.protagonist.status === "user_defined"
+            || current.protagonist.status === "ai_accepted"
+            ? current.protagonist.value
+            : null,
+          topic: resolveStoryTopic(current.genreId)?.name || "原創幻想",
+          playMode: playModeOf(current) ?? "general",
+          fixedWorld: topicContract?.displaySummary,
+          fixedWorldRule: topicContract?.canonRules.join("\n"),
+        });
         return mergeCreationCoreCast(
           mergeCreationStorySeed(current, suggestion, "device-fallback"),
           suggestion,
           "device-fallback",
+          variation,
         );
       });
       const code = timedOut
@@ -1133,20 +1110,21 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         ? " 這份雛形不綁定玩法；仍須由你親自選擇創作／遊玩方式。"
         : "";
       setSeedAssistantStatus(timedOut
-        ? `閉端 AI 等待滿 24 秒仍未完成，已改用裝置後備填入空白欄位。${pendingModeReminder}`
+        ? `閉端 AI 等待滿 60 秒仍未完成，已改用本次裝置後備候選；手填欄位不會被覆蓋。${pendingModeReminder}`
         : providerUnavailable
-          ? `已確認目前裝置沒有可完成此任務的閉端模型，已立即改用裝置後備填入空白欄位（${code}）。${pendingModeReminder}`
-          : `閉端 AI 未能完成這次雛形，已立即改用裝置後備填入空白欄位（${code}）。${pendingModeReminder}`);
+          ? `已確認瀏覽器 AI 與本機 Ollama 都不可用，已改用本次裝置後備候選（${code}）；手填欄位不會被覆蓋。${pendingModeReminder}`
+          : `閉端 AI 在協調與輸出修正後仍未完成，已改用本次裝置後備候選（${code}）；手填欄位不會被覆蓋。${pendingModeReminder}`);
       setMessage(timedOut
-        ? `閉端 AI 已等待滿 24 秒但未完成，因此改用裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`
+        ? `閉端 AI 已等待滿 60 秒但未完成，因此顯示 ${batchLabel} 的裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`
         : providerUnavailable
-          ? `閉端 AI 已確認目前裝置沒有可用模型，因此立即改用裝置後備雛形；這不是逾時，你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`
-          : `閉端 AI 執行或輸出檢查未完成（${code}），因此立即改用裝置後備；你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`);
+          ? `閉端 AI 已確認目前裝置沒有可用模型，因此顯示 ${batchLabel} 的裝置後備雛形；這不是逾時，你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`
+          : `閉端 AI 協調或輸出修正仍未完成（${code}），因此顯示 ${batchLabel} 的裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`);
     } finally {
       window.clearTimeout(deadline);
       seedAssistantRequestGateRef.current.complete(requestRevision);
       if (seedAssistantControllerRef.current === controller) {
         seedAssistantControllerRef.current = null;
+        releaseCreationStorySeedRun(seedAssistantBusyRef);
         setSeedAssistantBusy(false);
       }
     }
@@ -1430,7 +1408,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
             <div>
               <span>創作帶領精靈</span>
               <h3>由閉端 AI 自動協調器補齊故事雛形</h3>
-              <p>只有一個入口；建立前會自動調度瀏覽器 AI 或本機 Ollama。AI 失敗才使用裝置後備，而且只填空白欄位、不建立正式作品。</p>
+              <p>只有一個入口；建立前會在 60 秒預算內調度瀏覽器 AI 與本機 Ollama。兩者確定不可用或逾時才使用裝置後備；重按會換一批候選，但手填欄位不會被覆蓋，也不會建立正式作品。</p>
             </div>
             <div className="p2CreationAssistantActions">
               <button
@@ -1440,7 +1418,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
                 onClick={() => void applyAssistedSeed()}
               >
                 {seedAssistantBusy ? "AI 正在建立雛形……" : "由 AI 協助產生故事雛形"}
-                <small>自動協調算力 · 最長 24 秒；確認無模型會立即後備</small>
+                <small>自動協調算力 · 最長 60 秒；確認兩種模型都不可用才提前後備</small>
               </button>
               {seedAssistantBusy ? (
                 <button type="button" data-testid="cancel-create-ai-story-seed" onClick={cancelAssistedSeed}>取消本次生成</button>
@@ -1449,6 +1427,7 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
             {seedAssistantStatus ? (
               <div className="p2AIStatus" role="status" aria-live="polite" data-testid="create-ai-story-seed-status">
                 <b>{seedAssistantSource || "閉端 AI 自動協調器"}</b>
+                {seedAssistantBatch ? <small data-testid="create-ai-story-seed-batch">{seedAssistantBatch}</small> : null}
                 <span>{seedAssistantStatus}</span>
               </div>
             ) : null}
@@ -1524,13 +1503,14 @@ function TopicCatalog({ draft, set, topics }: {
 }) {
   const [query, setQuery] = useState("");
   const [browsePackId, setBrowsePackId] = useState("");
-  const [modeFilter, setModeFilter] = useState<"all" | "native">("all");
+  const [modeFilter, setModeFilter] = useState<StoryTopicModeFilter>("all");
   const activePlayMode = playModeOf(draft);
   const selectedTopic = topics.find((item) => item.topicId === draft.genreId);
-  const filteredTopics = useMemo(() => topics
-    .filter((item) => !browsePackId || item.packIds.includes(browsePackId))
-    .filter((item) => modeFilter === "all" || !activePlayMode || item.supportedPlayModes.includes(activePlayMode))
-    .filter((item) => topicMatchesSearch(item, query)), [activePlayMode, browsePackId, modeFilter, query, topics]);
+  const filteredTopics = useMemo(() => filterStoryTopicsByPlayMode(
+    topics.filter((item) => !browsePackId || item.packIds.includes(browsePackId)),
+    modeFilter,
+    activePlayMode,
+  ).filter((item) => topicMatchesSearch(item, query)), [activePlayMode, browsePackId, modeFilter, query, topics]);
   return (
     <section className="p2TopicCatalog" aria-labelledby="p2-topic-catalog-title" data-testid="complete-story-topic-catalog">
       <header>
@@ -1578,19 +1558,31 @@ function TopicCatalog({ draft, set, topics }: {
             value={modeFilter}
             onChange={(event) => setModeFilter(event.target.value === "native" ? "native" : "all")}
           >
-            <option value="all">全部題材（可套用目前玩法）</option>
-            <option value="native" disabled={!activePlayMode}>只看原生支援目前玩法</option>
+            <option value="all">全部題材（不限制玩法連結）</option>
+            <option value="native">
+              {activePlayMode
+                ? `只看原生支援「${STORY_PLAY_MODE_LABELS[activePlayMode]}」`
+                : "只看具有原生玩法連結的題材"}
+            </option>
           </select>
         </label>
       </div>
+      {modeFilter === "native" && !activePlayMode ? (
+        <div className="p2FoundationHint" data-testid="story-topic-mode-unselected-hint" role="status">
+          尚未選擇玩法：目前只顯示至少連結一種原生玩法的題材；系統不會替你選玩法。選定玩法後，才會按該玩法縮小範圍。
+        </div>
+      ) : null}
       <div className="p2TopicGrid p2TopicGridLarge" data-topic-count={filteredTopics.length}>
         {filteredTopics.map((item) => {
-          const directlySupported = Boolean(activePlayMode && item.supportedPlayModes.includes(activePlayMode));
+          const playFit = storyTopicPlayFit(item, activePlayMode);
+          const nativeModeLabels = item.supportedPlayModes
+            .filter((mode): mode is StoryPlayModeId => Object.prototype.hasOwnProperty.call(STORY_PLAY_MODE_LABELS, mode))
+            .map((mode) => STORY_PLAY_MODE_LABELS[mode]);
           const fitLabel = activePlayMode
-            ? directlySupported
+            ? playFit === "direct"
               ? `適合目前玩法：${STORY_PLAY_MODE_LABELS[activePlayMode]}`
               : `可改編為目前玩法：${STORY_PLAY_MODE_LABELS[activePlayMode]}`
-            : "選定玩法後會自動顯示適配方式";
+            : `原生玩法連結：${nativeModeLabels.join("、") || "尚未建立"}；選定玩法後再判斷適配方式`;
           return (
             <button
               type="button"
@@ -1615,7 +1607,7 @@ function TopicCatalog({ draft, set, topics }: {
             >
               <b>{topicDisplayName(item.topicId, item.name)}</b>
               <span>{item.description}</span>
-              <span data-topic-play-fit={directlySupported ? "direct" : "adapted"}>{fitLabel}</span>
+              <span data-topic-play-fit={playFit}>{fitLabel}</span>
             </button>
           );
         })}

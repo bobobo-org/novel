@@ -17,6 +17,7 @@ import {
   organizationMemberAtOffset,
   organizationMatrixContext,
   resolveStoryOrganizationSetting,
+  STORY_ORGANIZATION_MEMBER_CAPACITY,
 } from "../lib/novel-ai/social-matrix/index.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -50,6 +51,20 @@ assert.equal(directory.length, 30, "each indexed world must expose at least 30 o
 assert.equal(new Set(directory.map((organization) => organization.name)).size, 30);
 assert.ok(new Set(directory.map((organization) => organization.era)).size > 1, "cross-era world must keep era-specific organizations");
 assert.ok(new Set(directory.map((organization) => organization.specializationId)).size >= 10);
+assert.equal(
+  directory.reduce((sum, organization) => sum + organization.memberCapacity, 0),
+  matrix.populationSize,
+  "non-uniform organization buckets must partition the 100,000-person catalog",
+);
+assert.equal(
+  Math.max(...directory.map((organization) => organization.memberCapacity)),
+  STORY_ORGANIZATION_MEMBER_CAPACITY,
+  "at least one organization must realize the advertised 10,000-person capacity",
+);
+assert.ok(
+  directory.some((organization) => organization.memberCapacity < 300),
+  "giant organizations must coexist with genuinely small organizations",
+);
 assert.equal(matrix.cacheStats().materializedCharacters, 0, "directory construction must remain lazy");
 const relationshipNetwork = [...new Map(
   directory.flatMap((organization) => organization.relationships)
@@ -127,6 +142,8 @@ function portraitForOrganizationSurface(surfaceCharacter) {
       ...canonicalCharacter.personality.traits,
       ...canonicalCharacter.abilities.specialties,
     ].join("｜"),
+    diversityOrdinal: canonicalCharacter.populationIndex,
+    diversityScope: "global-world-000001",
   });
 }
 
@@ -184,8 +201,12 @@ for (const marker of [
   'data-testid="global-organization-member-detail"',
   'data-testid="global-organization-relationships"',
   'data-testid="global-treasure-grid"',
+  'data-saved={Boolean(saved)}',
   "saveOrganizationCandidate",
   "saveTreasureCandidate",
+  "treasureCatalog.pageByKind(",
+  "treasurePageRangeLabel",
+  "本頁搜尋顯示",
   "editSavedCatalogMemory",
   "copyRecord(saved)",
   "proceduralTreasureVisualCssVariables",
@@ -202,6 +223,41 @@ for (const marker of [
   "本組織是雙向關係的一方",
 ]) assert.ok(source.includes(marker), `canon UI missing ${marker}`);
 
+for (const editor of [
+  { key: "character", id: "global-character-editor" },
+  { key: "world", id: "global-world-editor" },
+  { key: "memory", id: "global-memory-editor" },
+]) {
+  assert.ok(source.includes(`data-testid="${editor.id}-toggle"`), `${editor.key} editor toggle missing`);
+  assert.ok(source.includes(`aria-expanded={expandedEditors.${editor.key}}`), `${editor.key} editor expanded state is not exposed`);
+  assert.ok(source.includes(`aria-controls="${editor.id}-body"`), `${editor.key} editor toggle is not bound to its body`);
+  assert.ok(
+    source.includes(`id="${editor.id}-body" className={styles.editorBody} hidden={!expandedEditors.${editor.key}}`),
+    `${editor.key} editor body must stay mounted while collapsed so draft state is preserved`,
+  );
+  assert.ok(
+    source.includes(`setExpandedEditors((current) => ({ ...current, ${editor.key}: true }))`),
+    `${editor.key} editor must reopen when an existing record is edited`,
+  );
+}
+assert.match(css, /\.editorBody\[hidden\]\s*\{\s*display:\s*none;/u);
+
+for (const marker of [
+  'data-testid="story-bible-purpose"',
+  "Story Bible 防矛盾總綱",
+  "把主題、角色弧線、世界核心、伏筆、禁止矛盾與未解／已解線索整理成後續寫作的一致性總綱",
+  "不會自動改寫章節、人物或世界資料",
+  "核心主題／角色弧線",
+  "世界核心／作者偏好",
+  'data-testid="timeline-template-purpose"',
+  "事件時間線與模板",
+  "發生年代、先後順序、當時人物位置、前因後果與建議放入的章節",
+  "不會自動插入、移動或改寫任何正文",
+  "人物位置／章節落點",
+  "事件內容／因果",
+]) assert.ok(source.includes(marker), `canon purpose guidance missing ${marker}`);
+assert.match(css, /\.purposeNote span\s*\{[^}]*overflow-wrap:\s*anywhere;/u);
+
 const mobileStart = css.indexOf("@media (max-width: 720px)");
 const mobileEnd = css.indexOf("@media (max-width: 380px)", mobileStart);
 assert.ok(mobileStart >= 0 && mobileEnd > mobileStart, "mobile breakpoint missing");
@@ -212,6 +268,7 @@ for (const marker of [
   ".memberDialogBody { grid-template-columns: 1fr; padding: 10px; }",
   ".treasureGrid { grid-template-columns: 1fr; }",
   ".catalogActions { display: grid; grid-template-columns: 1fr; }",
+  ".editorToggle { width: 100%; min-width: 0; padding: 0 9px; }",
 ]) assert.ok(mobile.includes(marker), `390px no-overflow contract missing ${marker}`);
 assert.match(css, /\.shell\s*\{[\s\S]*?overflow-x:\s*clip;/u);
 

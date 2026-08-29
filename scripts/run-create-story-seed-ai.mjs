@@ -10,12 +10,20 @@ import {
   serializeTopicWorldFamilyDraftSelection,
 } from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 import {
+  createDeviceFallbackStorySeed,
   createCreationStorySeedRequestGate,
+  creationStorySeedVariationSeed,
   creationStorySeedPrompt,
   mergeCreationStorySeed,
   parseCreationStorySeed,
+  releaseCreationStorySeedRun,
+  tryAcquireCreationStorySeedRun,
 } from "../lib/novel-ai/web/creation-story-seed.ts";
-import { runStudioPreCreationClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
+import {
+  classifyPreCreationProviderAvailability,
+  probePreCreationProviderAvailability,
+  runStudioPreCreationClosedAI,
+} from "../lib/novel-ai/web/studio-closed-ai.ts";
 
 const validModelOutput = `\`\`\`json
 {
@@ -44,6 +52,38 @@ assert.match(parsed.worldRule, /取回一段記憶/u);
 assert.equal(parseCreationStorySeed('{"story":"不完整"}'), null, "all five semantic groups are required");
 
 const seedRequestGate = createCreationStorySeedRequestGate();
+const supersededRequestController = new AbortController();
+seedRequestGate.begin(supersededRequestController);
+const replacementRequestController = new AbortController();
+seedRequestGate.begin(replacementRequestController);
+assert.equal(supersededRequestController.signal.aborted, true, "beginning a replacement aborts the old provider request");
+assert.equal(supersededRequestController.signal.reason, "CREATE_STORY_SEED_SUPERSEDED");
+assert.equal(replacementRequestController.signal.aborted, false);
+
+const synchronousRunLock = { current: false };
+let doubleClickExecutorCalls = 0;
+let releaseDoubleClickExecutor;
+const doubleClickExecutorPending = new Promise((resolve) => {
+  releaseDoubleClickExecutor = resolve;
+});
+const handleSynchronousClick = async () => {
+  if (!tryAcquireCreationStorySeedRun(synchronousRunLock)) return false;
+  doubleClickExecutorCalls += 1;
+  try {
+    await doubleClickExecutorPending;
+    return true;
+  } finally {
+    releaseCreationStorySeedRun(synchronousRunLock);
+  }
+};
+const firstSynchronousClick = handleSynchronousClick();
+const secondSynchronousClick = handleSynchronousClick();
+assert.equal(doubleClickExecutorCalls, 1, "two synchronous clicks start only one provider executor");
+assert.equal(await secondSynchronousClick, false, "the same-tick duplicate is rejected before provider work starts");
+releaseDoubleClickExecutor();
+assert.equal(await firstSynchronousClick, true);
+assert.equal(synchronousRunLock.current, false, "the synchronous lock is released after the active request settles");
+
 const staleRequestController = new AbortController();
 const staleRequestRevision = seedRequestGate.begin(staleRequestController);
 let resolveStaleSeed;
@@ -90,6 +130,71 @@ const fallbackDraft = createDraft("quick");
 const fallback = mergeCreationStorySeed(fallbackDraft, parsed, "device-fallback");
 assert.equal(fallback.seedCandidate?.opening.status, "inferred");
 assert.equal(fallback.seedCandidate?.opening.source, "system");
+
+const fallbackVariationDraft = createDraft("quick");
+fallbackVariationDraft.title = "三批後備變化測試";
+fallbackVariationDraft.coreIdea = optionalValue("作者手寫核心，不可覆寫", "user_defined");
+fallbackVariationDraft.answers = {
+  ...fallbackVariationDraft.answers,
+  conflict: optionalValue("作者手寫衝突，不可覆寫", "user_defined"),
+};
+const fallbackBatchNonce = "device-fallback-contract-batch";
+const fallbackBatches = [1, 2, 3].map((batchOrdinal) => createDeviceFallbackStorySeed({
+  batchNonce: fallbackBatchNonce,
+  batchOrdinal,
+  protagonist: null,
+  topic: "懸疑",
+  playMode: "general",
+  fixedWorld: "一座受同一份正式世界合約約束的山城",
+  fixedWorldRule: "每次查證都要留下公開紀錄",
+}));
+assert.equal(new Set(fallbackBatches.map((seed) => seed.logline)).size, 3, "three fallback batches rotate the core story");
+assert.equal(new Set(fallbackBatches.map((seed) => seed.world)).size, 3, "three fallback batches rotate the stage focus while keeping canon");
+assert.equal(new Set(fallbackBatches.map((seed) => seed.opening)).size, 3, "three fallback batches rotate the opening event");
+let fallbackVariationMerged = fallbackVariationDraft;
+for (const seed of fallbackBatches) {
+  fallbackVariationMerged = mergeCreationStorySeed(fallbackVariationMerged, seed, "device-fallback");
+  assert.equal(fallbackVariationMerged.coreIdea.value, "作者手寫核心，不可覆寫");
+  assert.equal(fallbackVariationMerged.answers.conflict?.value, "作者手寫衝突，不可覆寫");
+}
+assert.equal(
+  fallbackVariationMerged.answers.opening?.value,
+  fallbackBatches[2].opening,
+  "a later device batch replaces only the earlier generated candidate",
+);
+assert.equal(
+  creationStorySeedVariationSeed({ batchNonce: fallbackBatchNonce, batchOrdinal: 1 }),
+  creationStorySeedVariationSeed({ batchNonce: fallbackBatchNonce, batchOrdinal: 1 }),
+  "a recorded batch seed is deterministic",
+);
+
+assert.equal(classifyPreCreationProviderAvailability([
+  { id: "browser-ai", status: "runtime_not_installed", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false, detail: "browser_hybrid_runtime_webllm_preparing" },
+  { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false },
+]), "loading", "a browser model still preparing is not treated as absent");
+assert.equal(classifyPreCreationProviderAvailability([
+  { id: "browser-ai", status: "runtime_unavailable", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false },
+  { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false },
+]), "unavailable", "only a proven two-provider absence allows immediate fallback");
+assert.equal(
+  classifyPreCreationProviderAvailability([]),
+  "unknown",
+  "an empty or failed provider probe is not proof that both providers are absent",
+);
+assert.equal(classifyPreCreationProviderAvailability([
+  { id: "browser-ai", status: "degraded", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false, detail: "transient_probe_failure" },
+  { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false },
+]), "unknown", "a transient degraded browser probe must keep the 60-second coordinator alive");
+assert.equal(classifyPreCreationProviderAvailability([
+  { id: "browser-ai", status: "runtime_unavailable", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false },
+]), "unknown", "one terminal provider without the second provider remains unknown");
+assert.deepEqual(
+  await probePreCreationProviderAvailability(undefined, async () => {
+    throw new Error("transient snapshot transport failure");
+  }),
+  { availability: "unknown", snapshots: [] },
+  "snapshot transport failures keep coordination alive instead of enabling immediate fallback",
+);
 
 const canonicalDraft = createDraft("quick");
 canonicalDraft.title = "單一建立資料契約";
@@ -161,12 +266,18 @@ assert.match(prompt, /五個頂層欄位/u);
 assert.match(prompt, /不得覆寫/u);
 
 const client = await readFile(new URL("../app/studio/create/create-project-client.tsx", import.meta.url), "utf8");
-assert.match(client, /CREATION_AI_DEADLINE_MS = 24_000/u, "creation AI has a hard deadline");
+assert.match(client, /CREATION_AI_DEADLINE_MS = 60_000/u, "creation AI has a 60 second hard deadline");
 assert.match(client, /runStudioPreCreationClosedAI\(\{/u, "the create page uses the context-free pre-creation Closed AI route");
 assert.doesNotMatch(client, /runStudioClosedAI\(\{/u, "creation must not request canonical context for a project that does not exist yet");
 assert.match(client, /browserComputePolicy: "balanced"/u, "backend routing remains automatic");
 assert.match(client, /這不是逾時/u, "an unavailable model is not mislabeled as a timeout");
-assert.match(client, /等待滿 24 秒/u, "the timeout message is reserved for the actual deadline");
+assert.match(client, /等待滿 60 秒/u, "the timeout message is reserved for the actual deadline");
+assert.match(client, /coordinationBudgetMs: CREATION_AI_DEADLINE_MS/u, "the full deadline is passed into browser-to-Ollama coordination");
+assert.match(client, /create-ai-story-seed-batch/u, "the visible result identifies its candidate batch");
+assert.match(client, /createDeviceFallbackStorySeed\(\{/u, "device fallback uses a nonce-driven varied batch");
+assert.match(client, /if \(!tryAcquireCreationStorySeedRun\(seedAssistantBusyRef\)\) return;/u, "the click handler takes a synchronous ref lock before provider work");
+assert.match(client, /releaseCreationStorySeedRun\(seedAssistantBusyRef\)/u, "the synchronous ref lock is released after the active request settles");
+assert.doesNotMatch(client, /if \(seedAssistantBusy\) return;/u, "deferred React state is not the duplicate-request lock");
 assert.match(client, /data-testid="cancel-create-ai-story-seed"/u, "generation is cancellable");
 assert.match(client, /mergeCreationStorySeed\(current, suggestion, "closed-ai"\)/u);
 assert.match(client, /mergeCreationStorySeed\([\s\S]*"device-fallback"/u, "device template is only an explicit fallback");
@@ -235,11 +346,14 @@ assert.equal(
 assert.equal(preCreationProgress.at(-1)?.backendId, "local-ollama");
 
 const fallbackRequests = [];
+const localRetryProgress = [];
 const localRetryResult = await runStudioPreCreationClosedAI({
   projectId: "unpersisted-local-retry-draft",
   task: "story_seed",
   input: "建立可修改的多人故事雛形",
   browserComputePolicy: "balanced",
+  coordinationBudgetMs: 60_000,
+  onProgress: (event) => localRetryProgress.push(event),
 }, async (request) => {
   fallbackRequests.push(request);
   if (fallbackRequests.length === 1) {
@@ -276,6 +390,10 @@ assert.equal(fallbackRequests.length, 2, "Browser escalation retries exactly onc
 assert.deepEqual(fallbackRequests[1].context, [], "the local retry keeps the pre-creation empty-context boundary");
 assert.equal(localRetryResult.provider, "local-ollama");
 assert.equal(localRetryResult.canonicalMutationCount, 0);
+assert.ok(
+  localRetryProgress.some((event) => event.backendId === "local-ollama" && /同一個 60 秒預算內轉交本機 Ollama/u.test(event.label)),
+  "the Browser AI escalation is reported as an in-budget Local Ollama handoff, not a device fallback",
+);
 
 const abortedBeforeStart = new AbortController();
 abortedBeforeStart.abort("CREATE_STORY_SEED_PRE_ABORTED");
@@ -326,9 +444,10 @@ assert.ok(
 
 console.log(JSON.stringify({
   suite: "create-story-seed-ai",
-  passed: 64,
+  passed: 68,
   coordinator: "unified-automatic",
-  hardDeadlineMs: 24_000,
+  hardDeadlineMs: 60_000,
+  fallbackDistinctBatches: fallbackBatches.length,
   callerAbortRace: true,
   progressMilestones: preCreationProgress.length,
   authoredValuesPreserved: true,

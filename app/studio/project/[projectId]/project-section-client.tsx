@@ -1487,7 +1487,7 @@ function CharacterEditor({
             </div>
             <div>
               <b>{portrait ? portrait.role : "尚未選擇人物相片"}</b>
-              <p>{portrait ? portrait.visualDescription : "可從 100 張基礎美術延伸的 10,000 種可重現衍生造型中選擇，或上傳自己的參考照片。"}</p>
+              <p>{portrait ? portrait.visualDescription : "可從 108 張真正不同的基礎人像延伸的 10,000 種可重現造型中選擇，或上傳自己的參考照片。"}</p>
               <small>只有核准的外觀描述與特徵標籤會提供給角色 AI；圖片位元不會寫入 AI 提示。</small>
             </div>
           </div>
@@ -1512,7 +1512,7 @@ function CharacterEditor({
             }}>移除人物相片</button> : null}
           </div>
           <details className="characterPortraitCatalog">
-            <summary>開啟 10,000 種可重現衍生造型（100 張基礎美術 × 100 種變體）</summary>
+            <summary>開啟 10,000 種可重現造型（108 張基礎人像，依人物固定分配衍生配色）</summary>
             <div className="characterPortraitFilters">
               <label>搜尋特徵<input type="search" value={portraitQuery} onChange={(event) => { setPortraitQuery(event.target.value); setPortraitPage(0); }} placeholder="題材、身分或氣質" /></label>
               <label>題材<select value={portraitTheme} onChange={(event) => { setPortraitTheme(event.target.value); setPortraitPage(0); }}><option value="all">全部題材（10,000 種衍生造型）</option>{CHARACTER_PORTRAIT_THEME_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>

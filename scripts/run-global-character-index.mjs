@@ -4,9 +4,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { suggestedCatalogCharacterPortrait } from "../lib/novel-ai/character-portraits/assignment.ts";
 import {
+  createGlobalCharacter,
   createGlobalCharacterFromCatalog,
+  createGlobalPersonalHeroAbilityProfile,
+  DEFAULT_GLOBAL_PERSONAL_HERO_ABILITIES,
+  GLOBAL_CHARACTER_ABILITY_KEYS,
   GLOBAL_CHARACTER_CATALOG_CAPACITY,
   GLOBAL_CHARACTER_CATALOG_PAGE_SIZE,
+  GLOBAL_PERSONAL_HERO_ABILITY_MAX,
+  prepareGlobalCanonCopy,
   globalCatalogCharacterId,
   globalCatalogCharacterNumber,
 } from "../lib/novel-ai/global-canon/index.ts";
@@ -96,6 +102,7 @@ const mastery = characterMasteryProfileAt({
   context,
   socialMatrix: matrix,
 });
+const originalCatalogAbilities = JSON.stringify(sample.abilities);
 const saved = createGlobalCharacterFromCatalog({ character: sample, portrait: approvedPortrait, world, mastery });
 assert.equal(saved.id, globalCatalogCharacterId(world.id, sample.populationIndex));
 assert.equal(saved.provenance.origin, "system_catalog");
@@ -106,6 +113,42 @@ assert.ok(saved.capabilities.length >= 10, "saved catalog character must retain 
 assert.ok(saved.limitations.length >= 2, "saved catalog character must retain an explicit weakness boundary");
 assert.ok(saved.capabilities.some((value) => /會使用|會製作|持有|栽培/u.test(value)), "saved character must retain mastery actions");
 assert.ok(saved.limitations.some((value) => value.includes("代價")), "saved character must retain mastery costs");
+assert.equal(saved.abilityProfile?.source, "system_catalog");
+assert.equal(saved.abilityProfile?.scaleMax, 100, "procedural catalog stays on its original 0-100 scale");
+assert.equal(JSON.stringify(sample.abilities), originalCatalogAbilities, "saving a catalog character must not mutate the candidate");
+assert.equal(Object.isFrozen(sample.abilities), true, "procedural candidate abilities remain immutable");
+
+const heroStats = Object.fromEntries(
+  GLOBAL_CHARACTER_ABILITY_KEYS.map((key) => [key, GLOBAL_PERSONAL_HERO_ABILITY_MAX]),
+);
+const hero = createGlobalCharacter({
+  name: "作者英雄",
+  eraContext: "cultivation",
+  abilityProfile: createGlobalPersonalHeroAbilityProfile(heroStats),
+}, {
+  id: "global-personal-hero-contract",
+  provenance: {
+    origin: "author",
+    sourceLabel: "個人英雄（手動建立）",
+    rightsBasis: "作者手動建立的原創個人英雄",
+  },
+});
+assert.equal(hero.abilityProfile?.source, "personal_hero");
+assert.equal(hero.abilityProfile?.scaleMax, 200);
+assert.equal(hero.abilityProfile?.stats.martial, 200, "personal hero can exceed every catalog candidate's 100 ceiling");
+assert.equal(hero.provenance.sourceLabel, "個人英雄（手動建立）");
+assert.throws(
+  () => createGlobalPersonalHeroAbilityProfile({ ...DEFAULT_GLOBAL_PERSONAL_HERO_ABILITIES, martial: 201 }),
+  /個人英雄的武力必須介於 0 到 200/u,
+);
+assert.throws(
+  () => createGlobalPersonalHeroAbilityProfile({ ...DEFAULT_GLOBAL_PERSONAL_HERO_ABILITIES, strategy: 100.5 }),
+  /個人英雄的謀略必須是整數/u,
+);
+const heroCopy = prepareGlobalCanonCopy(hero, "project:personal-hero-contract", { targetId: "character:personal-hero-contract" });
+assert.equal(heroCopy.targetStore, "characters");
+assert.equal(heroCopy.record.globalAbilityProfile?.stats.martial, 200, "project candidate copy retains the explicit hero ability snapshot");
+assert.notEqual(heroCopy.record.globalAbilityProfile, hero.abilityProfile, "project copy must not alias the global hero profile");
 
 const directory = buildStoryOrganizationDirectory({
   seed,
@@ -139,6 +182,11 @@ for (const marker of [
   "window.requestAnimationFrame(calculateNextPair)",
   "Math.min(items.length, cursor + 2)",
   'disabled={busy || !mastery}',
+  'data-testid="global-personal-hero-abilities"',
+  "建立個人英雄（全域人物）",
+  "個人英雄（手動建立）",
+  "GLOBAL_PERSONAL_HERO_ABILITY_MAX",
+  "若要創造更強角色，請另外建立個人英雄",
 ]) assert.ok(source.includes(marker), `global character UI missing ${marker}`);
 assert.match(source, /人物索引<\/dt><dd>100,000/u);
 assert.match(source, /每次只計算 \{GLOBAL_CHARACTER_CATALOG_PAGE_SIZE\} 人/u);
@@ -153,6 +201,8 @@ console.log(JSON.stringify({
   population: matrix.populationSize,
   pageSize: GLOBAL_CHARACTER_CATALOG_PAGE_SIZE,
   finalPageSize: finalPage.items.length,
+  catalogAbilityMax: saved.abilityProfile?.scaleMax,
+  personalHeroAbilityMax: hero.abilityProfile?.scaleMax,
   world: world.displayId,
   portrait: portraitAsset.id,
 }, null, 2));

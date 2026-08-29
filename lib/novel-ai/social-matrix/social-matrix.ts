@@ -417,6 +417,47 @@ function invertPermutation(value: number, population: number, salt: string) {
   return (inverse * normalized) % population;
 }
 
+// A full story world has 30 named organizations sharing the 100,000-person
+// catalog. Keep that catalog a true partition: some organizations can be
+// genuinely giant while smaller organizations give the directory a useful
+// range of scales. The seed only permutes which named organization receives
+// each bucket; it never changes the bounded total or creates overlapping IDs.
+const STORY_DIRECTORY_INSTITUTION_PARTITION = [
+  10_000, 8_000, 6_500, 5_500,
+  4_900, 4_700, 4_500, 4_300, 4_100, 3_900, 3_700, 3_500,
+  3_400, 3_300, 3_200, 3_100, 3_000, 2_900, 2_800, 2_700, 2_600, 2_500,
+  2_050, 1_500, 1_200, 900, 600, 400, 249, 1,
+] as const;
+
+function storyDirectoryInstitutionPartition(input: {
+  seed: string;
+  populationSize: number;
+  institutionCount: number;
+  hasInstitutionProfiles: boolean;
+}): readonly number[] | null {
+  if (
+    !input.hasInstitutionProfiles
+    || input.populationSize !== PROCEDURAL_CHARACTER_CAPACITY
+    || input.institutionCount !== STORY_DIRECTORY_INSTITUTION_PARTITION.length
+  ) return null;
+  const coprimeSteps = [1, 7, 11, 13, 17, 19, 23, 29] as const;
+  const offset = socialMatrixHash(`${input.seed}:institution-partition-offset`)
+    % STORY_DIRECTORY_INSTITUTION_PARTITION.length;
+  const step = coprimeSteps[
+    socialMatrixHash(`${input.seed}:institution-partition-step`) % coprimeSteps.length
+  ]!;
+  const counts = Array.from(
+    { length: STORY_DIRECTORY_INSTITUTION_PARTITION.length },
+    (_, institutionIndex) => STORY_DIRECTORY_INSTITUTION_PARTITION[
+      (offset + institutionIndex * step) % STORY_DIRECTORY_INSTITUTION_PARTITION.length
+    ]!,
+  );
+  if (counts.reduce((sum, count) => sum + count, 0) !== input.populationSize) {
+    throw new Error("SOCIAL_MATRIX_INSTITUTION_PARTITION_INVALID");
+  }
+  return counts;
+}
+
 function itemAt<T>(items: readonly T[], random: () => number) {
   return items[Math.floor(random() * items.length) % items.length];
 }
@@ -570,6 +611,8 @@ export class DeterministicSocialMatrix {
   readonly cacheLimit: number;
   readonly context: ProceduralStoryContext | undefined;
   readonly institutionProfiles: readonly SocialMatrixInstitutionProfile[] | undefined;
+  private readonly institutionPartitionCounts: readonly number[] | null;
+  private readonly institutionPartitionStarts: readonly number[] | null;
   private readonly cache = new Map<number, SocialMatrixCharacter>();
   private cacheHits = 0;
   private cacheMisses = 0;
@@ -602,6 +645,20 @@ export class DeterministicSocialMatrix {
     this.institutionCount = institutionCount;
     this.familyCount = familyCount;
     this.cacheLimit = cacheLimit;
+    this.institutionPartitionCounts = storyDirectoryInstitutionPartition({
+      seed,
+      populationSize,
+      institutionCount,
+      hasInstitutionProfiles: Boolean(input.institutionProfiles),
+    });
+    let institutionPartitionStart = 0;
+    this.institutionPartitionStarts = this.institutionPartitionCounts
+      ? this.institutionPartitionCounts.map((count) => {
+          const start = institutionPartitionStart;
+          institutionPartitionStart += count;
+          return start;
+        })
+      : null;
   }
 
   characterId(index: number) {
@@ -624,7 +681,39 @@ export class DeterministicSocialMatrix {
   }
 
   private institutionIndexForCharacter(index: number) {
-    return permute(index, this.populationSize, `${this.seed}:institution-index`) % this.institutionCount;
+    const slot = permute(index, this.populationSize, `${this.seed}:institution-index`);
+    if (!this.institutionPartitionCounts || !this.institutionPartitionStarts) {
+      return slot % this.institutionCount;
+    }
+    const institutionIndex = this.institutionPartitionCounts.findIndex((count, candidateIndex) => (
+      slot < this.institutionPartitionStarts![candidateIndex]! + count
+    ));
+    if (institutionIndex < 0) throw new Error("SOCIAL_MATRIX_INSTITUTION_PARTITION_LOOKUP_FAILED");
+    return institutionIndex;
+  }
+
+  private institutionMemberCount(institutionIndex: number) {
+    return this.institutionPartitionCounts?.[institutionIndex]
+      ?? this.memberCount(institutionIndex, this.institutionCount);
+  }
+
+  private institutionMemberOrdinalForPopulationIndex(populationIndex: number, institutionIndex: number) {
+    const slot = permute(populationIndex, this.populationSize, `${this.seed}:institution-index`);
+    return this.institutionPartitionStarts
+      ? slot - this.institutionPartitionStarts[institutionIndex]!
+      : Math.floor(slot / this.institutionCount);
+  }
+
+  institutionMemberPopulationIndexAt(institutionIndex: number, memberOrdinal: number) {
+    this.institutionId(institutionIndex);
+    const memberCount = this.institutionMemberCount(institutionIndex);
+    if (!Number.isSafeInteger(memberOrdinal) || memberOrdinal < 0 || memberOrdinal >= memberCount) {
+      throw new Error("SOCIAL_MATRIX_INSTITUTION_MEMBER_ORDINAL_INVALID");
+    }
+    const slot = this.institutionPartitionStarts
+      ? this.institutionPartitionStarts[institutionIndex]! + memberOrdinal
+      : institutionIndex + memberOrdinal * this.institutionCount;
+    return invertPermutation(slot, this.populationSize, `${this.seed}:institution-index`);
   }
 
   private familyIndexForCharacter(index: number) {
@@ -670,7 +759,7 @@ export class DeterministicSocialMatrix {
       hiddenConflict: itemAt(vocabulary.hiddenConflicts, random),
       allyInstitutionIds: [...allies].map((target) => this.institutionId(target)),
       rivalInstitutionIds: [...rivals].map((target) => this.institutionId(target)),
-      memberCount: this.memberCount(index, this.institutionCount),
+      memberCount: this.institutionMemberCount(index),
     });
   }
 
@@ -744,14 +833,17 @@ export class DeterministicSocialMatrix {
       salt: `${this.seed}:family-index`,
       kind: "血親",
     });
-    const institutionMemberCount = this.memberCount(institutionIndex, this.institutionCount);
-    addBucketNeighbours({
-      bucket: institutionIndex,
-      count: this.institutionCount,
-      memberCount: institutionMemberCount,
-      salt: `${this.seed}:institution-index`,
-      kind: "同門",
-    });
+    const institutionMemberCount = this.institutionMemberCount(institutionIndex);
+    if (institutionMemberCount > 1) {
+      const currentSlot = this.institutionMemberOrdinalForPopulationIndex(index, institutionIndex);
+      for (const delta of [-1, 1]) {
+        const targetSlot = (currentSlot + delta + institutionMemberCount) % institutionMemberCount;
+        addRelationshipSeed(
+          this.institutionMemberPopulationIndexAt(institutionIndex, targetSlot),
+          "同門",
+        );
+      }
+    }
     const relationCount = 6 + Math.floor(random() * 5);
     let attempt = 0;
     while (relationshipSeeds.length < relationCount && attempt < relationCount * 8) {
@@ -1103,14 +1195,16 @@ export class DeterministicSocialMatrix {
 
   listInstitutionMembers(institutionIndex: number, input: { cursor?: string; limit?: number } = {}) {
     this.institutionId(institutionIndex);
-    return this.listBucketMembers({
-      bucket: institutionIndex,
-      count: this.institutionCount,
-      salt: `${this.seed}:institution-index`,
-      cursor: input.cursor,
-      cursorPrefix: `institution-${institutionIndex}`,
-      limit: input.limit,
-    });
+    const cursorPrefix = `institution-${institutionIndex}`;
+    const total = this.institutionMemberCount(institutionIndex);
+    const offset = parseCursor(input.cursor, cursorPrefix);
+    const limit = Math.min(100, Math.max(1, Math.floor(input.limit ?? 24)));
+    if (offset < 0 || offset > total) throw new Error("SOCIAL_MATRIX_CURSOR_OUT_OF_RANGE");
+    const end = Math.min(total, offset + limit);
+    const items = Array.from({ length: end - offset }, (_, position) => this.getCharacter(
+      this.institutionMemberPopulationIndexAt(institutionIndex, offset + position),
+    ));
+    return { items, nextCursor: end < total ? `${cursorPrefix}:${end}` : null, total };
   }
 
   listFamilyMembers(familyIndex: number, input: { cursor?: string; limit?: number } = {}) {

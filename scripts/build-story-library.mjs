@@ -16,6 +16,44 @@ const playModes = [
   ["romance", "戀愛養成"], ["management", "經營模擬"], ["adult", "成人互動"],
 ];
 
+const editorialOverrides = {
+  "創作者平台生存戰": {
+    group: "互動實驗",
+    packs: ["平台短劇", "特殊玩法", "職業現實", "全部題材"],
+    modes: ["general", "interactive", "management"],
+    sourceVersion: "story-topic-editorial-v2",
+    legacyAliases: ["網站平台功能包", "theme:網站平台功能包"],
+  },
+  "全民投票改寫命運": {
+    group: "互動實驗",
+    packs: ["平台短劇", "特殊玩法", "新手推薦", "全部題材"],
+    modes: ["general", "interactive", "rpg"],
+    sourceVersion: "story-topic-editorial-v2",
+    legacyAliases: ["讀者成長系統", "theme:讀者成長系統"],
+  },
+};
+
+const topicIdEditorialOverrides = {
+  "classic-topic-121": {
+    name: "數位遺產與死後人格",
+    subCategories: ["逝者人格託管", "數位遺囑爭議", "記憶副本要求被遺忘", "家屬與AI人格監護權", "死後帳號繼承案", "虛擬墓園失蹤者", "人格備份冒名犯罪", "不完整記憶復原", "數位分身拒絕關機", "保險公司人格鑑定", "百年後甦醒的訊息", "最後一次刪除同意"],
+    group: "科幻未來",
+    packs: ["科幻幻想", "懸疑犯罪", "全部題材"],
+    modes: ["general", "interactive"],
+    sourceVersion: "story-topic-editorial-v2",
+    legacyAliases: ["AI未來新題", "theme:AI未來新題"],
+  },
+  "classic-topic-130": {
+    name: "氣候正義CliFi",
+    subCategories: ["跨世代氣候訴訟", "消失島國外交", "極端氣候難民家庭", "原住土地遷移爭議", "排碳企業吹哨者", "青年氣候陪審團", "水權跨境談判", "保險撤離紅線", "災後重建不平等", "生態債務追索", "最後一座可居城市", "修復世代的承諾"],
+    group: "科幻未來",
+    packs: ["科幻幻想", "懸疑犯罪", "情感成長", "全部題材"],
+    modes: ["general", "interactive"],
+    sourceVersion: "story-topic-editorial-v2",
+    legacyAliases: ["氣候科幻CliFi", "theme:氣候科幻CliFi"],
+  },
+};
+
 function literalValue(node, source) {
   return vm.runInNewContext(`(${node.getText(source)})`, Object.create(null), { timeout: 1000 });
 }
@@ -49,32 +87,33 @@ function extractLegacyThemes() {
   }
   // This final legacy suite derives one array from window state and therefore is
   // intentionally normalized here instead of evaluating browser code at build time.
-  merged.set("網站平台功能包", ["首頁探索牆", "分類書庫篩選", "多榜單排行", "追更書架", "標籤雲與相似推薦", "作者中心工具", "讀者互動機制", "活動徵文中心", "連載儀表板", "ChatGPT 接力遊玩", "手機閱讀優化", "IP 改編素材庫"]);
-  merged.set("讀者成長系統", ["閱讀足跡回訪", "章末投票分歧", "角色人氣變化", "留言觸發番外", "粉絲稱號升級", "追更提醒事件", "相似題材推薦", "收藏轉化任務", "完本回收活動", "讀券解鎖節奏", "新書入庫曝光", "社群討論升溫"]);
+  merged.set("創作者平台生存戰", ["新人作者首發", "榜單演算法黑箱", "獨家合約權利爭奪", "匿名編輯的最後通牒", "斷更危機倒數", "抄襲指控攻防", "讀者社群炎上", "競爭作者聯盟", "IP改編競標", "平台併購風暴", "數據造假調查", "完結日前的背叛"]);
+  merged.set("全民投票改寫命運", ["章末投票成真", "人氣角色覺醒", "留言預言殺人", "讀者選擇具現化", "被淘汰角色復仇", "作者失去劇情控制", "粉絲陣營對決", "收藏數換取時間", "斷更引發世界崩塌", "角色跨章求救", "完本後世界重啟", "最終票決定現實"]);
   return merged;
 }
 
 function classify(name, subCategories) {
   const text = `${name} ${subCategories.join(" ")}`;
-  const group = /懸疑|推理|犯罪|怪談|恐怖|詭|法庭|諜報/.test(text) ? "懸疑驚悚"
+  const group = /懸疑|推理|犯罪|怪談|恐怖|詭|法庭|諜報|探案|劫案|Heist|災難|祕社/.test(text) ? "懸疑驚悚"
     : /科幻|星際|機甲|末日|未來|賽博|AI/.test(text) ? "科幻未來"
-    : /古代|宮廷|王朝|歷史|武俠|三國|宅鬥/.test(text) ? "歷史權謀"
-    : /戀愛|言情|情感|療癒|家庭|青春|百合|耽美/.test(text) ? "情感關係"
-    : /都市|職場|商業|現實|生活|體育|藝術/.test(text) ? "都市現實"
-    : /互動|遊戲|RPG|視覺小說|平台|讀者|短劇/.test(text) ? "互動實驗"
+    : /古代|宮廷|王朝|歷史|年代|武俠|三國|宅鬥/.test(text) ? "歷史權謀"
+    : /戀愛|言情|情感|關係|邂逅|療癒|家庭|青春|百合|耽美/.test(text) ? "情感關係"
+    : /都市|職場|商業|現實|生活|體育|藝術|電競|公廚|傳記/.test(text) ? "都市現實"
+    : /互動|遊戲|RPG|視覺小說|平台|讀者|短劇|附身|變身|快穿|Dungeon|連載|YouTube|Audio|聽書|分鏡/.test(text) ? "互動實驗"
     : /拉美|北歐|非洲|南亞|中東|東南亞|東歐|地中海|澳洲|東亞|中亞|加勒比|北美|神話|人外/.test(text) ? "文化地域"
     : "幻想冒險";
   const packs = ["全部題材"];
-  if (/熱門|爽文|言情|玄幻|都市|懸疑|推理|修仙/.test(text)) packs.unshift("熱門常用");
-  if (/都市|言情|戀愛|成長|校園|生活/.test(text)) packs.unshift("新手推薦");
+  if (/熱門|爽文|言情|玄幻|都市|懸疑|推理|修仙|女強|馬甲|男頻|反派|升級/.test(text)) packs.unshift("熱門常用");
+  if (/都市|言情|戀愛|成長|校園|生活|日常|重生|逆襲|短章|求生/.test(text)) packs.unshift("新手推薦");
   if (group === "文化地域") packs.unshift("世界地域");
   if (group === "互動實驗") packs.unshift("特殊玩法");
-  if (/職場|商業|現實|職業|醫療|法律|藝術|體育/.test(text)) packs.unshift("職業現實");
-  if (group === "歷史權謀" || /玄幻|修仙|仙俠/.test(text)) packs.unshift("古代玄幻");
-  if (group === "科幻未來" || /奇幻|魔法|異界/.test(text)) packs.unshift("科幻幻想");
+  if (/職場|商業|現實|職業|醫療|法律|藝術|體育|電競|競技|公廚|Audio|聽書|傳記/.test(text)) packs.unshift("職業現實");
+  if (group === "歷史權謀" || /玄幻|修仙|仙俠|高武|道門|年代/.test(text)) packs.unshift("古代玄幻");
+  if (group === "科幻未來" || /奇幻|魔法|異界|御獸|怪奇|來世|死後/.test(text)) packs.unshift("科幻幻想");
   if (group === "情感關係") packs.unshift("情感成長");
-  if (group === "懸疑驚悚") packs.unshift("懸疑犯罪");
-  if (/平台|短劇|影視|漫畫|書庫|讀者/.test(text)) packs.unshift("平台短劇");
+  if (group === "懸疑驚悚" || /探案|劫案|Heist|災難|祕社/.test(text)) packs.unshift("懸疑犯罪");
+  if (/平台|短劇|影視|漫畫|書庫|讀者|連載|YouTube|Audio|聽書|分鏡|同人/.test(text)) packs.unshift("平台短劇");
+  if (/互動|遊戲|RPG|視覺小說|附身|變身|快穿|Dungeon|迷宮|御獸|任務|書信|日記/.test(text)) packs.unshift("特殊玩法");
   const modes = ["general"];
   if (/互動|遊戲|RPG|視覺小說|讀者/.test(text)) modes.push("interactive");
   if (/RPG|遊戲|冒險|副本|系統/.test(text)) modes.push("rpg");
@@ -86,10 +125,18 @@ function classify(name, subCategories) {
 function bootstrap() {
   const themes = extractLegacyThemes();
   if (themes.size !== 218) throw new Error(`Expected 218 legacy themes, received ${themes.size}.`);
-  const topics = [...themes.entries()].map(([name, subCategories], index) => {
-    const classified = classify(name, subCategories);
+  const topics = [...themes.entries()].map(([legacyName, legacySubCategories], index) => {
+    const topicId = `classic-topic-${String(index + 1).padStart(3, "0")}`;
+    const idOverride = topicIdEditorialOverrides[topicId];
+    const name = idOverride?.name ?? legacyName;
+    const subCategories = idOverride?.subCategories ?? legacySubCategories;
+    const classified = idOverride ?? editorialOverrides[name] ?? classify(name, subCategories);
+    const legacyAliases = [
+      ...(idOverride?.legacyAliases ?? []),
+      ...(editorialOverrides[name]?.legacyAliases ?? []),
+    ];
     return {
-      topicId: `classic-topic-${String(index + 1).padStart(3, "0")}`,
+      topicId,
       name,
       description: subCategories.slice(0, 3).join("、"),
       consumerGroupId: `group-${groupNames.indexOf(classified.group) + 1}`,
@@ -99,8 +146,8 @@ function bootstrap() {
       tags: [...new Set([classified.group, ...subCategories.slice(0, 5)])],
       supportedPlayModes: classified.modes,
       recommendedProtagonists: [], recommendedWorlds: [], recommendedConflicts: [], recommendedStyles: [],
-      adultOnly: false, enabled: true, classic: true, sourceVersion: "legacy-218-audited",
-      legacyAliases: [name, `theme:${name}`],
+      adultOnly: false, enabled: true, classic: true, sourceVersion: idOverride?.sourceVersion ?? editorialOverrides[name]?.sourceVersion ?? "legacy-218-audited",
+      legacyAliases: [name, `theme:${name}`, ...legacyAliases],
     };
   });
   const adultNames = ["成熟情感探索", "成人關係劇情", "權力與界線", "親密關係修復", "成人懸疑關係", "成熟奇幻契約", "成人互動分支"];

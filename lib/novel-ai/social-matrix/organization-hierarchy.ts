@@ -640,16 +640,6 @@ const SIZE_TIERS = [
   { label: "巨型", minimum: 5_000, maximum: STORY_ORGANIZATION_MEMBER_CAPACITY },
 ] as const;
 
-function organizationCapacity(seed: string, blueprint: StoryOrganizationBlueprint, influence: number) {
-  const tierIndex = (socialMatrixHash(`${seed}:organization-size-tier:${blueprint.ordinal}`) + Math.floor(influence / 20)) % SIZE_TIERS.length;
-  const tier = SIZE_TIERS[tierIndex]!;
-  const span = tier.maximum - tier.minimum + 1;
-  return {
-    sizeLabel: tier.label,
-    memberCapacity: tier.minimum + socialMatrixHash(`${seed}:organization-size:${blueprint.ordinal}`) % span,
-  };
-}
-
 function organizationSizeLabel(capacity: number): StoryOrganizationDirectoryEntry["sizeLabel"] {
   return SIZE_TIERS.find((tier) => capacity >= tier.minimum && capacity <= tier.maximum)?.label
     ?? "巨型";
@@ -1215,12 +1205,11 @@ export function buildStoryOrganizationDirectory(input: {
   }
   const directory: StoryOrganizationWithoutRelationships[] = input.blueprints.map((blueprint, index) => {
     const institution = input.institutions[index]!;
-    const generatedSize = organizationCapacity(input.seed, blueprint, institution.influence);
     // One world's 100,000-person catalog is partitioned across its directory.
-    // Capping by the institution's virtual bucket prevents duplicate roster
-    // identities while keeping the published per-organization ceiling at 10k.
+    // Each directory capacity is the exact size of its non-overlapping virtual
+    // bucket, so giant organizations are real rather than a label over an
+    // evenly divided 3,334-person roster.
     const memberCapacity = Math.max(1, Math.min(
-      generatedSize.memberCapacity,
       institution.memberCount,
       STORY_ORGANIZATION_MEMBER_CAPACITY,
     ));

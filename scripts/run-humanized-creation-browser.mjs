@@ -665,6 +665,18 @@ try {
     await page.setViewportSize(mobileViewport);
     await openFreshPage(`${baseUrl}/canon?world=2`);
     await page.getByTestId("global-canon-editor").waitFor({ state: "visible" });
+    await page.waitForFunction(() => (
+      document.querySelectorAll('[data-testid="global-character-candidate"] [data-portrait-resource]').length === 24
+    ));
+    const catalogPortraits = await page
+      .locator('[data-testid="global-character-candidate"] [data-portrait-resource]')
+      .evaluateAll((elements) => elements.map((element) => ({
+        resource: element.getAttribute("data-portrait-resource"),
+        cell: element.getAttribute("data-portrait-atlas-cell"),
+      })));
+    const catalogBaseKeys = catalogPortraits.map((portrait) => `${portrait.resource}|${portrait.cell}`);
+    assert.equal(new Set(catalogBaseKeys).size, 24, "world 2 first page must show 24 genuinely different atlas faces");
+    assert.equal(Math.max(...[...new Set(catalogBaseKeys)].map((key) => catalogBaseKeys.filter((candidate) => candidate === key).length)), 1);
     await page.getByRole("tab", { name: "組織與祖譜", exact: true }).tap();
     await page.getByTestId("global-canon-organizations").waitFor({ state: "visible" });
 

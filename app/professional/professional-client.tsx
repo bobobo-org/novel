@@ -84,7 +84,7 @@ function consistencyReviewHref(projectId: string) {
   );
 }
 
-function authorToolHref(projectId: string, tool: "breakdown" | "relay" | "batch" | "serial") {
+function authorToolHref(projectId: string, tool: "breakdown" | "relay" | "batch" | "serial" | "completion-review") {
   return `/studio/project/${encodeURIComponent(projectId)}/author-tools?tool=${tool}`;
 }
 
@@ -390,6 +390,7 @@ export default function ProfessionalClient({
               <Link prefetch={false} href={`${projectRoot}/tasks`}>任務與進度</Link>
               <Link prefetch={false} href={`${projectRoot}/achievements`}>成就與里程碑</Link>
               <Link prefetch={false} href={consistencyReviewHref(project.id)}>檢查作品一致性</Link>
+              <Link prefetch={false} href={authorToolHref(project.id, "completion-review")}>標記完稿、全書審查與交誼廳發布</Link>
             </article>
             <article id="data-and-safety">
               <small>DATA & SAFETY</small><h2>作品、存檔與備份</h2>
@@ -420,11 +421,12 @@ export default function ProfessionalClient({
             </article>
             <article id="research-and-legacy-tools">
               <small>RESEARCH & AUTHOR TOOLS</small><h2>研究與作者輔助</h2>
-              <p>四項工具都直接讀取目前作品的正式資料、在各自頁面產生結果；不再跳回聊天或誤用最近更新的其他作品。</p>
+              <p>四項本機工具與全書完稿審查都直接讀取目前作品的正式資料；不再跳回聊天或誤用最近更新的其他作品。</p>
               <Link prefetch={false} href={authorToolHref(project.id, "breakdown")}>書籍與作品拆解</Link>
               <Link prefetch={false} href={authorToolHref(project.id, "relay")}>續寫接力提示</Link>
               <Link prefetch={false} href={authorToolHref(project.id, "batch")}>多章批量規劃</Link>
               <Link prefetch={false} href={authorToolHref(project.id, "serial")}>連載、讀者與 IP 研究</Link>
+              <Link prefetch={false} href={authorToolHref(project.id, "completion-review")}>全書完稿審查</Link>
             </article>
           </section>
         </>

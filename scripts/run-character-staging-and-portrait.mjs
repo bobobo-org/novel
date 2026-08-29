@@ -12,6 +12,7 @@ import {
   activeStoryTimeline,
   activeStoryWorldRules,
   activeStoryWorlds,
+  assertStoryStageEraCompatibility,
 } from "../lib/novel-ai/domain/active-story-context.ts";
 import { stageAuthorToolSnapshot } from "../lib/novel-ai/author-tools.ts";
 import {
@@ -20,13 +21,20 @@ import {
 } from "../lib/novel-ai/domain/story-started-canon-guard.ts";
 import {
   isCharacterEraCompatible,
+  suggestedCatalogCharacterPortrait,
   suggestedCharacterPortrait,
   suggestedSocialMatrixCharacterPortrait,
+  worldEraContext,
 } from "../lib/novel-ai/character-portraits/assignment.ts";
+import { professionWorldContext } from "../lib/novel-ai/game/character-profession.ts";
 import {
+  CHARACTER_PORTRAIT_BASE_CAPACITY,
   CHARACTER_PORTRAIT_CAPACITY,
   CHARACTER_PORTRAIT_CATALOG,
+  CHARACTER_PORTRAIT_THEME_OPTIONS,
+  characterPortraitBaseIdentity,
   filterCharacterPortraitCatalog,
+  filterCharacterPortraitPickerCatalog,
 } from "../lib/novel-ai/character-portraits/catalog.ts";
 import { composeProjectContext } from "../lib/novel-ai/web/project-context-composer.ts";
 
@@ -79,6 +87,7 @@ const bible = {
 };
 
 assert.equal(CHARACTER_PORTRAIT_CAPACITY, 10_000);
+assert.equal(CHARACTER_PORTRAIT_BASE_CAPACITY, 108);
 const firstPortraitPage = filterCharacterPortraitCatalog({}).slice(0, 12);
 assert.equal(firstPortraitPage.length, 12);
 assert.equal(
@@ -94,6 +103,74 @@ assert.equal(
   ].join(":"))).size,
   12,
   "the unfiltered first page must expose twelve distinct local atlas crops",
+);
+const scifiFilteredPortraits = filterCharacterPortraitCatalog({ themeId: "scifi" });
+const scifiPickerPortraits = filterCharacterPortraitPickerCatalog({ themeId: "scifi" });
+assert.equal(scifiPickerPortraits.length, scifiFilteredPortraits.length, "picker ordering must preserve the filtered total");
+assert.deepEqual(
+  new Set(scifiPickerPortraits.map((portrait) => portrait.id)),
+  new Set(scifiFilteredPortraits.map((portrait) => portrait.id)),
+  "picker ordering must neither hide nor duplicate a filtered portrait variant",
+);
+for (const themeId of ["all", ...CHARACTER_PORTRAIT_THEME_OPTIONS.map((option) => option.id)]) {
+  const pickerPortraits = filterCharacterPortraitPickerCatalog({ themeId });
+  const availableBaseCount = new Set(pickerPortraits.map(characterPortraitBaseIdentity)).size;
+  if (availableBaseCount < 12) continue;
+  for (let start = 0; start + 12 <= pickerPortraits.length; start += 12) {
+    const page = pickerPortraits.slice(start, start + 12);
+    assert.equal(
+      new Set(page.map(characterPortraitBaseIdentity)).size,
+      12,
+      `${themeId} picker page ${start / 12 + 1} must show twelve different real atlas crops`,
+    );
+  }
+}
+const scifiThirdPickerPage = scifiPickerPortraits.slice(24, 36);
+assert.equal(scifiThirdPickerPage.length, 12);
+assert.equal(
+  new Set(scifiThirdPickerPage.map(characterPortraitBaseIdentity)).size,
+  12,
+  "science-fiction picker page 3 must not repeat the same person at the beginning and end",
+);
+assert.deepEqual(
+  filterCharacterPortraitPickerCatalog({ themeId: "scifi", query: "仿生人" }).map((portrait) => portrait.id),
+  filterCharacterPortraitCatalog({ themeId: "scifi", query: "仿生人" }).map((portrait) => portrait.id),
+  "a one-base portrait search must retain its complete deterministic variant sequence",
+);
+const baseIdentityKey = (portrait) => [
+  portrait.assetUri,
+  portrait.atlas?.row,
+  portrait.atlas?.column,
+].join(":");
+const modernPopulationPortraits = Array.from({ length: 240 }, (_, populationIndex) => (
+  suggestedCatalogCharacterPortrait({
+    stableId: `global-world-000002:character-${populationIndex}`,
+    signal: `現代都市｜人物 ${populationIndex}｜社區工作站`,
+    preferredThemeId: populationIndex % 2 === 0 ? "warm-contemporary" : "modern-mystery",
+    diversityOrdinal: populationIndex,
+    diversityScope: "global-world-000002",
+  })
+));
+assert.equal(
+  new Set(modernPopulationPortraits.slice(0, 24).map(baseIdentityKey)).size,
+  24,
+  "a 24-person modern page must exhaust 24 era-compatible real faces before reuse",
+);
+assert.equal(
+  new Set(modernPopulationPortraits.map((portrait) => portrait.id)).size,
+  modernPopulationPortraits.length,
+  "the first 240 canonical people must not repeat a complete portrait selection",
+);
+assert.deepEqual(
+  suggestedCatalogCharacterPortrait({
+    stableId: "global-world-000002:character-23",
+    signal: "現代都市｜人物 23｜社區工作站",
+    preferredThemeId: "modern-mystery",
+    diversityOrdinal: 23,
+    diversityScope: "global-world-000002",
+  }),
+  modernPopulationPortraits[23],
+  "canonical population assignment must remain stable across reloads and surfaces",
 );
 const portraitAssetDigests = new Map(
   CHARACTER_PORTRAIT_CATALOG.map((portrait) => [portrait.assetUri, portrait.assetDigest]),
@@ -305,6 +382,32 @@ const canonicalBible = {
   forbiddenContradictions: [],
   authorPreferences: [],
 };
+assert.throws(
+  () => assertStoryStageEraCompatibility({
+    project: modernProject,
+    storyBible: canonicalBible,
+    latestStoryState: storyState,
+    patch: { activeCharacterIds: [cast[0].id, cast[2].id] },
+    worldRules: [],
+    worlds: [modernWorld, alternateWorld],
+    characters: cast,
+  }),
+  /STORY_STATE_CHARACTER_ERA_INCOMPATIBLE/u,
+  "a staging write cannot add a future character to the latest modern StoryState",
+);
+assert.throws(
+  () => assertStoryStageEraCompatibility({
+    project: modernProject,
+    storyBible: canonicalBible,
+    latestStoryState: { ...storyState, activeWorldId: alternateWorld.id },
+    patch: { activeCharacterIds: [cast[0].id] },
+    worldRules: [],
+    worlds: [modernWorld, alternateWorld],
+    characters: [{ ...cast[0], eraContext: "modern" }, ...cast.slice(1)],
+  }),
+  /STORY_STATE_CHARACTER_ERA_INCOMPATIBLE/u,
+  "a stale modern-world tab cannot reinsert a modern character after another tab switched StoryState to the future",
+);
 
 const requestedCrossEraWorld = {
   ...record("world:requested-cross-era"),
@@ -469,6 +572,49 @@ assert.deepEqual(
     baselineWorld: modernWorld,
   }).sources,
   ["project"],
+);
+const ordinaryTraversalProject = {
+  ...modernProject,
+  coreIdea: optional("刑警穿越森林追捕嫌犯，全程發生於現代。"),
+};
+const negatedTraversalProject = {
+  ...modernProject,
+  coreIdea: optional("這不是穿越故事，所有人物都生活在現代。"),
+};
+for (const project of [ordinaryTraversalProject, negatedTraversalProject]) {
+  assert.equal(
+    explicitCrossEraCanonAuthorization({
+      project,
+      storyBible: canonicalBible,
+      worldRules: [],
+      baselineWorld: modernWorld,
+    }).authorized,
+    false,
+    "ordinary or negated uses of 穿越 must not authorize cross-era staging",
+  );
+  assert.equal(
+    professionWorldContext(project, [modernWorld]),
+    "modern",
+    "ordinary or negated uses of 穿越 must keep the modern profession catalog",
+  );
+}
+assert.equal(
+  worldEraContext({
+    ...modernWorld,
+    summary: optional("刑警穿越森林追捕嫌犯，全程發生於現代。"),
+  }),
+  "modern",
+  "ordinary traversal must not convert a world to cross-era",
+);
+assert.equal(
+  explicitCrossEraCanonAuthorization({
+    project: { ...modernProject, coreIdea: optional("主角穿越時空，來往現代與古代。") },
+    storyBible: canonicalBible,
+    worldRules: [],
+    baselineWorld: modernWorld,
+  }).authorized,
+  true,
+  "an explicit time-travel premise still authorizes cross-era staging",
 );
 assert.throws(() => assertStoryStartedCanonMutationAllowed({
   storyStarted: true,
@@ -665,10 +811,41 @@ const [
   readFile(new URL("../lib/novel-ai/author-tools.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/character-ai/character-agent-workspace.tsx", import.meta.url), "utf8"),
 ]);
+const [
+  activeStoryContextSource,
+  storyStageSelectorSource,
+  characterRouteSource,
+  worldRouteSource,
+  rpgRouteSource,
+] = await Promise.all([
+  readFile(new URL("../lib/novel-ai/domain/active-story-context.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/story-stage-selector.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/characters/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/world/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/rpg/page.tsx", import.meta.url), "utf8"),
+]);
+assert.match(characterRouteSource, /<StoryStageSelectionPage projectId=\{projectId\} focus="characters" \/>/u, "the live story character route must be selection-only");
+assert.doesNotMatch(characterRouteSource, /ProjectSectionClient|CharacterEditor/u, "the live story character route must not mount a Canon editor");
+assert.match(worldRouteSource, /<StoryStageSelectionPage projectId=\{projectId\} focus="world" \/>/u, "the live story world route must be selection-only");
+assert.doesNotMatch(worldRouteSource, /ProjectSectionClient|WorldEditor/u, "the live story world route must not mount a Canon editor");
+assert.match(rpgRouteSource, /redirect\(`\/studio\/project\/\$\{encodeURIComponent\(projectId\)\}\/chat\?mode=play`\)/u, "the legacy RPG route must redirect to the prose-first chat instead of mounting its character writer");
+assert.doesNotMatch(rpgRouteSource, /RpgWorkspace/u, "the legacy RPG route must not mount a second character-writing surface");
 assert.match(projectSectionSource, /mutation: existing \? "update-world" : "create-world"/u);
 assert.match(projectSectionSource, /disabled=\{storyStarted && !worldEditingId\}/u);
 assert.match(homeSource, /explicitCrossEraCanonAuthorization/u);
 assert.match(homeSource, /crossEraAuthorization:\s*crossEraCanon/u, "relationship workbench must apply its formal authorization to cast filtering");
+assert.match(
+  homeSource,
+  /const stagedWorld = data\.worlds\.find\(\(world\) => world\.id === storyState\?\.activeWorldId\)/u,
+  "the Canon editor cursor must not replace the persisted StoryState world used by era staging",
+);
+assert.match(
+  activeStoryContextSource,
+  /STORY_STATE_CHARACTER_ERA_INCOMPATIBLE/u,
+  "the shared StoryState write guard must fail closed on incompatible eras",
+);
+assert.match(homeSource, /assertStoryStageEraCompatibility\(\{/u, "the home workbench must revalidate the latest StoryState before writing");
+assert.match(storyStageSelectorSource, /assertStoryStageEraCompatibility\(\{/u, "the story selector must revalidate stale-tab writes against the latest StoryState");
 assert.doesNotMatch(homeSource, /baselineEra === "cross-era" \|\| requestedEra === "cross-era"/u);
 for (const [consumer, source] of [
   ["rpg-chat-turn", rpgChatTurnSource],
@@ -679,10 +856,19 @@ for (const [consumer, source] of [
   assert.match(source, /activeStoryCast\(\{/u, `${consumer} must consume the centralized era-authorized story cast`);
 }
 assert.match(homeSource, /data-canon-edit-surface="home"/u);
-assert.match(homeSource, /無論故事是否已開始，都可修改人物、能力值、世界、Story Bible、規則、記憶與時間線/u);
+assert.match(homeSource, /故事已有正文：首頁仍可整理正式設定，但能力值、職業、境界與功法預設鎖定/u);
 assert.match(homeSource, /createCharacterRpgProfile\(\{/u);
 assert.match(homeSource, /aria-label="首頁正式能力值編修"/u);
-assert.doesNotMatch(homeSource, /storyStarted/u, "home Canon editor must not inherit story-started locks");
+assert.match(homeSource, /const storyStarted = data\.chapters\.some/u, "the home Canon editor must detect prose that has already started");
+assert.match(homeSource, /data-testid="started-story-canon-change-gate"/u, "started stories need an explicit Canon-change gate");
+assert.match(homeSource, /canonChangeReason\.trim\(\)\.length < 8/u, "started-story power changes need a meaningful reason");
+assert.match(homeSource, /confirm\(`/u, "started-story power changes need a second confirmation");
+assert.match(homeSource, /canonChangeHistory:/u, "approved power changes must keep an audit trail");
+assert.match(homeSource, /slice\(-50\)/u, "the Canon audit trail must remain bounded");
+assert.match(homeSource, /data-testid="home-character-name" required/u, "names remain editable from the home Canon surface");
+assert.match(homeSource, /disabled=\{Boolean\(storyStarted && selectedCharacter && !canonChangeAcknowledged\)\}/u, "power controls must stay locked until explicitly acknowledged");
+assert.match(homeSource, /repository\.list<Chapter>\("chapters", project\.id\)/u, "Canon writes must refresh chapter state before deciding whether prose has started");
+assert.match(homeSource, /currentStoryStarted && creating/u, "project-local power-bearing character creation must stop after prose begins");
 const homeWorldSaveHandler = homeSource.slice(
   homeSource.indexOf("async function saveWorld"),
   homeSource.indexOf("async function removeSelectedWorld"),

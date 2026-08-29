@@ -8,18 +8,59 @@ import {
 } from "../domain";
 import { professionWorldContext, type ProfessionWorldContext } from "../game/character-profession";
 import type { SocialMatrixCharacter, StoryOrganizationMember } from "../social-matrix";
-import type { CrossEraCanonAuthorization } from "../domain/story-started-canon-guard";
-import { CHARACTER_PORTRAIT_CATALOG } from "./catalog";
+import {
+  hasExplicitCrossEraSemanticSignal,
+  type CrossEraCanonAuthorization,
+} from "../domain/story-started-canon-guard";
+import {
+  CHARACTER_PORTRAIT_BASE_CATALOG,
+  CHARACTER_PORTRAIT_CATALOG,
+} from "./catalog";
 
 const CHARACTER_PORTRAIT_BY_ID = new Map(
   CHARACTER_PORTRAIT_CATALOG.map((portrait) => [portrait.id, portrait] as const),
 );
 const BASE_CHARACTER_PORTRAITS_BY_THEME = new Map<string, CharacterPortraitAsset[]>();
-for (const portrait of CHARACTER_PORTRAIT_CATALOG) {
-  if (portrait.visualVariant?.variant !== 0) continue;
+const CHARACTER_PORTRAIT_VARIANTS_BY_BASE_ID = new Map<string, CharacterPortraitAsset[]>();
+for (const portrait of CHARACTER_PORTRAIT_BASE_CATALOG) {
   const portraits = BASE_CHARACTER_PORTRAITS_BY_THEME.get(portrait.themeId) ?? [];
   portraits.push(portrait);
   BASE_CHARACTER_PORTRAITS_BY_THEME.set(portrait.themeId, portraits);
+}
+for (const portrait of CHARACTER_PORTRAIT_CATALOG) {
+  const baseId = portrait.id.replace(/-v\d{3}$/u, "");
+  const variants = CHARACTER_PORTRAIT_VARIANTS_BY_BASE_ID.get(baseId) ?? [];
+  variants.push(portrait);
+  CHARACTER_PORTRAIT_VARIANTS_BY_BASE_ID.set(baseId, variants);
+}
+
+const COMPATIBLE_PORTRAIT_THEME_GROUPS = [
+  ["warm-contemporary", "modern-mystery"],
+  ["xianxia", "historical-east-asia"],
+  ["scifi", "post-apocalypse"],
+  ["western-fantasy", "gothic-mystery", "steampunk"],
+] as const;
+
+function compatiblePortraitThemes(themeId: string) {
+  return COMPATIBLE_PORTRAIT_THEME_GROUPS.find((group) => group.includes(themeId as never))
+    ?? [themeId];
+}
+
+function greatestCommonDivisor(left: number, right: number) {
+  let a = Math.abs(left);
+  let b = Math.abs(right);
+  while (b > 0) [a, b] = [b, a % b];
+  return a;
+}
+
+function stablePermutationStep(scope: string, size: number) {
+  if (size <= 1) return 1;
+  const start = stableHash(`${scope}|portrait-step`) % size;
+  for (let offset = 0; offset < size; offset += 1) {
+    const candidate = (start + offset) % size || 1;
+    if (greatestCommonDivisor(candidate, size) === 1) return candidate;
+  }
+  return 1;
 }
 
 function stableHash(value: string) {
@@ -151,11 +192,36 @@ export function suggestedCatalogCharacterPortrait(input: {
   stableId: string;
   signal: string;
   preferredThemeId?: string;
+  /**
+   * Stable position in a canonical population. When supplied, selection walks
+   * every era-compatible base face before reusing one. It must never be a page
+   * or filtered-list index, otherwise the same person would change faces.
+   */
+  diversityOrdinal?: number;
+  /** Stable world/project scope shared by characters in the same population. */
+  diversityScope?: string;
 }): CharacterPortraitAsset {
   const themeId = input.preferredThemeId?.trim() || portraitThemeFromSignal(input.signal);
   const basePortraits = BASE_CHARACTER_PORTRAITS_BY_THEME.get(themeId)
     ?? BASE_CHARACTER_PORTRAITS_BY_THEME.get("warm-contemporary")
     ?? [];
+  if (Number.isSafeInteger(input.diversityOrdinal) && (input.diversityOrdinal ?? -1) >= 0) {
+    const themeIds = compatiblePortraitThemes(themeId);
+    const compatibleBases = themeIds.flatMap(
+      (compatibleThemeId) => BASE_CHARACTER_PORTRAITS_BY_THEME.get(compatibleThemeId) ?? [],
+    );
+    const pool = compatibleBases.length > 0 ? compatibleBases : basePortraits;
+    const ordinal = input.diversityOrdinal!;
+    const scope = input.diversityScope?.trim() || input.stableId;
+    const poolKey = themeIds.join("+");
+    const rotation = stableHash(`${scope}|${poolKey}|portrait-rotation`) % pool.length;
+    const step = stablePermutationStep(`${scope}|${poolKey}`, pool.length);
+    const base = pool[(rotation + ordinal * step) % pool.length] ?? CHARACTER_PORTRAIT_BASE_CATALOG[0]!;
+    const variants = CHARACTER_PORTRAIT_VARIANTS_BY_BASE_ID.get(base.id) ?? [base];
+    const cycle = Math.floor(ordinal / pool.length);
+    const variantOffset = stableHash(`${scope}|${base.id}|portrait-variant`) % variants.length;
+    return variants[(variantOffset + cycle) % variants.length] ?? base;
+  }
   const scored = basePortraits
     .map((portrait) => ({ portrait, score: roleScore(portrait, input.signal) }))
     .sort((left, right) => right.score - left.score);
@@ -165,10 +231,11 @@ export function suggestedCatalogCharacterPortrait(input: {
     : basePortraits;
   const seed = `${input.stableId}|${input.signal}|${themeId}`;
   const base = eligible[stableHash(`${seed}|base`) % eligible.length] ?? CHARACTER_PORTRAIT_CATALOG[0]!;
-  const variant = stableHash(`${seed}|variant`) % 100;
-  return CHARACTER_PORTRAIT_BY_ID.get(
-    `${base.id.replace(/-v\d{3}$/u, "")}-v${String(variant + 1).padStart(3, "0")}`,
-  ) ?? base;
+  const baseId = base.id.replace(/-v\d{3}$/u, "");
+  const variants = CHARACTER_PORTRAIT_VARIANTS_BY_BASE_ID.get(baseId) ?? [base];
+  return variants[stableHash(`${seed}|variant`) % variants.length]
+    ?? CHARACTER_PORTRAIT_BY_ID.get(base.id)
+    ?? base;
 }
 
 export function suggestedCharacterPortrait(input: {
@@ -296,7 +363,7 @@ export function worldEraContext(world: World): ProfessionWorldContext {
   const signal = [world.name.value, world.era.value, world.summary.value]
     .filter(Boolean)
     .join("｜");
-  if (/跨時代|跨时代|穿越|時間旅行|时间旅行|時空|时空/u.test(signal)) return "cross-era";
+  if (hasExplicitCrossEraSemanticSignal(signal)) return "cross-era";
   if (/修仙|仙俠|仙侠|玄幻|宗門|宗门|靈根|灵根|劍修|剑修/u.test(signal)) return "cultivation";
   if (/未來|未来|星際|星际|星艦|星舰|太空|賽博|赛博|機甲|机甲|末日|廢土/u.test(signal)) return "future";
   if (/古代|歷史|历史|王朝|朝廷|宮廷|宫廷|江湖|武俠|武侠|民國|民国|蒸汽/u.test(signal)) return "historical";

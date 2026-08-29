@@ -10,6 +10,7 @@ import {
   treasureStakeholderPopulationIndices,
 } from "./procedural-treasure-ownership";
 import {
+  PROCEDURAL_TREASURE_KIND_DEFINITIONS,
   proceduralTreasureClassificationAt,
   type ProceduralTreasureKind,
   type ProceduralTreasureRarity,
@@ -120,7 +121,7 @@ export type ProceduralTreasureRecord = {
 export type ProceduralTreasurePage = {
   pageIndex: number;
   pageSize: number;
-  totalItems: typeof PROCEDURAL_TREASURE_CAPACITY;
+  totalItems: number;
   totalPages: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
@@ -797,6 +798,61 @@ export class ProceduralTreasureLibrary {
       pageIndex,
       pageSize,
       totalItems: PROCEDURAL_TREASURE_CAPACITY,
+      totalPages,
+      hasPreviousPage: pageIndex > 0,
+      hasNextPage: pageIndex + 1 < totalPages,
+      items,
+    };
+  }
+
+  pageByKind(
+    kind: ProceduralTreasureKind,
+    pageIndex: number,
+    pageSize = 24,
+  ): ProceduralTreasurePage {
+    if (!PROCEDURAL_TREASURE_KIND_DEFINITIONS.some((definition) => definition.id === kind)) {
+      throw new RangeError(`TREASURE_LIBRARY_KIND_INVALID:${kind}`);
+    }
+    if (!Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+      throw new RangeError(`TREASURE_LIBRARY_PAGE_INDEX_INVALID:${pageIndex}`);
+    }
+    if (
+      !Number.isSafeInteger(pageSize)
+      || pageSize < 1
+      || pageSize > PROCEDURAL_TREASURE_PAGE_MAX
+    ) {
+      throw new RangeError(`TREASURE_LIBRARY_PAGE_SIZE_INVALID:${pageSize}`);
+    }
+
+    const kindStride = PROCEDURAL_TREASURE_KIND_DEFINITIONS.length;
+    const firstOrdinal = Array.from({ length: kindStride }, (_, ordinal) => ordinal)
+      .find((ordinal) => proceduralTreasureClassificationAt({
+        storySeed: this.storySeed,
+        treasureOrdinal: ordinal,
+      }).kind === kind);
+    if (firstOrdinal === undefined) {
+      throw new Error(`TREASURE_LIBRARY_KIND_NOT_FOUND:${kind}`);
+    }
+
+    // Classification assigns every kind exactly once per consecutive stride,
+    // so a filtered page can stay O(pageSize) instead of scanning 100,000 rows.
+    const totalItems = Math.floor(
+      (PROCEDURAL_TREASURE_CAPACITY - 1 - firstOrdinal) / kindStride,
+    ) + 1;
+    const totalPages = Math.ceil(totalItems / pageSize);
+    if (pageIndex >= totalPages) {
+      throw new RangeError(`TREASURE_LIBRARY_PAGE_INDEX_OUT_OF_RANGE:${pageIndex}`);
+    }
+    const start = pageIndex * pageSize;
+    const end = Math.min(totalItems, start + pageSize);
+    const items = Array.from(
+      { length: end - start },
+      (_, offset) => this.at(firstOrdinal + (start + offset) * kindStride),
+    );
+    return {
+      pageIndex,
+      pageSize,
+      totalItems,
       totalPages,
       hasPreviousPage: pageIndex > 0,
       hasNextPage: pageIndex + 1 < totalPages,

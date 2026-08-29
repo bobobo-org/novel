@@ -31,14 +31,29 @@ export function assertStoryStartedCanonMutationAllowed(input: {
   throw new Error("STORY_STARTED_NEW_WORLD_LOCKED");
 }
 
-const EXPLICIT_CROSS_ERA_CANON = /(?:穿越(?:時空|時代|古今|異世)?|跨(?:越)?時代|時間旅行|時空(?:穿梭|裂縫|轉移|跳躍)|古今交錯|time[\s-]*travel|cross[\s-]*era)/iu;
-const NEGATED_CROSS_ERA_CANON = /(?:(?:禁止|不得|不可|不允許|不會|沒有|不存在|拒絕|排除|不要).{0,12}(?:穿越|跨(?:越)?時代|時間旅行|時空(?:穿梭|裂縫|轉移|跳躍))|(?:穿越|跨(?:越)?時代|時間旅行).{0,8}(?:被禁止|不存在|不允許))/iu;
+const EXPLICIT_CROSS_ERA_CANON_SOURCE = String.raw`(?:穿越(?:時空|時代|古今|異世|者|題材|故事|古代|現代|现代|未來|未来|過去|过去|異世界|异世界)|穿越(?:到|至|回|前往).{0,8}(?:古代|未來|未来|過去|过去|另一個時代|另一个时代|異世界|异世界)|跨(?:越)?時代|時間旅行|时间旅行|時空(?:穿梭|裂縫|裂缝|轉移|转移|跳躍|跳跃)|古今(?:穿越|交錯|交错)|異世界往返|异世界往返|time[\s-]*travel|cross[\s-]*era)`;
+const EXPLICIT_CROSS_ERA_CANON = new RegExp(EXPLICIT_CROSS_ERA_CANON_SOURCE, "iu");
+const NEGATED_CROSS_ERA_CANON = new RegExp(
+  String.raw`(?:(?:不是|並非|并非|禁止|不得|不可|不允許|不允许|不會|不会|沒有|没有|不存在|拒絕|拒绝|排除|不要).{0,12}${EXPLICIT_CROSS_ERA_CANON_SOURCE}|(?:^|[，、；;\s])非.{0,4}${EXPLICIT_CROSS_ERA_CANON_SOURCE}|${EXPLICIT_CROSS_ERA_CANON_SOURCE}.{0,8}(?:被禁止|不存在|不允許|不允许|不是|並非|并非))`,
+  "iu",
+);
+
+/**
+ * Requires an explicit time/era-travel meaning.  A bare verb such as
+ * 「穿越森林」and a negated phrase such as「不是穿越故事」are not Canon
+ * authorization to mix otherwise incompatible eras.
+ */
+export function hasExplicitCrossEraSemanticSignal(value: string | null | undefined) {
+  return (value?.trim() ?? "")
+    .split(/[。！？!?\n]/u)
+    .some((sentence) => (
+      EXPLICIT_CROSS_ERA_CANON.test(sentence)
+      && !NEGATED_CROSS_ERA_CANON.test(sentence)
+    ));
+}
 
 function containsExplicitCrossEraCanon(values: readonly (string | null | undefined)[]) {
-  return values.some((value) => {
-    const signal = value?.trim() ?? "";
-    return EXPLICIT_CROSS_ERA_CANON.test(signal) && !NEGATED_CROSS_ERA_CANON.test(signal);
-  });
+  return values.some(hasExplicitCrossEraSemanticSignal);
 }
 
 export type CrossEraCanonAuthorization = {

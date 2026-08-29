@@ -1,4 +1,5 @@
 import type { NovelProject, World } from "../domain";
+import { hasExplicitCrossEraSemanticSignal } from "../domain/story-started-canon-guard";
 
 export const CULTIVATION_PROFESSIONS = [
   "劍士", "劍修", "刀修", "體修", "煉丹師", "符師", "陣法師", "煉器師",
@@ -84,7 +85,7 @@ export function normalizeWorldEraSignal(signal: string) {
 
 export function professionWorldContext(project: NovelProject, worlds: World[]): ProfessionWorldContext {
   const signal = projectWorldSignal(project, worlds);
-  if (/穿越|跨時代|跨时代|時空|时空|古今交錯|古今交错|異世界往返|异世界往返/u.test(signal)) {
+  if (hasExplicitCrossEraSemanticSignal(signal)) {
     return "cross-era";
   }
   if (/修仙|仙俠|仙侠|玄幻|宗門|宗门|靈根|灵根|煉氣|炼气|築基|筑基|金丹|元嬰|元婴|渡劫|飛升|飞升/u.test(signal)) {

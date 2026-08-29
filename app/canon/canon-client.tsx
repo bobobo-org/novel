@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { type CSSProperties, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CHARACTER_PORTRAIT_THEME_OPTIONS,
-  filterCharacterPortraitCatalog,
+  characterPortraitBaseIdentity,
+  filterCharacterPortraitPickerCatalog,
 } from "@/lib/novel-ai/character-portraits/catalog";
 import { suggestedCatalogCharacterPortrait } from "@/lib/novel-ai/character-portraits/assignment";
 import type { Character, CharacterPortrait, CharacterPortraitAsset, NovelProject } from "@/lib/novel-ai/domain";
@@ -14,7 +15,11 @@ import {
   characterMasteryProfileAt,
   type CharacterMasteryProfile,
 } from "@/lib/novel-ai/game/character-mastery-library";
-import type { GlobalIndexedWorld, GlobalIndexedWorldSummary } from "@/lib/novel-ai/game/global-world-index";
+import {
+  GLOBAL_WORLD_CLASSIFICATIONS,
+  type GlobalIndexedWorld,
+  type GlobalIndexedWorldSummary,
+} from "@/lib/novel-ai/game/global-world-index";
 import { PROCEDURAL_TREASURE_KIND_DEFINITIONS, type ProceduralTreasureKind } from "@/lib/novel-ai/game/procedural-treasure-classification";
 import { createProceduralTreasureLibrary, type ProceduralTreasureRecord } from "@/lib/novel-ai/game/procedural-treasure-library";
 import { proceduralTreasureVisualCssVariables } from "@/lib/novel-ai/game/procedural-treasure-visual";
@@ -32,8 +37,16 @@ import {
   createGlobalTimelineTemplate,
   createGlobalWorld,
   createGlobalWorldRule,
+  createGlobalCatalogCharacterAbilityProfile,
+  createGlobalPersonalHeroAbilityProfile,
+  DEFAULT_GLOBAL_PERSONAL_HERO_ABILITIES,
   GLOBAL_CHARACTER_CATALOG_CAPACITY,
   GLOBAL_CHARACTER_CATALOG_PAGE_SIZE,
+  GLOBAL_CHARACTER_ABILITY_KEYS,
+  GLOBAL_CHARACTER_ABILITY_LABELS,
+  GLOBAL_PERSONAL_HERO_ABILITY_MAX,
+  GLOBAL_PERSONAL_HERO_ABILITY_MIN,
+  globalCharacterAbilitySummary,
   globalCatalogCharacterAbilitySummary,
   globalCatalogCharacterId,
   globalCatalogCharacterNumber,
@@ -42,6 +55,7 @@ import {
   type GlobalCanonRecord,
   type GlobalCanonStoreName,
   type GlobalCharacter,
+  type GlobalCharacterAbilityKey,
   type GlobalCharacterRelationship,
   type GlobalMemory,
   type GlobalMemoryKind,
@@ -50,6 +64,12 @@ import {
   type GlobalWorld,
   type GlobalWorldRule,
 } from "@/lib/novel-ai/global-canon";
+import {
+  attachGlobalWorldRule,
+  formatGlobalWorldCatalogNumber,
+  globalWorldRulesFor,
+  nextCustomGlobalWorldNumber,
+} from "@/lib/novel-ai/global-canon/world-rule-workspace";
 import { createNovelRepository } from "@/lib/novel-ai/repository";
 import {
   buildStoryOrganizationBlueprints,
@@ -71,7 +91,7 @@ import {
 import PortraitCrop from "./portrait-crop";
 import styles from "./canon.module.css";
 
-type CanonTab = "characters" | "relationships" | "organizations" | "treasures" | "worlds" | "rules" | "memories" | "storyBible" | "timeline";
+type CanonTab = "characters" | "relationships" | "organizations" | "treasures" | "worlds" | "memories" | "storyBible" | "timeline";
 type MessageKind = "info" | "success" | "error";
 
 type IndexedWorldPage = {
@@ -104,6 +124,8 @@ type CharacterDraft = {
   aliases: string;
 };
 
+type HeroAbilityDraft = Record<GlobalCharacterAbilityKey, string>;
+
 type RelationshipDraft = {
   fromId: string;
   toId: string;
@@ -116,13 +138,17 @@ type WorldDraft = {
   name: string;
   classificationId: string;
   classificationLabel: string;
-  eraContext: GlobalCanonEraContext;
+  eraContext: GlobalCanonEraContext | "";
   eraLabel: string;
   summary: string;
   crossEraBridge: string;
+  foundingRuleTitle: string;
+  foundingRuleDescription: string;
+  foundingRuleImmutable: boolean;
 };
 
 type RuleDraft = {
+  globalWorldId: string;
   title: string;
   description: string;
   immutable: boolean;
@@ -166,6 +192,7 @@ const EMPTY_LIBRARY: CanonLibrary = {
 };
 
 const SAVED_RECORD_PAGE_SIZE = 24;
+const TREASURE_CATALOG_PAGE_SIZE = 24;
 
 const EMPTY_CHARACTER: CharacterDraft = {
   name: "",
@@ -179,6 +206,31 @@ const EMPTY_CHARACTER: CharacterDraft = {
   aliases: "",
 };
 
+function personalHeroAbilityDraft(
+  stats: Record<GlobalCharacterAbilityKey, number> = DEFAULT_GLOBAL_PERSONAL_HERO_ABILITIES,
+): HeroAbilityDraft {
+  return Object.fromEntries(
+    GLOBAL_CHARACTER_ABILITY_KEYS.map((key) => [key, String(stats[key])]),
+  ) as HeroAbilityDraft;
+}
+
+function systemCatalogCharacterAbilityStats(character: GlobalCharacter) {
+  if (character.abilityProfile?.source === "system_catalog") return character.abilityProfile.stats;
+  const parsed = Object.fromEntries(GLOBAL_CHARACTER_ABILITY_KEYS.map((key) => {
+    const label = GLOBAL_CHARACTER_ABILITY_LABELS[key];
+    const match = character.capabilities
+      .map((capability) => capability.match(new RegExp(`^${label}\\s+(-?\\d+(?:\\.\\d+)?)\\/100$`, "u")))
+      .find(Boolean);
+    return [key, match ? Number(match[1]) : 0];
+  })) as Record<GlobalCharacterAbilityKey, number>;
+  return parsed;
+}
+
+function editableCharacterAbilityStats(character: GlobalCharacter) {
+  if (character.provenance.origin === "system_catalog") return systemCatalogCharacterAbilityStats(character);
+  return character.abilityProfile?.stats ?? DEFAULT_GLOBAL_PERSONAL_HERO_ABILITIES;
+}
+
 const EMPTY_RELATIONSHIP: RelationshipDraft = {
   fromId: "",
   toId: "",
@@ -189,15 +241,18 @@ const EMPTY_RELATIONSHIP: RelationshipDraft = {
 
 const EMPTY_WORLD: WorldDraft = {
   name: "",
-  classificationId: "custom-world",
-  classificationLabel: "自訂世界",
-  eraContext: "modern",
-  eraLabel: "現代",
+  classificationId: "",
+  classificationLabel: "",
+  eraContext: "",
+  eraLabel: "",
   summary: "",
   crossEraBridge: "",
+  foundingRuleTitle: "",
+  foundingRuleDescription: "",
+  foundingRuleImmutable: true,
 };
 
-const EMPTY_RULE: RuleDraft = { title: "", description: "", immutable: true, eraContexts: "" };
+const EMPTY_RULE: RuleDraft = { globalWorldId: "", title: "", description: "", immutable: true, eraContexts: "" };
 const EMPTY_MEMORY: MemoryDraft = { kind: "custom", title: "", content: "", eraContexts: "" };
 const EMPTY_STORY_BIBLE: StoryBibleDraft = {
   title: "",
@@ -226,11 +281,10 @@ const TAB_LABELS: Array<{ id: CanonTab; label: string; short: string }> = [
   { id: "relationships", label: "關係網", short: "關係" },
   { id: "organizations", label: "組織與祖譜", short: "組織" },
   { id: "treasures", label: "寶物圖鑑", short: "寶物" },
-  { id: "worlds", label: "十萬世界", short: "世界" },
-  { id: "rules", label: "世界規則", short: "規則" },
+  { id: "worlds", label: "十萬世界與世界規則", short: "世界" },
   { id: "memories", label: "記憶與資料", short: "記憶" },
-  { id: "storyBible", label: "Story Bible", short: "Bible" },
-  { id: "timeline", label: "時間線模板", short: "時間線" },
+  { id: "storyBible", label: "Story Bible 防矛盾總綱", short: "總綱" },
+  { id: "timeline", label: "事件時間線與模板", short: "時間線" },
 ];
 
 function splitList(value: string) {
@@ -286,6 +340,9 @@ function catalogCharacterPortraitForWorld(
     world.primaryTopic.topicName,
     world.logline,
     canonicalCharacter.name,
+    canonicalCharacter.pronouns,
+    canonicalCharacter.age,
+    canonicalCharacter.lifeStage,
     canonicalCharacter.identity,
     canonicalCharacter.institutionRole,
     canonicalCharacter.familyRole,
@@ -296,6 +353,8 @@ function catalogCharacterPortraitForWorld(
   return suggestedCatalogCharacterPortrait({
     stableId: `${world.id}:${canonicalCharacter.characterId}`,
     signal,
+    diversityOrdinal: canonicalCharacter.populationIndex,
+    diversityScope: world.id,
   });
 }
 
@@ -320,6 +379,11 @@ function Revision({ value }: { value: number }) {
   return <small className={styles.revision}>全域版本 {value}</small>;
 }
 
+function indexedWorldRuleTitle(description: string, index: number) {
+  const leadingClause = description.split(/[：。]/u)[0]?.trim();
+  return leadingClause || `世界法則 ${index + 1}`;
+}
+
 export default function CanonClient({
   initialTargetProjectId,
   indexedWorld,
@@ -340,8 +404,14 @@ export default function CanonClient({
   const [loaded, setLoaded] = useState(false);
   const [message, setMessage] = useState("全域資料只保存在這個瀏覽器；尚未複製到任何作品，也不會自動上場。");
   const [messageKind, setMessageKind] = useState<MessageKind>("info");
+  const [expandedEditors, setExpandedEditors] = useState({
+    character: true,
+    world: true,
+    memory: true,
+  });
 
   const [characterDraft, setCharacterDraft] = useState<CharacterDraft>(EMPTY_CHARACTER);
+  const [heroAbilityDraft, setHeroAbilityDraft] = useState<HeroAbilityDraft>(() => personalHeroAbilityDraft());
   const [editingCharacter, setEditingCharacter] = useState<GlobalCharacter | null>(null);
   const [portrait, setPortrait] = useState<CharacterPortraitAsset | CharacterPortrait | null>(null);
   const [portraitQuery, setPortraitQuery] = useState("");
@@ -382,7 +452,7 @@ export default function CanonClient({
   const [treasureQuery, setTreasureQuery] = useState("");
 
   const filteredPortraits = useMemo(
-    () => filterCharacterPortraitCatalog({ themeId: portraitTheme, query: portraitQuery }),
+    () => filterCharacterPortraitPickerCatalog({ themeId: portraitTheme, query: portraitQuery }),
     [portraitQuery, portraitTheme],
   );
   const portraitPageCount = Math.max(1, Math.ceil(filteredPortraits.length / 12));
@@ -625,13 +695,14 @@ export default function CanonClient({
     maxCacheEntries: 96,
   }), [indexedWorld.id, organizationCatalog.context]);
   const treasurePage = useMemo(
-    () => treasureCatalog.page(treasurePageIndex, 24),
-    [treasureCatalog, treasurePageIndex],
+    () => treasureKind === "all"
+      ? treasureCatalog.page(treasurePageIndex, TREASURE_CATALOG_PAGE_SIZE)
+      : treasureCatalog.pageByKind(treasureKind, treasurePageIndex, TREASURE_CATALOG_PAGE_SIZE),
+    [treasureCatalog, treasureKind, treasurePageIndex],
   );
   const visibleTreasures = useMemo(() => {
     const query = treasureQuery.normalize("NFKC").trim().toLocaleLowerCase("zh-TW");
     return treasurePage.items.filter((treasure) => {
-      if (treasureKind !== "all" && treasure.kind !== treasureKind) return false;
       if (!query) return true;
       return [
         treasure.name,
@@ -642,7 +713,20 @@ export default function CanonClient({
         treasure.holder.factionName,
       ].join("｜").normalize("NFKC").toLocaleLowerCase("zh-TW").includes(query);
     });
-  }, [treasureKind, treasurePage.items, treasureQuery]);
+  }, [treasurePage.items, treasureQuery]);
+  const treasurePageResultStart = treasurePageIndex * TREASURE_CATALOG_PAGE_SIZE + 1;
+  const treasurePageResultEnd = Math.min(
+    treasurePage.totalItems,
+    treasurePageResultStart + treasurePage.items.length - 1,
+  );
+  const treasureKindLabel = treasureKind === "all"
+    ? ""
+    : PROCEDURAL_TREASURE_KIND_DEFINITIONS.find((definition) => definition.id === treasureKind)?.label ?? treasureKind;
+  const treasureFirstGlobalNumber = (treasurePage.items[0]?.ordinal ?? 0) + 1;
+  const treasureLastGlobalNumber = (treasurePage.items.at(-1)?.ordinal ?? 0) + 1;
+  const treasurePageRangeLabel = treasureKind === "all"
+    ? `${treasurePageResultStart.toLocaleString("zh-TW")}–${treasurePageResultEnd.toLocaleString("zh-TW")} / ${treasurePage.totalItems.toLocaleString("zh-TW")}`
+    : `${treasureKindLabel}第 ${treasurePageResultStart.toLocaleString("zh-TW")}–${treasurePageResultEnd.toLocaleString("zh-TW")} 件 / ${treasurePage.totalItems.toLocaleString("zh-TW")} · 原始編號 #${String(treasureFirstGlobalNumber).padStart(6, "0")}–#${String(treasureLastGlobalNumber).padStart(6, "0")}`;
 
   const refresh = useCallback(async () => {
     const [characters, relationships, worlds, rules, memories, storyBibles, timelineTemplates, nextProjects] = await Promise.all([
@@ -724,6 +808,11 @@ export default function CanonClient({
       setMessage("這名人物仍在關係網中；請先刪除相關關係，避免留下斷裂資料。");
       return;
     }
+    if (record.recordType === "world" && globalWorldRulesFor(library.rules, record.id).length > 0) {
+      setMessageKind("error");
+      setMessage("這個世界仍有已歸檔的世界規則；請先刪除相關規則，避免留下孤立規則。");
+      return;
+    }
     if (!window.confirm(`確定刪除全域資料「${recordTitle(record)}」？已複製到作品的舊快照不會被刪除。`)) return;
     await perform(
       () => globalRepository.remove(storeFor(record), record.id),
@@ -797,6 +886,11 @@ export default function CanonClient({
       return;
     }
     await perform(async () => {
+      const abilityProfile = editingCharacter?.provenance.origin === "system_catalog"
+        ? editingCharacter.abilityProfile ?? createGlobalCatalogCharacterAbilityProfile(systemCatalogCharacterAbilityStats(editingCharacter))
+        : createGlobalPersonalHeroAbilityProfile(Object.fromEntries(
+            GLOBAL_CHARACTER_ABILITY_KEYS.map((key) => [key, heroAbilityDraft[key].trim() ? Number(heroAbilityDraft[key]) : Number.NaN]),
+          ) as Record<GlobalCharacterAbilityKey, number>);
       const created = createGlobalCharacter({
         name: characterDraft.name,
         identity: characterDraft.identity,
@@ -807,14 +901,22 @@ export default function CanonClient({
         aliases: splitList(characterDraft.aliases),
         capabilities: splitList(characterDraft.capabilities),
         limitations: splitList(characterDraft.limitations),
+        abilityProfile,
         portrait: approvedPortrait(portrait),
+      }, editingCharacter ? {} : {
+        provenance: {
+          origin: "author",
+          sourceLabel: "個人英雄（手動建立）",
+          rightsBasis: "作者手動建立的原創個人英雄",
+        },
       });
       const record = keepRecordBase(created, editingCharacter);
       await globalRepository.put("characters", record, editingCharacter?.revision ?? 0);
       setCharacterDraft(EMPTY_CHARACTER);
+      setHeroAbilityDraft(personalHeroAbilityDraft());
       setEditingCharacter(null);
       setPortrait(null);
-    }, editingCharacter ? "人物資料已更新；作品中的既有快照不會被暗中改寫。" : "人物已加入跨作品總庫，可再明確複製到作品候選庫。");
+    }, editingCharacter ? "人物資料已更新；作品中的既有快照不會被暗中改寫。" : "個人英雄已加入跨作品總庫；能力可高於系統候選，但尚未複製到作品或自動上場。");
   }
 
   async function saveCatalogCharacter(
@@ -834,6 +936,7 @@ export default function CanonClient({
   }
 
   function editCharacter(character: GlobalCharacter) {
+    setExpandedEditors((current) => ({ ...current, character: true }));
     setEditingCharacter(character);
     setCharacterDraft({
       name: character.name,
@@ -846,6 +949,9 @@ export default function CanonClient({
       limitations: character.limitations.join("、"),
       aliases: character.aliases.join("、"),
     });
+    setHeroAbilityDraft(personalHeroAbilityDraft(
+      editableCharacterAbilityStats(character),
+    ));
     setPortrait(character.portrait);
     window.requestAnimationFrame(() => {
       document.getElementById("global-character-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -907,37 +1013,104 @@ export default function CanonClient({
         primaryTopicId: indexedWorld.primaryTopic.topicId,
         compatibleTopicIds: indexedWorld.compatibleTopicIds,
       }, { provenance: { origin: "system_catalog", sourceLabel: indexedWorld.displayId, sourceId: indexedWorld.id } });
-      await globalRepository.put("worlds", keepRecordBase(created, current), current?.revision ?? 0);
-    }, current ? `${indexedWorld.displayId}的全域快照已更新。` : `${indexedWorld.displayId}已保存到世界總庫；不會自動加入任何作品。`);
+      const worldRecord = keepRecordBase(created, current);
+      const ruleWrites = indexedWorld.blueprint.canonRules.map((description, index) => {
+        const id = `global-indexed-world-rule:${indexedWorld.id}:${index + 1}`;
+        const currentRule = library.rules.find((rule) => rule.id === id) ?? null;
+        const createdRule = attachGlobalWorldRule(createGlobalWorldRule({
+          title: indexedWorldRuleTitle(description, index),
+          description,
+          immutable: true,
+          eraContexts: [worldRecord.eraContext],
+          appliesToGlobalWorldIds: currentRule?.appliesToGlobalWorldIds ?? [],
+        }, {
+          id,
+          provenance: {
+            origin: "system_catalog",
+            sourceLabel: `${indexedWorld.displayId}世界規則`,
+            sourceId: indexedWorld.id,
+          },
+        }), worldRecord);
+        return {
+          store: "rules" as const,
+          record: keepRecordBase(createdRule, currentRule),
+          expectedRevision: currentRule?.revision ?? 0,
+        };
+      });
+      await globalRepository.putBatch([
+        { store: "worlds", record: worldRecord, expectedRevision: current?.revision ?? 0 },
+        ...ruleWrites,
+      ]);
+      setRuleDraft((draft) => ({ ...draft, globalWorldId: worldRecord.id }));
+    }, current
+      ? `${indexedWorld.displayId}的世界、小說類型、時空背景與規則快照已一起更新。`
+      : `${indexedWorld.displayId}的世界與規則已一起保存；不會自動加入任何作品。`);
   }
 
   async function saveWorld(event: FormEvent) {
     event.preventDefault();
+    const selectedEra = worldDraft.eraContext;
     if (!worldDraft.name.trim()) {
       setMessageKind("error");
       setMessage("世界名稱不能留白。");
       return;
     }
+    if (!worldDraft.classificationId || !worldDraft.classificationLabel.trim()) {
+      setMessageKind("error");
+      setMessage("建立世界前，必須先選擇小說類型／世界分類。");
+      return;
+    }
+    if (!selectedEra || !worldDraft.eraLabel.trim()) {
+      setMessageKind("error");
+      setMessage("建立世界前，必須先選擇時代並寫明時空背景。");
+      return;
+    }
+    if (!editingWorld && (!worldDraft.foundingRuleTitle.trim() || !worldDraft.foundingRuleDescription.trim())) {
+      setMessageKind("error");
+      setMessage("建立新世界時，第一條世界規則的名稱與內容都必填；規則會和新世界一起保存。");
+      return;
+    }
+    const assignedWorldNumber = editingWorld
+      ? editingWorld.catalogWorldNumber
+      : nextCustomGlobalWorldNumber(library.worlds);
     await perform(async () => {
       const created = createGlobalWorld({
         name: worldDraft.name,
         classificationId: worldDraft.classificationId,
         classificationLabel: worldDraft.classificationLabel,
-        eraContext: worldDraft.eraContext,
+        eraContext: selectedEra,
         eraLabel: worldDraft.eraLabel,
         summary: worldDraft.summary,
         crossEraBridge: worldDraft.crossEraBridge,
-        catalogWorldNumber: editingWorld?.catalogWorldNumber ?? null,
+        catalogWorldNumber: assignedWorldNumber,
         primaryTopicId: editingWorld?.primaryTopicId ?? null,
         compatibleTopicIds: editingWorld?.compatibleTopicIds ?? [],
       });
-      await globalRepository.put("worlds", keepRecordBase(created, editingWorld), editingWorld?.revision ?? 0);
+      const worldRecord = keepRecordBase(created, editingWorld);
+      if (editingWorld) {
+        await globalRepository.put("worlds", worldRecord, editingWorld.revision);
+      } else {
+        const foundingRule = attachGlobalWorldRule(createGlobalWorldRule({
+          title: worldDraft.foundingRuleTitle,
+          description: worldDraft.foundingRuleDescription,
+          immutable: worldDraft.foundingRuleImmutable,
+          eraContexts: [selectedEra],
+        }), worldRecord);
+        await globalRepository.putBatch([
+          { store: "worlds", record: worldRecord, expectedRevision: 0 },
+          { store: "rules", record: foundingRule, expectedRevision: 0 },
+        ]);
+        setRuleDraft((draft) => ({ ...draft, globalWorldId: worldRecord.id }));
+      }
       setWorldDraft(EMPTY_WORLD);
       setEditingWorld(null);
-    }, editingWorld ? "世界資料已更新；既有作品快照維持原版本。" : "自訂世界已加入全域總庫。");
+    }, editingWorld
+      ? "世界資料已更新；所屬規則與既有作品快照都維持原版本。"
+      : `第${String(assignedWorldNumber).padStart(6, "0")}世界與第一條規則已一起加入全域總庫。`);
   }
 
   function editWorld(record: GlobalWorld) {
+    setExpandedEditors((current) => ({ ...current, world: true }));
     setEditingWorld(record);
     setWorldDraft({
       name: record.name,
@@ -947,6 +1120,9 @@ export default function CanonClient({
       eraLabel: record.eraLabel,
       summary: record.summary,
       crossEraBridge: record.crossEraBridge ?? "",
+      foundingRuleTitle: "",
+      foundingRuleDescription: "",
+      foundingRuleImmutable: true,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1000,23 +1176,39 @@ export default function CanonClient({
       setMessage("規則標題與內容都不能留白。");
       return;
     }
+    const targetWorld = library.worlds.find((world) => world.id === ruleDraft.globalWorldId) ?? null;
+    if (!targetWorld) {
+      setMessageKind("error");
+      setMessage("世界規則不能單獨保存；請先保存或建立世界，再選擇這條規則所屬的世界。");
+      return;
+    }
     await perform(async () => {
-      const created = createGlobalWorldRule({
+      const created = attachGlobalWorldRule(createGlobalWorldRule({
         title: ruleDraft.title,
         description: ruleDraft.description,
         immutable: ruleDraft.immutable,
         eraContexts: splitList(ruleDraft.eraContexts) as GlobalCanonEraContext[],
-      });
+        appliesToGlobalWorldIds: editingRule?.appliesToGlobalWorldIds ?? [],
+      }), targetWorld);
       await globalRepository.put("rules", keepRecordBase(created, editingRule), editingRule?.revision ?? 0);
-      setRuleDraft(EMPTY_RULE);
+      setRuleDraft({ ...EMPTY_RULE, globalWorldId: targetWorld.id });
       setEditingRule(null);
-    }, editingRule ? "世界規則已更新。" : "世界規則已加入全域總庫。");
+    }, editingRule ? `「${targetWorld.name}」的世界規則已更新。` : `世界規則已歸檔到「${targetWorld.name}」。`);
   }
 
   function editRule(record: GlobalWorldRule) {
+    setTab("worlds");
     setEditingRule(record);
-    setRuleDraft({ title: record.title, description: record.description, immutable: record.immutable, eraContexts: record.eraContexts.join("、") });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setRuleDraft({
+      globalWorldId: record.appliesToGlobalWorldIds.find((id) => library.worlds.some((world) => world.id === id)) ?? "",
+      title: record.title,
+      description: record.description,
+      immutable: record.immutable,
+      eraContexts: record.eraContexts.join("、"),
+    });
+    window.requestAnimationFrame(() => {
+      document.getElementById("global-world-rule-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   async function saveMemory(event: FormEvent) {
@@ -1040,6 +1232,7 @@ export default function CanonClient({
   }
 
   function editMemory(record: GlobalMemory) {
+    setExpandedEditors((current) => ({ ...current, memory: true }));
     setEditingMemory(record);
     setMemoryDraft({ kind: record.kind, title: record.title, content: record.content, eraContexts: record.eraContexts.join("、") });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1191,7 +1384,7 @@ export default function CanonClient({
               <div><small>100,000 ORIGINAL CHARACTERS · LAZY INDEX</small><h2>{indexedWorld.displayId}的十萬人物候選</h2></div>
               <span>完整 1–100,000 · 每次只計算 {GLOBAL_CHARACTER_CATALOG_PAGE_SIZE} 人</span>
             </header>
-            <p className={styles.catalogNote}>這是原本的完整十萬人物引擎，不是組織名冊的子集。人物都符合目前世界的時代、制度與題材；只有你按下保存，才會成為可修改的全域正式人物。</p>
+            <p className={styles.catalogNote}>這是原本的完整十萬人物引擎，不是組織名冊的子集；候選能力固定使用 0–100，已保存與未保存人物都會留在索引中，卡片只改變狀態，不會被隱藏。人物都符合目前世界的時代、制度與題材；只有你按下保存，才會成為可修改的全域正式人物。</p>
             <div className={styles.characterCatalogToolbar}>
               <form onSubmit={(event) => {
                 event.preventDefault();
@@ -1258,9 +1451,25 @@ export default function CanonClient({
             </div>
           </section>
 
-          <form id="global-character-editor" className={styles.editor} onSubmit={(event) => void saveCharacter(event)}>
-            <header><div><small>CHARACTER MASTER</small><h2>{editingCharacter ? `編輯 ${editingCharacter.name}` : "建立全域人物"}</h2></div><span>能力只在總庫修改</span></header>
-            <div className={styles.formGrid}>
+          <form id="global-character-editor" className={styles.editor} data-collapsed={!expandedEditors.character} onSubmit={(event) => void saveCharacter(event)}>
+            <header>
+              <div><small>PERSONAL HERO · CHARACTER MASTER</small><h2>{editingCharacter ? `編輯 ${editingCharacter.name}` : "建立個人英雄（全域人物）"}</h2></div>
+              <div className={styles.editorHeaderActions}>
+                <span>{editingCharacter?.provenance.origin === "system_catalog" ? "系統候選快照 · 0–100" : `個人英雄能力 · 0–${GLOBAL_PERSONAL_HERO_ABILITY_MAX}`}</span>
+                <button
+                  className={styles.editorToggle}
+                  type="button"
+                  aria-expanded={expandedEditors.character}
+                  aria-controls="global-character-editor-body"
+                  data-testid="global-character-editor-toggle"
+                  onClick={() => setExpandedEditors((current) => ({ ...current, character: !current.character }))}
+                >
+                  {expandedEditors.character ? "收合人物編輯器" : "展開人物編輯器"}
+                </button>
+              </div>
+            </header>
+            <div id="global-character-editor-body" className={styles.editorBody} hidden={!expandedEditors.character}>
+              <div className={styles.formGrid}>
               <label>姓名<input required value={characterDraft.name} onChange={(event) => setCharacterDraft({ ...characterDraft, name: event.target.value })} /></label>
               <label>身分／職位<input value={characterDraft.identity} onChange={(event) => setCharacterDraft({ ...characterDraft, identity: event.target.value })} placeholder="例：雲海峰內門弟子、企業法務部長" /></label>
               <label>時代<select value={characterDraft.eraContext} onChange={(event) => setCharacterDraft({ ...characterDraft, eraContext: event.target.value as GlobalCanonEraContext })}>{ERA_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
@@ -1271,6 +1480,30 @@ export default function CanonClient({
               <label className={styles.wide}>能力／專長（頓號分隔）<textarea value={characterDraft.capabilities} onChange={(event) => setCharacterDraft({ ...characterDraft, capabilities: event.target.value })} /></label>
               <label className={styles.wide}>限制／弱點（頓號分隔）<textarea value={characterDraft.limitations} onChange={(event) => setCharacterDraft({ ...characterDraft, limitations: event.target.value })} /></label>
             </div>
+
+            <fieldset className={styles.heroAbilityEditor} data-testid="global-personal-hero-abilities">
+              <legend>{editingCharacter?.provenance.origin === "system_catalog" ? "系統候選原始能力快照" : "個人英雄能力值"}</legend>
+              <p>{editingCharacter?.provenance.origin === "system_catalog"
+                ? "這份已保存人物保留程序候選的 0–100 原始數值與來源；編輯文字資料不會回寫或改動十萬人物候選。若要創造更強角色，請另外建立個人英雄。"
+                : `每項能力可填 ${GLOBAL_PERSONAL_HERO_ABILITY_MIN}–${GLOBAL_PERSONAL_HERO_ABILITY_MAX} 的整數，沒有共享點數預算；101–${GLOBAL_PERSONAL_HERO_ABILITY_MAX} 明確高於系統候選的 0–100 上限。`}</p>
+              <div>
+                {GLOBAL_CHARACTER_ABILITY_KEYS.map((key) => (
+                  <label key={key}>{GLOBAL_CHARACTER_ABILITY_LABELS[key]}
+                    <input
+                      aria-label={`個人英雄${GLOBAL_CHARACTER_ABILITY_LABELS[key]}`}
+                      type="number"
+                      required
+                      step="1"
+                      min={GLOBAL_PERSONAL_HERO_ABILITY_MIN}
+                      max={editingCharacter?.provenance.origin === "system_catalog" ? 100 : GLOBAL_PERSONAL_HERO_ABILITY_MAX}
+                      disabled={editingCharacter?.provenance.origin === "system_catalog"}
+                      value={heroAbilityDraft[key]}
+                      onChange={(event) => setHeroAbilityDraft((current) => ({ ...current, [key]: event.target.value }))}
+                    />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             <fieldset className={styles.portraitStudio}>
               <legend>從 10,000 種可重現人像中選擇</legend>
@@ -1286,7 +1519,15 @@ export default function CanonClient({
                 </div>
                 <div className={styles.portraitGrid}>
                   {visiblePortraits.map((item) => (
-                    <button type="button" key={item.id} aria-pressed={portrait?.id === item.id} onClick={() => setPortrait(item)} title={item.visualDescription}>
+                    <button
+                      type="button"
+                      key={item.id}
+                      aria-pressed={portrait?.id === item.id}
+                      data-portrait-base={characterPortraitBaseIdentity(item)}
+                      data-portrait-id={item.id}
+                      onClick={() => setPortrait(item)}
+                      title={item.visualDescription}
+                    >
                       <PortraitCrop portrait={item} className={styles.portraitThumb} decorative />
                       <span>{item.role}</span>
                     </button>
@@ -1300,9 +1541,10 @@ export default function CanonClient({
               </div>
             </fieldset>
 
-            <div className={styles.formActions}>
-              <button className={styles.primary} disabled={busy} type="submit">{editingCharacter ? "保存人物修改" : "加入人物總庫"}</button>
-              {editingCharacter ? <button type="button" onClick={() => { setEditingCharacter(null); setCharacterDraft(EMPTY_CHARACTER); setPortrait(null); }}>取消編輯</button> : null}
+              <div className={styles.formActions}>
+                <button className={styles.primary} disabled={busy} type="submit">{editingCharacter ? "保存人物修改" : "建立個人英雄並加入總庫"}</button>
+                {editingCharacter ? <button type="button" onClick={() => { setEditingCharacter(null); setCharacterDraft(EMPTY_CHARACTER); setHeroAbilityDraft(personalHeroAbilityDraft()); setPortrait(null); }}>取消編輯</button> : null}
+              </div>
             </div>
           </form>
 
@@ -1318,7 +1560,7 @@ export default function CanonClient({
                     <div><Revision value={character.revision} /><h3>{character.name}</h3><p>{character.identity || "身分待設定"} · {ERA_OPTIONS.find((item) => item.value === character.eraContext)?.label}</p></div>
                   </div>
                   <p>{character.personality || "個性待設定"}</p>
-                  <dl><div><dt>目標</dt><dd>{character.goal || "待設定"}</dd></div><div><dt>能力</dt><dd>{character.capabilities.join("、") || "待設定"}</dd></div><div><dt>限制</dt><dd>{character.limitations.join("、") || "待設定"}</dd></div></dl>
+                  <dl><div><dt>來源</dt><dd>{character.abilityProfile?.label ?? character.provenance.sourceLabel}</dd></div>{character.abilityProfile ? <div><dt>數值</dt><dd>{globalCharacterAbilitySummary(character.abilityProfile)}</dd></div> : null}<div><dt>目標</dt><dd>{character.goal || "待設定"}</dd></div><div><dt>能力</dt><dd>{character.capabilities.join("、") || "待設定"}</dd></div><div><dt>限制</dt><dd>{character.limitations.join("、") || "待設定"}</dd></div></dl>
                   <footer><button type="button" onClick={() => editCharacter(character)}>編輯</button><button type="button" onClick={() => void copyRecord(character)} disabled={busy}>複製候選</button><button className={styles.danger} type="button" onClick={() => void removeRecord(character)} disabled={busy}>刪除</button></footer>
                 </article>
               )}
@@ -1495,31 +1737,31 @@ export default function CanonClient({
           <section className={styles.libraryPanel}>
             <header><div><small>100,000 ERA-GUARDED TREASURES</small><h2>古代與現代寶物圖鑑</h2></div><span>{indexedWorld.displayId} · 不跨時代亂入</span></header>
             <div className={styles.treasureToolbar}>
-              <form onSubmit={(event) => { event.preventDefault(); const value = Number.parseInt(String(new FormData(event.currentTarget).get("ordinal") || "1"), 10); const ordinal = Math.max(1, Math.min(100_000, Number.isFinite(value) ? value : 1)); setTreasurePageIndex(Math.floor((ordinal - 1) / 24)); }}><label>直接前往寶物編號<input name="ordinal" type="number" min="1" max="100000" defaultValue={treasurePageIndex * 24 + 1} /></label><button type="submit">前往</button></form>
-              <label>類型<select value={treasureKind} onChange={(event) => setTreasureKind(event.target.value as "all" | ProceduralTreasureKind)}><option value="all">全部類型</option>{PROCEDURAL_TREASURE_KIND_DEFINITIONS.map((kind) => <option key={kind.id} value={kind.id}>{kind.label}</option>)}</select></label>
+              <form onSubmit={(event) => { event.preventDefault(); const value = Number.parseInt(String(new FormData(event.currentTarget).get("ordinal") || "1"), 10); const ordinal = Math.max(1, Math.min(100_000, Number.isFinite(value) ? value : 1)); setTreasureKind("all"); setTreasureQuery(""); setTreasurePageIndex(Math.floor((ordinal - 1) / TREASURE_CATALOG_PAGE_SIZE)); }}><label>直接前往寶物編號<input key={`${treasureKind}:${treasurePageIndex}`} name="ordinal" type="number" min="1" max="100000" defaultValue={treasureKind === "all" ? treasurePageIndex * TREASURE_CATALOG_PAGE_SIZE + 1 : treasureFirstGlobalNumber} /></label><button type="submit">前往</button></form>
+              <label>類型<select value={treasureKind} onChange={(event) => { setTreasureKind(event.target.value as "all" | ProceduralTreasureKind); setTreasurePageIndex(0); }}><option value="all">全部類型</option>{PROCEDURAL_TREASURE_KIND_DEFINITIONS.map((kind) => <option key={kind.id} value={kind.id}>{kind.label}</option>)}</select></label>
               <label>搜尋本頁<input type="search" value={treasureQuery} onChange={(event) => setTreasureQuery(event.target.value)} placeholder="名稱、類型、時代、持有人或組織" /></label>
             </div>
-            <p className={styles.catalogNote}>涵蓋武器、法寶、符籙、丹藥、藥草、陣法、護具、材料、功法與特殊機緣；圖案、時代、能力、持有人及所屬組織都會固定重現。</p>
+            <p className={styles.catalogNote}>涵蓋武器、法寶、符籙、丹藥、藥草、陣法、護具、材料、功法與特殊機緣；已保存與未保存寶物都會完整顯示，保存只改變卡片狀態、不會把物件藏起來。圖案、時代、能力、持有人及所屬組織都會固定重現。</p>
             <div className={styles.treasureGrid} data-testid="global-treasure-grid">
               {visibleTreasures.map((treasure) => {
                 const saved = library.memories.find((memory) => memory.id === `global-treasure:${treasure.id}`) ?? null;
                 return (
-                  <article className={styles.treasureCard} key={treasure.id} data-kind={treasure.kind} data-era={treasure.era.sourceEra} style={proceduralTreasureVisualCssVariables(treasure.visual) as CSSProperties}>
+                  <article className={styles.treasureCard} key={treasure.id} data-kind={treasure.kind} data-era={treasure.era.sourceEra} data-saved={Boolean(saved)} style={proceduralTreasureVisualCssVariables(treasure.visual) as CSSProperties}>
                     <div className={styles.treasureHeading}>
                       <div className={styles.treasureImageFrame}>
                         <Image src={treasure.visual.baseAsset} alt={treasure.visual.alt} width={180} height={180} />
                         <span>{treasure.visual.elementLabel}屬性</span>
                       </div>
-                      <div><small>#{String(treasure.ordinal + 1).padStart(6, "0")} · {treasure.era.sourceEraLabel}</small><h3>{treasure.name}</h3><p>{treasure.kindLabel}／{treasure.subtype} · {treasure.rarityLabel}</p></div>
+                      <div><small>#{String(treasure.ordinal + 1).padStart(6, "0")} · {treasure.era.sourceEraLabel} · {saved ? "已保存" : "未保存"}</small><h3>{treasure.name}</h3><p>{treasure.kindLabel}／{treasure.subtype} · {treasure.rarityLabel}</p></div>
                     </div>
                     <dl><div><dt>持有人</dt><dd>{treasure.holder.characterName}</dd></div><div><dt>持有組織</dt><dd>{treasure.holder.factionName} · {treasure.holder.factionKind}</dd></div><div><dt>能力</dt><dd>{treasure.abilities[0].name}：{treasure.abilities[0].effect}</dd></div><div><dt>代價</dt><dd>{treasure.cost}</dd></div></dl>
                     <div className={styles.catalogActions}><button className={styles.primary} type="button" disabled={busy} onClick={() => void saveTreasureCandidate(treasure)}>{saved ? "更新全域寶物快照" : "保存到全域寶物總庫"}</button><button type="button" disabled={!saved} onClick={() => saved && editSavedCatalogMemory(saved)}>編輯已保存資料</button><button type="button" disabled={!saved || busy} onClick={() => saved && void copyRecord(saved)}>複製候選到作品</button></div>
                   </article>
                 );
               })}
-              {visibleTreasures.length === 0 ? <p className={styles.empty}>本頁沒有符合這個類型或關鍵字的寶物。可換頁或清除篩選。</p> : null}
+              {visibleTreasures.length === 0 ? <p className={styles.empty}>這一頁沒有符合關鍵字的寶物。可換頁或清除搜尋。</p> : null}
             </div>
-            <div className={styles.pager}><button type="button" disabled={!treasurePage.hasPreviousPage} onClick={() => setTreasurePageIndex(Math.max(0, treasurePageIndex - 1))}>上一頁寶物</button><span>{treasurePageIndex * 24 + 1}–{Math.min(100_000, treasurePageIndex * 24 + 24)} / 100,000</span><button type="button" disabled={!treasurePage.hasNextPage} onClick={() => setTreasurePageIndex(treasurePageIndex + 1)}>下一頁寶物</button></div>
+            <div className={styles.pager}><button type="button" disabled={!treasurePage.hasPreviousPage} onClick={() => setTreasurePageIndex(Math.max(0, treasurePageIndex - 1))}>上一頁寶物</button><span>{treasurePageRangeLabel}{treasureQuery.trim() ? ` · 本頁搜尋顯示 ${visibleTreasures.length} 件` : ""}</span><button type="button" disabled={!treasurePage.hasNextPage} onClick={() => setTreasurePageIndex(treasurePageIndex + 1)}>下一頁寶物</button></div>
           </section>
         </section>
       ) : null}
@@ -1527,51 +1769,101 @@ export default function CanonClient({
       {loaded && tab === "worlds" ? (
         <section className={styles.workspace} data-testid="global-canon-worlds">
           <section className={styles.worldExplorer}>
-            <header><div><small>100,000 STABLE WORLDS</small><h2>十萬世界索引</h2><p>固定編號、固定內容；只顯示與該時代、制度、科技和魔法規則相容的題材。</p></div><strong>{indexedWorld.displayId}</strong></header>
+            <header><div><small>100,000 STABLE WORLDS · RULES INCLUDED</small><h2>十萬世界與世界規則</h2><p>每個舊世界都固定帶著小說類型、時空背景與世界規則；保存時會一起歸檔，不再拆成兩個工作區。</p></div><strong>{indexedWorld.displayId}</strong></header>
             <form className={styles.worldJump} onSubmit={(event) => { event.preventDefault(); navigateWorld(Number.parseInt(String(new FormData(event.currentTarget).get("world") || "1"), 10)); }}>
               <label>世界編號<input key={indexedWorld.ordinal} name="world" type="number" min="1" max="100000" defaultValue={indexedWorld.ordinal} /></label><button type="submit">前往世界</button>
             </form>
             <article className={styles.worldDetail}>
               <div><span>{indexedWorld.classification.name}</span><span>{indexedWorld.eraLabel}</span><span>{indexedWorld.primaryTopic.topicName}</span></div>
               <h3>{indexedWorld.title}</h3><p>{indexedWorld.logline}</p>
-              <dl><div><dt>時代</dt><dd>{indexedWorld.blueprint.period}</dd></div><div><dt>科技</dt><dd>{indexedWorld.blueprint.technology}</dd></div><div><dt>超常規則</dt><dd>{indexedWorld.blueprint.magic}</dd></div><div><dt>制度</dt><dd>{indexedWorld.blueprint.institutions.join("、")}</dd></div></dl>
-              <details><summary>查看時空把關與 {indexedWorld.compatibleTopicCount} 類相容題材</summary><p>{indexedWorld.guard.statement}</p><ul>{indexedWorld.blueprint.canonRules.map((rule) => <li key={rule}>{rule}</li>)}</ul><p>題材預覽：{indexedWorld.compatibleTopicPreview.map((topic) => topic.topicName).join("、")}</p></details>
-              <button className={styles.primary} type="button" onClick={() => void saveIndexedWorld()} disabled={busy}>{library.worlds.some((item) => item.catalogWorldNumber === indexedWorld.ordinal) ? "更新已保存世界" : "保存到全域世界總庫"}</button>
+              <dl><div><dt>小說類型／世界分類（已選定）</dt><dd>{indexedWorld.primaryTopic.topicName}／{indexedWorld.classification.name}</dd></div><div><dt>時空背景（已選定）</dt><dd>{indexedWorld.eraLabel} · {indexedWorld.blueprint.period}</dd></div><div><dt>科技</dt><dd>{indexedWorld.blueprint.technology}</dd></div><div><dt>超常規則</dt><dd>{indexedWorld.blueprint.magic}</dd></div><div><dt>制度</dt><dd>{indexedWorld.blueprint.institutions.join("、")}</dd></div></dl>
+              <p><strong>此世界的固定規則</strong></p>
+              <ul>{indexedWorld.blueprint.canonRules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
+              <details><summary>查看時空把關與 {indexedWorld.compatibleTopicCount} 類相容題材</summary><p>{indexedWorld.guard.statement}</p><p>題材預覽：{indexedWorld.compatibleTopicPreview.map((topic) => topic.topicName).join("、")}</p></details>
+              <button className={styles.primary} type="button" onClick={() => void saveIndexedWorld()} disabled={busy}>{library.worlds.some((item) => item.catalogWorldNumber === indexedWorld.ordinal) ? "更新世界、背景與規則" : "保存世界、背景與規則到總庫"}</button>
             </article>
             <div className={styles.worldTiles}>{indexedWorldPage.items.map((world) => <button type="button" key={world.id} aria-current={world.ordinal === indexedWorld.ordinal ? "true" : undefined} onClick={() => navigateWorld(world.ordinal)}><b>{world.displayId}</b><span>{world.classification.name} · {world.eraLabel}</span><small>{world.primaryTopic.topicName}</small></button>)}</div>
             <div className={styles.pager}><button type="button" disabled={!indexedWorldPage.hasPreviousPage} onClick={() => navigateWorld(Math.max(1, indexedWorldPage.offset - 11))}>上一頁世界</button><span>{indexedWorldPage.offset + 1}–{indexedWorldPage.offset + indexedWorldPage.items.length} / {indexedWorldPage.totalItems.toLocaleString("zh-TW")}</span><button type="button" disabled={!indexedWorldPage.hasNextPage} onClick={() => navigateWorld(indexedWorldPage.offset + 13)}>下一頁世界</button></div>
           </section>
 
-          <form className={styles.editor} onSubmit={(event) => void saveWorld(event)}>
-            <header><div><small>CUSTOM WORLD</small><h2>{editingWorld ? `編輯 ${editingWorld.name}` : "建立自訂世界"}</h2></div><span>跨時代必須寫明橋接機制</span></header>
-            <div className={styles.formGrid}>
-              <label>世界名稱<input required value={worldDraft.name} onChange={(event) => setWorldDraft({ ...worldDraft, name: event.target.value })} /></label>
-              <label>世界分類<input required value={worldDraft.classificationLabel} onChange={(event) => setWorldDraft({ ...worldDraft, classificationLabel: event.target.value, classificationId: event.target.value.trim() || "custom-world" })} /></label>
-              <label>時代<select value={worldDraft.eraContext} onChange={(event) => setWorldDraft({ ...worldDraft, eraContext: event.target.value as GlobalCanonEraContext })}>{ERA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label>時代名稱<input required value={worldDraft.eraLabel} onChange={(event) => setWorldDraft({ ...worldDraft, eraLabel: event.target.value })} /></label>
-              <label className={styles.wide}>世界摘要<textarea required value={worldDraft.summary} onChange={(event) => setWorldDraft({ ...worldDraft, summary: event.target.value })} /></label>
-              {worldDraft.eraContext === "cross-era" ? <label className={styles.wide}>跨時代 Canon 橋接規則<textarea required value={worldDraft.crossEraBridge} onChange={(event) => setWorldDraft({ ...worldDraft, crossEraBridge: event.target.value })} placeholder="例：只有通過天文台的單向時門，且每次只能攜帶一件當代物品。" /></label> : null}
+          <form id="global-world-editor" className={styles.editor} data-collapsed={!expandedEditors.world} onSubmit={(event) => void saveWorld(event)}>
+            <header>
+              <div><small>CUSTOM WORLD + FOUNDING RULE</small><h2>{editingWorld ? `編輯 ${editingWorld.name}` : `建立第${String(nextCustomGlobalWorldNumber(library.worlds)).padStart(6, "0")}世界與規則`}</h2></div>
+              <div className={styles.editorHeaderActions}>
+                <span>小說類型與時空背景必須先選好</span>
+                <button
+                  className={styles.editorToggle}
+                  type="button"
+                  aria-expanded={expandedEditors.world}
+                  aria-controls="global-world-editor-body"
+                  data-testid="global-world-editor-toggle"
+                  onClick={() => setExpandedEditors((current) => ({ ...current, world: !current.world }))}
+                >
+                  {expandedEditors.world ? "收合世界編輯器" : "展開世界編輯器"}
+                </button>
+              </div>
+            </header>
+            <div id="global-world-editor-body" className={styles.editorBody} hidden={!expandedEditors.world}>
+              <div className={styles.formGrid}>
+                <label>世界名稱<input required value={worldDraft.name} onChange={(event) => setWorldDraft({ ...worldDraft, name: event.target.value })} /></label>
+                <label>小說類型／世界分類<select required value={worldDraft.classificationId} onChange={(event) => { const classification = GLOBAL_WORLD_CLASSIFICATIONS.find((item) => item.id === event.target.value); setWorldDraft({ ...worldDraft, classificationId: classification?.id ?? "", classificationLabel: classification?.name ?? "" }); }}><option value="">請先選擇小說類型</option>{worldDraft.classificationId && !GLOBAL_WORLD_CLASSIFICATIONS.some((item) => item.id === worldDraft.classificationId) ? <option value={worldDraft.classificationId}>{worldDraft.classificationLabel}（舊資料）</option> : null}{GLOBAL_WORLD_CLASSIFICATIONS.map((classification) => <option key={classification.id} value={classification.id}>{classification.name}</option>)}</select></label>
+                <label>時代<select required value={worldDraft.eraContext} onChange={(event) => { const eraContext = event.target.value as GlobalCanonEraContext | ""; const eraLabel = ERA_OPTIONS.find((option) => option.value === eraContext)?.label ?? ""; setWorldDraft({ ...worldDraft, eraContext, eraLabel: worldDraft.eraLabel || eraLabel }); }}><option value="">請先選擇時代</option>{ERA_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <label>時空背景<input required value={worldDraft.eraLabel} onChange={(event) => setWorldDraft({ ...worldDraft, eraLabel: event.target.value })} placeholder="例：2026 年臺北、架空王朝曆 18 年" /></label>
+                <label className={styles.wide}>世界摘要<textarea required value={worldDraft.summary} onChange={(event) => setWorldDraft({ ...worldDraft, summary: event.target.value })} /></label>
+                {worldDraft.eraContext === "cross-era" ? <label className={styles.wide}>跨時代 Canon 橋接規則<textarea required value={worldDraft.crossEraBridge} onChange={(event) => setWorldDraft({ ...worldDraft, crossEraBridge: event.target.value })} placeholder="例：只有通過天文台的單向時門，且每次只能攜帶一件當代物品。" /></label> : null}
+                {!editingWorld ? <><label>第一條世界規則<input required value={worldDraft.foundingRuleTitle} onChange={(event) => setWorldDraft({ ...worldDraft, foundingRuleTitle: event.target.value })} placeholder="例：證物必須有可查來源" /></label><label className={styles.check}><input type="checkbox" checked={worldDraft.foundingRuleImmutable} onChange={(event) => setWorldDraft({ ...worldDraft, foundingRuleImmutable: event.target.checked })} />不可被故事自動改寫</label><label className={styles.wide}>第一條規則內容<textarea required value={worldDraft.foundingRuleDescription} onChange={(event) => setWorldDraft({ ...worldDraft, foundingRuleDescription: event.target.value })} /></label></> : null}
+              </div>
+              <div className={styles.formActions}><button className={styles.primary} disabled={busy} type="submit">{editingWorld ? "保存世界修改" : `建立第${String(nextCustomGlobalWorldNumber(library.worlds)).padStart(6, "0")}世界與規則`}</button>{editingWorld ? <button type="button" onClick={() => { setEditingWorld(null); setWorldDraft(EMPTY_WORLD); }}>取消編輯</button> : null}</div>
             </div>
-            <div className={styles.formActions}><button className={styles.primary} disabled={busy} type="submit">{editingWorld ? "保存世界修改" : "加入自訂世界"}</button>{editingWorld ? <button type="button" onClick={() => { setEditingWorld(null); setWorldDraft(EMPTY_WORLD); }}>取消編輯</button> : null}</div>
           </form>
 
           <section className={styles.libraryPanel}>
             <header><div><small>SAVED WORLDS</small><h2>已保存的全域世界</h2></div><span>{library.worlds.length} 個</span></header>
-            <PagedRecords items={library.worlds} emptyText="從十萬世界索引保存固定世界，或建立自己的世界規則。" renderItem={(world) => <article className={styles.recordCard} key={world.id}><Revision value={world.revision} /><h3>{world.name}</h3><p>{world.classificationLabel} · {world.eraLabel}{world.catalogWorldNumber ? ` · 第${String(world.catalogWorldNumber).padStart(6, "0")}世界` : ""}</p><p className={styles.clamp}>{world.summary}</p>{world.crossEraBridge ? <p className={styles.bridge}>跨時代橋：{world.crossEraBridge}</p> : null}<footer><button type="button" onClick={() => editWorld(world)}>編輯</button><button type="button" onClick={() => void copyRecord(world)} disabled={busy}>複製候選</button><button className={styles.danger} type="button" onClick={() => void removeRecord(world)} disabled={busy}>刪除</button></footer></article>} />
+            <PagedRecords items={library.worlds} emptyText="從十萬世界索引保存固定世界，或建立第 100001 起的自訂世界與規則。" renderItem={(world) => {
+              const ruleCount = globalWorldRulesFor(library.rules, world.id).length;
+              return <article className={styles.recordCard} key={world.id}><Revision value={world.revision} /><h3>{world.name}</h3><p>{formatGlobalWorldCatalogNumber(world)} · {world.classificationLabel} · {world.eraLabel}</p><p>{ruleCount} 條已歸檔世界規則</p><p className={styles.clamp}>{world.summary}</p>{world.crossEraBridge ? <p className={styles.bridge}>跨時代橋：{world.crossEraBridge}</p> : null}<footer><button type="button" onClick={() => editWorld(world)}>編輯</button><button type="button" onClick={() => void copyRecord(world)} disabled={busy}>複製候選</button><button className={styles.danger} type="button" onClick={() => void removeRecord(world)} disabled={busy}>刪除</button></footer></article>;
+            }} />
           </section>
-        </section>
-      ) : null}
 
-      {loaded && tab === "rules" ? (
-        <section className={styles.workspace} data-testid="global-canon-rules">
-          <form className={styles.editor} onSubmit={(event) => void saveRule(event)}><header><div><small>WORLD RULES</small><h2>{editingRule ? "編輯世界規則" : "建立世界規則"}</h2></div><span>規則不因故事方便而失效</span></header><div className={styles.formGrid}><label>規則名稱<input required value={ruleDraft.title} onChange={(event) => setRuleDraft({ ...ruleDraft, title: event.target.value })} /></label><label>適用時代代碼<input value={ruleDraft.eraContexts} onChange={(event) => setRuleDraft({ ...ruleDraft, eraContexts: event.target.value })} placeholder="modern、historical、future" /></label><label className={styles.wide}>規則內容<textarea required value={ruleDraft.description} onChange={(event) => setRuleDraft({ ...ruleDraft, description: event.target.value })} /></label><label className={styles.check}><input type="checkbox" checked={ruleDraft.immutable} onChange={(event) => setRuleDraft({ ...ruleDraft, immutable: event.target.checked })} />不可被故事自動改寫</label></div><div className={styles.formActions}><button className={styles.primary} disabled={busy} type="submit">{editingRule ? "保存規則" : "加入規則總庫"}</button>{editingRule ? <button type="button" onClick={() => { setEditingRule(null); setRuleDraft(EMPTY_RULE); }}>取消編輯</button> : null}</div></form>
-          <RecordLibrary title="全域世界規則" items={library.rules} renderItem={(rule) => <article className={styles.recordCard} key={rule.id}><Revision value={rule.revision} /><h3>{rule.title}</h3><p>{rule.description}</p><p>{rule.immutable ? "固定規則" : "可由作者修訂"} · {rule.eraContexts.join("、") || "適用所有時代"}</p><footer><button type="button" onClick={() => editRule(rule)}>編輯</button><button type="button" onClick={() => void copyRecord(rule)} disabled={busy}>複製候選</button><button className={styles.danger} type="button" onClick={() => void removeRecord(rule)} disabled={busy}>刪除</button></footer></article>} />
+          <form id="global-world-rule-editor" data-testid="global-world-rule-editor" className={styles.editor} onSubmit={(event) => void saveRule(event)}><header><div><small>WORLD RULES · FILED BY WORLD</small><h2>{editingRule ? "編輯世界規則" : "替已保存世界新增規則"}</h2></div><span>新規則不能脫離世界單獨存在</span></header><div className={styles.formGrid}><label>所屬世界<select required value={ruleDraft.globalWorldId} onChange={(event) => setRuleDraft({ ...ruleDraft, globalWorldId: event.target.value })}><option value="">請先選擇已保存世界</option>{library.worlds.map((world) => <option key={world.id} value={world.id}>{formatGlobalWorldCatalogNumber(world)} · {world.name}</option>)}</select></label><label>規則名稱<input required value={ruleDraft.title} onChange={(event) => setRuleDraft({ ...ruleDraft, title: event.target.value })} /></label><label>額外適用時代代碼<input value={ruleDraft.eraContexts} onChange={(event) => setRuleDraft({ ...ruleDraft, eraContexts: event.target.value })} placeholder="可留白；會自動加入所屬世界時代" /></label><label className={styles.wide}>規則內容<textarea required value={ruleDraft.description} onChange={(event) => setRuleDraft({ ...ruleDraft, description: event.target.value })} /></label><label className={styles.check}><input type="checkbox" checked={ruleDraft.immutable} onChange={(event) => setRuleDraft({ ...ruleDraft, immutable: event.target.checked })} />不可被故事自動改寫</label></div>{library.worlds.length === 0 ? <p className={styles.editorNote}>請先保存十萬世界，或在上方建立第 100001 起的自訂世界；規則必須綁定一個已保存世界。</p> : null}<div className={styles.formActions}><button className={styles.primary} disabled={busy || library.worlds.length === 0} type="submit">{editingRule ? "保存並維持世界關聯" : "加入所屬世界"}</button>{editingRule ? <button type="button" onClick={() => { setEditingRule(null); setRuleDraft(EMPTY_RULE); }}>取消編輯</button> : null}</div></form>
+          <div data-testid="global-world-rule-library">
+            <RecordLibrary title="全域世界規則（依世界歸檔）" items={library.rules} renderItem={(rule) => {
+              const linkedWorldNames = rule.appliesToGlobalWorldIds.map((worldId) => library.worlds.find((world) => world.id === worldId)?.name).filter((name): name is string => Boolean(name));
+              return <article className={styles.recordCard} key={rule.id}><Revision value={rule.revision} /><h3>{rule.title}</h3><p>{rule.description}</p><p>所屬世界：{linkedWorldNames.join("、") || "舊資料尚未綁定；編輯後即可歸檔"}</p><p>{rule.immutable ? "固定規則" : "可由作者修訂"} · {rule.eraContexts.join("、") || "時代隨所屬世界"}</p><footer><button type="button" onClick={() => editRule(rule)}>編輯／綁定世界</button><button type="button" onClick={() => void copyRecord(rule)} disabled={busy}>複製候選</button><button className={styles.danger} type="button" onClick={() => void removeRecord(rule)} disabled={busy}>刪除</button></footer></article>;
+            }} />
+          </div>
         </section>
       ) : null}
 
       {loaded && tab === "memories" ? (
         <section className={styles.workspace} data-testid="global-canon-memories">
-          <form className={styles.editor} onSubmit={(event) => void saveMemory(event)}><header><div><small>MEMORY & LORE</small><h2>{editingMemory ? "編輯記憶資料" : "建立記憶資料"}</h2></div><span>地點、組織、物件與祕密</span></header><div className={styles.formGrid}><label>資料類型<select value={memoryDraft.kind} onChange={(event) => setMemoryDraft({ ...memoryDraft, kind: event.target.value as GlobalMemoryKind })}><option value="location">地點</option><option value="faction">家族／宗門／企業</option><option value="item">武器／寶物／丹藥／藥草</option><option value="secret">祕密</option><option value="custom">其他</option></select></label><label>適用時代代碼<input value={memoryDraft.eraContexts} onChange={(event) => setMemoryDraft({ ...memoryDraft, eraContexts: event.target.value })} placeholder="modern、historical、cultivation" /></label><label className={styles.wide}>名稱<input required value={memoryDraft.title} onChange={(event) => setMemoryDraft({ ...memoryDraft, title: event.target.value })} /></label><label className={styles.wide}>完整資料<textarea required value={memoryDraft.content} onChange={(event) => setMemoryDraft({ ...memoryDraft, content: event.target.value })} /></label></div><div className={styles.formActions}><button className={styles.primary} disabled={busy} type="submit">{editingMemory ? "保存記憶" : "加入記憶總庫"}</button>{editingMemory ? <button type="button" onClick={() => { setEditingMemory(null); setMemoryDraft(EMPTY_MEMORY); }}>取消編輯</button> : null}</div></form>
+          <form id="global-memory-editor" className={styles.editor} data-collapsed={!expandedEditors.memory} onSubmit={(event) => void saveMemory(event)}>
+            <header>
+              <div><small>MEMORY & LORE</small><h2>{editingMemory ? "編輯記憶資料" : "建立記憶資料"}</h2></div>
+              <div className={styles.editorHeaderActions}>
+                <span>地點、組織、物件與祕密</span>
+                <button
+                  className={styles.editorToggle}
+                  type="button"
+                  aria-expanded={expandedEditors.memory}
+                  aria-controls="global-memory-editor-body"
+                  data-testid="global-memory-editor-toggle"
+                  onClick={() => setExpandedEditors((current) => ({ ...current, memory: !current.memory }))}
+                >
+                  {expandedEditors.memory ? "收合記憶編輯器" : "展開記憶編輯器"}
+                </button>
+              </div>
+            </header>
+            <div id="global-memory-editor-body" className={styles.editorBody} hidden={!expandedEditors.memory}>
+              <div className={styles.formGrid}>
+                <label>資料類型<select value={memoryDraft.kind} onChange={(event) => setMemoryDraft({ ...memoryDraft, kind: event.target.value as GlobalMemoryKind })}><option value="location">地點</option><option value="faction">家族／宗門／企業</option><option value="item">武器／寶物／丹藥／藥草</option><option value="secret">祕密</option><option value="custom">其他</option></select></label>
+                <label>適用時代代碼<input value={memoryDraft.eraContexts} onChange={(event) => setMemoryDraft({ ...memoryDraft, eraContexts: event.target.value })} placeholder="modern、historical、cultivation" /></label>
+                <label className={styles.wide}>名稱<input required value={memoryDraft.title} onChange={(event) => setMemoryDraft({ ...memoryDraft, title: event.target.value })} /></label>
+                <label className={styles.wide}>完整資料<textarea required value={memoryDraft.content} onChange={(event) => setMemoryDraft({ ...memoryDraft, content: event.target.value })} /></label>
+              </div>
+              <div className={styles.formActions}><button className={styles.primary} disabled={busy} type="submit">{editingMemory ? "保存記憶" : "加入記憶總庫"}</button>{editingMemory ? <button type="button" onClick={() => { setEditingMemory(null); setMemoryDraft(EMPTY_MEMORY); }}>取消編輯</button> : null}</div>
+            </div>
+          </form>
           <RecordLibrary title="全域記憶與資料" items={library.memories} renderItem={(memory) => <article className={styles.recordCard} key={memory.id}><Revision value={memory.revision} /><h3>{memory.title}</h3><p>{memory.kind} · {memory.eraContexts.join("、") || "不限時代"}</p><p>{memory.content}</p><footer><button type="button" onClick={() => editMemory(memory)}>編輯</button><button type="button" onClick={() => void copyRecord(memory)} disabled={busy}>複製候選</button><button className={styles.danger} type="button" onClick={() => void removeRecord(memory)} disabled={busy}>刪除</button></footer></article>} />
         </section>
       ) : null}
@@ -1579,28 +1871,46 @@ export default function CanonClient({
       {loaded && tab === "storyBible" ? (
         <section className={styles.workspace} data-testid="global-canon-story-bibles">
           <form className={styles.editor} onSubmit={(event) => void saveStoryBible(event)}>
-            <header><div><small>FORMAL STORY BIBLE</small><h2>{editingStoryBible ? `編輯 ${editingStoryBible.title}` : "建立全域 Story Bible"}</h2></div><span>故事法則、伏筆與作者偏好總表</span></header>
+            <header><div><small>NON-CONTRADICTION MASTER PLAN</small><h2>{editingStoryBible ? `編輯防矛盾總綱：${editingStoryBible.title}` : "建立 Story Bible 防矛盾總綱"}</h2></div><span>主題、角色弧線、世界核心、伏筆與矛盾禁區</span></header>
+            <p className={styles.purposeNote} data-testid="story-bible-purpose">
+              <span><b>用途：</b>把主題、角色弧線、世界核心、伏筆、禁止矛盾與未解／已解線索整理成後續寫作的一致性總綱。</span>
+              <span><b>影響：</b>複製到作品並明確選用後，可供作者與 AI 檢查後續候選是否前後一致；不會自動改寫章節、人物或世界資料。</span>
+            </p>
             <div className={styles.formGrid}>
-              <label className={styles.wide}>名稱<input required value={storyBibleDraft.title} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, title: event.target.value })} /></label>
-              <label>核心主題<input value={storyBibleDraft.theme} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, theme: event.target.value })} placeholder="例：權力必須付出可見代價" /></label>
+              <label className={styles.wide}>總綱名稱<input required value={storyBibleDraft.title} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, title: event.target.value })} placeholder="例：第一卷防矛盾總綱" /></label>
+              <label>核心主題／角色弧線<input value={storyBibleDraft.theme} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, theme: event.target.value })} placeholder="例：權力必須付出代價；主角由逃避走向承擔" /></label>
               <label>敘事風格<input value={storyBibleDraft.style} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, style: event.target.value })} placeholder="例：近距離第三人稱、對白推進" /></label>
-              <label className={styles.wide}>伏筆（頓號或換行分隔）<textarea value={storyBibleDraft.foreshadowing} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, foreshadowing: event.target.value })} /></label>
-              <label>未解線索<textarea value={storyBibleDraft.unresolvedThreads} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, unresolvedThreads: event.target.value })} /></label>
-              <label>已解線索<textarea value={storyBibleDraft.resolvedThreads} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, resolvedThreads: event.target.value })} /></label>
-              <label className={styles.wide}>禁止矛盾<textarea value={storyBibleDraft.forbiddenContradictions} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, forbiddenContradictions: event.target.value })} placeholder="例：已死亡人物不得無橋接復活" /></label>
-              <label className={styles.wide}>作者偏好<textarea value={storyBibleDraft.authorPreferences} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, authorPreferences: event.target.value })} placeholder="例：場景必須有具體行動與後果；避免系統摘要語氣" /></label>
+              <label className={styles.wide}>伏筆（頓號或換行分隔）<textarea value={storyBibleDraft.foreshadowing} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, foreshadowing: event.target.value })} placeholder="例：斷劍每逢月蝕發熱；城門守衛記得錯誤的王年" /></label>
+              <label>未解線索<textarea value={storyBibleDraft.unresolvedThreads} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, unresolvedThreads: event.target.value })} placeholder="例：誰偷走王印？主角的夢為何會預知未來？" /></label>
+              <label>已解線索<textarea value={storyBibleDraft.resolvedThreads} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, resolvedThreads: event.target.value })} placeholder="例：第三章證實王印由內庫官調包" /></label>
+              <label className={styles.wide}>禁止矛盾<textarea value={storyBibleDraft.forbiddenContradictions} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, forbiddenContradictions: event.target.value })} placeholder="例：已死亡人物不得無橋接復活；主角第二章後不得無故知道密訊" /></label>
+              <label className={styles.wide}>世界核心／作者偏好<textarea value={storyBibleDraft.authorPreferences} onChange={(event) => setStoryBibleDraft({ ...storyBibleDraft, authorPreferences: event.target.value })} placeholder="例：世界核心是記憶可交易但不可複製；場景必須有行動與後果" /></label>
             </div>
             {editingStoryBible ? <p className={styles.editorNote}>從作品匯入的角色、關係、世界與規則連結會原樣保留；這裡修改的是 Story Bible 本身，不會寫回來源作品。</p> : null}
             <div className={styles.formActions}><button className={styles.primary} disabled={busy} type="submit">{editingStoryBible ? "保存 Story Bible" : "加入 Story Bible 總庫"}</button>{editingStoryBible ? <button type="button" onClick={() => { setEditingStoryBible(null); setStoryBibleDraft(EMPTY_STORY_BIBLE); }}>取消編輯</button> : null}</div>
           </form>
-          <RecordLibrary title="全域 Story Bible" items={library.storyBibles} renderItem={(storyBible) => <article className={styles.recordCard} key={storyBible.id}><Revision value={storyBible.revision} /><h3>{storyBible.title}</h3><p>{storyBible.theme || "核心主題待設定"}</p><p>{storyBible.style || "敘事風格待設定"}</p><dl><div><dt>人物</dt><dd>{storyBible.globalCharacterIds.length}</dd></div><div><dt>規則</dt><dd>{storyBible.globalWorldRuleIds.length}</dd></div><div><dt>伏筆</dt><dd>{storyBible.foreshadowing.length}</dd></div><div><dt>未解</dt><dd>{storyBible.unresolvedThreads.length}</dd></div></dl><footer><button type="button" onClick={() => editStoryBible(storyBible)}>編輯</button><button type="button" onClick={() => void copyStoryBible(storyBible)} disabled={busy}>整套複製為作品候選</button><button className={styles.danger} type="button" onClick={() => void removeStoryBible(storyBible)} disabled={busy}>刪除</button></footer></article>} />
+          <RecordLibrary title="全域 Story Bible 防矛盾總綱" items={library.storyBibles} renderItem={(storyBible) => <article className={styles.recordCard} key={storyBible.id}><Revision value={storyBible.revision} /><h3>{storyBible.title}</h3><p>{storyBible.theme || "核心主題／角色弧線待設定"}</p><p>{storyBible.style || "敘事風格待設定"}</p><dl><div><dt>人物</dt><dd>{storyBible.globalCharacterIds.length}</dd></div><div><dt>世界核心</dt><dd>{storyBible.globalWorldId ? "已連結" : "未連結"}</dd></div><div><dt>規則</dt><dd>{storyBible.globalWorldRuleIds.length}</dd></div><div><dt>伏筆</dt><dd>{storyBible.foreshadowing.length}</dd></div><div><dt>未解</dt><dd>{storyBible.unresolvedThreads.length}</dd></div><div><dt>時間線</dt><dd>{storyBible.globalTimelineTemplateIds.length}</dd></div></dl><footer><button type="button" onClick={() => editStoryBible(storyBible)}>編輯</button><button type="button" onClick={() => void copyStoryBible(storyBible)} disabled={busy}>整套複製為作品候選</button><button className={styles.danger} type="button" onClick={() => void removeStoryBible(storyBible)} disabled={busy}>刪除</button></footer></article>} />
         </section>
       ) : null}
 
       {loaded && tab === "timeline" ? (
         <section className={styles.workspace} data-testid="global-canon-timeline">
-          <form className={styles.editor} onSubmit={(event) => void saveTimeline(event)}><header><div><small>TIMELINE TEMPLATES</small><h2>{editingTimeline ? "編輯時間線模板" : "建立時間線模板"}</h2></div><span>複製後仍由作品決定是否上場</span></header><div className={styles.formGrid}><label>事件名稱<input required value={timelineDraft.title} onChange={(event) => setTimelineDraft({ ...timelineDraft, title: event.target.value })} /></label><label>故事時間<input value={timelineDraft.storyTime} onChange={(event) => setTimelineDraft({ ...timelineDraft, storyTime: event.target.value })} placeholder="王朝曆 18 年冬、2038-05-07" /></label><label>時代<select value={timelineDraft.eraContext} onChange={(event) => setTimelineDraft({ ...timelineDraft, eraContext: event.target.value as GlobalCanonEraContext })}>{ERA_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>放置提示<input value={timelineDraft.placementHint} onChange={(event) => setTimelineDraft({ ...timelineDraft, placementHint: event.target.value })} placeholder="第一幕之前、主角成年後" /></label><label className={styles.wide}>事件內容<textarea required value={timelineDraft.summary} onChange={(event) => setTimelineDraft({ ...timelineDraft, summary: event.target.value })} /></label></div><div className={styles.formActions}><button className={styles.primary} disabled={busy} type="submit">{editingTimeline ? "保存時間線" : "加入時間線總庫"}</button>{editingTimeline ? <button type="button" onClick={() => { setEditingTimeline(null); setTimelineDraft(EMPTY_TIMELINE); }}>取消編輯</button> : null}</div></form>
-          <RecordLibrary title="全域時間線模板" items={library.timelineTemplates} renderItem={(timeline) => <article className={styles.recordCard} key={timeline.id}><Revision value={timeline.revision} /><h3>{timeline.title}</h3><p>{timeline.storyTime || "故事時間待定"} · {timeline.eraContext}</p><p>{timeline.summary}</p>{timeline.placementHint ? <p>放置提示：{timeline.placementHint}</p> : null}<footer><button type="button" onClick={() => editTimeline(timeline)}>編輯</button><button type="button" onClick={() => void copyRecord(timeline)} disabled={busy}>複製候選</button><button className={styles.danger} type="button" onClick={() => void removeRecord(timeline)} disabled={busy}>刪除</button></footer></article>} />
+          <form className={styles.editor} onSubmit={(event) => void saveTimeline(event)}>
+            <header><div><small>EVENT CHRONOLOGY TEMPLATE</small><h2>{editingTimeline ? "編輯事件時間線模板" : "建立事件時間線模板"}</h2></div><span>年代、順序、人物位置、因果與章節落點</span></header>
+            <p className={styles.purposeNote} data-testid="timeline-template-purpose">
+              <span><b>用途：</b>記錄事件的發生年代、先後順序、當時人物位置、前因後果與建議放入的章節。</span>
+              <span><b>影響：</b>複製到作品後，只作為安排章節與檢查時序的候選參考；不會自動插入、移動或改寫任何正文。</span>
+            </p>
+            <div className={styles.formGrid}>
+              <label>事件名稱<input required value={timelineDraft.title} onChange={(event) => setTimelineDraft({ ...timelineDraft, title: event.target.value })} placeholder="例：北城門失火" /></label>
+              <label>年代／先後順序<input value={timelineDraft.storyTime} onChange={(event) => setTimelineDraft({ ...timelineDraft, storyTime: event.target.value })} placeholder="例：王朝曆 18 年冬；祭典失火後第三日" /></label>
+              <label>時代<select value={timelineDraft.eraContext} onChange={(event) => setTimelineDraft({ ...timelineDraft, eraContext: event.target.value as GlobalCanonEraContext })}>{ERA_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+              <label>人物位置／章節落點<input value={timelineDraft.placementHint} onChange={(event) => setTimelineDraft({ ...timelineDraft, placementHint: event.target.value })} placeholder="例：林昭在北城門；第一幕第 3 章開頭" /></label>
+              <label className={styles.wide}>事件內容／因果<textarea required value={timelineDraft.summary} onChange={(event) => setTimelineDraft({ ...timelineDraft, summary: event.target.value })} placeholder="例：前因是粮倉帳簿遭竊改；失火後守衛封閉城門，促使主角改走地道。" /></label>
+            </div>
+            <div className={styles.formActions}><button className={styles.primary} disabled={busy} type="submit">{editingTimeline ? "保存事件時間線" : "加入事件時間線總庫"}</button>{editingTimeline ? <button type="button" onClick={() => { setEditingTimeline(null); setTimelineDraft(EMPTY_TIMELINE); }}>取消編輯</button> : null}</div>
+          </form>
+          <RecordLibrary title="全域事件時間線模板" items={library.timelineTemplates} renderItem={(timeline) => <article className={styles.recordCard} key={timeline.id}><Revision value={timeline.revision} /><h3>{timeline.title}</h3><p>{timeline.storyTime || "年代／先後順序待定"} · {timeline.eraContext}</p><p>{timeline.summary}</p>{timeline.placementHint ? <p>人物位置／章節落點：{timeline.placementHint}</p> : null}<footer><button type="button" onClick={() => editTimeline(timeline)}>編輯</button><button type="button" onClick={() => void copyRecord(timeline)} disabled={busy}>複製候選</button><button className={styles.danger} type="button" onClick={() => void removeRecord(timeline)} disabled={busy}>刪除</button></footer></article>} />
         </section>
       ) : null}
 

@@ -123,6 +123,48 @@ export function activeStoryCast(input: {
   };
 }
 
+/**
+ * Revalidates a StoryState staging write against the latest persisted state.
+ *
+ * Both the home Canon workbench and the story-only selector call this after
+ * reloading StoryState and immediately before repository.put.  This closes
+ * stale-tab and editor-cursor races that UI disabled state cannot prevent.
+ */
+export function assertStoryStageEraCompatibility(input: {
+  project: NovelProject;
+  storyBible: StoryBible | null | undefined;
+  latestStoryState: StoryState;
+  patch: Partial<Pick<StoryState, "activeCharacterIds" | "activeWorldId">>;
+  worldRules: readonly WorldRule[];
+  worlds: readonly World[];
+  characters: readonly Character[];
+}) {
+  const nextStoryState: StoryState = { ...input.latestStoryState, ...input.patch };
+  const requestedWorldId = nextStoryState.activeWorldId ?? input.storyBible?.worldId ?? null;
+  if (requestedWorldId && !input.worlds.some((world) => world.id === requestedWorldId)) {
+    throw new Error("STORY_STATE_ACTIVE_WORLD_NOT_FOUND");
+  }
+  const activeWorlds = activeStoryWorlds(input.worlds, nextStoryState, input.storyBible);
+  const selectedCharacters = activeStoryCharacters(
+    input.characters,
+    nextStoryState,
+    input.storyBible,
+  );
+  const compatible = eraCompatibleStoryCharacters({
+    project: input.project,
+    storyBible: input.storyBible,
+    worldRules: input.worldRules,
+    worlds: input.worlds,
+    activeWorlds,
+    characters: selectedCharacters,
+  });
+  const compatibleIds = new Set(compatible.characters.map((character) => character.id));
+  const incompatible = selectedCharacters.find((character) => !compatibleIds.has(character.id));
+  if (incompatible) {
+    throw new Error(`STORY_STATE_CHARACTER_ERA_INCOMPATIBLE:${incompatible.name}`);
+  }
+}
+
 export function activeStoryWorldRules(
   rules: readonly WorldRule[],
   storyState: StoryState | null | undefined,

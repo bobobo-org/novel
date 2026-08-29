@@ -17,7 +17,7 @@ import {
 } from "./domain/active-story-context";
 import { evaluateNovelContinuityGate } from "./web/story-output-quality";
 
-export const AUTHOR_TOOL_IDS = ["breakdown", "relay", "batch", "serial"] as const;
+export const AUTHOR_TOOL_IDS = ["breakdown", "relay", "batch", "serial", "completion-review"] as const;
 export type AuthorToolId = (typeof AUTHOR_TOOL_IDS)[number];
 
 export type AuthorToolSnapshot = {

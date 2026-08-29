@@ -73,6 +73,25 @@ export type GlobalCanonBaseRecord = {
   projectImportRef?: GlobalCanonProjectImportRef;
 };
 
+export type GlobalCharacterAbilityKey =
+  | "cultivation"
+  | "martial"
+  | "strategy"
+  | "perception"
+  | "medicine"
+  | "crafting"
+  | "leadership"
+  | "influence";
+
+export type GlobalCharacterAbilityProfile = {
+  schemaVersion: "global-character-ability-profile-v1";
+  source: "personal_hero" | "system_catalog";
+  label: string;
+  scaleMin: number;
+  scaleMax: number;
+  stats: Record<GlobalCharacterAbilityKey, number>;
+};
+
 export type GlobalCharacter = GlobalCanonBaseRecord & {
   recordType: "character";
   name: string;
@@ -89,6 +108,7 @@ export type GlobalCharacter = GlobalCanonBaseRecord & {
   values: string[];
   capabilities: string[];
   limitations: string[];
+  abilityProfile: GlobalCharacterAbilityProfile | null;
   portrait: CharacterPortrait | null;
 };
 
