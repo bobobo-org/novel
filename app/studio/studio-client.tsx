@@ -105,7 +105,12 @@ import {
 } from "@/lib/novel-ai/repository/backup";
 import { makeRecord, type Chapter, type NovelProject, type ProjectBackup, type ProjectSeed, type StoryState as CanonicalStoryState, type StoryBranch as CanonicalStoryBranch } from "@/lib/novel-ai/domain";
 import {
+  EXTERNAL_AI_PROVIDER_IDS,
+  EXTERNAL_AI_PROVIDER_LABELS,
+  isExternalAIProviderId,
+  isNovelAIExecutionMode,
   type ExternalAIProviderId as ExternalAIConnectorId,
+  type ExternalAIProviderPublicStatus,
   type NovelAIExecutionMode,
 } from "@/lib/novel-ai/providers/external/external-provider-contract";
 import { generateExternalAIStream } from "@/lib/novel-ai/providers/external/external-provider-client";
@@ -989,12 +994,13 @@ export default function StudioClient({
     [legacyMigrationDismissed, setLegacyMigrationDismissed] = useState(false),
     [legacyMigrationBusy, setLegacyMigrationBusy] = useState(false),
     [legacyMigrationStatus, setLegacyMigrationStatus] = useState(""),
-    [aiExecutionMode] = useState<NovelAIExecutionMode>("closed-only"),
-    [studioAiSource] = useState<"closed" | "external">("closed"),
+    [aiExecutionMode, setAiExecutionMode] = useState<NovelAIExecutionMode>("closed-only"),
+    [studioAiSource, setStudioAiSource] = useState<"closed" | "external">("closed"),
     [closedComputePolicy] = useState<StudioClosedComputePolicy>(
       STUDIO_AUTOMATIC_CLOSED_COMPUTE_POLICY,
     ),
-    [externalConnectorId] = useState<ExternalAIConnectorId>("openai"),
+    [externalConnectorId, setExternalConnectorId] = useState<ExternalAIConnectorId>("openai"),
+    [externalProviderStatuses, setExternalProviderStatuses] = useState<ExternalAIProviderPublicStatus[]>([]),
     [externalRunConsent, setExternalRunConsent] = useState(false),
     [aiModeMessage, setAiModeMessage] = useState(""),
     [aiPreferencesLoaded, setAiPreferencesLoaded] = useState(false),
@@ -1174,6 +1180,20 @@ export default function StudioClient({
     });
   }, [loaded]);
   useEffect(() => {
+    if (!loaded) return;
+    const controller = new AbortController();
+    fetch("/api/ai/external/providers", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("EXTERNAL_PROVIDER_STATUS_UNAVAILABLE");
+        return response.json() as Promise<{ providers?: ExternalAIProviderPublicStatus[] }>;
+      })
+      .then((snapshot) => setExternalProviderStatuses(Array.isArray(snapshot.providers) ? snapshot.providers : []))
+      .catch((error) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setExternalProviderStatuses([]);
+      });
+    return () => controller.abort();
+  }, [loaded]);
+  useEffect(() => {
     if (
       !loaded
       || !project
@@ -1233,9 +1253,29 @@ export default function StudioClient({
   }, [screen, project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!loaded) return;
-    // The formal writing entry always starts in the unified closed coordinator.
-    // Legacy task-time backend/source preferences are intentionally ignored.
-    const timer = window.setTimeout(() => setAiPreferencesLoaded(true), 0);
+    // Closed AI remains the default. An external mode is restored only when the
+    // user explicitly saved it in AI settings; one-time data-export consent is
+    // deliberately never persisted or restored.
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") as Record<string, unknown> | null;
+        const savedMode = isNovelAIExecutionMode(saved?.executionMode)
+          ? saved.executionMode
+          : "closed-only";
+        const savedProvider = isExternalAIProviderId(saved?.externalProviderId)
+          ? saved.externalProviderId
+          : "openai";
+        setAiExecutionMode(savedMode);
+        setExternalConnectorId(savedProvider);
+        setStudioAiSource(savedMode === "external-only" ? "external" : "closed");
+      } catch {
+        setAiExecutionMode("closed-only");
+        setStudioAiSource("closed");
+        setExternalConnectorId("openai");
+      }
+      setExternalRunConsent(false);
+      setAiPreferencesLoaded(true);
+    }, 0);
     return () => window.clearTimeout(timer);
   }, [loaded]);
   useEffect(() => {
@@ -2916,6 +2956,35 @@ export default function StudioClient({
       setLegacyMigrationBusy(false);
     }
   }
+  function persistStudioAISettings(patch: Record<string, unknown>) {
+    try {
+      const saved = JSON.parse(localStorage.getItem("novel_p2_ai_settings") || "null") as Record<string, unknown> | null;
+      localStorage.setItem("novel_p2_ai_settings", JSON.stringify({ ...(saved ?? {}), ...patch }));
+    } catch {
+      // Writing still works with the in-memory choice when localStorage is unavailable.
+    }
+  }
+  function chooseStudioAIExecutionMode(nextMode: NovelAIExecutionMode) {
+    setAiExecutionMode(nextMode);
+    setExternalRunConsent(false);
+    if (nextMode === "closed-only") setStudioAiSource("closed");
+    if (nextMode === "external-only") setStudioAiSource("external");
+    persistStudioAISettings({
+      executionMode: nextMode,
+      external: nextMode !== "closed-only",
+      privacy: nextMode === "closed-only" ? "strict-local" : "external-allowed",
+    });
+    setAiModeMessage(nextMode === "closed-only"
+      ? "已使用閉端 AI；作品內容不會送往第三方模型。"
+      : "外接 AI 只會在你逐次勾選資料外傳同意後執行，且結果先停在候選稿。"
+    );
+  }
+  function chooseExternalConnector(providerId: ExternalAIConnectorId) {
+    setExternalConnectorId(providerId);
+    setExternalRunConsent(false);
+    persistStudioAISettings({ externalProviderId: providerId });
+    setAiModeMessage(`已選擇 ${EXTERNAL_AI_PROVIDER_LABELS[providerId]}；尚未同意送出任何內容。`);
+  }
   const showLegacyMigration = !legacyMigrationDismissed && Boolean(
     legacyMigrationPreview?.pending || legacyMigrationStatus,
   );
@@ -2923,6 +2992,9 @@ export default function StudioClient({
     project?.id ? `&projectId=${encodeURIComponent(project.id)}` : ""
   }`;
   const localAISetupHref = `/settings/local-ai?returnTo=${encodeURIComponent(studioReturnTo)}`;
+  const externalSelectedForStudio = aiExecutionMode === "external-only"
+    || (aiExecutionMode === "hybrid" && studioAiSource === "external");
+  const selectedExternalProviderStatus = externalProviderStatuses.find((provider) => provider.id === externalConnectorId) ?? null;
   const navItems: Array<[Screen, string]> = [
     ["home", "首頁"],
     ["create", "開始創作"],
@@ -3130,13 +3202,80 @@ export default function StudioClient({
           data-compute-policy={closedComputePolicy}
         >
           <div data-testid="studio-closed-ai-automatic-coordinator">
-            <strong>閉端 AI 自動協調器</strong>
+            <strong>閉端 AI 自動協調器（預設）</strong>
             <span>
               系統依工作難度、已驗證模型、裝置能力與資料邊界，自動協調 Browser AI、個人本機 Ollama 與私有 AI Hub；不需要選擇後端。
             </span>
           </div>
+          <label>
+            寫作算力
+            <select
+              aria-label="寫作算力"
+              value={aiExecutionMode}
+              disabled={Boolean(assistantBusy)}
+              onChange={(event) => chooseStudioAIExecutionMode(event.target.value as NovelAIExecutionMode)}
+            >
+              <option value="closed-only">閉端 AI（預設，不外傳）</option>
+              <option value="hybrid">每次選閉端或外接 AI</option>
+              <option value="external-only">本次工作選用外接 AI</option>
+            </select>
+          </label>
+          {aiExecutionMode === "hybrid" ? (
+            <label>
+              本次來源
+              <select
+                aria-label="本次 AI 來源"
+                value={studioAiSource}
+                disabled={Boolean(assistantBusy)}
+                onChange={(event) => {
+                  const source = event.target.value === "external" ? "external" : "closed";
+                  setStudioAiSource(source);
+                  setExternalRunConsent(false);
+                  setAiModeMessage(source === "external"
+                    ? "本次已選外接 AI；勾選單次同意前不會傳送內容。"
+                    : "本次使用閉端 AI；內容不會送往第三方模型。"
+                  );
+                }}
+              >
+                <option value="closed">閉端 AI</option>
+                <option value="external">外接 AI</option>
+              </select>
+            </label>
+          ) : null}
+          {externalSelectedForStudio ? (
+            <>
+              <label>
+                外接供應商
+                <select
+                  aria-label="外接 AI 供應商"
+                  value={externalConnectorId}
+                  disabled={Boolean(assistantBusy)}
+                  onChange={(event) => chooseExternalConnector(event.target.value as ExternalAIConnectorId)}
+                >
+                  {EXTERNAL_AI_PROVIDER_IDS.map((providerId) => {
+                    const provider = externalProviderStatuses.find((item) => item.id === providerId);
+                    return <option key={providerId} value={providerId} disabled={provider ? !provider.configured : false}>
+                      {EXTERNAL_AI_PROVIDER_LABELS[providerId]}｜{provider ? provider.configured ? "伺服器已設定" : "尚未設定" : "正在讀取狀態"}
+                    </option>;
+                  })}
+                </select>
+              </label>
+              <label className="studioExternalApproval">
+                <input
+                  type="checkbox"
+                  checked={externalRunConsent}
+                  disabled={Boolean(assistantBusy) || selectedExternalProviderStatus?.configured === false}
+                  onChange={(event) => setExternalRunConsent(event.target.checked)}
+                />
+                我同意只在下一次 AI 工作中，將必要故事內容傳給 {EXTERNAL_AI_PROVIDER_LABELS[externalConnectorId]}；使用後立即清除。
+              </label>
+              {selectedExternalProviderStatus?.configured === false ? <p role="status">此供應商尚未在伺服器設定金鑰與模型；目前不會送出內容。請先到完整 AI 設定查看接點。</p> : null}
+            </>
+          ) : null}
           <p>
-            候選內容仍須由你核准後才會寫入正式作品；實際模型、資料是否離開裝置與執行結果會保留在收據中。
+            {externalSelectedForStudio
+              ? "外接 AI 不會在閉端失敗時偷偷接手；每次都要重新同意。候選內容仍須核准後才會寫入正式作品。"
+              : "候選內容仍須由你核准後才會寫入正式作品；實際模型、資料是否離開裝置與執行結果會保留在收據中。"}
           </p>
           <Link href="/studio/settings/ai">完整 AI 設定</Link>
           {aiModeMessage && <p role="status">{aiModeMessage}</p>}

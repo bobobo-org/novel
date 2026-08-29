@@ -42,7 +42,12 @@ export type SharedLearningSnapshot = {
 };
 
 export type SharedLearningPublishReceipt = {
-  status: "durably_recorded" | "persistence_not_configured" | "persistence_degraded" | "no_safe_rules";
+  status:
+    | "durably_recorded"
+    | "persistence_not_configured"
+    | "persistence_degraded"
+    | "no_safe_rules"
+    | "publication_not_authorized";
   publishedCount: number;
   newObservationCount: number;
   rejectedCount: number;

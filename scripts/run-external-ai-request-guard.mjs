@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   assertExternalAIRequestOrigin,
   EXTERNAL_AI_REQUEST_POLICY,
@@ -8,6 +9,11 @@ import {
   reserveExternalAIRequest,
   resetExternalAIRequestGuardForTests,
 } from "../lib/novel-ai/providers/external/external-request-guard.server.ts";
+import {
+  EXTERNAL_AI_PUBLIC_EXECUTION_ENV,
+  evaluateExternalAIPublicExecution,
+  isExternalAIPublicExecutionEnabled,
+} from "../lib/novel-ai/providers/external/external-execution-policy.server.ts";
 
 const endpoint = "https://novel-orcin.vercel.app/api/ai/external/generate";
 
@@ -32,7 +38,52 @@ function isGuardError(code) {
   return (error) => error instanceof ExternalAIRequestGuardError && error.code === code;
 }
 
+const originalPublicExecutionSetting = process.env[EXTERNAL_AI_PUBLIC_EXECUTION_ENV];
+const originalFetch = globalThis.fetch;
+let providerFetchCalls = 0;
+
 try {
+  assert.equal(isExternalAIPublicExecutionEnabled({}), false);
+  assert.equal(isExternalAIPublicExecutionEnabled({ [EXTERNAL_AI_PUBLIC_EXECUTION_ENV]: "0" }), false);
+  assert.equal(isExternalAIPublicExecutionEnabled({ [EXTERNAL_AI_PUBLIC_EXECUTION_ENV]: "true" }), false);
+  assert.equal(isExternalAIPublicExecutionEnabled({ [EXTERNAL_AI_PUBLIC_EXECUTION_ENV]: " 1 " }), true);
+
+  process.env[EXTERNAL_AI_PUBLIC_EXECUTION_ENV] = "0";
+  globalThis.fetch = async () => {
+    providerFetchCalls += 1;
+    throw new Error("provider fetch must not run while public execution is disabled");
+  };
+  const routeBody = {
+    executionMode: "external-only",
+    providerId: "openai",
+    prompt: "不得送出站外",
+  };
+  const withoutConsent = evaluateExternalAIPublicExecution(false);
+  assert.equal(withoutConsent.allowed, false);
+  assert.equal(withoutConsent.status, 403);
+  assert.equal(withoutConsent.code, "EXTERNAL_AI_CONSENT_REQUIRED");
+  const disabledExecution = evaluateExternalAIPublicExecution(true);
+  assert.equal(disabledExecution.allowed, false);
+  assert.equal(disabledExecution.status, 503);
+  assert.equal(disabledExecution.code, "EXTERNAL_AI_EXECUTION_DISABLED");
+  assert.deepEqual(
+    evaluateExternalAIPublicExecution(true, { [EXTERNAL_AI_PUBLIC_EXECUTION_ENV]: "1" }),
+    { allowed: true },
+  );
+  assert.equal(providerFetchCalls, 0, "disabled public execution must not contact a provider");
+  assert.equal(routeBody.externalConsent, undefined);
+
+  const generateRoute = await readFile(
+    new URL("../app/api/ai/external/generate/route.ts", import.meta.url),
+    "utf8",
+  );
+  const executionGateIndex = generateRoute.indexOf("const executionPolicy = evaluateExternalAIPublicExecution");
+  const quotaReservationIndex = generateRoute.indexOf("lease = reserveExternalAIRequest");
+  const providerExecutionIndex = generateRoute.indexOf("const result = await generateExternalAICandidate");
+  assert.ok(executionGateIndex >= 0, "generate route must evaluate the public execution gate");
+  assert.ok(quotaReservationIndex > executionGateIndex, "execution gate must run before quota reservation");
+  assert.ok(providerExecutionIndex > executionGateIndex, "execution gate must run before provider execution");
+
   const valid = request({ prompt: "同源測試", maxOutputTokens: 512 });
   assert.doesNotThrow(() => assertExternalAIRequestOrigin(valid));
   assert.deepEqual(await readExternalAIJsonBody(valid.clone()), { prompt: "同源測試", maxOutputTokens: 512 });
@@ -120,7 +171,15 @@ try {
     reservedOutputTokensPerWindow: EXTERNAL_AI_REQUEST_POLICY.maxReservedOutputTokensPerWindow,
     perClientConcurrency: EXTERNAL_AI_REQUEST_POLICY.maxActivePerClient,
     perInstanceConcurrency: EXTERNAL_AI_REQUEST_POLICY.maxActivePerInstance,
+    publicExecutionFailClosed: true,
+    disabledRouteProviderFetchCalls: providerFetchCalls,
   }, null, 2));
 } finally {
+  if (originalPublicExecutionSetting === undefined) {
+    delete process.env[EXTERNAL_AI_PUBLIC_EXECUTION_ENV];
+  } else {
+    process.env[EXTERNAL_AI_PUBLIC_EXECUTION_ENV] = originalPublicExecutionSetting;
+  }
+  globalThis.fetch = originalFetch;
   resetExternalAIRequestGuardForTests();
 }

@@ -27,6 +27,9 @@ import {
   sha256Hex,
 } from "../lib/novel-ai/sovereign-learning/index.ts";
 import { stableStringify } from "../lib/novel-ai/sovereign-learning/hashing.ts";
+import {
+  evaluateControlledWebSharedPublication,
+} from "../lib/novel-ai/sovereign-learning/web-distill-publication-policy.server.ts";
 
 const expectedFailures = [];
 async function rejectsCode(run, code) {
@@ -52,6 +55,31 @@ assert.equal(isPublicInternetAddress("::1"), false);
 assert.equal(isPublicInternetAddress("2606:4700:4700::1111"), true);
 assert.equal(isPathAllowedByRobots("User-agent: *\nDisallow: /private\nAllow: /private/public", "/private/public/page"), true);
 assert.equal(isPathAllowedByRobots("User-agent: *\nDisallow: /private", "/private/page"), false);
+
+assert.deepEqual(evaluateControlledWebSharedPublication({
+  suppliedToken: null,
+  environment: {},
+}), { allowed: false, code: "WEB_DISTILL_SHARED_PUBLICATION_DISABLED" });
+assert.deepEqual(evaluateControlledWebSharedPublication({
+  suppliedToken: "correct-token-with-at-least-32-bytes",
+  environment: {
+    WEB_DISTILL_SHARED_PUBLISH_ENABLED: "1",
+  },
+}), { allowed: false, code: "WEB_DISTILL_SHARED_PUBLICATION_NOT_CONFIGURED" });
+assert.deepEqual(evaluateControlledWebSharedPublication({
+  suppliedToken: "wrong-token",
+  environment: {
+    WEB_DISTILL_SHARED_PUBLISH_ENABLED: "1",
+    WEB_DISTILL_SHARED_PUBLISH_ADMIN_TOKEN: "correct-token-with-at-least-32-bytes",
+  },
+}), { allowed: false, code: "WEB_DISTILL_SHARED_PUBLICATION_NOT_AUTHORIZED" });
+assert.deepEqual(evaluateControlledWebSharedPublication({
+  suppliedToken: "correct-token-with-at-least-32-bytes",
+  environment: {
+    WEB_DISTILL_SHARED_PUBLISH_ENABLED: "1",
+    WEB_DISTILL_SHARED_PUBLISH_ADMIN_TOKEN: "correct-token-with-at-least-32-bytes",
+  },
+}), { allowed: true, code: "WEB_DISTILL_SHARED_PUBLICATION_AUTHORIZED" });
 
 assert.deepEqual(normalizeControlledWebSourceProfile({ sourceChannel: "classical_chinese" }), {
   channel: "classical_chinese",
@@ -180,6 +208,7 @@ const [learningWorkspaceSource, writeWorkspaceSource, webDistillRouteSource, saf
   readFile(new URL("../app/api/ai/learning/web-distill/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/sovereign-learning/safe-web-research.server.ts", import.meta.url), "utf8"),
 ]);
+const environmentExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
 assert.match(learningWorkspaceSource, /作品內容自動成為受控知識/u);
 assert.match(learningWorkspaceSource, /ingestFirstPartyProjectKnowledge/u);
 assert.match(learningWorkspaceSource, /統合閉端 AI 自動協調器/u);
@@ -204,6 +233,14 @@ assert.doesNotMatch(webDistillRouteSource, /engagementMetric|engagementCount|eng
 assert.match(webDistillRouteSource, /sourceDisposition: "metadata_only"/u);
 assert.match(webDistillRouteSource, /candidateRuleCount: 0/u);
 assert.match(webDistillRouteSource, /sharedPublishAttempted: false/u);
+assert.match(webDistillRouteSource, /evaluateControlledWebSharedPublication/u);
+assert.match(webDistillRouteSource, /sharedPublication\.allowed\s*\?\s*await publishSharedLearningRules/u);
+assert.match(webDistillRouteSource, /status: "publication_not_authorized"/u);
+assert.match(webDistillRouteSource, /responsePayload[\s\S]*canonicalMutationCount: 0/u);
+assert.match(learningWorkspaceSource, /一般公開操作只建立本機候選，不會直接寫入全站共享庫/u);
+assert.doesNotMatch(learningWorkspaceSource, /x-novel-web-distill-publish-token/u);
+assert.match(environmentExample, /^WEB_DISTILL_SHARED_PUBLISH_ENABLED=0$/mu);
+assert.match(environmentExample, /^WEB_DISTILL_SHARED_PUBLISH_ADMIN_TOKEN=$/mu);
 assert.match(safeWebResearchSource, /fetchPinnedPublicHttps[\s\S]*lookup: pinnedLookup/u);
 assert.match(safeWebResearchSource, /pinResolvedAddress: boolean/u);
 assert.match(safeWebResearchSource, /Reject before DNS or page fetch/u);

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pingModel, providerMeta } from "@/lib/novel-ai/provider";
+import { providerMeta } from "@/lib/novel-ai/provider";
 import { aiRunStats, trainingStats } from "@/lib/novel-ai/store";
 import { dbAiRunStats, dbTrainingStats, persistenceHealth } from "@/lib/novel-ai/persistence";
 import { storyBibleHealth } from "@/lib/novel-ai/story-bible";
@@ -172,7 +172,6 @@ export async function GET() {
     }
   }
   const configured = meta.configured;
-  const ping = configured ? await pingModel() : { ok: false, elapsedMs: 0, error: "MODEL_NOT_CONFIGURED" };
   const publicPersistenceTruth = buildPublicPersistenceTruth({
     serverPersistence: persistence,
     serverStoryBible: storyBible,
@@ -212,11 +211,9 @@ export async function GET() {
     legacyCloudAnalysis: {
       configured,
       modelStatus: configured
-        ? (ping.ok ? "available" : "configured_but_unavailable")
+        ? "configured_unverified"
         : "not_configured",
-      analysisStatus: ping.ok
-        ? "model_ping_success"
-        : runs.lastAnalysisSuccessAt
+      analysisStatus: runs.lastAnalysisSuccessAt
           ? "recent_success"
           : runs.lastError
             ? "recent_error"
@@ -231,7 +228,9 @@ export async function GET() {
         enabled: true,
         model: "local-rule",
       },
-      modelPingMs: ping.elapsedMs,
+      modelPingMs: null,
+      liveProbePerformed: false,
+      verificationPolicy: "explicit_same_origin_metadata_only",
     },
     analyzerVersion: versions.storyAnalyzerVersion,
     benchmarkVersion: versions.candidateAnalyzerVersion,
@@ -257,7 +256,7 @@ export async function GET() {
     averageResponseTimeMs: runs.averageLatencyMs,
     lastSuccessAt: runs.lastSuccessAt,
     lastAnalysisSuccessAt: runs.lastAnalysisSuccessAt,
-    lastError: ping.ok ? runs.lastError : { createdAt: new Date().toISOString(), taskType: "health", errorCode: ping.error || "MODEL_HEALTH_FAILED" },
+    lastError: runs.lastError,
     last24hSuccessRate: runs.last24hSuccessRate ?? null,
     last24hFailureRate: runs.last24hFailureRate ?? null,
     dailyTokenUsage: runs.dailyTokens ?? null,

@@ -197,8 +197,9 @@ try {
     }
     if (String(url).includes("api.x.ai")) {
       return streamResponse([
-        `data: ${JSON.stringify({ choices: [{ delta: { content: "Grok " } }] })}`,
-        `data: ${JSON.stringify({ choices: [{ delta: { content: "串流" } }], usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 } })}`,
+        `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "Grok " })}`,
+        `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "串流" })}`,
+        `data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 9, output_tokens: 4, total_tokens: 13 } } })}`,
         "data: [DONE]",
       ]);
     }
@@ -247,8 +248,8 @@ try {
   assert.equal(streamCalls[0].body.stream, true);
   assert.match(streamCalls[1].url, /:streamGenerateContent\?alt=sse$/);
   assert.equal("store" in streamCalls[1].body, false, "Gemini streaming request must use the stateless Generate Content schema");
-  assert.equal(streamCalls[2].url, "https://api.x.ai/v1/chat/completions");
-  assert.equal(streamCalls[2].body.stream_options.include_usage, true);
+  assert.equal(streamCalls[2].url, "https://api.x.ai/v1/responses");
+  assert.equal(streamCalls[2].body.store, false);
   assert.equal(streamCalls[3].url, "https://api.anthropic.com/v1/messages");
   assert.equal(streamCalls[3].body.stream, true);
   assert.equal(streamCalls[4].url, "https://compatible.example/v1/chat/completions");

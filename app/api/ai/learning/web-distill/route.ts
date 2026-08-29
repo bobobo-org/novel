@@ -8,6 +8,11 @@ import {
 } from "@/lib/novel-ai/sovereign-learning/web-knowledge-contract";
 import { publishSharedLearningRules } from "@/lib/novel-ai/sovereign-learning/shared-learning-library.server";
 import { VERIFIED_STORY_TEACHER_VERSION } from "@/lib/novel-ai/sovereign-learning/verified-story-teacher";
+import { isExternalAIPublicExecutionEnabled } from "@/lib/novel-ai/providers/external/external-execution-policy.server";
+import {
+  evaluateControlledWebSharedPublication,
+  WEB_DISTILL_SHARED_PUBLISH_TOKEN_HEADER,
+} from "@/lib/novel-ai/sovereign-learning/web-distill-publication-policy.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +23,10 @@ const MAX_REQUESTS_PER_WINDOW = 4;
 const requestWindows = new Map<string, number[]>();
 
 function json(payload: unknown, status = 200) {
-  return NextResponse.json(payload, {
+  const responsePayload = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? { ...(payload as Record<string, unknown>), canonicalMutationCount: 0 }
+    : { result: payload, canonicalMutationCount: 0 };
+  return NextResponse.json(responsePayload, {
     status,
     headers: {
       "Cache-Control": "no-store, max-age=0",
@@ -119,6 +127,13 @@ export async function POST(request: NextRequest) {
         error: "使用外接教師時，必須同意把安全清理後的來源暫時送出。",
       }, 403);
     }
+    if (providers.length > 0 && !isExternalAIPublicExecutionEnabled()) {
+      return json({
+        code: "WEB_DISTILLATION_EXTERNAL_EXECUTION_DISABLED",
+        error: "公開外接 AI 教師尚未開放；請改用閉端教師，或由營運端先完成帳號權限、持久配額與費用上限。",
+        canonicalMutationCount: 0,
+      }, 503);
+    }
     let sourceProfile;
     try {
       sourceProfile = normalizeControlledWebSourceProfile({
@@ -152,16 +167,34 @@ export async function POST(request: NextRequest) {
     if (request.signal.aborted) {
       return json({ code: "WEB_DISTILLATION_CANCELLED", error: "公開頁面分析已由使用者取消。" }, 499);
     }
-    const sharedLibrary = await publishSharedLearningRules({
-      sourceDigest: bundle.source.sourceDigest,
-      sourceChannel: bundle.source.sourceProfile.channel,
-      teacherVersion: VERIFIED_STORY_TEACHER_VERSION,
-      rules: bundle.storyResearch.evidence.grade === "content_rich"
-        || bundle.storyResearch.evidence.grade === "content_partial"
-        ? bundle.rules
-        : [],
-    }, { signal: request.signal });
-    return json({ ...bundle, sharedLibrary });
+    const sharedPublication = evaluateControlledWebSharedPublication({
+      suppliedToken: request.headers.get(WEB_DISTILL_SHARED_PUBLISH_TOKEN_HEADER),
+    });
+    const sharedLibrary = sharedPublication.allowed
+      ? await publishSharedLearningRules({
+          sourceDigest: bundle.source.sourceDigest,
+          sourceChannel: bundle.source.sourceProfile.channel,
+          teacherVersion: VERIFIED_STORY_TEACHER_VERSION,
+          rules: bundle.storyResearch.evidence.grade === "content_rich"
+            || bundle.storyResearch.evidence.grade === "content_partial"
+            ? bundle.rules
+            : [],
+        }, { signal: request.signal })
+      : {
+          status: "publication_not_authorized" as const,
+          publishedCount: 0,
+          newObservationCount: 0,
+          rejectedCount: 0,
+          rawStoryReceived: false as const,
+          abstractRulesOnly: true as const,
+        };
+    return json({
+      ...bundle,
+      sharedLibrary,
+      sharedPublishAttempted: sharedPublication.allowed,
+      sharedPublicationAuthorized: sharedPublication.allowed,
+      canonicalMutationCount: 0,
+    });
   } catch (error) {
     const row = error as { code?: string; status?: number; message?: string; detailCodes?: string[] };
     return json({

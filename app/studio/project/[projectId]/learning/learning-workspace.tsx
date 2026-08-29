@@ -250,6 +250,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
   const [lastStoryResearch, setLastStoryResearch] = useState<VerifiedStoryResearchProfile | null>(null);
   const [providerStatuses, setProviderStatuses] = useState<ExternalProviderStatus[]>([]);
   const [providerBusy, setProviderBusy] = useState(false);
+  const [externalResearchConsent, setExternalResearchConsent] = useState(false);
   const [firstPartyStatus, setFirstPartyStatus] = useState("正在同步本作品的創作知識。");
   const [firstPartyBusy, setFirstPartyBusy] = useState(false);
   const [sharedLibraryStatus, setSharedLibraryStatus] = useState("正在同步全站共享抽象知識。");
@@ -818,7 +819,11 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
     const timeout = window.setTimeout(() => controller.abort("WEB_RESEARCH_UI_TIMEOUT"), 28_000);
     try {
       const rightsEvidence = automaticPublicResearchEvidence(normalizedUrl);
-      const externalConsent = publicResearchCoordination.externalAnalysisEnabled;
+      const externalConsent = publicResearchCoordination.externalAnalysisEnabled && externalResearchConsent;
+      const providerIds = externalConsent ? publicResearchCoordination.externalProviderIds : [];
+      // Consent is a one-shot action. Clear it before the request leaves so a
+      // retry, double click or later research job can never reuse it silently.
+      setExternalResearchConsent(false);
       const response = await withinClientDeadline(fetch("/api/ai/learning/web-distill", {
         method: "POST",
         cache: "no-store",
@@ -832,7 +837,7 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           userConfirmedRights: true,
           teacherMode: "auto",
           externalConsent,
-          providerIds: publicResearchCoordination.externalProviderIds,
+          providerIds,
           sourceChannel: webSourceChannel,
         }),
       }), deadlineAt, () => controller.abort("WEB_RESEARCH_UI_TIMEOUT"));
@@ -866,9 +871,16 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
       const detectedMechanisms = payload.storyResearch.mechanisms
         .filter((mechanism) => mechanism.signalStrength > 0).length;
       setLastStoryResearch(payload.storyResearch);
+      const sharedPublicationLabel = payload.sharedLibrary.status === "durably_recorded"
+        ? `${payload.sharedLibrary.publishedCount} 條已由受控發布流程寫入全站共享庫`
+        : payload.sharedLibrary.status === "no_safe_rules"
+          ? "目前證據不足以強化全站庫，本機候選仍保留"
+          : payload.sharedLibrary.status === "publication_not_authorized"
+            ? "一般公開操作只保留本機候選，不會直接寫入全站共享庫"
+            : "共享庫未寫入，本機候選仍保留";
       const completedMessage = result.duplicate
-          ? `此公開頁面已由閉端因果教師研究過，沿用 ${result.rules.length} 條抽象規則。`
-          : `${modeLabel}完成：檢查 ${payload.storyResearch.mechanisms.length} 類故事機制、由目前證據辨識 ${detectedMechanisms} 類，因果完整度 ${Math.round(payload.storyResearch.causalMap.completeness * 100)}%，建立 ${result.rules.length} 條候選；${payload.sharedLibrary.status === "durably_recorded" ? `${payload.sharedLibrary.publishedCount} 條已寫入全站共享庫` : payload.sharedLibrary.status === "no_safe_rules" ? "目前證據不足以強化全站庫，本機候選仍保留" : "共享庫暫時降級，本機結果仍保留"}。原文、人物名、台詞與具體情節均未保存。`;
+          ? `此公開頁面已由閉端因果教師研究過，沿用 ${result.rules.length} 條本機抽象規則。`
+          : `${modeLabel}完成：檢查 ${payload.storyResearch.mechanisms.length} 類故事機制、由目前證據辨識 ${detectedMechanisms} 類，因果完整度 ${Math.round(payload.storyResearch.causalMap.completeness * 100)}%，建立 ${result.rules.length} 條候選；${sharedPublicationLabel}。原文、人物名、台詞與具體情節均未保存。`;
       setStatus(completedMessage);
       setWebResearchStatus(completedMessage);
       setWebUrl("");
@@ -1435,8 +1447,19 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
               </div>
             </details>
             <p className={styles.note}>{verifiedTeacherProviders.length
-              ? `已找到 ${verifiedTeacherProviders.length} 個可用外接算力；只可協助公開網址研究，失敗時由內建閉端教師完成。`
+              ? `已找到 ${verifiedTeacherProviders.length} 個可用外接算力；只有你逐次同意時才會協助公開網址研究，失敗時由內建閉端教師完成。`
               : "目前無可用外接算力；內建故事因果教師仍會完成研究，不會卡住流程。"} 私人貼文、檔案與作品內容不會因自動協調而送往外接服務。</p>
+            {verifiedTeacherProviders.length ? (
+              <label className={styles.externalConsent}>
+                <input
+                  type="checkbox"
+                  checked={externalResearchConsent}
+                  disabled={busy}
+                  onChange={(event) => setExternalResearchConsent(event.target.checked)}
+                />
+                <span>我同意只在下一次公開來源研究中，將安全清理後的研究文字送給已驗證的外接教師；本次使用後立即清除。未勾選時只用閉端教師。</span>
+              </label>
+            ) : null}
           </div>
         </div>
         <button
@@ -1448,11 +1471,11 @@ export default function LearningWorkspace({ projectId }: { projectId: string }) 
           }
           onClick={() => void researchWeb()}
         >
-          {webResearchInFlight ? "分析中…" : busy ? "另一項學習作業進行中" : !webContentEligibility.ruleCreationAllowed ? "缺少正式字幕，不能建立規則" : "直接分析並建立抽象規則"}
+          {webResearchInFlight ? "分析中…" : busy ? "另一項學習作業進行中" : !webContentEligibility.ruleCreationAllowed ? "缺少正式字幕，不能建立規則" : "直接分析並建立本機候選"}
         </button>
         <p className={styles.inlineResearchStatus} role="status" aria-live="assertive">{webResearchStatus}</p>
         <div className={styles.researchHelp}>
-          <p className={styles.note}>每次只處理你指定的一個公開頁面，不整站遍歷；分析後只保留抽象故事機制。網站拒絕自動讀取時，可直接把文字貼到下方。</p>
+          <p className={styles.note}>每次只處理你指定的一個公開頁面，不整站遍歷；一般公開操作只建立本機候選，不會直接寫入全站共享庫。全站發布另需受控管理端授權。網站拒絕自動讀取時，可直接把文字貼到下方。</p>
           <button type="button" className={styles.secondary} onClick={() => document.getElementById("manual-source-import")?.scrollIntoView({ behavior: "smooth", block: "start" })}>改用本機貼文／檔案</button>
         </div>
         <details className={styles.manualTeacherRelay}>

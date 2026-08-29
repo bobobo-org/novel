@@ -8,9 +8,12 @@ import {
   createBytePlusSeedanceAdapter,
 } from "../lib/novel-ai/media-extension/server/byteplus-seedance-protocol.ts";
 import {
+  VIDEO_RETRY_SCHEMA_VERSION,
   VIDEO_SUBMISSION_SCHEMA_VERSION,
   VideoRuntimeError,
+  cancelVideoGenerationJob,
   pollVideoGenerationJob,
+  retryVideoGenerationJob,
   submitVideoGenerationJob,
 } from "../lib/novel-ai/media-extension/server/video-job-service.ts";
 import {
@@ -39,11 +42,26 @@ assert.equal(disconnectedHealth.credentialConfigured, false);
 assert.equal(disconnectedHealth.jobStoreConfigured, false);
 assert.equal(disconnectedHealth.artifactStoreConfigured, false);
 assert.equal(disconnectedHealth.executionBlockedReason, "OFFICIAL_VIDEO_PROVIDER_API_NOT_CONNECTED");
+assert.equal(disconnectedHealth.providerRuntime.bytePlusSeedance25.contractImplemented, true);
+assert.equal(disconnectedHealth.providerRuntime.bytePlusSeedance25.executionEnabled, false);
+assert.equal(disconnectedHealth.providerRuntime.selfHostedWorker.contractImplemented, true);
+assert.equal(disconnectedHealth.providerRuntime.selfHostedWorker.executionEnabled, false);
+assert.equal(disconnectedHealth.providerRuntime.selfHostedWorker.configured, false);
 const credentialOnlyHealth = publicBytePlusSeedanceHealth({ BYTEPLUS_LAS_API_KEY: secret });
 assert.equal(credentialOnlyHealth.configured, false, "a legacy credential must not enable an unverified official API");
 assert.equal(credentialOnlyHealth.credentialConfigured, true);
 assert.equal(credentialOnlyHealth.executionProviderId, null);
 assert(!JSON.stringify(credentialOnlyHealth).includes(secret), "public health must never contain the API key");
+const workerConfiguredHealth = publicBytePlusSeedanceHealth({
+  NODE_ENV: "production",
+  NOVEL_VIDEO_WORKER_BASE_URL: "https://video-worker.example.invalid",
+  NOVEL_VIDEO_WORKER_TOKEN: secret,
+  NOVEL_VIDEO_WORKER_MODEL: "wan2.2-ti2v-5b",
+});
+assert.equal(workerConfiguredHealth.providerRuntime.selfHostedWorker.configured, true);
+assert.equal(workerConfiguredHealth.providerRuntime.selfHostedWorker.executionEnabled, false);
+assert(!JSON.stringify(workerConfiguredHealth).includes(secret), "public health must never expose the worker token");
+assert(!JSON.stringify(workerConfiguredHealth).includes("video-worker.example.invalid"), "public health must never expose the private worker endpoint");
 assert.equal(readBytePlusSeedanceServerConfiguration({
   BYTEPLUS_LAS_API_KEY: secret,
   BYTEPLUS_LAS_BASE_URL: "https://example.com",
@@ -176,9 +194,10 @@ const validSubmission = {
 const providers = listVideoProviders();
 const seedance25 = getVideoProvider("seedance-2.5-official");
 assert(seedance25);
-assert.equal(seedance25.availability, "requires_vendor_onboarding");
+assert.equal(seedance25.availability, "not_configured");
 assert.equal(seedance25.executionReady, false);
-assert.equal(seedance25.publicApiUrl, null);
+assert.equal(seedance25.publicApiUrl, "https://docs.byteplus.com/en/docs/byteplus_las/video_gen_enhanced");
+assert.equal(seedance25.contractStatus, "implemented_tested");
 assert.equal(seedance25.capabilities.maxClipSeconds, 30);
 assert.equal(seedance25.capabilities.maxImageReferences, 30);
 assert.equal(seedance25.capabilities.maxVideoReferences, 10);
@@ -236,6 +255,7 @@ assert.equal(handoff.artifactClaim, "none");
 let adapterFactoryCalls = 0;
 let providerCreateCalls = 0;
 let providerPollCalls = 0;
+let providerCancelCalls = 0;
 const fakeAdapter = {
   providerId: "byteplus-las",
   model: BYTEPLUS_SEEDANCE_MODEL,
@@ -248,18 +268,45 @@ const fakeAdapter = {
   },
   async pollTask(providerTaskId) {
     providerPollCalls += 1;
-    return { providerTaskId, status: "running", videoUrl: null, failureCode: null };
+    return { providerTaskId, status: "running", progressPercent: 35, videoUrl: null, failureCode: null, retryable: false };
+  },
+  async cancelTask(providerTaskId) {
+    providerCancelCalls += 1;
+    return { providerTaskId, status: "cancel_requested", remoteConfirmed: false };
   },
 };
+const publicJob = (overrides = {}) => ({
+  jobId: "job-1",
+  projectId: "project-1",
+  providerId: "test-video-provider",
+  status: "queued",
+  model: BYTEPLUS_SEEDANCE_MODEL,
+  progressPercent: 0,
+  failureCode: null,
+  retryable: false,
+  artifactReady: false,
+  attempt: 1,
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString(),
+  ...overrides,
+});
 const fakeStore = {
   configured: true,
   async submit(input, createProviderTask) {
     await createProviderTask();
-    return { jobId: "job-1", projectId: input.projectId, status: "queued", model: BYTEPLUS_SEEDANCE_MODEL, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() };
+    return publicJob({ projectId: input.projectId });
   },
   async poll(jobId, pollProviderTask) {
     const provider = await pollProviderTask("provider-task-1");
-    return { jobId, projectId: "project-1", status: provider.status, model: BYTEPLUS_SEEDANCE_MODEL, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() };
+    return publicJob({ jobId, status: provider.status, progressPercent: provider.progressPercent });
+  },
+  async cancel(jobId, cancelProviderTask) {
+    await cancelProviderTask("provider-task-1");
+    return publicJob({ jobId, status: "cancelled" });
+  },
+  async retry(jobId, request, createProviderTask) {
+    await createProviderTask(validSubmission);
+    return publicJob({ jobId, attempt: 2, status: "queued", retryable: false, idempotencyKeyUsed: request.idempotencyKey });
   },
 };
 const dependencies = (overrides = {}) => ({
@@ -310,10 +357,51 @@ const polled = await pollVideoGenerationJob("job-1", dependencies());
 assert.equal(polled.status, "running");
 assert.equal(providerPollCalls, 1);
 
+const cancelled = await cancelVideoGenerationJob("job-1", dependencies());
+assert.equal(cancelled.status, "cancelled");
+assert.equal(providerCancelCalls, 1);
+await assert.rejects(
+  () => cancelVideoGenerationJob("job-1", dependencies({ durableStore: { ...fakeStore, cancel: undefined } })),
+  (error) => error instanceof VideoRuntimeError && error.code === "VIDEO_JOB_CANCEL_NOT_SUPPORTED",
+);
+
+const retryRequest = {
+  schemaVersion: VIDEO_RETRY_SCHEMA_VERSION,
+  idempotencyKey: "seedance:drama-1:2:first-shot:retry-1",
+  externalConsent: true,
+  costConfirmed: true,
+};
+await assert.rejects(
+  () => retryVideoGenerationJob("job-1", { ...retryRequest, costConfirmed: false }, dependencies()),
+  (error) => error instanceof VideoRuntimeError && error.code === "VIDEO_COST_CONFIRMATION_REQUIRED",
+);
+await assert.rejects(
+  () => retryVideoGenerationJob("job-1", retryRequest, dependencies({ durableStore: { ...fakeStore, retry: undefined } })),
+  (error) => error instanceof VideoRuntimeError && error.code === "VIDEO_JOB_RETRY_NOT_SUPPORTED",
+);
+const retried = await retryVideoGenerationJob("job-1", retryRequest, dependencies());
+assert.equal(retried.attempt, 2);
+assert.equal(providerCreateCalls, 2);
+
+await assert.rejects(
+  () => pollVideoGenerationJob("job-1", dependencies({
+    durableStore: { ...fakeStore, poll: async () => ({ ...publicJob(), videoUrl: "https://provider.invalid/temporary.mp4" }) },
+  })),
+  (error) => error instanceof VideoRuntimeError && error.code === "VIDEO_JOB_RESPONSE_UNSAFE",
+);
+await assert.rejects(
+  () => pollVideoGenerationJob("job-1", dependencies({
+    durableStore: { ...fakeStore, poll: async () => publicJob({ status: "succeeded", artifactReady: false }) },
+  })),
+  (error) => error instanceof VideoRuntimeError && error.code === "VIDEO_JOB_ARTIFACT_NOT_VERIFIED",
+);
+
 const serverSource = await readFile("lib/novel-ai/media-extension/server/byteplus-seedance.server.ts", "utf8");
 const healthRoute = await readFile("app/api/media/video/health/route.ts", "utf8");
 const submitRoute = await readFile("app/api/media/video/jobs/route.ts", "utf8");
 const pollRoute = await readFile("app/api/media/video/jobs/[jobId]/route.ts", "utf8");
+const cancelRoute = await readFile("app/api/media/video/jobs/[jobId]/cancel/route.ts", "utf8");
+const retryRoute = await readFile("app/api/media/video/jobs/[jobId]/retry/route.ts", "utf8");
 const uiSource = await readFile("app/studio/project/[projectId]/drama/drama-workspace.tsx", "utf8");
 const environmentExample = await readFile(".env.example", "utf8");
 
@@ -331,6 +419,10 @@ assert.match(submitRoute, /assertExternalAIRequestOrigin\(request\)/u);
 assert.match(submitRoute, /readExternalAIJsonBody\(request\)/u);
 assert.match(submitRoute, /submitVideoGenerationJob\(body, serverVideoJobDependencies\(\)\)/u);
 assert.match(pollRoute, /pollVideoGenerationJob\(jobId, serverVideoJobDependencies\(\)\)/u);
+assert.match(cancelRoute, /assertExternalAIRequestOrigin\(request\)/u);
+assert.match(cancelRoute, /cancelVideoGenerationJob\(jobId, serverVideoJobDependencies\(\)\)/u);
+assert.match(retryRoute, /readExternalAIJsonBody\(request\)/u);
+assert.match(retryRoute, /retryVideoGenerationJob\(jobId, body, serverVideoJobDependencies\(\)\)/u);
 assert.match(uiSource, /\/api\/media\/video\/health/u);
 assert.match(uiSource, /videoRuntimeReady[\s\S]*externalVideoConsent[\s\S]*videoCostConfirmed/u);
 assert.match(uiSource, /影片製作中樞/u);

@@ -43,6 +43,10 @@ import {
 } from "../components/conversation-presentation";
 import type { DrawerPayload } from "../components/conversation-types";
 import { toExecutionReceipt } from "./use-conversation-operation";
+import {
+  assertConversationExternalCandidateLineage,
+  CONVERSATION_EXTERNAL_AI_TOOL_ID,
+} from "../external-ai";
 
 function approvalErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
@@ -303,6 +307,18 @@ export function useConversationApprovalController({
         ) {
           throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
         }
+        const originalInvocations = (await Promise.all(
+          originalSourceMessage.toolInvocationIds.map((invocationId) => (
+            repository.get<ConversationToolInvocation>("conversationToolInvocations", invocationId)
+          )),
+        )).filter((invocation): invocation is ConversationToolInvocation => Boolean(invocation));
+        if (originalInvocations.some((invocation) => (
+          invocation.toolId === CONVERSATION_EXTERNAL_AI_TOOL_ID
+        ))) {
+          throw Object.assign(new Error("外來 AI 候選的核准證明只綁定原始回傳內容；請先核准原候選，或把修改後文字另開成新的本機要求。"), {
+            code: "CONVERSATION_EXTERNAL_CANDIDATE_EDIT_REQUIRES_NEW_REQUEST",
+          });
+        }
         const editedArtifact = await conversation.saveArtifact({
           projectId,
           sessionId,
@@ -404,7 +420,27 @@ export function useConversationApprovalController({
       const sourceMessage = await repository.get<ConversationMessage>("conversationMessages", selected.sourceMessageId);
       const freshArtifact = await repository.get<ConversationArtifact>("conversationArtifacts", selected.id);
       if (!session || !sourceMessage || !freshArtifact) throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
+      const sourceInvocations = (await Promise.all(
+        sourceMessage.toolInvocationIds.map((invocationId) => (
+          repository.get<ConversationToolInvocation>("conversationToolInvocations", invocationId)
+        )),
+      )).filter((invocation): invocation is ConversationToolInvocation => Boolean(invocation));
+      const hasExternalLineage = sourceInvocations.some((invocation) => (
+        invocation.toolId === CONVERSATION_EXTERNAL_AI_TOOL_ID
+      ));
+      if (hasExternalLineage) {
+        assertConversationExternalCandidateLineage({
+          message: sourceMessage,
+          artifact: freshArtifact,
+          invocations: sourceInvocations,
+        });
+      }
       assertStoryWorkspaceConversationApprovalTarget(freshArtifact.targetStore);
+      if (freshArtifact.targetStore === "none") {
+        throw Object.assign(new Error("這是參考候選，不會寫入 Canon；你可以保留查看、複製內容或放棄。"), {
+          code: "CONVERSATION_NON_CANONICAL_CANDIDATE_REFERENCE_ONLY",
+        });
+      }
       if (freshArtifact.artifactType === "learning_rule") {
         const learning = await getLearningCoordinator();
         const candidate = parseLearningImportCandidate(freshArtifact);

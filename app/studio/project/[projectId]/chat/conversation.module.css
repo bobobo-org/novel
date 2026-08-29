@@ -1127,6 +1127,86 @@
   background: linear-gradient(180deg, transparent, rgba(8, 13, 22, 0.96) 28%);
 }
 
+.aiSourceCard {
+  display: grid;
+  width: min(100%, 880px);
+  gap: 10px;
+  margin: 0 auto 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(151, 177, 206, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(11, 27, 45, 0.98), rgba(15, 22, 38, 0.98));
+  box-shadow: 0 13px 36px rgba(0, 0, 0, 0.24);
+}
+
+.aiSourceCard[data-selected-source="external"] {
+  border-color: rgba(231, 184, 81, 0.58);
+  background: linear-gradient(145deg, rgba(47, 36, 18, 0.98), rgba(20, 26, 43, 0.98));
+}
+
+.aiSourceHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.aiSourceHeading > div { display: grid; gap: 2px; }
+.aiSourceHeading small { color: var(--muted); font-size: 0.68rem; letter-spacing: 0.08em; }
+.aiSourceHeading strong { color: #f5daa0; font-size: 0.91rem; }
+
+.aiSourceCard label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: #b9c8d8;
+  font-size: 0.72rem;
+}
+
+.aiSourceCard select {
+  min-width: 190px;
+  min-height: 38px;
+  padding: 7px 30px 7px 10px;
+  border: 1px solid rgba(151, 177, 206, 0.32);
+  border-radius: 9px;
+  color: var(--ink);
+  background: #0d1c30;
+}
+
+.externalAiControls {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.42fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 9px 13px;
+}
+
+.externalBoundary {
+  align-self: center;
+  margin: 0;
+  color: #b4c3d4;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.externalConsent {
+  display: flex !important;
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  gap: 9px !important;
+  padding: 10px 11px;
+  border: 1px solid rgba(231, 184, 81, 0.38);
+  border-radius: 10px;
+  background: rgba(70, 51, 21, 0.34);
+  line-height: 1.55;
+}
+
+.externalConsent input {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: #e7b851;
+}
+
 .closedAiSetupCard {
   display: grid;
   width: min(100%, 880px);
@@ -1708,6 +1788,11 @@
   .choiceCard { min-height: 0; padding: 16px; }
   .choiceCard p { font-size: .96rem; line-height: 1.62; }
   .composerWrap { padding: 7px 8px max(8px, env(safe-area-inset-bottom)); }
+  .aiSourceCard { padding: 10px 11px; }
+  .aiSourceHeading { align-items: stretch; flex-direction: column; }
+  .aiSourceCard select { width: 100%; min-width: 0; min-height: 44px; }
+  .externalAiControls { grid-template-columns: 1fr; }
+  .externalConsent { grid-column: auto; }
   .composerWrap:focus-within .closedAiSetupCard { display: none; }
   .composer { padding: 7px; border-radius: 15px; }
   .composer textarea { min-height: 46px; max-height: 128px; padding: 7px 8px; font-size: 16px; }

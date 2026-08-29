@@ -16,7 +16,7 @@ const EXTERNAL_AI_GENERATED_TEXT_LIMIT = 2_000_000;
 const VERIFIED_STATUS_TTL_MS = 5 * 60 * 1_000;
 const FAILED_STATUS_TTL_MS = 15_000;
 
-type ProviderProtocol = "openai-responses" | "gemini" | "grok" | "anthropic" | "openai-chat";
+type ProviderProtocol = "openai-responses" | "gemini" | "xai-responses" | "anthropic" | "openai-chat";
 type ProviderConfig = ExternalAIProviderPublicStatus & {
   apiKey: string;
   protocol: ProviderProtocol;
@@ -173,12 +173,12 @@ function providerConfigs(): Record<ExternalAIProviderId, ProviderConfig> {
       modelId: process.env.XAI_MODEL_ID?.trim() || "grok-4.5",
       keyEnvironmentVariable: "XAI_API_KEY",
       modelEnvironmentVariable: "XAI_MODEL_ID",
-      apiStyle: "Chat Completions streaming",
+      apiStyle: "Responses API（streaming）",
       connectionRoute: "native",
       dataLeavesDevice: true,
       serverSideCredentialOnly: true,
       apiKey: process.env.XAI_API_KEY?.trim() || "",
-      protocol: "grok",
+      protocol: "xai-responses",
       baseUrl: "https://api.x.ai",
       apiKeyHeader: "Authorization",
       apiKeyScheme: "Bearer",
@@ -788,14 +788,15 @@ async function emitDelta(
   await emit({ type: "delta", delta, generatedTokenEvents: state.generatedTokenEvents });
 }
 
-async function streamOpenAI(
+async function streamResponsesProvider(
   config: ProviderConfig,
   request: ExternalAIGenerationRequest,
   emit: StreamEmitter,
+  baseUrl: string,
 ): Promise<Generated> {
   const state = { text: "", generatedTokenEvents: 0 };
   let usage = emptyUsage();
-  await postEventStream("https://api.openai.com/v1/responses", {
+  await postEventStream(`${baseUrl}/v1/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -805,7 +806,7 @@ async function streamOpenAI(
       store: false,
       stream: true,
       max_output_tokens: request.maxOutputTokens,
-      ...(request.safetyIdentifier ? { safety_identifier: request.safetyIdentifier } : {}),
+      ...(config.id === "openai" && request.safetyIdentifier ? { safety_identifier: request.safetyIdentifier } : {}),
       ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
     }),
   }, request.signal, async (_eventName, payload) => {
@@ -815,7 +816,7 @@ async function streamOpenAI(
       const response = payload.response && typeof payload.response === "object" ? payload.response as JsonRecord : {};
       usage = mergeUsage(usage, usageFromResponsesPayload(response));
     } else if (payload.type === "response.failed" || payload.type === "error") {
-      throw new ExternalAIProviderError("EXTERNAL_PROVIDER_STREAM_FAILED", "OpenAI 串流未完成，沒有建立候選。", 502);
+      throw new ExternalAIProviderError("EXTERNAL_PROVIDER_STREAM_FAILED", `${config.label} 串流未完成，沒有建立候選。`, 502);
     }
   });
   return { ...state, usage };
@@ -828,9 +829,7 @@ async function streamOpenAIChat(
 ): Promise<Generated> {
   const state = { text: "", generatedTokenEvents: 0 };
   let usage = emptyUsage();
-  const endpoint = config.id === "grok"
-    ? "https://api.x.ai/v1/chat/completions"
-    : `${normalizeCompatibleBaseUrl(config.baseUrl)}/chat/completions`;
+  const endpoint = `${normalizeCompatibleBaseUrl(config.baseUrl)}/chat/completions`;
   await postEventStream(endpoint, {
     method: "POST",
     headers: {
@@ -953,9 +952,9 @@ export async function streamExternalAICandidate(
   const startedAt = Date.now();
   await emit({ type: "start", requestId, providerId: request.providerId, modelId: normalized.config.modelId });
   const generated = request.providerId === "openai"
-    ? await streamOpenAI(normalized.config, normalized.request, emit)
+    ? await streamResponsesProvider(normalized.config, normalized.request, emit, "https://api.openai.com")
     : request.providerId === "grok"
-      ? await streamOpenAIChat(normalized.config, normalized.request, emit)
+      ? await streamResponsesProvider(normalized.config, normalized.request, emit, "https://api.x.ai")
       : request.providerId === "gemini"
         ? await streamGemini(normalized.config, normalized.request, emit)
         : request.providerId === "claude"

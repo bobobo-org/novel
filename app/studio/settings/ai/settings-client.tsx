@@ -109,6 +109,7 @@ export default function AISettingsClient() {
   const [executionMode, setExecutionMode] = useState<NovelAIExecutionMode>("closed-only");
   const [externalProviderId, setExternalProviderId] = useState<ExternalAIProviderId>("openai");
   const [externalProviders, setExternalProviders] = useState<ExternalAIProviderPublicStatus[]>([]);
+  const [externalExecutionEnabled, setExternalExecutionEnabled] = useState(false);
   const [externalConsent, setExternalConsent] = useState(false);
   const [externalPrompt, setExternalPrompt] = useState("請用繁體中文續寫一小段：林昭推開圖書館的門，發現帳冊不見了。");
   const [externalOutput, setExternalOutput] = useState("");
@@ -131,10 +132,15 @@ export default function AISettingsClient() {
   const loadExternalProviders = useCallback(async (probe = false) => {
     try {
       const response = await fetch(`/api/ai/external/providers${probe ? "?probe=1" : ""}`, { cache: "no-store" });
-      const payload = await response.json() as { providers?: ExternalAIProviderPublicStatus[] };
+      const payload = await response.json() as {
+        providers?: ExternalAIProviderPublicStatus[];
+        executionEnabled?: boolean;
+      };
       setExternalProviders(Array.isArray(payload.providers) ? payload.providers : []);
+      setExternalExecutionEnabled(payload.executionEnabled === true);
     } catch {
       setExternalProviders([]);
+      setExternalExecutionEnabled(false);
     }
   }, []);
 
@@ -275,6 +281,11 @@ export default function AISettingsClient() {
     if (executionMode === "closed-only") {
       setExternalRunStatus("failed");
       setExternalRunMessage("全閉端模式禁止呼叫外接 AI。請先切換到混合或全外接模式。");
+      return;
+    }
+    if (!externalExecutionEnabled) {
+      setExternalRunStatus("failed");
+      setExternalRunMessage("公開外接 AI 執行尚未開放；金鑰設定不等於允許匿名訪客消耗額度。內容沒有送出。");
       return;
     }
     if (!externalConsent) {
@@ -591,7 +602,10 @@ export default function AISettingsClient() {
         <label data-selected={executionMode === "external-only"}><input type="radio" name="execution-mode" checked={executionMode === "external-only"} onChange={() => saveExecutionMode("external-only")} /><strong>全部使用外接 AI</strong><span>不啟動閉端模型；外接失敗時直接停止，不回退成本機模板。</span></label>
       </div>
     </section>
-    <section data-testid="external-ai-control" data-mode={executionMode}><div className="externalAiHeading"><div><h2>外接 AI</h2><p>金鑰只讀取伺服器環境變數，瀏覽器不會收到、顯示或保存金鑰。</p></div><button type="button" onClick={() => void loadExternalProviders(true)}>實測金鑰與模型</button></div>
+    <section data-testid="external-ai-control" data-mode={executionMode} data-execution-enabled={externalExecutionEnabled}><div className="externalAiHeading"><div><h2>外接 AI</h2><p>金鑰只讀取伺服器環境變數，瀏覽器不會收到、顯示或保存金鑰。</p></div><button type="button" onClick={() => void loadExternalProviders(true)}>實測金鑰與模型</button></div>
+      <p role="status">{externalExecutionEnabled
+        ? "公開執行已由營運端開放；每一次仍需要使用者單次同意。"
+        : "接點可檢查，但公開執行目前安全關閉。完成登入權限、持久配額與費用上限後才能開放。"}</p>
       <div className="externalProviderGrid">
         {externalProviders.map((provider) => <label key={provider.id} data-configured={provider.configured} data-verification={provider.verification} data-selected={externalProviderId === provider.id}>
           <input type="radio" name="external-provider" disabled={executionMode === "closed-only"} checked={externalProviderId === provider.id} onChange={() => saveExternalProvider(provider.id)} />
@@ -611,8 +625,8 @@ export default function AISettingsClient() {
       </details>
       {externalProviders.length === 0 && <p role="alert">目前無法讀取外接 AI 狀態；閉端 AI 不受影響。</p>}
       <label>測試內容<textarea rows={5} disabled={executionMode === "closed-only" || externalRunStatus === "running"} value={externalPrompt} onChange={(event) => setExternalPrompt(event.target.value)} /></label>
-      <label className="externalConsent"><input type="checkbox" disabled={executionMode === "closed-only" || externalRunStatus === "running"} checked={externalConsent} onChange={(event) => setExternalConsent(event.target.checked)} /><span>我同意只在本次測試中，將上方內容傳給所選外接 AI。這項同意使用一次後立即清除。</span></label>
-      <button data-testid="external-ai-test" type="button" disabled={executionMode === "closed-only" || externalRunStatus === "running" || !externalPrompt.trim()} onClick={() => void runExternalTest()}>{externalRunStatus === "running" ? "外接 AI 執行中……" : "執行真實外接 AI 測試"}</button>
+      <label className="externalConsent"><input type="checkbox" disabled={!externalExecutionEnabled || executionMode === "closed-only" || externalRunStatus === "running"} checked={externalConsent} onChange={(event) => setExternalConsent(event.target.checked)} /><span>我同意只在本次測試中，將上方內容傳給所選外接 AI。這項同意使用一次後立即清除。</span></label>
+      <button data-testid="external-ai-test" type="button" disabled={!externalExecutionEnabled || executionMode === "closed-only" || externalRunStatus === "running" || !externalPrompt.trim()} onClick={() => void runExternalTest()}>{externalRunStatus === "running" ? "外接 AI 執行中……" : "執行真實外接 AI 測試"}</button>
       {externalRunMessage && <p role={externalRunStatus === "failed" ? "alert" : "status"}>{externalRunMessage}</p>}
       {externalRunMeta && <div className="localAiRunStatus"><strong>模型：</strong>{externalRunMeta.modelId}<br /><strong>耗時：</strong>{externalRunMeta.elapsedMs} ms<br /><strong>Token：</strong>{externalRunMeta.inputTokens ?? "未提供"} → {externalRunMeta.outputTokens ?? "未提供"}<br /><strong>資料離開裝置：</strong>是</div>}
       {externalOutput && <article data-testid="external-ai-output" className="localAiOutput">{externalOutput}</article>}

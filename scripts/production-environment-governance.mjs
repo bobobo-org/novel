@@ -32,6 +32,16 @@ export const PRODUCTION_EXTERNAL_AI_KEYS = Object.freeze([
   ...PRODUCTION_OPTIONAL_OPENAI_KEYS,
 ]);
 
+export const PRODUCTION_EXTERNAL_AI_PUBLIC_EXECUTION_KEY =
+  "EXTERNAL_AI_PUBLIC_EXECUTION_ENABLED";
+
+const EXTERNAL_AI_PUBLIC_EXECUTION_PREREQUISITES = Object.freeze({
+  authenticatedAccounts: false,
+  tenantIsolation: false,
+  persistentQuota: false,
+  enforcedCostCap: false,
+});
+
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (value && typeof value === "object") {
@@ -518,6 +528,8 @@ export function evaluateStagedExternalAiRuntimeTruth({
     && payload?.credentials === "server-side-only"
     && payload?.silentFallback === false
     && payload?.probePerformed === true
+    && payload?.executionEnabled === false
+    && payload?.operational === false
     && providers.length === 2
     && openaiProviders.length === 1
     && grokProviders.length === 1
@@ -562,6 +574,8 @@ export function evaluateStagedExternalAiRuntimeTruth({
         ? "verified"
         : "failed",
     topLevelVerificationValid: Boolean(topLevelVerificationValid),
+    publicExecutionDisabled: payload?.executionEnabled === false,
+    operationalFailClosed: payload?.operational === false,
     secretValuesStored: false,
   };
 }
@@ -597,7 +611,14 @@ export async function readProductionExternalAiRuntimeTruth({
       response = await boundedFetch(
         fetcher,
         `https://${alias}/api/ai/external/providers?probe=1&providers=openai,grok&production-env-audit=${Date.now()}`,
-        { cache: "no-store" },
+        {
+          cache: "no-store",
+          headers: {
+            Origin: `https://${alias}`,
+            Referer: `https://${alias}/studio/settings/ai`,
+            "Sec-Fetch-Site": "same-origin",
+          },
+        },
         {
           timeoutMs: fetchTimeoutMs,
           deadlineAt,
@@ -1014,6 +1035,31 @@ function isXaiKey(value) {
   return normalized.length >= 20 && !/\s/u.test(normalized);
 }
 
+function auditExternalAiPublicExecution({ production, vercelEnvironmentMetadata }) {
+  const rawValue = String(production?.[PRODUCTION_EXTERNAL_AI_PUBLIC_EXECUTION_KEY] || "").trim();
+  const metadataPresent = Boolean(
+    vercelEnvironmentMetadata?.entries?.[PRODUCTION_EXTERNAL_AI_PUBLIC_EXECUTION_KEY],
+  );
+  const value = rawValue || "unset";
+  if ((metadataPresent && !rawValue) || !["unset", "0"].includes(value)) {
+    throw Object.assign(
+      new Error("PRODUCTION_AUDIT_EXTERNAL_AI_PUBLIC_EXECUTION_UNSAFE"),
+      {
+        code: "PRODUCTION_AUDIT_EXTERNAL_AI_PUBLIC_EXECUTION_UNSAFE",
+        configuredValue: rawValue ? "nonzero-or-invalid" : "unreadable",
+      },
+    );
+  }
+  return {
+    key: PRODUCTION_EXTERNAL_AI_PUBLIC_EXECUTION_KEY,
+    value,
+    metadataPresent,
+    enabled: false,
+    safe: true,
+    prerequisites: { ...EXTERNAL_AI_PUBLIC_EXECUTION_PREREQUISITES },
+  };
+}
+
 export function auditProductionEnvironment({
   production = {},
   expectedProjectRef,
@@ -1036,6 +1082,10 @@ export function auditProductionEnvironment({
   const openaiModelMetadata = vercelEnvironmentMetadata?.entries?.OPENAI_MODEL_ID;
   const openaiProductionRecords = optionalOpenAiProductionRecords(vercelEnvironmentMetadata);
   const removableOpenAiRecord = exactRemovableOpenAiProductionRecord(vercelEnvironmentMetadata);
+  const publicExecution = auditExternalAiPublicExecution({
+    production,
+    vercelEnvironmentMetadata,
+  });
   const earliestDeploymentCreatedAt = Number(
     externalAiRuntimeTruth?.earliestDeploymentCreatedAt,
   );
@@ -1185,6 +1235,7 @@ export function auditProductionEnvironment({
       serviceCredentialVerificationMode: supabaseCredentialVerification?.verificationMode || null,
     },
     externalAi: {
+      publicExecution,
       configured: isXaiKey(productionXaiKey) || Boolean(xaiCredentialMetadata),
       credentialMetadataPresent: Boolean(xaiCredentialMetadata),
       credentialType: xaiCredentialMetadata?.type || null,
@@ -1654,6 +1705,7 @@ async function writeJsonIfRequested(environmentName, value) {
 export function validateAuditedProductionEnvironmentInput(audit) {
   const driftKeys = Array.isArray(audit?.driftKeys) ? audit.driftKeys : [];
   const expectedStatus = driftKeys.length === 0 ? "ready" : "repair_required";
+  const publicExecution = audit?.truth?.externalAi?.publicExecution;
   if (
     audit?.schemaVersion !== "production-environment-audit-v1"
     || audit?.readOnly !== true
@@ -1666,6 +1718,14 @@ export function validateAuditedProductionEnvironmentInput(audit) {
     || !/^[a-f0-9]{64}$/u.test(String(audit?.truthDigest || ""))
     || sha256(audit?.truth) !== audit.truthDigest
     || sha256(driftKeys) !== sha256([...(new Set(driftKeys))].sort())
+    || publicExecution?.key !== PRODUCTION_EXTERNAL_AI_PUBLIC_EXECUTION_KEY
+    || publicExecution?.enabled !== false
+    || publicExecution?.safe !== true
+    || !["unset", "0"].includes(publicExecution?.value)
+    || publicExecution?.prerequisites?.authenticatedAccounts !== false
+    || publicExecution?.prerequisites?.tenantIsolation !== false
+    || publicExecution?.prerequisites?.persistentQuota !== false
+    || publicExecution?.prerequisites?.enforcedCostCap !== false
   ) {
     throw Object.assign(new Error("PRODUCTION_REPAIR_AUDIT_ARTIFACT_UNTRUSTED"), {
       code: "PRODUCTION_REPAIR_AUDIT_ARTIFACT_UNTRUSTED",

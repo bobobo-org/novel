@@ -16,7 +16,6 @@ import {
   createStoryMediaCandidatePackage,
   createVideoProductionHandoffPackage,
   createVideoProductionPlan,
-  getVideoProvider,
   listVideoProviders,
   NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION,
   videoProviderSubmissionGate,
@@ -87,6 +86,25 @@ function videoProviderAvailabilityLabel(provider: VideoProviderDescriptor) {
   if (provider.availability === "contract_only") return "只有契約";
   if (provider.availability === "disabled") return "停用";
   return "尚未連接";
+}
+
+function videoProviderContractLabel(provider: VideoProviderDescriptor) {
+  if (provider.contractStatus === "implemented_tested") return "轉接契約已實作並測試";
+  if (provider.contractStatus === "catalog_only") return "僅收錄官方規格，尚未實作轉接器";
+  if (provider.contractStatus === "deprecated") return "已淘汰，不接受新工作";
+  return "契約狀態尚未驗證";
+}
+
+function videoProviderLifecycleLabel(provider: VideoProviderDescriptor) {
+  if (provider.lifecycle === "active") return "官方服務仍在使用期";
+  if (provider.lifecycle === "deprecated") return "官方服務已棄用";
+  return "生命週期尚未驗證";
+}
+
+function videoProviderConnectionLabel(provider: VideoProviderDescriptor) {
+  if (provider.connectionKind === "official_api") return "官方 API";
+  if (provider.connectionKind === "self_hosted_worker") return "自架 GPU worker";
+  return "人工交接";
 }
 
 const FORMAT_LABELS: Record<DramaFormatProfileId, string> = {
@@ -207,7 +225,16 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
     if (!activeVideoJobId || !activeVideoJobStatus || !["queued", "running"].includes(activeVideoJobStatus)) return;
     const controller = new AbortController();
     let active = true;
+    let retryIndex = 0;
+    let timer: number | null = null;
+    const scheduleNextPoll = () => {
+      if (!active || controller.signal.aborted) return;
+      const backoffMs = Math.min(30_000, 3_000 * (2 ** Math.min(retryIndex, 4)));
+      const jitterMs = Math.round(backoffMs * 0.15 * ((Math.random() * 2) - 1));
+      timer = window.setTimeout(() => void poll(), Math.max(2_500, backoffMs + jitterMs));
+    };
     const poll = async () => {
+      let shouldContinue = true;
       try {
         const response = await fetch(`/api/media/video/jobs/${encodeURIComponent(activeVideoJobId)}`, {
           cache: "no-store",
@@ -228,18 +255,22 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
         setMessage(next.status === "succeeded"
           ? "影片供應商已回報完成；仍須通過私有 MP4 驗證，才會顯示成品。"
           : `影片工作 ${next.jobId}：${next.status}。`);
+        shouldContinue = ["queued", "running"].includes(next.status);
+        retryIndex += 1;
       } catch (error) {
         if (!controller.signal.aborted) {
           setMessage(error instanceof Error ? error.message : "影片工作狀態無法驗證。");
+          retryIndex += 1;
         }
+      } finally {
+        if (shouldContinue) scheduleNextPoll();
       }
     };
     void poll();
-    const timer = window.setInterval(() => void poll(), 5_000);
     return () => {
       active = false;
       controller.abort();
-      window.clearInterval(timer);
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, [activeVideoJobId, activeVideoJobStatus, projectId]);
 
@@ -331,7 +362,10 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
       setMessage("請先核准短劇改編，再準備影片工作。");
       return;
     }
-    const selectedProvider = getVideoProvider(selectedVideoProviderId);
+    const runtimeProviders = videoRuntime.health?.providers?.length
+      ? videoRuntime.health.providers
+      : VIDEO_PROVIDERS;
+    const selectedProvider = runtimeProviders.find((provider) => provider.providerId === selectedVideoProviderId) ?? null;
     if (!selectedProvider?.executionReady || !videoRuntime.health?.configured) {
       setMessage(selectedProvider?.availability === "requires_vendor_onboarding"
         ? "Seedance 2.5 尚未完成供應商申請、端點驗證與伺服器轉接；本次沒有送出工作。"
@@ -385,6 +419,10 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
               ? [`對白／聲音提示：${firstShot.dialogueOrAudioCue}`]
               : []),
             `敘事目的：${firstShot.directorPackage.narrativePurpose}`,
+            `高概念：${firstShot.directorPackage.adaptationBeat.highConcept}`,
+            `煽動行動：${firstShot.directorPackage.adaptationBeat.incitingAction}`,
+            `因果轉折：${firstShot.directorPackage.adaptationBeat.causalTurn}`,
+            `回報與未解問題：${firstShot.directorPackage.adaptationBeat.payoffAndOpenQuestion}`,
             ...firstShot.directorPackage.assetLocks.map((item) => `資產鎖定：${item}`),
             ...firstShot.directorPackage.spatialBlocking.map((item) => `場面調度：${item}`),
             ...firstShot.directorPackage.performanceDirection.map((item) => `表演：${item}`),
@@ -507,7 +545,10 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
     () => candidate ? getDramaFormatProfile(candidate.project.formatProfile) : null,
     [candidate],
   );
-  const selectedProvider = getVideoProvider(selectedVideoProviderId);
+  const availableVideoProviders = videoRuntime.health?.providers?.length
+    ? videoRuntime.health.providers
+    : VIDEO_PROVIDERS;
+  const selectedProvider = availableVideoProviders.find((provider) => provider.providerId === selectedVideoProviderId) ?? null;
   const targetVideoDuration = candidate?.episodes.reduce(
     (total, episode) => total + episode.estimatedDurationSeconds,
     0,
@@ -675,7 +716,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
             <div>
               <small>VIDEO PRODUCTION HUB · PROVIDER-NEUTRAL V2</small>
               <h2>影片製作中樞</h2>
-              <p>先把核准短劇整理成可編輯逐鏡時間軸，再由真正可用的官方 API 或自架 GPU worker 執行。JSON 只是一份製作交接包，永遠不會冒充 MP4。</p>
+              <p>Novel Video Engine 先把核准短劇整理成可編輯逐鏡時間軸，再把已核准的鏡頭交給真正可用的官方 API 或自架 GPU worker。它是製作協調層，不是假稱自製 Seedance 基礎模型；JSON 也只是一份交接包，永遠不會冒充 MP4。</p>
             </div>
             <label>製作供應商
               <select value={selectedVideoProviderId} disabled={videoBusy} onChange={(event) => {
@@ -683,8 +724,8 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
                 setExternalVideoConsent(false);
                 setVideoCostConfirmed(false);
               }}>
-                {VIDEO_PROVIDERS.filter((provider) => provider.availability !== "disabled").map((provider) => (
-                  <option key={provider.providerId} value={provider.providerId}>{provider.displayName}｜{videoProviderAvailabilityLabel(provider)}</option>
+                {availableVideoProviders.map((provider) => (
+                  <option key={provider.providerId} value={provider.providerId}>{provider.displayName}｜{videoProviderAvailabilityLabel(provider)}｜{videoProviderContractLabel(provider)}</option>
                 ))}
               </select>
             </label>
@@ -697,18 +738,46 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
             </label>
           </header>
 
+          <section className="dramaVideoEngineMap" aria-label="Novel Video Engine 製作架構">
+            <header><small>NOVEL VIDEO ENGINE · ORCHESTRATION LAYER</small><h3>小說決策留在前面，模型執行留在最後</h3></header>
+            <ol>
+              <li><b>1</b><span><strong>劇本因果</strong>鎖定高概念、煽動行動、因果轉折、回報與下一個問題。</span></li>
+              <li><b>2</b><span><strong>角色與連戲</strong>鎖定人物身份、服裝、傷勢、道具、站位、光色與聲音。</span></li>
+              <li><b>3</b><span><strong>可編輯逐鏡</strong>拆成時間碼、表演、運鏡、聲音與逐鏡 QC，不把整章塞進一個提示詞。</span></li>
+              <li><b>4</b><span><strong>供應商轉接</strong>只有通過憑證、工作儲存、費用同意與私有 MP4 驗證，才交給官方 API 或自架 worker。</span></li>
+            </ol>
+            <p>Novel 負責導演決策、素材權利與工作狀態；Seedance、Runway、Veo 或自架模型負責影像推理。任何供應商未完成連線時都維持不可執行。</p>
+          </section>
+
           {selectedProvider ? <section className="dramaProviderCard" data-provider-status={selectedProvider.availability}>
-            <div><small>目前狀態</small><strong>{videoProviderAvailabilityLabel(selectedProvider)}</strong></div>
+            <div className="dramaProviderFacts">
+              <span><small>目前狀態</small><strong>{videoProviderAvailabilityLabel(selectedProvider)}</strong></span>
+              <span><small>連接方式</small><strong>{videoProviderConnectionLabel(selectedProvider)}</strong></span>
+              <span><small>契約狀態</small><strong>{videoProviderContractLabel(selectedProvider)}</strong></span>
+              <span><small>生命週期</small><strong>{videoProviderLifecycleLabel(selectedProvider)}</strong></span>
+              <span><small>真正可執行</small><strong>{selectedProvider.executionReady ? "是" : "否"}</strong></span>
+              <span><small>停用日期</small><strong>{selectedProvider.shutdownAt ?? "未公告"}</strong></span>
+            </div>
             <p>{selectedProvider.availabilityNote}</p>
-            <ul>
+            <ul className="dramaProviderCapabilities">
               <li>文字轉影片：{selectedProvider.capabilities.textToVideo ? "支援規格" : "不支援"}</li>
               <li>圖像參考：{selectedProvider.capabilities.imageReferences ? "支援規格" : "不支援"}</li>
               <li>影片／音訊參考：{selectedProvider.capabilities.videoReferences || selectedProvider.capabilities.audioReferences ? "支援規格" : "不支援"}</li>
               <li>同步聲音：{selectedProvider.capabilities.synchronizedAudio ? "支援規格" : "不支援"}</li>
               <li>延長／時間點編修：{selectedProvider.capabilities.videoExtension || selectedProvider.capabilities.timestampEditing ? "支援規格" : "不支援"}</li>
               <li>單段上限：{selectedProvider.capabilities.maxClipSeconds ? `${selectedProvider.capabilities.maxClipSeconds} 秒` : "由供應商決定"}</li>
+              <li>遠端取消：{selectedProvider.remoteCancel === "supported" ? "官方規格支援" : selectedProvider.remoteCancel === "unsupported" ? "不支援" : "尚待驗證"}</li>
+              <li>輸出網址保存：{selectedProvider.outputUrlTtlHours ? `約 ${selectedProvider.outputUrlTtlHours} 小時，須及時轉存` : "由供應商或自架儲存決定"}</li>
+              <li>資料離開裝置：{selectedProvider.dataLeavesDevice ? "會，送件前需明確同意" : "不會離開自架環境"}</li>
             </ul>
-            {selectedProvider.publicProductUrl ? <a href={selectedProvider.publicProductUrl} target="_blank" rel="noreferrer">查看供應商公開產品頁</a> : null}
+            <div className="dramaProviderSetup">
+              <h4>連線前置清單</h4>
+              <ol>{(selectedProvider.setupChecklist ?? ["尚未建立可驗證的連線清單"]).map((item) => <li key={item}>{item}</li>)}</ol>
+            </div>
+            <nav className="dramaProviderLinks" aria-label="供應商官方連結">
+              {selectedProvider.publicProductUrl ? <a href={selectedProvider.publicProductUrl} target="_blank" rel="noreferrer">官方產品頁</a> : null}
+              {selectedProvider.publicApiUrl ? <a href={selectedProvider.publicApiUrl} target="_blank" rel="noreferrer">官方 API 文件</a> : null}
+            </nav>
           </section> : null}
 
           {videoPlan ? <section className="dramaShotTimeline" aria-label="影片逐鏡時間軸">
@@ -720,6 +789,15 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
                 <header><b>鏡 {String(shot.order).padStart(2, "0")}</b><span>{secondsLabel(shot.startSeconds)}–{secondsLabel(shot.startSeconds + shot.durationSeconds)}</span></header>
                 <h4>{shot.visualPrompt}</h4>
                 <p>{shot.cameraDirection}</p>
+                <section className="dramaAdaptationBeat" aria-label={`鏡 ${shot.order} 故事因果節拍`}>
+                  <h5>可拍的因果節拍</h5>
+                  <ol>
+                    <li><b>高概念</b><span>{shot.directorPackage.adaptationBeat.highConcept}</span></li>
+                    <li><b>煽動行動</b><span>{shot.directorPackage.adaptationBeat.incitingAction}</span></li>
+                    <li><b>因果轉折</b><span>{shot.directorPackage.adaptationBeat.causalTurn}</span></li>
+                    <li><b>回報／未解問題</b><span>{shot.directorPackage.adaptationBeat.payoffAndOpenQuestion}</span></li>
+                  </ol>
+                </section>
                 <details><summary>導演包｜調度、表演、聲音與驗收</summary>
                   <h5>敘事目的</h5><p>{shot.directorPackage.narrativePurpose}</p>
                   <h5>資產與連戲鎖定</h5><ul>{shot.directorPackage.assetLocks.map((item) => <li key={item}>{item}</li>)}</ul>
@@ -759,6 +837,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
             <button type="button" disabled={!videoCanSubmit} onClick={() => void submitVideoGeneration()}>{videoBusy ? "正在建立第一鏡測試……" : "送出至已連接的影片供應商（第一鏡測試）"}</button>
             <button type="button" disabled={busy || !videoPlan} onClick={downloadVideoProductionPackage}>下載製作交接包 JSON（不是影片）</button>
           </div>
+          <p className="dramaConnectionTestNotice"><strong>目前送件是「第一鏡連線測試」，不是整部影片。</strong>它只驗證一次核准資料送出、遠端工作追蹤與私有成品驗收；通過前不會批次送出其餘鏡頭，也不會把成功回應冒充完成影片。</p>
           <small>{candidate?.project.status !== "approved"
             ? "先建立並核准短劇候選，才可建立逐鏡時間軸。"
             : data.project.adultMode

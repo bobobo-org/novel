@@ -27,13 +27,19 @@ export function CandidateCard({
 }) {
   const rpgCandidate = parseRpgCandidate(artifact);
   const statusLabel = artifact.status === "candidate"
-    ? "等待你核准"
+    ? artifact.targetStore === "none"
+      ? "參考候選（不寫入 Canon）"
+      : "等待你核准"
     : artifact.status === "approved"
       ? "已核准並同步"
       : artifact.status;
   return (
     <section className={styles.candidateCard} key={artifact.id} data-status={artifact.status} data-artifact-id={artifact.id} data-artifact-type={artifact.artifactType}>
-      <h3>{artifact.artifactType === "rpg" ? "本回合結果" : "Canon 候選"} · {statusLabel}</h3>
+      <h3>{artifact.artifactType === "rpg"
+        ? "本回合結果"
+        : artifact.targetStore === "none"
+          ? "意見候選"
+          : "Canon 候選"} · {statusLabel}</h3>
       {!rpgCandidate ? <p className={styles.candidatePreview}>{artifactStory(artifact)}</p> : null}
       {rpgCandidate ? (
         <details

@@ -15,6 +15,7 @@ import {
   readExternalAIJsonBody,
   reserveExternalAIRequest,
 } from "@/lib/novel-ai/providers/external/external-request-guard.server";
+import { evaluateExternalAIPublicExecution } from "@/lib/novel-ai/providers/external/external-execution-policy.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,16 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "無法讀取外接 AI 要求。", code: "EXTERNAL_AI_REQUEST_INVALID" },
       { status: 400, headers: SAFE_RESPONSE_HEADERS },
+    );
+  }
+
+  // Consent is checked before the operator gate. Credentials are configuration,
+  // not permission for anonymous visitors to spend the operator's balance.
+  const executionPolicy = evaluateExternalAIPublicExecution(body.externalConsent);
+  if (!executionPolicy.allowed) {
+    return NextResponse.json(
+      { error: executionPolicy.error, code: executionPolicy.code },
+      { status: executionPolicy.status, headers: SAFE_RESPONSE_HEADERS },
     );
   }
 

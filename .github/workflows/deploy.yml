@@ -1816,6 +1816,8 @@ jobs:
               provider_verification="$(jq -r '.verification // empty' <<<"$body")"
               probe_performed="$(jq -r 'if has("probePerformed") then .probePerformed else false end' <<<"$body")"
               silent_fallback="$(jq -r 'if has("silentFallback") then .silentFallback else true end' <<<"$body")"
+              execution_enabled="$(jq -r 'if has("executionEnabled") then .executionEnabled else true end' <<<"$body")"
+              operational="$(jq -r 'if has("operational") then .operational else true end' <<<"$body")"
               provider_count="$(jq -r '[.providers[]?] | length' <<<"$body")"
               openai_count="$(jq -r '[.providers[]? | select(.id == "openai")] | length' <<<"$body")"
               grok_count="$(jq -r '[.providers[]? | select(.id == "grok")] | length' <<<"$body")"
@@ -1836,7 +1838,7 @@ jobs:
               elif [[ "$optional_provider_absent" == "false" && "$openai_verified" == "true" && "$grok_verified" == "true" && "$provider_verification" == "verified" ]]; then
                 top_level_safe="true"
               fi
-              if [[ "$grok_safe" == "true" && ("$openai_not_configured" == "true" || "$openai_verified" == "true") && "$top_level_safe" == "true" && "$credential_mode" == "server-side-only" && "$probe_performed" == "true" && "$silent_fallback" == "false" && "$provider_count" == "2" && "$openai_count" == "1" && "$grok_count" == "1" && "$provider_boundaries" == "true" ]]; then
+              if [[ "$grok_safe" == "true" && ("$openai_not_configured" == "true" || "$openai_verified" == "true") && "$top_level_safe" == "true" && "$credential_mode" == "server-side-only" && "$probe_performed" == "true" && "$silent_fallback" == "false" && "$execution_enabled" == "false" && "$operational" == "false" && "$provider_count" == "2" && "$openai_count" == "1" && "$grok_count" == "1" && "$provider_boundaries" == "true" ]]; then
                 exit 0
               fi
             fi

@@ -71,6 +71,12 @@ for (const forbidden of [
 
 assert.match(cloudHealth, /dataLeavesDevice:\s*true/u);
 assert.match(cloudHealth, /closedModeEligible:\s*false/u);
+assert.match(cloudHealth, /pingStatus:\s*metadata\.configured[\s\S]*?"configured_unverified"/u);
+assert.match(cloudHealth, /liveProbePerformed:\s*false/u);
+assert.doesNotMatch(cloudHealth, /pingModel/u);
+assert.match(legacyHealth, /modelStatus:\s*configured[\s\S]*?"configured_unverified"/u);
+assert.match(legacyHealth, /liveProbePerformed:\s*false/u);
+assert.doesNotMatch(legacyHealth, /pingModel/u);
 assert.match(persistenceHealth, /runtimeStatus:\s*"client_probe_required"/u);
 assert.match(closedContract, /noSilentExternalFallback:\s*true/u);
 assert.match(

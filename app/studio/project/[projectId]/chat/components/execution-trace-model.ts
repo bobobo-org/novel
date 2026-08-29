@@ -1,5 +1,6 @@
 import type { ConversationToolInvocation } from "@/lib/novel-ai/domain";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
+import { CONVERSATION_EXTERNAL_AI_TOOL_ID } from "../external-ai";
 
 export type ExecutionTraceStageState = "complete" | "active" | "used" | "skipped" | "failed";
 
@@ -30,6 +31,7 @@ const TRACE_TOOL_IDS = new Set<string>([
   CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan,
   CONVERSATION_LOCAL_TOOL_IDS.rpgChoicePlan,
   CONVERSATION_LOCAL_TOOL_IDS.rpgTurn,
+  CONVERSATION_EXTERNAL_AI_TOOL_ID,
 ]);
 
 const CLOSED_AI_EXECUTORS = new Set([
@@ -74,6 +76,17 @@ function invocationStatus(invocation: ConversationToolInvocation) {
 }
 
 function executorLabel(actualExecutor: string | null) {
+  if (actualExecutor?.startsWith("external-api:")) {
+    const providerId = actualExecutor.slice("external-api:".length);
+    const providerLabels: Record<string, string> = {
+      openai: "OpenAI",
+      gemini: "Gemini",
+      grok: "Grok",
+      claude: "Claude",
+      "openai-compatible": "OpenAI-compatible／AI Gateway",
+    };
+    return `${providerLabels[providerId] ?? providerId} 外來 AI`;
+  }
   if (actualExecutor === "browser-ai") return "瀏覽器閉端 AI";
   if (actualExecutor === "local-ollama") return "本機 Ollama";
   if (actualExecutor === "private-ai-hub") return "私有 AI Hub";
@@ -136,11 +149,15 @@ export function buildConversationExecutionTrace(
   const isRpgChoicePlan = invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgChoicePlan;
   const isRpgTurn = invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn;
   const isRpg = isRpgChoicePlan || isRpgTurn;
+  const isExternal = invocation.toolId === CONVERSATION_EXTERNAL_AI_TOOL_ID;
   const isFallback = invocation.actualExecutor === "deterministic-rule-fallback";
   const isCacheHit = invocation.actualExecutor === "not_executed"
     && Boolean(invocation.executionReceipt?.closedAgentCacheOrigin);
   const aiExecuted = invocation.status === "completed"
     && CLOSED_AI_EXECUTORS.has(invocation.actualExecutor ?? "");
+  const externalExecuted = isExternal
+    && invocation.status === "completed"
+    && invocation.actualExecutor?.startsWith("external-api:");
   const status = invocationStatus(invocation);
   const selectedExecutorLabel = isRpgChoicePlan && isFallback
     ? "本機因果規則"
@@ -168,9 +185,13 @@ export function buildConversationExecutionTrace(
       label: "自動協調運算",
       state: status,
       description: status === "active"
-        ? "正在選擇此裝置可用的閉端算力。"
+        ? isExternal
+          ? "正在連線到作者本次明確選擇的外來供應商。"
+          : "正在選擇此裝置可用的閉端算力。"
         : status === "failed"
           ? failedCopy.message
+          : isExternal
+            ? `已依單次同意選用${selectedExecutorLabel}；不會自動改用其他來源。`
           : isRpgChoicePlan && isFallback
             ? "依即時選項契約選用本機規則引擎，不等待模型佇列。"
             : isFallback
@@ -181,9 +202,11 @@ export function buildConversationExecutionTrace(
     },
     {
       id: "closed-ai-work",
-      label: "閉端 AI 正文／連貫性",
-      state: aiExecuted ? "complete" : status === "active" && !isRpgChoicePlan ? "active" : status === "failed" ? "failed" : "skipped",
-      description: aiExecuted
+      label: isExternal ? "外來 AI 候選內容" : "閉端 AI 正文／連貫性",
+      state: externalExecuted || aiExecuted ? "complete" : status === "active" && !isRpgChoicePlan ? "active" : status === "failed" ? "failed" : "skipped",
+      description: externalExecuted
+        ? `已由${selectedExecutorLabel}產生候選；核准前不會寫入正式作品。`
+        : aiExecuted
         ? `已由${selectedExecutorLabel}依作品脈絡產生候選，並通過本回合正文契約。`
         : isCacheHit
           ? "本回合沿用已驗證快取，沒有重新執行閉端模型。"
@@ -203,6 +226,8 @@ export function buildConversationExecutionTrace(
         ? "已用本機規則產生完整、可閱讀的故事候選；這不是模型輸出。"
         : isRpgChoicePlan
           ? "這則訊息只建立選項，未啟用完整故事後備。"
+          : externalExecuted
+            ? "外來 AI 已完成候選，因此沒有啟用任何閉端或規則後備。"
           : aiExecuted
             ? "閉端 AI 已完成本回合，因此沒有使用規則後備。"
             : status === "active" && isRpgTurn
@@ -221,6 +246,8 @@ export function buildConversationExecutionTrace(
           ? "三條路線由因果規則完成"
           : isCacheHit
             ? "本回合使用已驗證快取"
+            : externalExecuted
+              ? `本回合由${selectedExecutorLabel}建立候選`
             : aiExecuted
               ? `本回合由${selectedExecutorLabel}完成`
               : "本機受控任務已完成";
@@ -238,19 +265,23 @@ export function buildConversationExecutionTrace(
             ? "規則後備"
             : isCacheHit
               ? "本機快取"
+              : externalExecuted
+                ? "外來 AI"
               : aiExecuted
                 ? "閉端 AI"
                 : "本機工具",
     stages,
     executorLabel: selectedExecutorLabel,
-    modelLabel: aiExecuted && invocation.modelId
+    modelLabel: (aiExecuted || externalExecuted) && invocation.modelId
       ? invocation.modelId
       : isRpgChoicePlan && isFallback
         ? "三路線因果規則引擎"
         : isFallback
           ? "規則式故事引擎"
           : "本回合未重新執行模型",
-    boundaryLabel: invocation.externalRequest || invocation.dataLeftDevice ? "有外送記錄" : "資料留在此裝置",
+    boundaryLabel: isExternal
+      ? "內容已依本次單次同意外送"
+      : invocation.externalRequest || invocation.dataLeftDevice ? "有外送記錄" : "資料留在此裝置",
     canonLabel: invocation.canonicalMutationCount === 0
       ? "候選階段未修改 Canon"
       : `已記錄 ${invocation.canonicalMutationCount} 次正式寫入`,

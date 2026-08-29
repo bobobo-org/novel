@@ -7,6 +7,7 @@ import {
 } from "./byteplus-seedance-protocol";
 import type { VideoJobDependencies } from "./video-job-service";
 import { listVideoProviders } from "../video-provider-registry";
+import { publicVideoWorkerServerStatus } from "./video-worker.server";
 
 // No production durable job store or private validated MP4 artifact store exists yet.
 // Keep this null until both are implemented; an API key alone must never make the UI ready.
@@ -34,6 +35,7 @@ export function readBytePlusSeedanceServerConfiguration(environment: ServerEnvir
 
 export function publicBytePlusSeedanceHealth(environment: ServerEnvironment = process.env) {
   const configuration = readBytePlusSeedanceServerConfiguration(environment);
+  const selfHostedWorker = publicVideoWorkerServerStatus(environment);
   const credentialConfigured = configuration.credentialConfigured;
   const jobStoreConfigured = Boolean(DURABLE_VIDEO_JOB_STORE?.configured);
   const artifactStoreConfigured = VALIDATED_PRIVATE_VIDEO_ARTIFACT_STORE_CONFIGURED;
@@ -49,6 +51,19 @@ export function publicBytePlusSeedanceHealth(environment: ServerEnvironment = pr
     jobStoreConfigured,
     artifactStoreConfigured,
     executionBlockedReason: "OFFICIAL_VIDEO_PROVIDER_API_NOT_CONNECTED",
+    providerRuntime: {
+      bytePlusSeedance25: {
+        contractImplemented: true,
+        executionEnabled: false,
+        credentialConfigured,
+        model: configuration.model,
+      },
+      selfHostedWorker: {
+        contractImplemented: true,
+        executionEnabled: false,
+        ...selfHostedWorker,
+      },
+    },
     providers: listVideoProviders(),
   } as const;
 }

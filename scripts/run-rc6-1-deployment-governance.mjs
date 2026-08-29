@@ -293,6 +293,66 @@ async function testEnvironmentAuditAndRepair() {
   assert.equal(ready.mutationCount, 0);
   assert.equal(ready.repairRequired, false);
   assert.equal(ready.secretValuesStored, false);
+  assert.deepEqual(ready.truth.externalAi.publicExecution, {
+    key: "EXTERNAL_AI_PUBLIC_EXECUTION_ENABLED",
+    value: "unset",
+    metadataPresent: false,
+    enabled: false,
+    safe: true,
+    prerequisites: {
+      authenticatedAccounts: false,
+      tenantIsolation: false,
+      persistentQuota: false,
+      enforcedCostCap: false,
+    },
+  });
+  const explicitlyDisabled = auditProductionEnvironment({
+    production: {
+      ...fixture.production,
+      EXTERNAL_AI_PUBLIC_EXECUTION_ENABLED: "0",
+    },
+    expectedProjectRef: fixture.projectRef,
+    projectIdentity: fixture.projectIdentity,
+    supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+    vercelEnvironmentMetadata: fixture.vercelEnvironmentMetadata,
+  });
+  assert.equal(explicitlyDisabled.truth.externalAi.publicExecution.value, "0");
+  assert.equal(explicitlyDisabled.repairRequired, false);
+  for (const unsafeValue of ["1", "true"]) {
+    assert.throws(
+      () => auditProductionEnvironment({
+        production: {
+          ...fixture.production,
+          EXTERNAL_AI_PUBLIC_EXECUTION_ENABLED: unsafeValue,
+        },
+        expectedProjectRef: fixture.projectRef,
+        projectIdentity: fixture.projectIdentity,
+        supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+        vercelEnvironmentMetadata: fixture.vercelEnvironmentMetadata,
+      }),
+      (error) => error.code === "PRODUCTION_AUDIT_EXTERNAL_AI_PUBLIC_EXECUTION_UNSAFE",
+    );
+  }
+  assert.throws(
+    () => auditProductionEnvironment({
+      production: fixture.production,
+      expectedProjectRef: fixture.projectRef,
+      projectIdentity: fixture.projectIdentity,
+      supabaseCredentialVerification: fixture.supabaseCredentialVerification,
+      vercelEnvironmentMetadata: {
+        ...fixture.vercelEnvironmentMetadata,
+        entries: {
+          ...fixture.vercelEnvironmentMetadata.entries,
+          EXTERNAL_AI_PUBLIC_EXECUTION_ENABLED: {
+            key: "EXTERNAL_AI_PUBLIC_EXECUTION_ENABLED",
+            type: "sensitive",
+            targets: ["production"],
+          },
+        },
+      },
+    }),
+    (error) => error.code === "PRODUCTION_AUDIT_EXTERNAL_AI_PUBLIC_EXECUTION_UNSAFE",
+  );
   const sensitivePulledAsUnreadable = auditProductionEnvironment({
     production: { ...fixture.production, SUPABASE_SERVICE_ROLE_KEY: "" },
     expectedProjectRef: fixture.projectRef,
@@ -434,6 +494,8 @@ function externalAiPayload({
   includeOpenai = true,
   topLevelVerification,
   secretMarker,
+  executionEnabled = false,
+  operational = false,
 } = {}) {
   const providers = [];
   if (includeOpenai) {
@@ -463,6 +525,8 @@ function externalAiPayload({
     credentials: "server-side-only",
     silentFallback: false,
     probePerformed: true,
+    executionEnabled,
+    operational,
     verification: topLevelVerification || (
       providers.every((provider) => provider.verification === "verified") ? "verified" : "degraded"
     ),
@@ -830,6 +894,19 @@ async function testExternalAiProductionTruth() {
   assert.equal(
     validateAuditedProductionEnvironmentInput(invalidOptionalOpenAiAudit),
     invalidOptionalOpenAiAudit,
+  );
+  assert.throws(
+    () => validateAuditedProductionEnvironmentInput({
+      ...invalidOptionalOpenAiAudit,
+      truth: {
+        ...invalidOptionalOpenAiAudit.truth,
+        externalAi: {
+          ...invalidOptionalOpenAiAudit.truth.externalAi,
+          publicExecution: undefined,
+        },
+      },
+    }),
+    (error) => error.code === "PRODUCTION_REPAIR_AUDIT_ARTIFACT_UNTRUSTED",
   );
   assert.throws(
     () => validateAuditedProductionEnvironmentInput({
@@ -1335,6 +1412,22 @@ async function testExternalAiProductionTruth() {
   });
   assert.equal(expectedGrokAbsent.verified, false);
 
+  const publiclyExecutable = evaluateStagedExternalAiRuntimeTruth({
+    payload: externalAiPayload({ executionEnabled: true, operational: true }),
+    expectedXaiModelId: "grok-4.5",
+  });
+  assert.equal(publiclyExecutable.verified, false);
+  assert.equal(publiclyExecutable.publicExecutionDisabled, false);
+  assert.equal(publiclyExecutable.operationalFailClosed, false);
+
+  const missingExecutionTruth = externalAiPayload();
+  delete missingExecutionTruth.executionEnabled;
+  delete missingExecutionTruth.operational;
+  assert.equal(evaluateStagedExternalAiRuntimeTruth({
+    payload: missingExecutionTruth,
+    expectedXaiModelId: "grok-4.5",
+  }).verified, false);
+
   const failedOpenai = evaluateStagedExternalAiRuntimeTruth({
     payload: externalAiPayload({
       includeOpenai: true,
@@ -1383,6 +1476,11 @@ async function testExternalAiProductionTruth() {
   assert.doesNotMatch(envGovernanceSource, /"env", "rm"/u);
   assert.match(envGovernanceSource, /PRODUCTION_REPAIR_OPENAI_RECORD_FINGERPRINT_CHANGED/u);
   assert.match(envGovernanceSource, /credential_not_configured_pending_staged_deployment/u);
+  assert.match(envGovernanceSource, /PRODUCTION_AUDIT_EXTERNAL_AI_PUBLIC_EXECUTION_UNSAFE/u);
+  const runtimeGates = jobSection("runtime_gates");
+  assert.match(runtimeGates, /executionEnabled/u);
+  assert.match(runtimeGates, /\$execution_enabled" == "false"/u);
+  assert.match(runtimeGates, /\$operational" == "false"/u);
 }
 
 function testConcurrency() {

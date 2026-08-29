@@ -48,6 +48,12 @@ export type VideoProviderDescriptor = {
   publicProductUrl: string | null;
   publicApiUrl: string | null;
   availabilityNote: string;
+  contractStatus?: "implemented_tested" | "catalog_only" | "deprecated";
+  lifecycle?: "active" | "deprecated" | "unknown";
+  shutdownAt?: string | null;
+  remoteCancel?: "supported" | "unsupported" | "unknown";
+  outputUrlTtlHours?: number | null;
+  setupChecklist?: string[];
 };
 
 export type VideoReferenceAsset = {

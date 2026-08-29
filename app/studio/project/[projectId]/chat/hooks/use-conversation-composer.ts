@@ -7,15 +7,17 @@ export function useConversationComposer({
   busy,
   draft,
   attachmentCount,
+  blocked = false,
   onSend,
 }: {
   active: boolean;
   busy: boolean;
   draft: string;
   attachmentCount: number;
+  blocked?: boolean;
   onSend: () => void;
 }) {
-  const canSend = active && !busy && Boolean(draft.trim() || attachmentCount);
+  const canSend = active && !busy && !blocked && Boolean(draft.trim() || attachmentCount);
   const submit = useCallback(() => {
     if (canSend) onSend();
   }, [canSend, onSend]);

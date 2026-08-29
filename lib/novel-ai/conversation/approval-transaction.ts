@@ -548,10 +548,10 @@ function hasValidApprovalExecutionTruth(
     || (receipt?.closedAgentSchemaVersion === "closed-agent-os-v2"
       && !verifiedClosedCacheHit
       && !verifiedClosedFreshExecution)
-    || (
+    || ((
       ["external-ai", "openai", "gemini", "grok", "claude"].includes(invocation.actualExecutor)
-      && (!invocation.externalRequest || !invocation.dataLeftDevice)
-    )
+      || invocation.actualExecutor.startsWith("external-api:")
+    ) && (!invocation.externalRequest || !invocation.dataLeftDevice))
     || !digestPattern.test(invocation.inputDigest)
     || !digestPattern.test(invocation.contextDigest)
     || !Number.isInteger(invocation.canonicalMutationCount)

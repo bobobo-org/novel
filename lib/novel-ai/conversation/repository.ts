@@ -118,7 +118,11 @@ function assertExecutionTruth(input: {
   if (input.dataLeftDevice && !input.externalRequest) {
     throw new RepositoryOperationError("CONVERSATION_EXECUTION_TRUTH_INVALID");
   }
-  if (input.actualExecutor && ["external-ai", "openai", "gemini", "grok", "claude"].includes(input.actualExecutor) && (!input.externalRequest || !input.dataLeftDevice)) {
+  const externalExecutor = Boolean(input.actualExecutor && (
+    ["external-ai", "openai", "gemini", "grok", "claude"].includes(input.actualExecutor)
+    || input.actualExecutor.startsWith("external-api:")
+  ));
+  if (externalExecutor && (!input.externalRequest || !input.dataLeftDevice)) {
     throw new RepositoryOperationError("CONVERSATION_EXTERNAL_EXECUTOR_TRUTH_INVALID");
   }
   if (input.executionReceipt && (

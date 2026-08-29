@@ -21,6 +21,7 @@ export type BytePlusSeedanceRatio = typeof BYTEPLUS_SEEDANCE_RATIOS[number];
 export type BytePlusSeedanceStatus = typeof BYTEPLUS_SEEDANCE_STATUSES[number];
 
 export type BytePlusSeedanceCreateInput = {
+  idempotencyKey?: string;
   prompt: string;
   durationSeconds: number;
   resolution: BytePlusSeedanceResolution;
@@ -33,8 +34,10 @@ export type BytePlusSeedanceCreateInput = {
 export type BytePlusSeedanceJob = {
   providerTaskId: string;
   status: BytePlusSeedanceStatus;
+  progressPercent: number | null;
   videoUrl: string | null;
   failureCode: "PROVIDER_TASK_FAILED" | "PROVIDER_TASK_CANCELLED" | "PROVIDER_TASK_EXPIRED" | null;
+  retryable: boolean;
 };
 
 export type BytePlusSeedanceErrorCode =
@@ -317,6 +320,7 @@ export function createBytePlusSeedanceAdapter(input: {
       return {
         providerTaskId: id,
         status,
+        progressPercent: null,
         videoUrl,
         failureCode: status === "failed"
           ? "PROVIDER_TASK_FAILED"
@@ -325,6 +329,7 @@ export function createBytePlusSeedanceAdapter(input: {
             : status === "expired"
               ? "PROVIDER_TASK_EXPIRED"
               : null,
+        retryable: status === "failed" || status === "expired",
       };
     },
   };

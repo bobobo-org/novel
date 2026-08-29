@@ -21,6 +21,14 @@ export function ApprovalCard({
   onRegenerate: (message: ConversationMessage) => void;
 }) {
   if (artifact.status !== "candidate") return null;
+  if (artifact.targetStore === "none") {
+    return (
+      <span className={styles.approvalActions} data-testid="conversation-reference-candidate-actions" data-artifact-id={artifact.id}>
+        <small>已保存為參考候選，不寫入 Canon</small>
+        <button type="button" disabled={busy} onClick={() => onReject(artifact)}>放棄</button>
+      </span>
+    );
+  }
   const approveLabel = artifact.artifactType === "rpg"
     ? "核准寫入正文、狀態與收據"
     : artifact.artifactType === "learning_rule"

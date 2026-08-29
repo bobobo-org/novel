@@ -1,15 +1,22 @@
-export const NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION = "novel-to-video-director-doctrine-v1" as const;
+export const NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION = "novel-to-video-director-doctrine-v2" as const;
 
 export const NOVEL_TO_VIDEO_CRAFT_PROVENANCE = {
   doctrineVersion: NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION,
   sourceClass: "distilled_public_craft_methods",
   sourceChannel: "https://www.youtube.com/@hedge.sphere/shorts",
+  additionalSourceChannel: "https://www.youtube.com/@RainaDrama",
   reusePolicy: "只採用抽象製作方法；不複製來源台詞、角色、鏡頭排列、提示詞或辨識性風格。",
 } as const;
 
 export type NovelToVideoDirectorPackage = {
   doctrineVersion: typeof NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION;
   narrativePurpose: string;
+  adaptationBeat: {
+    highConcept: string;
+    incitingAction: string;
+    causalTurn: string;
+    payoffAndOpenQuestion: string;
+  };
   assetLocks: string[];
   spatialBlocking: string[];
   performanceDirection: string[];
@@ -105,6 +112,14 @@ export function createNovelToVideoDirectorPackage(input: DirectorPackageInput): 
   return {
     doctrineVersion: NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION,
     narrativePurpose: `${phaseLabel(index, total, input.storyFunction)}：${goal}；主要阻力是「${conflict}」。`,
+    adaptationBeat: {
+      highConcept: `人物要完成「${goal}」，卻被「${conflict}」迫使改變做法。`,
+      incitingAction: `不要先解說世界；讓「${action}」立即發生，並讓觀眾看見誰因此失去什麼。`,
+      causalTurn: `本鏡的行動必須造成下一鏡的新條件；下一鏡不可只換句話重述「${conflict}」。`,
+      payoffAndOpenQuestion: index === total - 1
+        ? "先兌現本集承諾或讓代價落地，再留下由人物選擇造成的具體未解問題。"
+        : "本鏡結尾交付一項可見結果，再把尚未解決的阻力推進下一鏡。",
+    },
     assetLocks: unique([
       identityLock,
       `鎖定「${location}」的時代、格局、出口、光源與關鍵道具幾何。`,
@@ -148,6 +163,7 @@ export function createNovelToVideoDirectorPackage(input: DirectorPackageInput): 
       "禁止臉、手指、服裝、傷勢、道具形狀、文字、光向與背景格局跨幀突變。",
       "禁止用『電影感、史詩、高級』等空泛形容取代可見動作、物理光源與空間關係。",
       "禁止把整段小說直接塞成單一超長提示詞；本鏡失敗時只局部重生或修補。",
+      "禁止把小說摘要、設定名詞或旁白宣告當成可拍情節；每段必須有角色目標、可見行動、阻力與結果。",
     ],
     qualityChecks: [
       "敘事：本鏡只有一個主動作，且開頭與結尾狀態產生可辨識變化。",
@@ -155,6 +171,7 @@ export function createNovelToVideoDirectorPackage(input: DirectorPackageInput): 
       "空間：站位、朝向、視線、出入口、背景、光向及運動慣性可連回前後鏡。",
       "影像：無手臉崩壞、穿模、重影、閃爍、物件形變；文字須正確且位於安全區。",
       "聲音：對嘴、爆音、音量、環境底噪與四類音軌通過檢查；權利與同意來源可追溯。",
+      "因果：移除本鏡會改變後續事件；若不會，代表它仍是重述或填充，必須重寫。",
     ],
   };
 }
@@ -163,12 +180,17 @@ export function closedAIDirectorDoctrineInstruction() {
   return [
     `小說轉影片必須遵守 ${NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION}。`,
     "不可把小說全文直接改寫成一個超長影片提示詞；先拆成故事節拍，再建立逐鏡導演包。",
+    "先用一句話固定高概念：人物身分或欲望＋異常任務／煽動事件＋逐步揭露的真相或代價；不要用世界觀百科代替故事。",
+    "每段遵守『目標→行動→阻力→結果→新條件』；移除一段若不影響後文，該段就是填充，必須刪除或改寫。",
+    "系列先定義題材與情緒契約、角色辨識資產、單集目標與集末未解問題；小說敘述要改成可演的場景、對白與動作，不可整章旁白化。",
     "每鏡依序明確輸出：敘事目的、不可變角色／場景／道具資產、多人錨點與站位、唯一主動作、伴生微動作、景別／機位／有動機運鏡、物理光源與色彩、四類聲音軌、進場狀態、末端姿勢／速度交接、負向限制與 QC。",
     "開場先出現正在發生的異常、衝突或代價；情緒用環境、蒙太奇、視線、呼吸與選擇外顯，不用旁白或全員過度表演。",
     "每集必須先兌現承諾或讓代價落地，再建立下一個具體問題；懸念不能取代 Payoff。",
     "多人戲先用全景建立地理，之後每鏡只改變少量位置關係；不用含糊的左／右取代固定地標。",
     "跨鏡維護資產、空間、故事三層連戲帳本，使用動作交疊、視線接點、環境聲橋或 J／L cut，不把末幀續寫當唯一方法。",
     "提示詞只是導演決策的交付格式，JSON 不是審美；失敗時指出可局部重生、替換或合成修補的鏡頭，不整段抽卡重做。",
+    "海外或跨平台版本要保留同一故事因果與角色身份，再分開處理字幕、本地化節奏、調色、音效與視覺包裝；翻譯不是重寫正史的授權。",
+    "每個製作階段分開驗收：題材／大綱→劇本→角色資產→分鏡→影像→配音／音效→剪輯／發布；AI 產量與宣傳數字不等於品質或收益。",
     NOVEL_TO_VIDEO_CRAFT_PROVENANCE.reusePolicy,
   ].join("\n");
 }

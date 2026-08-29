@@ -80,6 +80,15 @@ export type ConversationWorkspaceViewProps = {
   closedAiSetupBusy: ComposerProps["closedAiSetupBusy"];
   closedAiSetupError: ComposerProps["closedAiSetupError"];
   closedAiSetupLifecycle: ComposerProps["closedAiSetupLifecycle"];
+  aiExecutionMode: ComposerProps["aiExecutionMode"];
+  hybridAiSource: ComposerProps["hybridAiSource"];
+  externalProviderId: ComposerProps["externalProviderId"];
+  externalProviderStatuses: ComposerProps["externalProviderStatuses"];
+  externalProviderStatusError: ComposerProps["externalProviderStatusError"];
+  externalExecutionEnabled: ComposerProps["externalExecutionEnabled"];
+  externalRunConsent: ComposerProps["externalRunConsent"];
+  externalSelected: ComposerProps["externalSelected"];
+  externalProviderConfigured: ComposerProps["externalProviderConfigured"];
   onFilesSelected: ComposerProps["onFilesSelected"];
   retryLocalAttachment: ComposerProps["onRetryAttachment"];
   removeLocalAttachment: ComposerProps["onRemoveAttachment"];
@@ -87,6 +96,10 @@ export type ConversationWorkspaceViewProps = {
   sendRequest: ComposerProps["onSend"];
   prepareClosedAi: ComposerProps["onPrepareClosedAi"];
   cancelClosedAiSetup: ComposerProps["onCancelClosedAiSetup"];
+  onAiExecutionModeChange: ComposerProps["onAiExecutionModeChange"];
+  onHybridAiSourceChange: ComposerProps["onHybridAiSourceChange"];
+  onExternalProviderChange: ComposerProps["onExternalProviderChange"];
+  onExternalRunConsentChange: ComposerProps["onExternalRunConsentChange"];
   drawer: DrawerProps["drawer"];
   artifactView: DrawerProps["artifactView"];
   artifactBefore: DrawerProps["artifactBefore"];
@@ -212,6 +225,15 @@ export function ConversationWorkspaceView(props: ConversationWorkspaceViewProps)
             closedAiSetupBusy={props.closedAiSetupBusy}
             closedAiSetupError={props.closedAiSetupError}
             closedAiSetupLifecycle={props.closedAiSetupLifecycle}
+            aiExecutionMode={props.aiExecutionMode}
+            hybridAiSource={props.hybridAiSource}
+            externalProviderId={props.externalProviderId}
+            externalProviderStatuses={props.externalProviderStatuses}
+            externalProviderStatusError={props.externalProviderStatusError}
+            externalExecutionEnabled={props.externalExecutionEnabled}
+            externalRunConsent={props.externalRunConsent}
+            externalSelected={props.externalSelected}
+            externalProviderConfigured={props.externalProviderConfigured}
             onDraftChange={props.setDraft}
             onFilesSelected={props.onFilesSelected}
             onRightsConfirmedChange={props.setRightsConfirmed}
@@ -222,6 +244,10 @@ export function ConversationWorkspaceView(props: ConversationWorkspaceViewProps)
             onSend={() => { void props.sendRequest(); }}
             onPrepareClosedAi={() => { void props.prepareClosedAi(); }}
             onCancelClosedAiSetup={props.cancelClosedAiSetup}
+            onAiExecutionModeChange={props.onAiExecutionModeChange}
+            onHybridAiSourceChange={props.onHybridAiSourceChange}
+            onExternalProviderChange={props.onExternalProviderChange}
+            onExternalRunConsentChange={props.onExternalRunConsentChange}
           />
         )}
         artifactDrawer={props.artifactOpen ? (
