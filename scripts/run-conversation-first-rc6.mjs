@@ -953,12 +953,15 @@ harness.test("contract", "chapter continuation setup follows task route, not any
   assert.match(taskReadiness, /route\.executionStatus === "routable"/u);
   assert.match(taskReadiness, /setup\.runtime\.plannedBackend/u);
   assert.match(composer, /CHAPTER_CONTINUE_SETUP_REQUIRED_MESSAGE/u);
-  assert.match(composer, /showSetup = Boolean\(closedAiSetup && !taskRoutable\)/u);
+  assert.match(
+    composer,
+    /showSetup = Boolean\(!externalSelected && closedAiSetup && !taskRoutable\)/u,
+  );
   assert.match(composer, /data-closed-ai-task-routable=\{taskRoutable\}/u);
   assert.match(composer, /自動協調器設定/u);
 });
 
-harness.test("contract", "story tasks use the automatic coordinator without a user backend picker", () => {
+harness.test("contract", "closed story tasks keep automatic backend routing while external execution is explicit", () => {
   const page = readFileSync(
     new URL("../app/studio/project/[projectId]/chat/page.tsx", import.meta.url),
     "utf8",
@@ -972,7 +975,10 @@ harness.test("contract", "story tasks use the automatic coordinator without a us
     "utf8",
   );
   assert.doesNotMatch(page, /query\.backend|first\(query\.backend\)/u);
-  assert.doesNotMatch(composer, /setBackend|<select/u);
+  assert.doesNotMatch(composer, /setBackend/u);
+  assert.match(composer, /AI 執行來源/u);
+  assert.match(composer, /value=\{aiExecutionMode\}/u);
+  assert.match(composer, /value=\{externalProviderId\}/u);
   assert.match(
     workspace,
     /preferredBackend:\s*previousDigest\s*\?\s*input\.regeneration\?\.preferredBackend\s*:\s*undefined/u,

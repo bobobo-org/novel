@@ -374,7 +374,10 @@ jobs:
             pnpm test:ai:closed:optimization
             pnpm test:ai:external:modes
             pnpm test:ai:external:request-guard
+            pnpm test:ai:external:health-hardening
+            pnpm test:ai:conversation-external-wiring
             pnpm test:media:seedance-contract
+            pnpm test:media:video-worker-contract
             pnpm test:ai:closed:cloud-sync
             pnpm test:ai:whole-novel-review
             pnpm test:public-lounge
