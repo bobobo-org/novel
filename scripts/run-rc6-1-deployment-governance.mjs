@@ -93,6 +93,13 @@ function testOrdering() {
   assert.match(jobSection("staged_deploy"), /needs:\s*\[validate,\s*production_build,\s*post_build_secret_scan\]/u);
   assert.match(jobSection("runtime_gates"), /needs:\s*\[validate,\s*staged_deploy\]/u);
   assert.match(jobSection("alias_cutover"), /needs:\s*\[validate,\s*staged_deploy,\s*runtime_gates\]/u);
+  const stagedExternalAiGate = stepSection(
+    jobSection("runtime_gates"),
+    "Verify staged external AI truth and provider isolation",
+  );
+  assert.match(stagedExternalAiGate, /--header "Origin: \$STAGED_URL"/u);
+  assert.match(stagedExternalAiGate, /--header "Referer: \$STAGED_URL\/"/u);
+  assert.match(stagedExternalAiGate, /--header "Sec-Fetch-Site: same-origin"/u);
   assert.match(jobSection("production_build"), /include-hidden-files:\s*true/u);
   assert.doesNotMatch(jobSection("validate"), /pnpm build(?:\s|$)|conversation-bundle-budget/u);
   assert.match(jobSection("validate"), /pnpm build:manual-learning-worker/u);

@@ -1810,7 +1810,11 @@ jobs:
           set -euo pipefail
           providers_url="$STAGED_URL/api/ai/external/providers?probe=1&providers=openai,grok&verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           for attempt in {1..15}; do
-            if body="$(curl --connect-timeout 5 --max-time 10 --fail --silent --show-error "$providers_url" 2>/dev/null)"; then
+            if body="$(curl --connect-timeout 5 --max-time 10 --fail --silent --show-error \
+              --header "Origin: $STAGED_URL" \
+              --header "Referer: $STAGED_URL/" \
+              --header "Sec-Fetch-Site: same-origin" \
+              "$providers_url" 2>/dev/null)"; then
               openai_not_configured="$(jq -r 'any(.providers[]?; .id == "openai" and .configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED")' <<<"$body")"
               openai_verified="$(jq -r 'any(.providers[]?; .id == "openai" and .configured == true and .verification == "verified" and .verificationCode == "MODEL_ACCESS_VERIFIED")' <<<"$body")"
               grok_not_configured="$(jq -r 'any(.providers[]?; .id == "grok" and .configured == false and .verification == "not_configured" and .verificationCode == "NOT_CONFIGURED")' <<<"$body")"

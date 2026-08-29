@@ -160,6 +160,11 @@ assert.match(styles, /\.sidebar\s*\{[\s\S]*?position:\s*fixed[\s\S]*?transform:\
 assert.match(styles, /\.sidebar\[data-open=["']true["']\]\s*\{[\s\S]*?transform:\s*translateX\(0\)/u, "側欄展開時必須回到畫面並可操作");
 assert.match(styles, /@media \(max-width: 900px\)[\s\S]*?\.mobileBar\s*\{[\s\S]*?display:\s*flex/u, "窄畫面必須保留可叫出側欄的行動工具列");
 assert.match(styles, /@media \(max-width: 900px\)[\s\S]*?\.shell\s*\{[\s\S]*?top:\s*var\(--conversation-visual-top,\s*0px\)/u, "手機殼層必須實際套用 visualViewport offsetTop");
+assert.match(
+  styles,
+  /\.composerWrap:has\(\.composer textarea:focus\) \.aiSourceCard,[\s\S]*?\.composerWrap:has\(\.composer textarea:focus\) \.closedAiSetupCard\s*\{\s*display:\s*none/u,
+  "手機鍵盤開啟時必須只收起輸入框上方的 AI 輔助卡，避免正文輸入與送出鍵被推出可視區",
+);
 assert.match(styles, /@media \(max-width: 480px\)[\s\S]*?\.choiceOutcome[^\{]*\{\s*grid-template-columns:\s*58px\s+minmax\(0,\s*1fr\)/u, "極窄畫面的收益、代價與風險必須可換行");
 
 console.log("PASS chat detailed dashboard");

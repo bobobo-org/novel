@@ -1793,7 +1793,8 @@
   .aiSourceCard select { width: 100%; min-width: 0; min-height: 44px; }
   .externalAiControls { grid-template-columns: 1fr; }
   .externalConsent { grid-column: auto; }
-  .composerWrap:focus-within .closedAiSetupCard { display: none; }
+  .composerWrap:has(.composer textarea:focus) .aiSourceCard,
+  .composerWrap:has(.composer textarea:focus) .closedAiSetupCard { display: none; }
   .composer { padding: 7px; border-radius: 15px; }
   .composer textarea { min-height: 46px; max-height: 128px; padding: 7px 8px; font-size: 16px; }
   .sendButton,
