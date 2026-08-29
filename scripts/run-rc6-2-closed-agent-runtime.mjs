@@ -1265,7 +1265,7 @@ await test("source-truth", async () => {
     );
     assert.match(source, /import\([\s\S]{0,80}language\/traditional-chinese/u);
   }
-  const [types, closedAgentOs, safeRuntimeDiagnostics, conversationRepository, recordSecurity, backends, provider, browserWebLlmRuntime, privateHub, service, bootstrap, composer, workspace, finalizationSupport, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health, packageSource, networkSentinelTests] = await Promise.all([
+  const [types, closedAgentOs, safeRuntimeDiagnostics, conversationRepository, recordSecurity, backends, provider, browserWebLlmRuntime, privateHub, service, bootstrap, composer, workspace, closedAgentRunner, finalizationSupport, bootstrapHook, messageRow, regenerationProof, approvalHook, browserGate, health, packageSource, networkSentinelTests] = await Promise.all([
     readFile(new URL("../lib/novel-ai/closed-agent-os/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/closed-agent-os/safe-runtime-diagnostics.ts", import.meta.url), "utf8"),
@@ -1279,6 +1279,7 @@ await test("source-truth", async () => {
     readFile(new URL("../lib/novel-ai/web/closed-ai-bootstrap-coordinator.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/components/message-composer.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/studio/project/[projectId]/chat/conversation-closed-agent.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/novel-ai/conversation/closed-agent-finalization.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-closed-ai-bootstrap.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/studio/project/[projectId]/chat/components/message-row.tsx", import.meta.url), "utf8"),
@@ -1383,7 +1384,7 @@ await test("source-truth", async () => {
   assert.match(composer, /data-setup-lifecycle=\{closedAiSetupLifecycle\}/u);
   assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\(safeErrorMessage\(error\)\)/u);
   assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\("已取消自動協調器準備/u);
-  assert.doesNotMatch(workspace, /preferredBackend:\s*previousDigest\s*\?\s*"local-ollama"/u);
+  assert.doesNotMatch(closedAgentRunner, /preferredBackend:\s*previousDigest\s*\?\s*"local-ollama"/u);
   assert.match(bootstrapHook, /verifiedConversationRegenerationBackend/u);
   assert.match(bootstrapHook, /sourceBackendStillReady/u);
   assert.doesNotMatch(bootstrapHook, /inspected\.readiness\.activeBackend/u);
@@ -1420,19 +1421,16 @@ await test("source-truth", async () => {
   assert.match(conversationRepository, /parseClosedAgentFailureEvidence\(input\.safeProgress\.message\)/u);
   assert.match(recordSecurity, /CONVERSATION_LOCAL_TOOL_IDS\.closedAgentPlan/u);
   assert.match(recordSecurity, /parseClosedAgentFailureEvidence\(invocation\.safeProgress\.message\)/u);
-  assert.match(workspace, /createClosedAgentFailureEvidence\(error\)/u);
-  assert.match(workspace, /serializeClosedAgentFailureEvidence\(failureEvidence\)/u);
+  assert.match(closedAgentRunner, /createClosedAgentFailureEvidence\(error\)/u);
+  assert.match(closedAgentRunner, /serializeClosedAgentFailureEvidence\(failureEvidence\)/u);
   assert.match(finalizationSupport, /stage:\s*CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE/u);
   assert.match(finalizationSupport, /persistenceFailed = true/u);
   assert.match(finalizationSupport, /CLOSED_AGENT_FAILURE_EVIDENCE_PERSIST_FAILED/u);
-  const closedAgentFinalization = workspace.slice(
-    workspace.indexOf("async function runClosedAgent"),
-    workspace.indexOf("async function sendRequest"),
-  );
+  const closedAgentFinalization = closedAgentRunner;
   const targetSnapshotAt = closedAgentFinalization.indexOf("const approvalTarget");
   const modelExecutionAt = closedAgentFinalization.indexOf("await executeStudioClosedAgent");
-  const artifactCommitAt = closedAgentFinalization.indexOf("artifact = await conversation.saveArtifact");
-  const messageCommitAt = closedAgentFinalization.indexOf("await conversation.updateMessageStatus", artifactCommitAt);
+  const artifactCommitAt = closedAgentFinalization.indexOf("artifact = await input.conversation.saveArtifact");
+  const messageCommitAt = closedAgentFinalization.indexOf("await input.conversation.updateMessageStatus", artifactCommitAt);
   const invocationCommitAt = closedAgentFinalization.indexOf("invocation = await completeInvocation()", messageCommitAt);
   assert.ok(targetSnapshotAt >= 0 && targetSnapshotAt < modelExecutionAt);
   assert.ok(modelExecutionAt < artifactCommitAt);

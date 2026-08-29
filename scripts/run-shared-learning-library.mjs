@@ -757,6 +757,7 @@ const [
   sharedServer,
   sharedSyncHook,
   chatWorkspace,
+  chatClosedAgent,
   learningRepository,
   learningService,
   learningCombination,
@@ -773,6 +774,7 @@ const [
   readFile("lib/novel-ai/sovereign-learning/shared-learning-library.server.ts", "utf8"),
   readFile("app/studio/project/[projectId]/chat/hooks/use-shared-learning-sync.ts", "utf8"),
   readFile("app/studio/project/[projectId]/chat/conversation-workspace.tsx", "utf8"),
+  readFile("app/studio/project/[projectId]/chat/conversation-closed-agent.ts", "utf8"),
   readFile("lib/novel-ai/sovereign-learning/repository.ts", "utf8"),
   readFile("lib/novel-ai/sovereign-learning/service.ts", "utf8"),
   readFile("lib/novel-ai/sovereign-learning/combination-engine.ts", "utf8"),
@@ -837,10 +839,11 @@ assert.match(
 assert.match(sharedSyncHook, /\/api\/ai\/learning\/shared-library\?limit=24/u);
 assert.match(sharedSyncHook, /REQUEST_TIMEOUT_MS = 1_600/u);
 assert.match(sharedSyncHook, /ingestSharedLearningSnapshot/u);
-assert.match(chatWorkspace, /await ensureSharedLearningReady\(input\.signal\)/u);
+assert.match(chatClosedAgent, /await input\.ensureSharedLearningReady\(input\.signal\)/u);
 assert.match(chatWorkspace, /useConversationRpgController\(\{[\s\S]{0,500}learningRepository,[\s\S]{0,160}ensureSharedLearningReady,/u);
-assert.match(chatWorkspace, /resolveStudioClosedComputePolicy\(\)/u);
-assert.match(chatWorkspace, /hasExplicitLocalComputeAuthorization\(automaticComputePolicy\)/u);
+assert.match(chatWorkspace, /runConversationClosedAgent\(\{[\s\S]{0,500}ensureSharedLearningReady,/u);
+assert.match(chatClosedAgent, /resolveStudioClosedComputePolicy\(\)/u);
+assert.match(chatClosedAgent, /hasExplicitLocalComputeAuthorization\(automaticComputePolicy\)/u);
 assert.doesNotMatch(chatWorkspace, /browserComputePolicy:[\s\S]{0,80}"browser-first"/u);
 assert.match(learningRepository, /projectStatusFamilyConfidence/u);
 assert.match(learningRepository, /projectFamilyDimensionStatusConfidence/u);

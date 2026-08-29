@@ -874,6 +874,10 @@ test("one story workspace exposes progress while coordinator management keeps ru
     path.join(root, "app/studio/project/[projectId]/chat/conversation-workspace.tsx"),
     "utf8",
   );
+  const closedAgentRunner = fs.readFileSync(
+    path.join(root, "app/studio/project/[projectId]/chat/conversation-closed-agent.ts"),
+    "utf8",
+  );
   const localServer = fs.readFileSync(
     path.join(root, "local-ai/bridge/server.mjs"),
     "utf8",
@@ -886,9 +890,10 @@ test("one story workspace exposes progress while coordinator management keeps ru
     path.join(root, "app/studio/studio-client.tsx"),
     "utf8",
   );
-  assert.match(conversation, /onProgress: \(event\) => setProgress\(progressLabel\(event\)\)/u);
+  assert.match(closedAgentRunner, /onProgress: \(event\) => input\.onProgress\(progressLabel\(event\)\)/u);
+  assert.match(conversation, /onProgress:\s*setProgress/u);
   assert.match(conversation, /isClosedAiTaskRoutable\(closedAiSetup\)/u);
-  assert.match(conversation, /executeStudioClosedAgent/u);
+  assert.match(closedAgentRunner, /executeStudioClosedAgent/u);
   assert.match(ui, /closed-ai-management-boundary/u);
   assert.doesNotMatch(ui, /executeStudioClosedAgent|commitStudioCandidateToChapter/u);
   assert.match(ui, /os\.dashboard\(projectId, nextSnapshots\)/u);

@@ -1267,6 +1267,7 @@ test("quick-assistant-parity", "one story workspace owns generation while manage
     source("app/studio/project/[projectId]/closed-ai/closed-ai-workspace.tsx"),
     source("app/studio/project/[projectId]/learning/learning-workspace.tsx"),
     source("app/studio/project/[projectId]/chat/conversation-workspace.tsx"),
+    source("app/studio/project/[projectId]/chat/conversation-closed-agent.ts"),
   ]);
   assert.match(files[0], /executeStudioClosedAgent/u);
   assert.match(files[1], /runStudioClosedAI/u);
@@ -1275,7 +1276,8 @@ test("quick-assistant-parity", "one story workspace owns generation while manage
   assert.match(files[3], /closed-ai-management-boundary/u);
   assert.doesNotMatch(files[3], /executeStudioClosedAgent|commitStudioCandidateToChapter/u);
   assert.match(files[4], /runStudioClosedAI/u);
-  assert.match(files[5], /executeStudioClosedAgent/u);
+  assert.match(files[5], /runConversationClosedAgent/u);
+  assert.match(files[6], /executeStudioClosedAgent/u);
   const service = await source("lib/novel-ai/web/closed-agent-os-service.ts");
   assert.match(service, /composeProjectContext/u);
   assert.match(service, /ClosedAIRuntimeCoordinator/u);

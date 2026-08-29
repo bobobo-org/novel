@@ -7,16 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type {
-  ClosedAIBackendId,
-} from "@/lib/novel-ai/closed-agent-os";
 import {
-  createClosedAgentFailureEvidence,
-  serializeClosedAgentFailureEvidence,
-} from "@/lib/novel-ai/closed-agent-os/safe-runtime-diagnostics";
-import { createExplicitRegenerationContract } from "@/lib/novel-ai/web/explicit-regeneration";
-import {
-  type Chapter,
   type ConversationArtifact,
   type ConversationAttachment,
   type ConversationMessage,
@@ -36,13 +27,7 @@ import {
 } from "@/lib/novel-ai/repository/backup";
 import { createSovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-transaction";
-import { buildConversationClosedAgentCacheOriginProof } from "@/lib/novel-ai/conversation/closed-agent-cache-origin-proof";
-import {
-  persistConversationClosedAgentFailure,
-  requireConversationApprovalTarget,
-} from "@/lib/novel-ai/conversation/closed-agent-finalization";
 import { stableStringify } from "@/lib/novel-ai/closed-ai-cache";
-import { resolveConversationCanonicalTarget } from "@/lib/novel-ai/conversation/canonical-target";
 import type { AtomicLearningImportCoordinator } from "@/lib/novel-ai/conversation/learning-import";
 import {
   planConversationRequest,
@@ -55,14 +40,6 @@ import {
   ConversationRepositoryService,
 } from "@/lib/novel-ai/conversation/repository";
 import type { ManualLearningFileExtraction } from "@/lib/novel-ai/web/manual-learning-import-preparation";
-import {
-  executeStudioClosedAgent,
-  rejectStudioClosedAgentCandidate,
-} from "@/lib/novel-ai/web/closed-agent-os-service";
-import {
-  hasExplicitLocalComputeAuthorization,
-  resolveStudioClosedComputePolicy,
-} from "@/lib/novel-ai/web/studio-closed-compute-policy";
 import {
   buildRpgChatCustomAction,
   loadLearningAwareRpgChatSnapshot,
@@ -84,6 +61,7 @@ import {
 import { useClosedAiBootstrap } from "./hooks/use-closed-ai-bootstrap";
 import { useSharedLearningSync } from "./hooks/use-shared-learning-sync";
 import { useConversationSummaryController } from "./hooks/use-conversation-summary";
+import { useConversationExternalAiController } from "./hooks/use-conversation-external-ai";
 import {
   artifactStory,
 } from "./components/conversation-presentation";
@@ -93,32 +71,16 @@ import type {
   DrawerPayload,
 } from "./components/conversation-types";
 import {
-  artifactType,
   errorCode,
   errorMessage,
   type ExistingUserRequest,
   latestRpgChoicesFrom,
-  MAX_TRANSIENT_ATTACHMENT_CONTEXT,
-  progressLabel,
   resolveArtifactBefore,
-  targetStore,
 } from "./conversation-workspace-support";
 import { isClosedAiTaskRoutable } from "./closed-ai-task-readiness";
 import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
-import {
-  EXTERNAL_AI_PROVIDER_IDS,
-  type ExternalAIProviderId,
-  type ExternalAIProviderPublicStatus,
-  type NovelAIExecutionMode,
-} from "@/lib/novel-ai/providers/external/external-provider-contract";
-import { generateExternalAIStream } from "@/lib/novel-ai/providers/external/external-provider-client";
-import {
-  buildConversationExternalPrompt,
-  CONVERSATION_EXTERNAL_AI_TOOL_ID,
-  conversationUsesExternalAI,
-  isExternalProviderConfigured,
-  type ConversationAiSource,
-} from "./external-ai";
+import { runConversationExternalAgent } from "./conversation-external-agent";
+import { runConversationClosedAgent } from "./conversation-closed-agent";
 
 export default function ConversationWorkspace({
   projectId,
@@ -162,18 +124,23 @@ export default function ConversationWorkspace({
   const [artifactDraft, setArtifactDraft] = useState("");
   const [artifactView, setArtifactView] = useState<"candidate" | "diff" | "comparison">("candidate");
   const [artifactBefore, setArtifactBefore] = useState("");
-  const [aiExecutionMode, setAiExecutionMode] = useState<NovelAIExecutionMode>("closed-only");
-  const [hybridAiSource, setHybridAiSource] = useState<ConversationAiSource>("closed");
-  const [externalProviderId, setExternalProviderId] = useState<ExternalAIProviderId>("openai");
-  const [externalProviderStatuses, setExternalProviderStatuses] = useState<ExternalAIProviderPublicStatus[]>([]);
-  const [externalProviderStatusError, setExternalProviderStatusError] = useState<string | null>(null);
-  const [externalExecutionEnabled, setExternalExecutionEnabled] = useState(false);
-  const [externalRunConsent, setExternalRunConsent] = useState(false);
-  const externalSelected = conversationUsesExternalAI(aiExecutionMode, hybridAiSource);
-  const externalProviderConfigured = isExternalProviderConfigured(
-    externalProviderStatuses,
+  const clearExternalSelectionError = useCallback(() => setSafeError(null), []);
+  const {
+    aiExecutionMode,
+    hybridAiSource,
     externalProviderId,
-  );
+    externalProviderStatuses,
+    externalProviderStatusError,
+    externalExecutionEnabled,
+    externalRunConsent,
+    externalSelected,
+    externalProviderConfigured,
+    setExternalRunConsent,
+    clearExternalRunConsent,
+    changeAiExecutionMode,
+    changeHybridAiSource,
+    changeExternalProvider,
+  } = useConversationExternalAiController(clearExternalSelectionError);
   const {
     closedAiSetup,
     closedAiSetupProgress,
@@ -202,49 +169,6 @@ export default function ConversationWorkspace({
   const operationLocked = useCallback(() => operationLockRef.current, []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
-  const refreshExternalProviderStatuses = useCallback(async (signal: AbortSignal) => {
-    setExternalProviderStatusError(null);
-    try {
-      const response = await fetch("/api/ai/external/providers", {
-        cache: "no-store",
-        signal,
-      });
-      if (!response.ok) throw new Error("外來 AI 接點狀態暫時無法讀取。");
-      const snapshot = await response.json() as {
-        providers?: ExternalAIProviderPublicStatus[];
-        executionEnabled?: boolean;
-      };
-      if (signal.aborted) return;
-      const providers = Array.isArray(snapshot.providers)
-        ? snapshot.providers.filter((provider) => EXTERNAL_AI_PROVIDER_IDS.includes(provider.id))
-        : [];
-      setExternalProviderStatuses(providers);
-      setExternalExecutionEnabled(snapshot.executionEnabled === true);
-    } catch (error) {
-      if (signal.aborted) return;
-      setExternalProviderStatuses([]);
-      setExternalExecutionEnabled(false);
-      setExternalProviderStatusError(
-        error instanceof Error ? error.message : "外來 AI 接點狀態暫時無法讀取。",
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const refresh = () => { void refreshExternalProviderStatuses(controller.signal); };
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    refresh();
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      controller.abort();
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [refreshExternalProviderStatuses]);
   const {
     project,
     storyBible,
@@ -1056,534 +980,6 @@ export default function ConversationWorkspace({
     }
   }
 
-  async function runClosedAgent(input: {
-    plan: ConversationPlan;
-    sessionId: string;
-    userMessage: ConversationMessage;
-    preparedAttachments: Array<{
-      record: ConversationAttachment;
-      extraction: ManualLearningFileExtraction;
-    }>;
-    signal: AbortSignal;
-    regeneration?: {
-      source: ConversationMessage;
-      taskId: string;
-      placeholderId: string;
-      preferredBackend: ClosedAIBackendId;
-      sourceCandidateId: string;
-      sourceTaskId: string;
-      sourceCandidateDigest: string;
-      regenerationAttempt: number;
-    };
-  }) {
-    const placeholder = input.regeneration
-      ? await repository.get<ConversationMessage>("conversationMessages", input.regeneration.placeholderId)
-      : await conversation.appendMessage({
-        projectId,
-        sessionId: input.sessionId,
-        role: "assistant",
-        content: "",
-        status: "streaming",
-        parentMessageId: input.userMessage.id,
-      });
-    if (!placeholder) throw new Error("CONVERSATION_ASSISTANT_PLACEHOLDER_MISSING");
-    const taskId = input.regeneration?.taskId ?? `conversation-agent:${crypto.randomUUID()}`;
-    let invocation: ConversationToolInvocation | null = null;
-    let closedCandidateId: string | null = null;
-    let artifact: ConversationArtifact | null = null;
-    try {
-      invocation = await conversation.saveToolInvocation({
-        projectId,
-        sessionId: input.sessionId,
-        messageId: placeholder.id,
-        taskId,
-        toolId: CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan,
-        taskType: input.plan.taskType ?? "assistant.general",
-        inputDigest: input.plan.inputDigest,
-        contextDigest: input.plan.planDigest,
-        status: "running",
-        canonicalMutationCount: 0,
-        safeProgress: { stage: "planning", percent: 10, message: "已辨識自然語言任務" },
-      });
-      const plannedTargetStore = targetStore(input.plan);
-      const resolvedCanonicalTarget = plannedTargetStore === "characters" || plannedTargetStore === "worldRules"
-        ? await resolveConversationCanonicalTarget({
-            repository,
-            projectId,
-            store: plannedTargetStore,
-            objective: input.plan.objective,
-          })
-        : null;
-      const resolvedChapterTarget = currentChapter
-        ? await repository.get<Chapter>("chapters", currentChapter.id)
-        : null;
-      const approvalTarget = requireConversationApprovalTarget({
-        approvalRequired: input.plan.approvalRequired,
-        targetStore: plannedTargetStore,
-        projectId,
-        chapter: resolvedChapterTarget,
-        canonicalTarget: resolvedCanonicalTarget,
-      });
-      const previousDigest = input.regeneration?.sourceCandidateDigest;
-      await ensureSharedLearningReady(input.signal);
-      const automaticComputePolicy = input.regeneration?.preferredBackend === "local-ollama"
-        ? "quality-first"
-        : resolveStudioClosedComputePolicy();
-      const result = await executeStudioClosedAgent({
-        projectId,
-        taskType: input.plan.taskType ?? "assistant.general",
-        objective: input.plan.objective,
-        taskId,
-        sourceChapterId: resolvedCanonicalTarget?.targetRecordId
-          ?? resolvedChapterTarget?.id,
-        sourceRevision: resolvedCanonicalTarget?.sourceRevision
-          ?? resolvedChapterTarget?.revision,
-        conversationSessionId: input.sessionId,
-        conversationRecentMessageLimit: 12,
-        selectedAttachmentSummaries: input.preparedAttachments.map(({ record, extraction }) => ({
-          attachmentId: record.id,
-          recordRevision: record.revision,
-          summary: extraction.text.slice(0, MAX_TRANSIENT_ATTACHMENT_CONTEXT),
-          contentDigest: extraction.contentHash,
-        })),
-        regeneration: previousDigest
-          ? createExplicitRegenerationContract({
-            previousCandidateId: input.regeneration!.sourceCandidateId,
-            previousTaskId: input.regeneration!.sourceTaskId,
-            previousCandidateDigest: previousDigest,
-            regenerationAttempt: input.regeneration!.regenerationAttempt,
-            extraRequirement: "建立新的 taskId 與候選，不覆蓋原訊息；保持 Canon 不變。",
-          })
-          : undefined,
-        preferredBackend: previousDigest
-          ? input.regeneration?.preferredBackend
-          : undefined,
-        browserComputePolicy: automaticComputePolicy,
-        allowPreAuthorizedClosedEscalation: hasExplicitLocalComputeAuthorization(automaticComputePolicy),
-        signal: input.signal,
-        onProgress: (event) => setProgress(progressLabel(event)),
-      });
-      closedCandidateId = result.candidate.id;
-      if (input.signal.aborted) {
-        throw Object.assign(new Error("Conversation generation cancelled."), { code: "CONVERSATION_CANCELLED" });
-      }
-      if (
-        result.candidate.canonicalMutationCount !== 0
-        || result.candidate.externalRequest
-        || result.candidate.dataLeftDevice
-      ) {
-        throw Object.assign(new Error("模型回覆越過候選或裝置邊界。"), {
-          code: "CONVERSATION_CANDIDATE_BOUNDARY_VIOLATION",
-        });
-      }
-      for (const execution of result.toolExecutions ?? []) {
-        await conversation.saveToolInvocation({
-          projectId,
-          sessionId: input.sessionId,
-          messageId: placeholder.id,
-          invocationId: `conversation-agent-tool:${input.sessionId}:${execution.receiptId}`,
-          taskId: execution.taskId,
-          toolId: execution.toolId,
-          taskType: execution.taskType,
-          inputDigest: execution.inputDigest,
-          contextDigest: execution.contextDigest,
-          status: "completed",
-          actualExecutor: execution.actualExecutor,
-          modelId: null,
-          modelDigest: null,
-          executionReceipt: {
-            receiptId: execution.receiptId,
-            modelId: null,
-            modelDigest: null,
-            providerRunId: null,
-            contextDigest: execution.contextDigest,
-            outputDigest: execution.outputDigest,
-            externalRequest: false,
-            dataLeftDevice: false,
-            latencyMs: execution.latencyMs,
-          },
-          externalRequest: false,
-          dataLeftDevice: false,
-          canonicalMutationCount: 0,
-          safeProgress: {
-            stage: execution.cacheHit ? "tool-cache" : "tool-completed",
-            percent: 100,
-            message: `${execution.toolId} 已完成。`,
-          },
-        });
-      }
-      const completedExecutionReceipt = toExecutionReceipt({
-        taskId: result.candidate.taskId,
-        modelId: result.candidate.modelId,
-        modelDigest: result.candidate.modelDigest,
-        contextDigest: result.candidate.contextDigest ?? invocation.contextDigest,
-        outputDigest: result.candidate.contentDigest,
-        externalRequest: false,
-        dataLeftDevice: false,
-        receipt: result.candidate.executionReceipt,
-        closedAgentProof: {
-          schemaVersion: result.candidate.schemaVersion,
-          backendId: result.candidate.backendId,
-          normalizationReceiptId:
-            result.candidate.traditionalChineseNormalization.receiptId,
-          traditionalChineseNormalizerVersion:
-            result.candidate.traditionalChineseNormalization.normalizerVersion,
-          cacheOrigin: await buildConversationClosedAgentCacheOriginProof(
-            result.candidate,
-          ),
-        },
-      });
-      if (approvalTarget) {
-        artifact = await conversation.saveArtifact({
-          projectId,
-          sessionId: input.sessionId,
-          sourceMessageId: placeholder.id,
-          artifactType: artifactType(input.plan),
-          targetStore: approvalTarget.targetStore,
-          targetRecordId: approvalTarget.targetRecordId,
-          sourceRevision: approvalTarget.sourceRevision,
-          candidateContent: result.candidate.content,
-        });
-      }
-      const currentPlaceholder = await repository.get<ConversationMessage>("conversationMessages", placeholder.id);
-      if (!currentPlaceholder) throw new Error("CONVERSATION_MESSAGE_MISSING");
-      if (input.signal.aborted) {
-        throw Object.assign(new Error("Conversation generation cancelled."), { code: "CONVERSATION_CANCELLED" });
-      }
-      const primaryInvocation = invocation;
-      if (!primaryInvocation) throw new Error("CONVERSATION_TOOL_INVOCATION_MISSING");
-      const completeInvocation = () => conversation.updateToolInvocationStatus({
-        projectId,
-        sessionId: input.sessionId,
-        invocationId: primaryInvocation.id,
-        expectedRevision: primaryInvocation.revision,
-        status: "completed",
-        actualExecutor: result.candidate.actualExecutor,
-        modelId: result.candidate.modelId,
-        modelDigest: result.candidate.modelDigest,
-        executionReceipt: completedExecutionReceipt,
-        externalRequest: false,
-        dataLeftDevice: false,
-        canonicalMutationCount: 0,
-        safeProgress: { stage: "candidate", percent: 100, message: "候選已完成，Canon 未修改" },
-      });
-      const completedMessage = await conversation.updateMessageStatus({
-        projectId,
-        sessionId: input.sessionId,
-        messageId: currentPlaceholder.id,
-        expectedRevision: currentPlaceholder.revision,
-        status: "completed",
-        content: result.candidate.content,
-        candidateIds: [...currentPlaceholder.candidateIds, result.candidate.id],
-        toolInvocationIds: currentPlaceholder.toolInvocationIds,
-      });
-      invocation = await completeInvocation();
-      if (artifact) setDrawer({ kind: "artifact", artifactId: artifact.id });
-      return { result, artifact, invocation, message: completedMessage };
-    } catch (error) {
-      const cancelled = input.signal.aborted;
-      const failureEvidence = cancelled
-        ? null
-        : createClosedAgentFailureEvidence(error);
-      const persistedSafeCode = failureEvidence?.safeCode ?? errorCode(error);
-      const persistedFailureEvidence = failureEvidence
-        ? serializeClosedAgentFailureEvidence(failureEvidence)
-        : "";
-      await persistConversationClosedAgentFailure({
-        repository,
-        conversation,
-        projectId,
-        sessionId: input.sessionId,
-        placeholderId: placeholder.id,
-        invocationId: invocation?.id ?? null,
-        artifactId: artifact?.id ?? null,
-        closedCandidateId,
-        cancelled,
-        safeCode: persistedSafeCode,
-        serializedFailureEvidence: persistedFailureEvidence,
-        rejectClosedCandidate: rejectStudioClosedAgentCandidate,
-      });
-      if (!failureEvidence) throw error;
-      throw Object.assign(
-        new Error("本機閉端 AI 已安全停止；未完成內容與 Canon 均未修改。"),
-        { code: failureEvidence.safeCode },
-      );
-    }
-  }
-
-  async function runExternalAgent(input: {
-    plan: ConversationPlan;
-    sessionId: string;
-    userMessage: ConversationMessage;
-    providerId: ExternalAIProviderId;
-    executionMode: Exclude<NovelAIExecutionMode, "closed-only">;
-    signal: AbortSignal;
-  }) {
-    const plannedTargetStore = targetStore(input.plan);
-    const chapterTarget = plannedTargetStore === "chapters" && currentChapter
-      ? await repository.get<Chapter>("chapters", currentChapter.id)
-      : null;
-    if (plannedTargetStore === "chapters" && !chapterTarget) {
-      throw Object.assign(new Error("找不到可供核准的目前章節；本次外來 AI 沒有送出。"), {
-        code: "CONVERSATION_EXTERNAL_CHAPTER_TARGET_MISSING",
-      });
-    }
-    const candidateTargetStore = chapterTarget ? "chapters" as const : "none" as const;
-    const candidateTargetRecordId = chapterTarget?.id
-      ?? `conversation-external-opinion:${input.sessionId}`;
-    const candidateSourceRevision = chapterTarget?.revision ?? input.userMessage.revision;
-    const prompt = buildConversationExternalPrompt({
-      objective: input.userMessage.content,
-      intent: input.plan.intent,
-    });
-    const systemInstruction = "你是小說寫作助理。只回傳供作者審閱的繁體中文候選內容；不得聲稱已修改正式作品，不得揭露思考過程，也不得假設未提供的角色、世界、章節或對話資料。";
-    const contextDigest = await conversationContentDigest(stableStringify({
-      schemaVersion: "conversation-external-ai-request-v1",
-      executionMode: input.executionMode,
-      providerId: input.providerId,
-      prompt,
-      systemInstruction,
-    }));
-    const taskId = `conversation-external-ai:task:${crypto.randomUUID()}`;
-    let placeholder: ConversationMessage | null = null;
-    let invocation: ConversationToolInvocation | null = null;
-    let artifact: ConversationArtifact | null = null;
-    let streamedText = "";
-    let lastStreamFlushAt = 0;
-    let streamFlushFailure: unknown = null;
-    let streamFlushPromise = Promise.resolve();
-    const assertExternalRunActive = () => {
-      if (!input.signal.aborted) return;
-      throw Object.assign(new Error("外來 AI 已由使用者取消，沒有建立候選。"), {
-        code: "EXTERNAL_AI_CANCELLED",
-      });
-    };
-    const flushVisibleExternalStream = (force = false) => {
-      const content = streamedText;
-      const message = placeholder;
-      if (!message || !content || input.signal.aborted) return streamFlushPromise;
-      const now = Date.now();
-      if (!force && now - lastStreamFlushAt < 120) return streamFlushPromise;
-      lastStreamFlushAt = now;
-      streamFlushPromise = streamFlushPromise.then(async () => {
-        assertExternalRunActive();
-        const currentMessage = await repository.get<ConversationMessage>(
-          "conversationMessages",
-          message.id,
-        );
-        assertExternalRunActive();
-        if (!currentMessage || currentMessage.status !== "streaming" || currentMessage.content === content) {
-          return;
-        }
-        const visibleMessage = await conversation.updateMessageStatus({
-          projectId,
-          sessionId: input.sessionId,
-          messageId: currentMessage.id,
-          expectedRevision: currentMessage.revision,
-          status: "streaming",
-          content,
-          candidateIds: currentMessage.candidateIds,
-          toolInvocationIds: currentMessage.toolInvocationIds,
-        });
-        projectMessageIntoActiveSession(input.sessionId, visibleMessage);
-      }).catch((error) => {
-        streamFlushFailure ??= error;
-      });
-      return streamFlushPromise;
-    };
-    try {
-      assertExternalRunActive();
-      placeholder = await conversation.appendMessage({
-        projectId,
-        sessionId: input.sessionId,
-        role: "assistant",
-        content: "",
-        status: "streaming",
-        parentMessageId: input.userMessage.id,
-      });
-      projectMessageIntoActiveSession(input.sessionId, placeholder);
-      assertExternalRunActive();
-      invocation = await conversation.saveToolInvocation({
-        projectId,
-        sessionId: input.sessionId,
-        messageId: placeholder.id,
-        taskId,
-        toolId: CONVERSATION_EXTERNAL_AI_TOOL_ID,
-        taskType: input.plan.taskType ?? "assistant.general",
-        inputDigest: input.plan.inputDigest,
-        contextDigest,
-        status: "running",
-        actualExecutor: `external-api:${input.providerId}`,
-        externalRequest: true,
-        dataLeftDevice: true,
-        canonicalMutationCount: 0,
-        safeProgress: {
-          stage: "external-generating",
-          percent: 5,
-          message: "已依本次同意連線到指定外來 AI；只會建立候選。",
-        },
-      });
-      const result = await generateExternalAIStream({
-        executionMode: input.executionMode,
-        providerId: input.providerId,
-        externalConsent: true,
-        prompt,
-        systemInstruction,
-        maxOutputTokens: 4_000,
-        temperature: 0.75,
-      }, {
-        signal: input.signal,
-        onDelta: (delta, generatedTokenEvents) => {
-          streamedText += delta;
-          void flushVisibleExternalStream();
-          setProgress(`指定外來 AI 正在建立候選 · 已收到 ${generatedTokenEvents.toLocaleString("zh-TW")} 個串流片段`);
-        },
-      });
-      if (result.providerId !== input.providerId) {
-        throw Object.assign(new Error("外來 AI 回傳的供應商身分與本次選擇不一致。"), {
-          code: "CONVERSATION_EXTERNAL_PROVIDER_MISMATCH",
-        });
-      }
-      streamedText = result.text;
-      await flushVisibleExternalStream(true);
-      if (streamFlushFailure) throw streamFlushFailure;
-      assertExternalRunActive();
-      artifact = await conversation.saveArtifact({
-        projectId,
-        sessionId: input.sessionId,
-        sourceMessageId: placeholder.id,
-        artifactType: artifactType(input.plan),
-        targetStore: candidateTargetStore,
-        targetRecordId: candidateTargetRecordId,
-        sourceRevision: candidateSourceRevision,
-        candidateContent: result.text,
-      });
-      assertExternalRunActive();
-      const outputDigest = artifact.candidateDigest;
-      const [currentPlaceholder, currentInvocation] = await Promise.all([
-        repository.get<ConversationMessage>("conversationMessages", placeholder.id),
-        repository.get<ConversationToolInvocation>("conversationToolInvocations", invocation.id),
-      ]);
-      if (!currentPlaceholder || currentPlaceholder.status !== "streaming") {
-        throw new Error("CONVERSATION_EXTERNAL_MESSAGE_STALE");
-      }
-      if (!currentInvocation || currentInvocation.status !== "running") {
-        throw new Error("CONVERSATION_EXTERNAL_INVOCATION_STALE");
-      }
-      // This is the final cancellation boundary. From here through the receipt
-      // write, finalization is a non-interruptible persistence sequence: the
-      // message/artifact lineage lands first and the completed receipt is the
-      // last commit point. A later abort is therefore treated as arriving after
-      // completion, never as a reason to reject the completed candidate.
-      assertExternalRunActive();
-      const message = await conversation.updateMessageStatus({
-        projectId,
-        sessionId: input.sessionId,
-        messageId: currentPlaceholder.id,
-        expectedRevision: currentPlaceholder.revision,
-        status: "completed",
-        content: result.text,
-        candidateIds: currentPlaceholder.candidateIds,
-        toolInvocationIds: currentPlaceholder.toolInvocationIds,
-      });
-      projectMessageIntoActiveSession(input.sessionId, message);
-      invocation = await conversation.updateToolInvocationStatus({
-        projectId,
-        sessionId: input.sessionId,
-        invocationId: currentInvocation.id,
-        expectedRevision: currentInvocation.revision,
-        status: "completed",
-        actualExecutor: `external-api:${input.providerId}`,
-        modelId: result.modelId,
-        modelDigest: null,
-        contextDigest,
-        executionReceipt: {
-          receiptId: `conversation-external-receipt:${result.requestId}`,
-          modelId: result.modelId,
-          modelDigest: null,
-          providerRunId: result.requestId,
-          contextDigest,
-          outputDigest,
-          externalRequest: true,
-          dataLeftDevice: true,
-          latencyMs: result.elapsedMs,
-        },
-        externalRequest: true,
-        dataLeftDevice: true,
-        canonicalMutationCount: 0,
-        safeProgress: {
-          stage: "candidate",
-          percent: 100,
-          message: "外來 AI 候選已完成；等待作者核准，Canon 未修改。",
-        },
-      });
-      setDrawer({ kind: "artifact", artifactId: artifact.id });
-      return { result, artifact, invocation, message };
-    } catch (error) {
-      const status = input.signal.aborted ? "cancelled" as const : "failed" as const;
-      if (artifact) {
-        const currentArtifact = await repository.get<ConversationArtifact>(
-          "conversationArtifacts",
-          artifact.id,
-        );
-        if (currentArtifact?.status === "candidate") {
-          await conversation.rejectArtifact(
-            projectId,
-            input.sessionId,
-            currentArtifact.id,
-            currentArtifact.revision,
-          ).catch(() => undefined);
-        }
-      }
-      if (invocation) {
-        const currentInvocation = await repository.get<ConversationToolInvocation>(
-          "conversationToolInvocations",
-          invocation.id,
-        );
-        if (currentInvocation && ["pending", "running"].includes(currentInvocation.status)) {
-          await conversation.updateToolInvocationStatus({
-            projectId,
-            sessionId: input.sessionId,
-            invocationId: currentInvocation.id,
-            expectedRevision: currentInvocation.revision,
-            status,
-            actualExecutor: `external-api:${input.providerId}`,
-            externalRequest: true,
-            dataLeftDevice: true,
-            canonicalMutationCount: 0,
-            safeErrorCode: errorCode(error),
-            safeProgress: {
-              stage: status === "cancelled" ? "cancelled" : "failed",
-              percent: 100,
-              message: status === "cancelled"
-                ? "已停止外來 AI；未完成內容與 Canon 均未修改。"
-                : "指定外來 AI 沒有完成；未改用閉端 AI、其他供應商或規則後備。",
-            },
-          }).catch(() => undefined);
-        }
-      }
-      if (placeholder) {
-        const currentPlaceholder = await repository.get<ConversationMessage>(
-          "conversationMessages",
-          placeholder.id,
-        );
-        if (currentPlaceholder && ["pending", "streaming"].includes(currentPlaceholder.status)) {
-          await conversation.updateMessageStatus({
-            projectId,
-            sessionId: input.sessionId,
-            messageId: currentPlaceholder.id,
-            expectedRevision: currentPlaceholder.revision,
-            status,
-            content: status === "cancelled"
-              ? "外來 AI 已停止；沒有建立候選，Canon 維持原狀。"
-              : "指定外來 AI 沒有完成；沒有建立候選，也沒有轉用其他來源。",
-          }).catch(() => undefined);
-        }
-      }
-      throw error;
-    }
-  }
-
   async function sendRequest(
     contentOverride?: string,
     onAccepted?: () => void,
@@ -1642,10 +1038,7 @@ export default function ConversationWorkspace({
       operationLockRef.current = false;
       return;
     }
-    const externalSelectedForRequest = conversationUsesExternalAI(
-      aiExecutionMode,
-      hybridAiSource,
-    );
+    const externalSelectedForRequest = externalSelected;
     const externalProviderForRequest = externalProviderId;
     const externalExecutionModeForRequest = aiExecutionMode === "closed-only"
       ? null
@@ -1693,10 +1086,7 @@ export default function ConversationWorkspace({
         operationLockRef.current = false;
         return;
       }
-      if (externalProviderStatusError || !isExternalProviderConfigured(
-        externalProviderStatuses,
-        externalProviderForRequest,
-      )) {
+      if (externalProviderStatusError || !externalProviderConfigured) {
         if (!existingUserRequest) setDraft(content);
         setSafeError({
           code: "CONVERSATION_EXTERNAL_PROVIDER_NOT_CONFIGURED",
@@ -1995,22 +1385,42 @@ export default function ConversationWorkspace({
       } else {
         const completed = externalSelectedForRequest && externalExecutionModeForRequest
           ? await (async () => {
-              setExternalRunConsent(false);
-              return runExternalAgent({
+              clearExternalRunConsent();
+              return runConversationExternalAgent({
+                projectId,
+                repository,
+                conversation,
+                currentChapter,
                 plan,
                 sessionId,
                 userMessage,
                 providerId: externalProviderForRequest,
                 executionMode: externalExecutionModeForRequest,
                 signal: controller.signal,
+                onProgress: setProgress,
+                onProjectMessage: (message) => {
+                  projectMessageIntoActiveSession(sessionId, message);
+                },
+                onOpenArtifact: (artifactId) => {
+                  setDrawer({ kind: "artifact", artifactId });
+                },
               });
             })()
-          : await runClosedAgent({
+          : await runConversationClosedAgent({
+              projectId,
+              repository,
+              conversation,
+              currentChapter,
               plan,
               sessionId,
               userMessage,
               preparedAttachments,
               signal: controller.signal,
+              ensureSharedLearningReady,
+              onProgress: setProgress,
+              onOpenArtifact: (artifactId) => {
+                setDrawer({ kind: "artifact", artifactId });
+              },
             });
         requestCompletion.capture(completed.message);
       }
@@ -2192,12 +1602,21 @@ export default function ConversationWorkspace({
         expectedSourceInvocation: sourceInvocation!,
         expectedClosedCandidateId: regenerationSource.candidateId,
       });
-      await runClosedAgent({
+      await runConversationClosedAgent({
+        projectId,
+        repository,
+        conversation,
+        currentChapter,
         plan,
         sessionId,
         userMessage: sourceUser,
         preparedAttachments: [],
         signal: controller.signal,
+        ensureSharedLearningReady,
+        onProgress: setProgress,
+        onOpenArtifact: (artifactId) => {
+          setDrawer({ kind: "artifact", artifactId });
+        },
         regeneration: {
           source: currentSourceMessage,
           taskId: prepared.taskId,
@@ -2232,26 +1651,7 @@ export default function ConversationWorkspace({
 
   function changeDraft(value: string) {
     setDraft(value);
-    setExternalRunConsent(false);
-  }
-
-  function changeAiExecutionMode(mode: NovelAIExecutionMode) {
-    setAiExecutionMode(mode);
-    setHybridAiSource(mode === "external-only" ? "external" : "closed");
-    setExternalRunConsent(false);
-    setSafeError(null);
-  }
-
-  function changeHybridAiSource(source: ConversationAiSource) {
-    setHybridAiSource(source);
-    setExternalRunConsent(false);
-    setSafeError(null);
-  }
-
-  function changeExternalProvider(providerId: ExternalAIProviderId) {
-    setExternalProviderId(providerId);
-    setExternalRunConsent(false);
-    setSafeError(null);
+    clearExternalRunConsent();
   }
 
   async function openArtifact(

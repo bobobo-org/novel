@@ -82,6 +82,9 @@ const aiRouteSource = read(
 const conversationSource = read(
   "app/studio/project/[projectId]/chat/conversation-workspace.tsx",
 );
+const conversationClosedAgentSource = read(
+  "app/studio/project/[projectId]/chat/conversation-closed-agent.ts",
+);
 const characterAgentSource = read(
   "app/studio/project/[projectId]/character-ai/character-agent-workspace.tsx",
 );
@@ -1152,7 +1155,8 @@ await test("web workspaces expose real CRUD, chapter, AI, learning and safe lega
   }
   assert.ok(aiRouteSource.includes("/chat"));
   assert.ok(aiRouteSource.includes("redirect("));
-  assert.ok(conversationSource.includes("executeStudioClosedAgent"));
+  assert.ok(conversationSource.includes("runConversationClosedAgent"));
+  assert.ok(conversationClosedAgentSource.includes("executeStudioClosedAgent"));
   assert.ok(conversationSource.includes("useConversationApprovalController"));
   assert.ok(workspaceSource.includes("前往唯一故事工作台"));
   assert.ok(workspaceSource.includes('data-testid="closed-ai-management-boundary"'));

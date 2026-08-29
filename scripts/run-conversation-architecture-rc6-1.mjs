@@ -90,6 +90,12 @@ const hookFiles = [
   "use-conversation-rpg.ts",
   "use-conversation-operation.ts",
   "use-conversation-learning-loader.ts",
+  "use-conversation-external-ai.ts",
+];
+
+const runnerFiles = [
+  "conversation-closed-agent.ts",
+  "conversation-external-agent.ts",
 ];
 
 async function componentContract() {
@@ -113,6 +119,14 @@ async function componentContract() {
       const source = await fs.readFile(absolute, "utf8");
       assert.ok(source.length >= 450, `${file} must own meaningful derived state or behavior`);
     }
+    for (const file of runnerFiles) {
+      const absolute = path.join(chatRoot, file);
+      const source = await fs.readFile(absolute, "utf8");
+      assert.ok(source.length >= 1_500, `${file} must own a substantial execution boundary`);
+    }
+    assert.match(workspace, /runConversationClosedAgent\(\{/u);
+    assert.match(workspace, /runConversationExternalAgent\(\{/u);
+    assert.doesNotMatch(workspace, /(?:async\s+)?function\s+run(?:Closed|External)Agent\b/u);
     for (const name of ["ConversationShell", "SessionSidebar", "MessageTimeline", "MessageComposer"]) {
       assert.match(workspaceView, new RegExp(`<${name}\\b`), `${name} must be used by workspace view`);
     }
@@ -253,8 +267,11 @@ async function bundleBudget() {
     const statsPath = path.join(root, ".next", "diagnostics", "route-bundle-stats.json");
     const sourcePaths = [
       path.join(chatRoot, "conversation-workspace.tsx"),
+      path.join(chatRoot, "conversation-closed-agent.ts"),
+      path.join(chatRoot, "conversation-external-agent.ts"),
       path.join(chatRoot, "hooks", "use-conversation-attachments.ts"),
       path.join(chatRoot, "hooks", "use-conversation-learning-loader.ts"),
+      path.join(chatRoot, "hooks", "use-conversation-external-ai.ts"),
       path.join(root, "lib", "novel-ai", "web", "manual-learning-worker-client.ts"),
       path.join(root, "lib", "novel-ai", "web", "manual-learning-worker.ts"),
       path.join(root, "lib", "novel-ai", "web", "manual-learning-file-validation.ts"),

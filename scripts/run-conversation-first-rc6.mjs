@@ -880,6 +880,10 @@ harness.test("contract", "closed regeneration waits for readiness and commits it
     new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url),
     "utf8",
   );
+  const closedAgentRunner = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/conversation-closed-agent.ts", import.meta.url),
+    "utf8",
+  );
   const messageRow = readFileSync(
     new URL("../app/studio/project/[projectId]/chat/components/message-row.tsx", import.meta.url),
     "utf8",
@@ -888,15 +892,11 @@ harness.test("contract", "closed regeneration waits for readiness and commits it
     new URL("../lib/novel-ai/conversation/closed-agent-finalization.ts", import.meta.url),
     "utf8",
   );
-  const runClosedAgent = workspace.slice(
-    workspace.indexOf("async function runClosedAgent"),
-    workspace.indexOf("async function sendRequest"),
-  );
-  const targetSnapshotAt = runClosedAgent.indexOf("const approvalTarget");
-  const modelExecutionAt = runClosedAgent.indexOf("await executeStudioClosedAgent");
-  const artifactCommitAt = runClosedAgent.indexOf("artifact = await conversation.saveArtifact");
-  const messageCommitAt = runClosedAgent.indexOf("await conversation.updateMessageStatus", artifactCommitAt);
-  const invocationCommitAt = runClosedAgent.indexOf("invocation = await completeInvocation()", messageCommitAt);
+  const targetSnapshotAt = closedAgentRunner.indexOf("const approvalTarget");
+  const modelExecutionAt = closedAgentRunner.indexOf("await executeStudioClosedAgent");
+  const artifactCommitAt = closedAgentRunner.indexOf("artifact = await input.conversation.saveArtifact");
+  const messageCommitAt = closedAgentRunner.indexOf("await input.conversation.updateMessageStatus", artifactCommitAt);
+  const invocationCommitAt = closedAgentRunner.indexOf("invocation = await completeInvocation()", messageCommitAt);
   assert(targetSnapshotAt >= 0 && targetSnapshotAt < modelExecutionAt);
   assert(modelExecutionAt < artifactCommitAt);
   assert(artifactCommitAt < messageCommitAt);
@@ -970,6 +970,10 @@ harness.test("contract", "closed story tasks keep automatic backend routing whil
     new URL("../app/studio/project/[projectId]/chat/conversation-workspace.tsx", import.meta.url),
     "utf8",
   );
+  const closedAgentRunner = readFileSync(
+    new URL("../app/studio/project/[projectId]/chat/conversation-closed-agent.ts", import.meta.url),
+    "utf8",
+  );
   const composer = readFileSync(
     new URL("../app/studio/project/[projectId]/chat/components/message-composer.tsx", import.meta.url),
     "utf8",
@@ -980,7 +984,7 @@ harness.test("contract", "closed story tasks keep automatic backend routing whil
   assert.match(composer, /value=\{aiExecutionMode\}/u);
   assert.match(composer, /value=\{externalProviderId\}/u);
   assert.match(
-    workspace,
+    closedAgentRunner,
     /preferredBackend:\s*previousDigest\s*\?\s*input\.regeneration\?\.preferredBackend\s*:\s*undefined/u,
   );
   assert.match(workspace, /preferredBackend:\s*regenerationSource\.backendId/u);

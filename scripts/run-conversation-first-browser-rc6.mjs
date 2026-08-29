@@ -858,9 +858,14 @@ harness.test("browser", "route and component source expose the complete conversa
     "use-conversation-branch.ts",
     "use-conversation-session.ts",
     "use-conversation-learning-loader.ts",
+    "use-conversation-external-ai.ts",
   ].map((file) => readFileSync(`app/studio/project/[projectId]/chat/hooks/${file}`, "utf8")).join("\n");
+  const runnerSource = [
+    "conversation-closed-agent.ts",
+    "conversation-external-agent.ts",
+  ].map((file) => readFileSync(`app/studio/project/[projectId]/chat/${file}`, "utf8")).join("\n");
   const uiSource = `${workspaceSource}\n${componentSource}`;
-  const operationSource = `${workspaceSource}\n${hookSource}`;
+  const operationSource = `${workspaceSource}\n${hookSource}\n${runnerSource}`;
   const attachmentWorkerSource = readFileSync("lib/novel-ai/web/manual-learning-worker-client.ts", "utf8");
   const cssSource = readFileSync("app/studio/project/[projectId]/chat/conversation.module.css", "utf8");
   const manualLearningGateSource = readFileSync("scripts/run-rc6-manual-learning.mjs", "utf8");
@@ -885,8 +890,6 @@ harness.test("browser", "route and component source expose the complete conversa
     "重新產生",
     "latestInvocation?.actualExecutor",
     "dataLeftDevice",
-    "result.toolExecutions",
-    "conversation-agent-tool:",
     "toolInvocations:",
     "rpg-inline-choices",
     "choiceOutcome",
@@ -895,6 +898,9 @@ harness.test("browser", "route and component source expose the complete conversa
     "查看 Diff",
     "比較候選",
   ]) assert(uiSource.includes(contract), `missing UI contract: ${contract}`);
+  for (const contract of ["result.toolExecutions", "conversation-agent-tool:"]) {
+    assert(operationSource.includes(contract), `missing operation contract: ${contract}`);
+  }
   assert(
     workspaceSource.includes('actualExecutor: "browser-main-thread"'),
     "non-parser repository tools must preserve their real browser main-thread executor",
