@@ -1110,10 +1110,10 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
         ? " 這份雛形不綁定玩法；仍須由你親自選擇創作／遊玩方式。"
         : "";
       setSeedAssistantStatus(timedOut
-        ? `閉端 AI 等待滿 60 秒仍未完成，已改用本次裝置後備候選；手填欄位不會被覆蓋。${pendingModeReminder}`
+        ? `閉端 AI 等待滿 60 秒仍未完成，已將本次裝置後備候選填入空白欄位；手填欄位不會被覆蓋。${pendingModeReminder}`
         : providerUnavailable
-          ? `已確認瀏覽器 AI 與本機 Ollama 都不可用，已改用本次裝置後備候選（${code}）；手填欄位不會被覆蓋。${pendingModeReminder}`
-          : `閉端 AI 在協調與輸出修正後仍未完成，已改用本次裝置後備候選（${code}）；手填欄位不會被覆蓋。${pendingModeReminder}`);
+          ? `已確認瀏覽器 AI 與本機 Ollama 都不可用，已將本次裝置後備候選填入空白欄位（${code}）；手填欄位不會被覆蓋。${pendingModeReminder}`
+          : `閉端 AI 在協調與輸出修正後仍未完成，已將本次裝置後備候選填入空白欄位（${code}）；手填欄位不會被覆蓋。${pendingModeReminder}`);
       setMessage(timedOut
         ? `閉端 AI 已等待滿 60 秒但未完成，因此顯示 ${batchLabel} 的裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`
         : providerUnavailable

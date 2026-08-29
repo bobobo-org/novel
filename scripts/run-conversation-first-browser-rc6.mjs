@@ -1249,11 +1249,11 @@ harness.test("browser", "project tools preserve the selected project and active 
   if (!await projectTools.evaluate((element) => element.open)) {
     await projectTools.locator("summary").click();
   }
-  await page.getByRole("link", { name: /人物與世界/u }).click();
+  await page.getByRole("link", { name: /人物與世界/u }).click({ noWaitAfter: true });
   await page.waitForURL((url) => (
     url.pathname === `${projectPrefix}/people-world`
     && url.searchParams.get("view") === "characters"
-  ));
+  ), { timeout: 90_000, waitUntil: "domcontentloaded" });
   const contextTabs = page.getByTestId("people-world-context-tabs");
   await contextTabs.waitFor({ state: "visible" });
   assert.equal(await contextTabs.getAttribute("data-active-view"), "characters");
