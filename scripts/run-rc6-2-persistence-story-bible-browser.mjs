@@ -233,22 +233,22 @@ async function createAndCopyGlobalStoryBible(page, projectId, title, values) {
   await page.getByTestId("global-canon-characters").waitFor();
   const targetProject = page.getByTestId("global-canon-target-project");
   await targetProject.selectOption(projectId);
-  await page.getByRole("tab", { name: "Story Bible", exact: true }).click();
+  await page.getByRole("tab", { name: "Story Bible 防矛盾總綱", exact: true }).click();
   const workspace = page.getByTestId("global-canon-story-bibles");
   await workspace.waitFor();
-  await workspace.getByLabel("名稱", { exact: true }).fill(title);
-  await workspace.getByLabel("核心主題", { exact: true }).fill(values.theme ?? "");
+  await workspace.getByLabel("總綱名稱", { exact: true }).fill(title);
+  await workspace.getByLabel("核心主題／角色弧線", { exact: true }).fill(values.theme ?? "");
   await workspace.getByLabel("敘事風格", { exact: true }).fill(values.style ?? "");
   await workspace.getByLabel(/伏筆/u).fill(values.foreshadowing ?? "");
   await workspace.getByLabel("未解線索", { exact: true }).fill(values.unresolved ?? "");
   await workspace.getByLabel("禁止矛盾", { exact: true }).fill(values.contradictions ?? "");
-  await workspace.getByLabel("作者偏好", { exact: true }).fill(values.preferences ?? "");
+  await workspace.getByLabel("世界核心／作者偏好", { exact: true }).fill(values.preferences ?? "");
   await workspace.getByRole("button", { name: "加入 Story Bible 總庫", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "Story Bible 已加入全域總庫" }).waitFor();
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByTestId("global-canon-characters").waitFor();
-  await page.getByRole("tab", { name: "Story Bible", exact: true }).click();
+  await page.getByRole("tab", { name: "Story Bible 防矛盾總綱", exact: true }).click();
   const persistedWorkspace = page.getByTestId("global-canon-story-bibles");
   const record = persistedWorkspace.locator("article").filter({ hasText: title });
   await record.waitFor();
