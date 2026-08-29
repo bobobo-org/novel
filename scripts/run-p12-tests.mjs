@@ -14,6 +14,12 @@ const read = (file) => fs.readFileSync(file, "utf8"),
   compactChapterLifecycle = chapterLifecycle.replace(/\s+/g, ""),
   consumerVisibleStudio = studio.replace(/<details>[\s\S]*?<\/details>/gu, "");
 const results = [];
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+const hasDirectVisibleTechnicalText = (source, term) =>
+  new RegExp(
+    `(?<!=)>[\\s\\S]{0,40}(?<![A-Za-z0-9_])${escapeRegExp(term)}(?![A-Za-z0-9_])[\\s\\S]{0,40}<`,
+    "iu",
+  ).test(source);
 function test(name, fn) {
   try {
     if (!fn()) throw new Error("assertion returned false");
@@ -85,7 +91,7 @@ test("技術資訊預設收合", () =>
 test("繁中指令送入本機模型", () =>
   studio.includes("只提出候選，不得假設空白欄位已設定"));
 test("設定不足時不硬造故事", () => studio.includes("目前設定仍較少"));
-for (const term of [
+const consumerTechnicalTerms = [
   "Draft Candidate",
   "Provider",
   "Runtime",
@@ -97,9 +103,22 @@ for (const term of [
   "selectedProvider",
   "outputDestination",
   "externalConsent",
-])
+];
+for (const term of consumerTechnicalTerms)
   test(`一般畫面不顯示 ${term}`, () =>
-    !new RegExp(`>[\\s\\S]{0,40}${term}[\\s\\S]{0,40}<`, "i").test(consumerVisibleStudio));
+    !hasDirectVisibleTechnicalText(consumerVisibleStudio, term));
+test("技術詞檢查不把程式識別碼誤判為畫面文字", () =>
+  !hasDirectVisibleTechnicalText(
+    "const found = rows.find((provider) => provider.id === providerId); return <span>安全</span>",
+    "Provider",
+  ));
+test("技術詞檢查仍阻擋直接顯示的英文術語", () =>
+  hasDirectVisibleTechnicalText("<span>Provider status</span>", "Provider"));
+test("技術詞檢查仍阻擋條件式 JSX 顯示的英文術語", () =>
+  hasDirectVisibleTechnicalText('<p>{ready ? "Provider" : "其他"}</p>', "Provider"));
+test("所有禁用技術詞直接顯示都會被阻擋", () =>
+  consumerTechnicalTerms.every((term) =>
+    hasDirectVisibleTechnicalText(`<span>${term}</span>`, term)));
 test("沉浸閱讀只讀正式作品", () =>
   reader.includes('repo.get<NovelProject>("projects"') &&
   reader.includes('repo.list<Chapter>("chapters"') &&
