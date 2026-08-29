@@ -117,6 +117,19 @@ export function createStoryMediaCandidatePackage(input: {
       ...shot,
       sourceRefIds: [...shot.sourceRefIds],
       continuityNotes: [...shot.continuityNotes],
+      directorPackage: shot.directorPackage
+        ? {
+            ...shot.directorPackage,
+            assetLocks: [...shot.directorPackage.assetLocks],
+            spatialBlocking: [...shot.directorPackage.spatialBlocking],
+            performanceDirection: [...shot.directorPackage.performanceDirection],
+            shotGrammar: { ...shot.directorPackage.shotGrammar },
+            stateHandoff: { ...shot.directorPackage.stateHandoff },
+            audioPlan: { ...shot.directorPackage.audioPlan },
+            negativeConstraints: [...shot.directorPackage.negativeConstraints],
+            qualityChecks: [...shot.directorPackage.qualityChecks],
+          }
+        : undefined,
     })),
     mediaPrompt: input.mediaPrompt ?? null,
     adultNamespace,

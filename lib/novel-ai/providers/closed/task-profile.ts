@@ -8,6 +8,7 @@ import {
   currentChapterContext,
   extractNarrativeCharacterAnchors,
 } from "./continuity-anchors";
+import { closedAIDirectorDoctrineInstruction } from "../../media-extension/director-doctrine";
 
 export type ClosedModelBackendId =
   | "browser-ai"
@@ -103,6 +104,7 @@ const CREATIVE_TASKS = new Set<PlatformTaskType>([
   "game.questCandidate",
   "game.achievementCandidate",
   "drama.beatSuggestion",
+  "drama.scenePlan",
   "drama.dialogue",
   "drama.branchCandidate",
   "drama.ending",
@@ -122,6 +124,13 @@ const DIRECT_PROSE_TASKS = new Set<PlatformTaskType>([
   "chapter.expand",
   "character.dialogue",
   "drama.dialogue",
+]);
+
+const DIRECTOR_TASKS = new Set<PlatformTaskType>([
+  "drama.episodePlan",
+  "drama.scenePlan",
+  "drama.branchCandidate",
+  "drama.ending",
 ]);
 
 const TASK_INSTRUCTIONS: Partial<Record<PlatformTaskType, string>> = {
@@ -152,7 +161,9 @@ const TASK_INSTRUCTIONS: Partial<Record<PlatformTaskType, string>> = {
   "character.dialogueConsistency": "比較對話與角色聲音基準，列出一致與偏離證據；沒有足夠角色基準時明確標示，不能猜測。",
   "character.relationshipAnalysis": "分析每段關係的公開狀態、私人張力、權力、信任、債務、衝突與可能轉折；區分已知事實和候選推論。",
   "character.multiAgentSimulation": "以共用 Canon 為邊界模擬多角色互動；每個角色只能使用自己可知資訊，輸出外顯行動與對話，不洩露私人內部推演。",
-  "drama.episodePlan": "建立可拍攝的單集規劃；逐集列出開場 Hook、場景目標、主要衝突、人物選擇、轉折、代價、連續性、Payoff 與結尾懸念，並保留原作 Canon 邊界。",
+  "drama.episodePlan": "建立可拍攝的單集規劃；逐集列出開場 Hook、場景目標、主要衝突、人物選擇、轉折、代價、連續性、先兌現的 Payoff 與其後的結尾懸念，並保留原作 Canon 邊界。",
+  "drama.scenePlan": "把核准小說事件拆成逐鏡導演包；每鏡只能有一個主要敘事動作，必須交代資產鎖定、人物錨點與站位、表演、機位、運鏡、物理光源、聲音、進出狀態、連戲與可量測 QC。",
+  "drama.dialogue": "只輸出能被演員表演的台詞與動作；對白必須有角色目標、知識邊界與潛台詞，避免說明世界觀、重複上一句或讓所有角色同時忙動。",
   "world.create": "建立世界候選，包含時代、地理、社會秩序、資源、限制、日常生活、衝突來源與能推動劇情的成本。",
   "world.ruleCandidate": "提出可測試的世界規則候選；每條包含觸發條件、效果、限制、例外、代價與正文驗證例子。",
   "game.stateEvaluation": "檢查能力值、經驗、關係、資源、任務、成就與分支的一致性。所有數值問題都要附目前值、允許範圍、證據與候選修法；不得自行修改正式狀態。",
@@ -224,10 +235,14 @@ export function getClosedAIModelProfile(
             : 1_792;
 
   return {
-    profileId: `closed-${backendId}-${family}-v3`,
+    profileId: `closed-${backendId}-${family}-v4`,
     backendId,
     taskType,
-    systemInstruction: `${BASE_INSTRUCTION}\n${taskInstruction(taskType)}`,
+    systemInstruction: [
+      BASE_INSTRUCTION,
+      taskInstruction(taskType),
+      DIRECTOR_TASKS.has(taskType) ? closedAIDirectorDoctrineInstruction() : null,
+    ].filter(Boolean).join("\n"),
     timeoutMs: privateHub ? 240_000 : browserAI ? 90_000 : 120_000,
     maxInputCharacters: privateHub ? 72_000 : browserAI ? 10_000 : 16_000,
     options: {

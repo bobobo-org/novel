@@ -104,13 +104,16 @@ import {
   targetStore,
 } from "./conversation-workspace-support";
 import { isClosedAiTaskRoutable } from "./closed-ai-task-readiness";
+import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
 
 export default function ConversationWorkspace({
   projectId,
   initialPrompt,
+  initialTaskType,
 }: {
   projectId: string;
   initialPrompt: string;
+  initialTaskType: PlatformTaskType | null;
 }) {
   const repository = useMemo(() => createNovelRepository(), []);
   const learningRepository = useMemo(
@@ -167,6 +170,8 @@ export default function ConversationWorkspace({
   const initialPromptSenderRef = useRef<(
     contentOverride?: string,
     onAccepted?: () => void,
+    existingUserRequest?: ExistingUserRequest,
+    requestedTaskType?: PlatformTaskType | null,
   ) => Promise<void>>(async () => undefined);
   const operationLocked = useCallback(() => operationLockRef.current, []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -1240,6 +1245,7 @@ export default function ConversationWorkspace({
     contentOverride?: string,
     onAccepted?: () => void,
     existingUserRequest?: ExistingUserRequest,
+    requestedTaskType?: PlatformTaskType | null,
   ) {
     const content = (contentOverride ?? draft).trim();
     const sessionId = existingUserRequest?.sessionId ?? activeSession?.id ?? "";
@@ -1263,7 +1269,7 @@ export default function ConversationWorkspace({
     }
     const requestHadAttachments = requestLocalAttachments.length > 0;
     let learningResumeEnabled = false;
-    retryActionRef.current = () => { void sendRequest(content, undefined, existingUserRequest); };
+    retryActionRef.current = () => { void sendRequest(content, undefined, existingUserRequest, requestedTaskType); };
     setRetryAvailable(true);
     setRetryLabel("重試");
     const liveStoryState = project
@@ -1284,6 +1290,7 @@ export default function ConversationWorkspace({
       attachmentCount: requestLocalAttachments.length,
       hasActiveRpgTurn: Boolean(requestRpgChoices),
       fixedPlayMode: requestPlayMode,
+      requestedTaskType,
     }).catch((error) => {
       setSafeError({ code: errorCode(error), message: errorMessage(error) });
       return null;
@@ -1638,12 +1645,13 @@ export default function ConversationWorkspace({
       void initialPromptSenderRef.current(initialPrompt, () => {
         const url = new URL(window.location.href);
         url.searchParams.delete("prompt");
+        url.searchParams.delete("task");
         if (url.searchParams.get("mode") === "play") url.searchParams.delete("mode");
         window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-      });
+      }, undefined, initialTaskType);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [activeSession, busy, initialPrompt, loading]);
+  }, [activeSession, busy, initialPrompt, initialTaskType, loading]);
 
   async function regenerateMessage(message: ConversationMessage) {
     if (message.role !== "assistant") return;

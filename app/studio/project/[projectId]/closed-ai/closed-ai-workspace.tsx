@@ -434,6 +434,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     if (requestedTask.startsWith("game.") || /rpg/i.test(requestedTask)) {
       storyWorkspace.searchParams.set("mode", "play");
     }
+    if (requestedTask === "drama.episodePlan") {
+      storyWorkspace.searchParams.set("task", requestedTask);
+    }
     if (prompt) storyWorkspace.searchParams.set("prompt", prompt.slice(0, 4000));
     window.location.replace(`${storyWorkspace.pathname}${storyWorkspace.search}`);
   }, [projectId]);

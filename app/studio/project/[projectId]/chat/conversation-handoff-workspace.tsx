@@ -2,15 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { consumeStoryWorkspaceHandoff } from "@/lib/novel-ai/web/story-workspace-handoff";
+import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
 import ConversationWorkspace from "./conversation-workspace";
 
 export default function ConversationHandoffWorkspace({
   projectId,
   initialPrompt,
+  initialTaskType,
   handoffId,
 }: {
   projectId: string;
   initialPrompt: string;
+  initialTaskType: PlatformTaskType | null;
   handoffId: string;
 }) {
   const [resolvedPrompt, setResolvedPrompt] = useState(initialPrompt);
@@ -49,6 +52,7 @@ export default function ConversationHandoffWorkspace({
         key={`${projectId}:${handoffId || "direct"}`}
         projectId={projectId}
         initialPrompt={resolvedPrompt}
+        initialTaskType={initialTaskType}
       />
     </>
   );

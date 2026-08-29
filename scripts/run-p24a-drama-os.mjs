@@ -29,6 +29,9 @@ import {
   buildTopicWorldFamilyStageMatrix,
   serializeTopicWorldFamilyDraftSelection,
 } from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
+import { getClosedAIModelProfile } from "../lib/novel-ai/providers/closed/task-profile.ts";
+import { planConversationRequest } from "../lib/novel-ai/conversation/planner.ts";
+import { NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION } from "../lib/novel-ai/media-extension/director-doctrine.ts";
 
 const suite = process.argv[2] ?? "all";
 const evidenceDir = process.env.P24A_EVIDENCE_DIR || path.resolve("artifacts", "p24a-ci");
@@ -142,6 +145,27 @@ function registerCoreTests() {
   test("60 second profile is single turn", () => assert.equal(getDramaFormatProfile("DRAMA_60_SECONDS").structure, "single_turn"));
   test("feature profile is feature arc", () => assert.equal(getDramaFormatProfile("DRAMA_90_TO_120_MINUTES").structure, "feature_arc"));
   test("feature has more scenes than ten minute", () => assert(getDramaFormatProfile("DRAMA_90_TO_120_MINUTES").maximumSceneCount > getDramaFormatProfile("DRAMA_10_MINUTES").maximumSceneCount));
+  test("closed drama planning receives the shared directing doctrine", () => {
+    const instruction = getClosedAIModelProfile("drama.episodePlan", "local-ollama").systemInstruction;
+    assert(instruction.includes(NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION));
+    assert.match(instruction, /懸念不能取代 Payoff/u);
+  });
+  test("non-drama closed tasks do not receive video directing doctrine", () => {
+    assert(!getClosedAIModelProfile("story.summary", "local-ollama").systemInstruction.includes(NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION));
+  });
+  test("direct Drama dialogue stays performance-focused without the full shot doctrine", () => {
+    const instruction = getClosedAIModelProfile("drama.dialogue", "local-ollama").systemInstruction;
+    assert(!instruction.includes(NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION));
+    assert.match(instruction, /只輸出能被演員表演的台詞與動作/u);
+  });
+  test("explicit Drama UI task remains drama episode planning", async () => {
+    const plan = await planConversationRequest({
+      content: "把目前作品整理成三分鐘可拍攝短劇。",
+      requestedTaskType: "drama.episodePlan",
+    });
+    assert.equal(plan.intent, "drama_episode_plan");
+    assert.equal(plan.taskType, "drama.episodePlan");
+  });
   test("dialogue and visual densities are normalized", () => assert(profiles.every((row) => Math.abs(row.dialogueDensity + row.visualActionDensity - 1) < 0.001)));
   test("short formats require cliffhangers", () => assert(profiles.filter((row) => row.targetDurationSeconds <= 1800).every((row) => row.cliffhangerRequired)));
   test("schema version is stable", async () => assert.equal((await projectNovelToDrama(fixture())).project.dramaOsSchemaVersion, "drama-os-v1"));
@@ -246,6 +270,25 @@ function registerPacingTests() {
     test(`${profile.id} scene budget honored`, async () => assert((await projectNovelToDrama(fixture(profile.id))).episodes.every((row) => row.sceneIds.length <= profile.maximumSceneCount)));
     test(`${profile.id} emotion curve is event linked`, async () => assert((await projectNovelToDrama(fixture(profile.id))).episodes.every((row) => row.emotionCurve.every((point) => row.beatIds.includes(point.causeBeatId)))));
     test(`${profile.id} has required cliffhanger behavior`, async () => { const result = await projectNovelToDrama(fixture(profile.id)); assert(result.episodes.every((row) => profile.cliffhangerRequired ? row.cliffhanger.text.length > 0 : true)); });
+    test(`${profile.id} earns required payoff before cliffhanger`, async () => {
+      const result = await projectNovelToDrama(fixture(profile.id));
+      for (const episode of result.episodes) {
+        const episodeBeats = result.beats.filter((beat) => beat.episodeId === episode.episodeId);
+        const payoffIndexes = episodeBeats.map((beat, index) => beat.beatType === "PAYOFF" ? index : -1).filter((index) => index >= 0);
+        const cliffhangerIndex = episodeBeats.findIndex((beat) => beat.beatType === "CLIFFHANGER");
+        assert(payoffIndexes.length >= profile.minimumPayoffCount);
+        if (cliffhangerIndex >= 0) assert(payoffIndexes.every((index) => index < cliffhangerIndex));
+      }
+    });
+    test(`${profile.id} preserves contiguous beat order across scenes`, async () => {
+      const result = await projectNovelToDrama(fixture(profile.id));
+      for (const episode of result.episodes) {
+        const orderedBeatIds = episode.sceneIds.flatMap((sceneId) => result.beats
+          .filter((beat) => beat.sceneId === sceneId)
+          .map((beat) => beat.beatId));
+        assert.deepEqual(orderedBeatIds, episode.beatIds);
+      }
+    });
   }
 }
 
@@ -564,6 +607,12 @@ function registerUiTests() {
     assert(source.includes("製作交接包 JSON 已下載"));
     assert(!source.includes("Seedance 2.5 已安裝"));
     assert(!source.includes("installedAdapters"));
+  });
+  test("video timeline totals every episode and preserves first-shot dialogue", () => {
+    assert(source.includes("candidate?.episodes.reduce"));
+    assert(source.includes("episode.estimatedDurationSeconds"));
+    assert(source.includes("episodeScenes = candidate.scenes.filter"));
+    assert(source.includes("對白／聲音提示：${firstShot.dialogueOrAudioCue}"));
   });
   test("video submission requires runtime, approval, consent and cost confirmation", () => {
     assert(source.includes("videoRuntimeReady"));

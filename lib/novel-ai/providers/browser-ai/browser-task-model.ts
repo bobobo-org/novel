@@ -427,7 +427,16 @@ export function runPackagedBrowserTaskModel(
       break;
     }
     case "drama.beatSuggestion":
-      content = `節拍建議：先讓角色對「${evidence(source).slice(0, 70)}」做出可見反應，再加入一個選擇與明確代價；此為候選，不是 Canon。`;
+      content = [
+        "【裝置規則式節拍候選｜非生成式 AI】",
+        `開場 Hook：把「${evidence(source).slice(0, 70)}」轉成正在發生的異常、衝突或立即代價，不先說明世界觀。`,
+        "可見行動：只讓一名角色完成一個有原因的主動作，另一人以視線、呼吸或重心變化回應。",
+        "翻轉與選擇：加入一項新資訊，迫使角色在兩個都會付出代價的做法間選擇。",
+        "Payoff：先讓前面承諾的結果或代價在畫面中落地，不能直接跳到懸念。",
+        "後果與下一鉤：記錄站位、持有物、傷勢、情緒及末端動作，再提出下一個具體問題。",
+        "影片交接：分開記錄資產鎖定、場面調度、鏡頭／光色、四類聲音軌、負向限制與逐鏡 QC。",
+        "此為可重算候選，不是 Canon，也不表示外部影片模型已執行。",
+      ].join("\n");
       break;
     default:
       throw Object.assign(new Error("這個輕量工作尚未由瀏覽器模型實作。"), {

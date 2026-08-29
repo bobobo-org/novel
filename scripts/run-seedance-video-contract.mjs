@@ -22,6 +22,7 @@ import {
   createVideoProductionPlan,
   getVideoProvider,
   listVideoProviders,
+  NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION,
   videoProviderSubmissionGate,
 } from "../lib/novel-ai/media-extension/index.ts";
 
@@ -202,6 +203,15 @@ const plan = createVideoProductionPlan({
 assert.equal(plan.schemaVersion, "novel-video-production-v2");
 assert.equal(plan.totalDurationSeconds, 20);
 assert.equal(plan.shots[1].startSeconds, 8);
+assert.equal(plan.craftProvenance.doctrineVersion, NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION);
+assert.match(plan.craftProvenance.reusePolicy, /不複製來源台詞、角色、鏡頭排列/u);
+assert(plan.shots.every((shot) => shot.directorPackage.doctrineVersion === NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION));
+assert(plan.shots.every((shot) => shot.directorPackage.assetLocks.length >= 2));
+assert(plan.shots.every((shot) => shot.directorPackage.spatialBlocking.length >= 3));
+assert(plan.shots.every((shot) => Object.keys(shot.directorPackage.audioPlan).length === 5));
+assert(plan.shots.every((shot) => shot.directorPackage.negativeConstraints.length >= 4));
+assert(plan.shots.every((shot) => shot.directorPackage.qualityChecks.length >= 5));
+assert(plan.shots.every((shot) => shot.durationSeconds >= 4 && shot.durationSeconds <= 30));
 assert.deepEqual(videoProviderSubmissionGate({
   provider: seedance25,
   plan,
@@ -327,6 +337,10 @@ assert.match(uiSource, /影片製作中樞/u);
 assert.match(uiSource, /逐鏡製作時間軸/u);
 assert.match(uiSource, /需申請並完成串接/u);
 assert.match(uiSource, /下載製作交接包 JSON（不是影片）/u);
+assert.match(uiSource, /candidate\?\.episodes\.reduce/u);
+assert.match(uiSource, /episode\.estimatedDurationSeconds/u);
+assert.match(uiSource, /episodeScenes = candidate\.scenes\.filter/u);
+assert.match(uiSource, /對白／聲音提示：\$\{firstShot\.dialogueOrAudioCue\}/u);
 assert.doesNotMatch(uiSource, /Seedance 2\.5 已安裝/u);
 assert.doesNotMatch(uiSource, /installedAdapters/u);
 

@@ -1,3 +1,9 @@
+import {
+  createNovelToVideoDirectorPackage,
+  NOVEL_TO_VIDEO_CRAFT_PROVENANCE,
+  type NovelToVideoDirectorPackage,
+} from "./director-doctrine";
+
 export const VIDEO_PRODUCTION_SCHEMA_VERSION = "novel-video-production-v2" as const;
 export const VIDEO_PRODUCTION_HANDOFF_SCHEMA_VERSION = "novel-video-production-handoff-v2" as const;
 
@@ -70,6 +76,7 @@ export type VideoProductionShot = {
   worldRefIds: string[];
   referenceAssetIds: string[];
   continuityNotes: string[];
+  directorPackage: NovelToVideoDirectorPackage;
   status: "draft" | "approved";
 };
 
@@ -86,6 +93,7 @@ export type VideoProductionPlan = {
   resolution: VideoResolution;
   totalDurationSeconds: number;
   providerId: string | null;
+  craftProvenance: typeof NOVEL_TO_VIDEO_CRAFT_PROVENANCE;
   referenceAssets: VideoReferenceAsset[];
   shots: VideoProductionShot[];
   status: "draft" | "ready_for_provider";
@@ -141,6 +149,11 @@ type ShotDraft = {
   worldRefIds?: string[];
   referenceAssetIds?: string[];
   continuityNotes?: string[];
+  directorPackage?: NovelToVideoDirectorPackage;
+  sceneGoal?: string;
+  conflict?: string;
+  storyFunction?: string | null;
+  locationId?: string | null;
 };
 
 function boundedClipDuration(value: number | undefined) {
@@ -191,6 +204,18 @@ export function createVideoProductionPlan(input: {
       worldRefIds: unique(shot.worldRefIds),
       referenceAssetIds: unique(shot.referenceAssetIds),
       continuityNotes: unique(shot.continuityNotes),
+      directorPackage: shot.directorPackage ?? createNovelToVideoDirectorPackage({
+        shotIndex: index,
+        totalShots: input.shots.length,
+        sceneGoal: shot.sceneGoal ?? visualPrompt,
+        conflict: shot.conflict ?? "阻力迫使角色改變原本做法",
+        visualAction: visualPrompt,
+        storyFunction: shot.storyFunction,
+        characterRefIds: shot.characterRefIds,
+        locationId: shot.locationId,
+        continuityNotes: shot.continuityNotes,
+        dialogueOrAudioCue: shot.dialogueOrAudioCue,
+      }),
       status: "draft",
     };
     cursor += durationSeconds;
@@ -211,6 +236,7 @@ export function createVideoProductionPlan(input: {
     resolution: input.resolution ?? "720p",
     totalDurationSeconds: cursor,
     providerId: input.providerId?.trim() || null,
+    craftProvenance: NOVEL_TO_VIDEO_CRAFT_PROVENANCE,
     referenceAssets: (input.referenceAssets ?? []).map((asset) => ({ ...asset })),
     shots,
     status: "draft",

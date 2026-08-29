@@ -17,6 +17,9 @@ export default async function Page({
 }) {
   const [{ projectId }, query] = await Promise.all([params, searchParams]);
   const requestedPrompt = safePrefill(first(query.prompt));
+  const requestedTask = first(query.task) === "drama.episodePlan"
+    ? "drama.episodePlan" as const
+    : null;
   const handoffId = first(query.handoff).trim().slice(0, 128);
   const modePrompt = first(query.mode) === "play"
     ? "開始目前玩法的第一回合。"
@@ -25,6 +28,7 @@ export default async function Page({
     <ConversationHandoffWorkspace
       projectId={projectId}
       initialPrompt={requestedPrompt || modePrompt}
+      initialTaskType={requestedTask}
       handoffId={handoffId}
     />
   );

@@ -130,7 +130,7 @@ export async function projectNovelToDrama(input: DramaProjectionInput): Promise<
     approvedBy: null,
     approvedAt: null,
   };
-  const evaluation = evaluateDramaProject(input, project.dramaProjectId, episodes, analysis);
+  const evaluation = evaluateDramaProject(input, project.dramaProjectId, episodes, beats, analysis);
   throwIfCancelled(input.signal);
   if (Date.now() - startedAt > (input.resourceBudget?.timeoutMs ?? 30_000)) {
     throw new DramaOsError("DRAMA_PROVIDER_TIMEOUT", "短劇規劃超過本次時間上限。");

@@ -18,7 +18,9 @@ import {
   createVideoProductionPlan,
   getVideoProvider,
   listVideoProviders,
+  NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION,
   videoProviderSubmissionGate,
+  type VideoAspectRatio,
   type VideoProductionJobStatus,
   type VideoProviderDescriptor,
 } from "@/lib/novel-ai/media-extension";
@@ -72,6 +74,13 @@ function secondsLabel(value: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function splitExactDuration(totalSeconds: number, preferredClipSeconds: number) {
+  const clipCount = Math.max(1, Math.ceil(totalSeconds / preferredClipSeconds));
+  const base = Math.floor(totalSeconds / clipCount);
+  const remainder = totalSeconds % clipCount;
+  return Array.from({ length: clipCount }, (_, index) => base + (index < remainder ? 1 : 0));
+}
+
 function videoProviderAvailabilityLabel(provider: VideoProviderDescriptor) {
   if (provider.availability === "ready") return "可執行";
   if (provider.availability === "requires_vendor_onboarding") return "需申請並完成串接";
@@ -111,6 +120,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
   const [videoCostConfirmed, setVideoCostConfirmed] = useState(false);
   const [videoBusy, setVideoBusy] = useState(false);
   const [selectedVideoProviderId, setSelectedVideoProviderId] = useState("seedance-2.5-official");
+  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("9:16");
   const [shotDurations, setShotDurations] = useState<Record<string, number>>({});
   const [videoJob, setVideoJob] = useState<VideoJobState | null>(null);
 
@@ -239,7 +249,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
     setMessage("正在讀取章節、角色、世界規則與未解線索……");
     try {
       const service = new DramaOsService(repositoryRef.current!);
-      const promptHash = await sha256(`${data.project.id}:${data.project.revision}:${format}:${playbackMode}:drama-os-v1`);
+      const promptHash = await sha256(`${data.project.id}:${data.project.revision}:${format}:${playbackMode}:drama-os-v1:${NOVEL_TO_VIDEO_DIRECTOR_DOCTRINE_VERSION}`);
       const result = await service.project({
         requestId: crypto.randomUUID(),
         storyId: data.project.id,
@@ -371,11 +381,25 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
             `把「${data.project.title}」的核准改編製作成一段 ${firstShot.durationSeconds} 秒測試鏡頭。`,
             firstShot.visualPrompt,
             firstShot.cameraDirection,
+            ...(firstShot.dialogueOrAudioCue
+              ? [`對白／聲音提示：${firstShot.dialogueOrAudioCue}`]
+              : []),
+            `敘事目的：${firstShot.directorPackage.narrativePurpose}`,
+            ...firstShot.directorPackage.assetLocks.map((item) => `資產鎖定：${item}`),
+            ...firstShot.directorPackage.spatialBlocking.map((item) => `場面調度：${item}`),
+            ...firstShot.directorPackage.performanceDirection.map((item) => `表演：${item}`),
+            `景別：${firstShot.directorPackage.shotGrammar.framing}`,
+            `運鏡：${firstShot.directorPackage.shotGrammar.movement}`,
+            `光色：${firstShot.directorPackage.shotGrammar.lightingAndColor}`,
+            `末端交接：${firstShot.directorPackage.stateHandoff.terminalState}`,
+            ...Object.values(firstShot.directorPackage.audioPlan).map((item) => `聲音：${item}`),
+            ...firstShot.directorPackage.negativeConstraints.map((item) => `禁止：${item}`),
+            ...firstShot.directorPackage.qualityChecks.map((item) => `驗收：${item}`),
             ...firstShot.continuityNotes,
           ].join("\n"),
           durationSeconds: firstShot.durationSeconds,
           resolution: "720p",
-          ratio: "16:9",
+          ratio: videoPlan.aspectRatio === "adaptive" ? "9:16" : videoPlan.aspectRatio,
           adultNamespace: "general",
           externalConsent: true,
           costConfirmed: true,
@@ -423,6 +447,10 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
       return;
     }
     const mode = candidatePlaybackMode ?? "linear";
+    if (!videoPlan) {
+      setMessage("尚未建立可交接的逐鏡時間軸。");
+      return;
+    }
     const mediaCandidate = createStoryMediaCandidatePackage({
       packageId: crypto.randomUUID(),
       requestId: crypto.randomUUID(),
@@ -442,15 +470,12 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
         sourceRefIds: [...new Set(scene.sourceReferences.map((reference) => reference.chapterId))],
         visualIntent: scene.visualAction,
         continuityNotes: scene.continuityConstraints.map((constraint) => constraint.description),
+        directorPackage: videoPlan.shots.find((shot) => shot.sourceSceneId === scene.sceneId)?.directorPackage,
       })),
-      mediaPrompt: `把「${data.project.title}」製作成${mode === "interactive" ? "互動分支" : "線性"}${FORMAT_LABELS[candidate.project.formatProfile]}；維持角色外觀、服裝、場景、時間線與鏡位連續性。`,
+      mediaPrompt: `依 ${videoPlan.craftProvenance.doctrineVersion} 把「${data.project.title}」製作成${mode === "interactive" ? "互動分支" : "線性"}${FORMAT_LABELS[candidate.project.formatProfile]}；逐鏡維持角色、服裝、傷勢、道具、站位、場景、光色、聲音與時間線連續性。`,
       adultNamespace: data.project.adultMode ? "adult_verified" : "general",
       externalConsent: false,
     });
-    if (!videoPlan) {
-      setMessage("尚未建立可交接的逐鏡時間軸。");
-      return;
-    }
     const handoff = {
       ...createVideoProductionHandoffPackage({
         plan: videoPlan,
@@ -483,6 +508,57 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
     [candidate],
   );
   const selectedProvider = getVideoProvider(selectedVideoProviderId);
+  const targetVideoDuration = candidate?.episodes.reduce(
+    (total, episode) => total + episode.estimatedDurationSeconds,
+    0,
+  ) ?? 0;
+  const preferredClipSeconds = candidateProfile
+    ? candidateProfile.targetDurationSeconds <= 180
+      ? 8
+      : candidateProfile.targetDurationSeconds <= 600
+        ? 12
+        : 24
+    : 8;
+  const videoShotDrafts = candidate && data && candidateProfile
+    ? candidate.scenes.flatMap((scene) => {
+      const episode = candidate.episodes.find((row) => row.episodeId === scene.episodeId);
+      const episodeScenes = candidate.scenes.filter((row) => row.episodeId === scene.episodeId);
+      const sceneIndexInEpisode = episodeScenes.findIndex((row) => row.sceneId === scene.sceneId);
+      const episodeSeconds = episode?.estimatedDurationSeconds ?? candidateProfile.targetDurationSeconds;
+      const baseSceneSeconds = Math.floor(episodeSeconds / Math.max(1, episodeScenes.length));
+      const sceneRemainder = episodeSeconds % Math.max(1, episodeScenes.length);
+      const sceneSeconds = baseSceneSeconds + (sceneIndexInEpisode < sceneRemainder ? 1 : 0);
+      const durations = splitExactDuration(sceneSeconds, preferredClipSeconds);
+      return durations.map((durationSeconds, partIndex) => {
+        const shotId = `${scene.sceneId}:shot:${partIndex + 1}`;
+        const phase = partIndex === 0
+          ? "先建立空間、異常與壓力"
+          : partIndex === durations.length - 1
+            ? "讓本場選擇的可見結果或代價落地"
+            : "以一個主動作和一個反應推進衝突";
+        const dialogueBlocks = scene.dialogueBlocks.filter((_, dialogueIndex) => dialogueIndex % durations.length === partIndex);
+        return {
+          shotId,
+          episodeId: scene.episodeId,
+          sourceSceneId: scene.sceneId,
+          durationSeconds: shotDurations[shotId] ?? durationSeconds,
+          visualPrompt: `${scene.visualAction} 本鏡階段：${phase}。`,
+          cameraDirection: `以「${scene.sceneGoal}」為畫面目的；本鏡只服務「${phase}」，主要阻力為「${scene.conflict}」。`,
+          dialogueOrAudioCue: dialogueBlocks.length
+            ? dialogueBlocks.map((block) => `${block.speakerName}：${block.line}`).join("\n")
+            : null,
+          sourceRefIds: scene.sourceReferences.map((reference) => reference.chapterId),
+          characterRefIds: scene.participatingCharacterIds,
+          worldRefIds: [scene.locationId, ...data.worldRules.map((rule) => rule.id)].filter((value): value is string => Boolean(value)),
+          continuityNotes: scene.continuityConstraints.map((constraint) => constraint.description),
+          sceneGoal: scene.sceneGoal,
+          conflict: scene.conflict,
+          storyFunction: scene.storyFunction,
+          locationId: scene.locationId,
+        };
+      });
+    })
+    : [];
   const videoPlan = candidate && data && candidate.project.status === "approved"
     ? createVideoProductionPlan({
       planId: `video-plan:${candidate.project.dramaProjectId}:${candidate.project.revision}`,
@@ -492,24 +568,10 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
       approvedDramaRevision: candidate.project.revision,
       title: `${data.project.title}｜影片製作計畫`,
       playbackMode: candidatePlaybackMode ?? "linear",
-      aspectRatio: "16:9",
+      aspectRatio: videoAspectRatio,
       resolution: "720p",
       providerId: selectedProvider?.providerId ?? null,
-      shots: candidate.scenes.map((scene) => ({
-        shotId: scene.sceneId,
-        episodeId: scene.episodeId,
-        sourceSceneId: scene.sceneId,
-        durationSeconds: shotDurations[scene.sceneId] ?? 8,
-        visualPrompt: scene.visualAction,
-        cameraDirection: `鏡頭 ${scene.sceneNumber}：以「${scene.sceneGoal}」為畫面目的，衝突為「${scene.conflict}」。`,
-        dialogueOrAudioCue: scene.dialogueBlocks.length
-          ? scene.dialogueBlocks.map((block) => `${block.speakerName}：${block.line}`).join("\n")
-          : null,
-        sourceRefIds: scene.sourceReferences.map((reference) => reference.chapterId),
-        characterRefIds: scene.participatingCharacterIds,
-        worldRefIds: [scene.locationId, ...data.worldRules.map((rule) => rule.id)].filter((value): value is string => Boolean(value)),
-        continuityNotes: scene.continuityConstraints.map((constraint) => constraint.description),
-      })),
+      shots: videoShotDrafts,
       now: candidate.project.createdAt,
     })
     : null;
@@ -626,6 +688,13 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
                 ))}
               </select>
             </label>
+            <label>畫面比例
+              <select value={videoAspectRatio} disabled={videoBusy} onChange={(event) => setVideoAspectRatio(event.target.value as VideoAspectRatio)}>
+                <option value="9:16">9:16｜直式短劇／手機</option>
+                <option value="16:9">16:9｜橫式影片</option>
+                <option value="1:1">1:1｜方形</option>
+              </select>
+            </label>
           </header>
 
           {selectedProvider ? <section className="dramaProviderCard" data-provider-status={selectedProvider.availability}>
@@ -643,13 +712,24 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
           </section> : null}
 
           {videoPlan ? <section className="dramaShotTimeline" aria-label="影片逐鏡時間軸">
-            <header><div><small>SHOT TIMELINE</small><h3>逐鏡製作時間軸</h3></div><strong>{videoPlan.shots.length} 鏡 · {secondsLabel(videoPlan.totalDurationSeconds)}</strong></header>
-            <p>每一鏡保留來源場景、角色、世界規則與連續性要求。調整秒數會自動重排後續時間碼；單次供應商工作仍須遵守其片段上限。</p>
+            <header><div><small>SHOT TIMELINE · {videoPlan.craftProvenance.doctrineVersion}</small><h3>逐鏡製作時間軸｜導演包</h3></div><strong>{videoPlan.shots.length} 鏡 · {secondsLabel(videoPlan.totalDurationSeconds)}／目標 {secondsLabel(targetVideoDuration)}</strong></header>
+            <p>小說先拆成敘事節拍、資產鎖定、場面調度、表演、鏡頭、聲音與連戲交接，再交給影片模型。每段控制在供應商片段上限內；調整秒數會自動重排後續時間碼。</p>
+            {videoPlan.totalDurationSeconds !== targetVideoDuration ? <p role="alert">目前手動秒數與目標相差 {Math.abs(targetVideoDuration - videoPlan.totalDurationSeconds)} 秒；交接前請調整到相同。</p> : null}
             <div>
               {videoPlan.shots.map((shot) => <article key={shot.shotId}>
                 <header><b>鏡 {String(shot.order).padStart(2, "0")}</b><span>{secondsLabel(shot.startSeconds)}–{secondsLabel(shot.startSeconds + shot.durationSeconds)}</span></header>
                 <h4>{shot.visualPrompt}</h4>
                 <p>{shot.cameraDirection}</p>
+                <details><summary>導演包｜調度、表演、聲音與驗收</summary>
+                  <h5>敘事目的</h5><p>{shot.directorPackage.narrativePurpose}</p>
+                  <h5>資產與連戲鎖定</h5><ul>{shot.directorPackage.assetLocks.map((item) => <li key={item}>{item}</li>)}</ul>
+                  <h5>場面調度</h5><ul>{shot.directorPackage.spatialBlocking.map((item) => <li key={item}>{item}</li>)}</ul>
+                  <h5>表演</h5><ul>{shot.directorPackage.performanceDirection.map((item) => <li key={item}>{item}</li>)}</ul>
+                  <h5>鏡頭、光色與交接</h5><ul><li>{shot.directorPackage.shotGrammar.framing}</li><li>{shot.directorPackage.shotGrammar.movement}</li><li>{shot.directorPackage.shotGrammar.depth}</li><li>{shot.directorPackage.shotGrammar.lightingAndColor}</li><li>{shot.directorPackage.stateHandoff.terminalState}</li><li>{shot.directorPackage.stateHandoff.editBridge}</li></ul>
+                  <h5>分軌聲音</h5><ul>{Object.values(shot.directorPackage.audioPlan).map((item) => <li key={item}>{item}</li>)}</ul>
+                  <h5>禁止事項</h5><ul>{shot.directorPackage.negativeConstraints.map((item) => <li key={item}>{item}</li>)}</ul>
+                  <h5>逐鏡 QC</h5><ul>{shot.directorPackage.qualityChecks.map((item) => <li key={item}>{item}</li>)}</ul>
+                </details>
                 {shot.dialogueOrAudioCue ? <details><summary>對白／聲音提示</summary><pre>{shot.dialogueOrAudioCue}</pre></details> : null}
                 <details><summary>連續性 {shot.continuityNotes.length} 項</summary>{shot.continuityNotes.length ? <ul>{shot.continuityNotes.map((note) => <li key={note}>{note}</li>)}</ul> : <p>尚無額外限制。</p>}</details>
                 <label>鏡頭秒數<input type="number" min="4" max="30" value={shot.durationSeconds} disabled={videoBusy} onChange={(event) => {
@@ -676,7 +756,7 @@ export default function DramaWorkspace({ projectId }: { projectId: string }) {
             <label><input type="checkbox" checked={videoCostConfirmed} disabled={videoBusy || candidate?.project.status !== "approved" || !selectedProvider?.executionReady} onChange={(event) => setVideoCostConfirmed(event.target.checked)} />我已查看供應商當時費率與預估工作數，確認才送出付費工作。</label>
           </div>
           <div className="dramaVideoActions">
-            <button type="button" disabled={!videoCanSubmit} onClick={() => void submitVideoGeneration()}>{videoBusy ? "正在建立工作……" : "送出至已連接的影片供應商"}</button>
+            <button type="button" disabled={!videoCanSubmit} onClick={() => void submitVideoGeneration()}>{videoBusy ? "正在建立第一鏡測試……" : "送出至已連接的影片供應商（第一鏡測試）"}</button>
             <button type="button" disabled={busy || !videoPlan} onClick={downloadVideoProductionPackage}>下載製作交接包 JSON（不是影片）</button>
           </div>
           <small>{candidate?.project.status !== "approved"

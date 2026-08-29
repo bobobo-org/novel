@@ -22,6 +22,7 @@ export type ConversationIntent =
   | "adjust_pacing"
   | "chapter_outline"
   | "chapter_hook"
+  | "drama_episode_plan"
   | "create_abc_choices"
   | "rpg_turn"
   | "rpg_custom_action"
@@ -69,6 +70,7 @@ type PlannerInput = {
   attachmentCount?: number;
   hasActiveRpgTurn?: boolean;
   fixedPlayMode?: StoryPlayModeId;
+  requestedTaskType?: PlatformTaskType | null;
 };
 
 type IntentRule = {
@@ -358,7 +360,15 @@ export async function planConversationRequest(
       code: "CONVERSATION_INPUT_EMPTY",
     });
   }
-  const rule = selectedRule(input, objective);
+  const requestedRule: IntentRule | null = input.requestedTaskType === "drama.episodePlan"
+    ? {
+        intent: "drama_episode_plan",
+        pattern: /./u,
+        taskType: "drama.episodePlan",
+        executionKind: "closed_agent",
+      }
+    : null;
+  const rule = requestedRule ?? selectedRule(input, objective);
   const intent = rule?.intent ?? "general_assistant";
   const executionKind = rule?.executionKind ?? "closed_agent";
   const taskType = rule?.taskType ?? "assistant.general";

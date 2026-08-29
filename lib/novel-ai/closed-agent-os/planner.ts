@@ -112,6 +112,7 @@ function taskSpecialists(
   const roles: ClosedAgentRole[] = [];
   if (taskType.startsWith("character.")) roles.push("character-agent");
   if (taskType.startsWith("world.")) roles.push("world-agent");
+  if (taskType.startsWith("drama.")) roles.push("story-architect", "continuity-agent");
   if (
     taskType.includes("consistency")
     || taskType.includes("timeline")

@@ -1,3 +1,5 @@
+import type { NovelToVideoDirectorPackage } from "./director-doctrine";
+
 export const STORY_MEDIA_EXTENSION_SCHEMA_VERSION = "story-media-extension-v1" as const;
 export const STORY_MEDIA_EXTENSION_EVOLUTION = {
   current: STORY_MEDIA_EXTENSION_SCHEMA_VERSION,
@@ -54,6 +56,7 @@ export type StoryMediaCandidatePackage = {
     sourceRefIds: string[];
     visualIntent: string;
     continuityNotes: string[];
+    directorPackage?: NovelToVideoDirectorPackage;
   }>;
   mediaPrompt: string | null;
   adultNamespace: "general" | "adult_verified";

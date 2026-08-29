@@ -16,6 +16,34 @@ const BEAT_SEQUENCE: DramaBeatType[] = [
   "ENDING",
 ];
 
+function beatTypesForProfile(beatCount: number, profile: DramaFormatProfile): DramaBeatType[] {
+  const endingType: DramaBeatType = profile.cliffhangerRequired ? "CLIFFHANGER" : "ENDING";
+  const payoffCount = Math.min(profile.minimumPayoffCount, Math.max(1, beatCount - 2));
+  const payoffPositions = new Set<number>();
+  for (let index = payoffCount - 1; index >= 0; index -= 1) {
+    let position = beatCount - 2 - ((payoffCount - 1 - index) * 3);
+    position = Math.min(beatCount - 2, Math.max(1, position));
+    while (payoffPositions.has(position) && position < beatCount - 2) position += 1;
+    while (payoffPositions.has(position) && position > 1) position -= 1;
+    payoffPositions.add(position);
+  }
+
+  return Array.from({ length: beatCount }, (_, index) => {
+    if (index === 0) return "OPENING_HOOK";
+    if (index === beatCount - 1) return endingType;
+    if (payoffPositions.has(index)) return "PAYOFF";
+    const nextPayoff = [...payoffPositions].filter((position) => position > index).sort((a, b) => a - b)[0];
+    if (nextPayoff === index + 1) return "CHOICE";
+    if (nextPayoff === index + 2) return "REVERSAL";
+    const progress = index / Math.max(1, beatCount - 1);
+    const sequenceIndex = Math.min(
+      BEAT_SEQUENCE.length - 3,
+      Math.max(1, Math.round(progress * (BEAT_SEQUENCE.length - 3))),
+    );
+    return BEAT_SEQUENCE[sequenceIndex];
+  });
+}
+
 export function buildBeatSheet(
   input: DramaProjectionInput,
   analysis: NarrativeAnalysis,
@@ -26,13 +54,12 @@ export function buildBeatSheet(
   const beatCount = Math.min(maximum, Math.max(minimum, Math.ceil(profile.targetDurationSeconds / profile.conflictIntervalSeconds) + 3));
   const eventValues = analysis.majorEvents.value ?? [];
   const sourceReferences: DramaSourceReference[] = analysis.majorEvents.sourceReferences;
+  const beatTypes = beatTypesForProfile(beatCount, profile);
 
   return Array.from({ length: beatCount }, (_, index) => {
     const record = makeDramaRecord(input.storyId, input.providerId, input.requestId);
     const event = eventValues[index % Math.max(1, eventValues.length)] ?? input.chapters[index % input.chapters.length]?.title ?? "故事壓力升高";
-    const type = index === beatCount - 1 && profile.cliffhangerRequired
-      ? "CLIFFHANGER"
-      : BEAT_SEQUENCE[Math.min(index, BEAT_SEQUENCE.length - 1)];
+    const type = beatTypes[index];
     return {
       ...record,
       id: record.id,
