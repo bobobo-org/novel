@@ -181,8 +181,13 @@ export function MessageComposer({
             event.preventDefault();
             const details = sourceControlsRef.current;
             if (!details) return;
-            details.open = !details.open;
-            setSourceControlsOpen(details.open);
+            // Some Chromium builds apply the native summary toggle before the
+            // React click callback while others apply it afterwards. Derive
+            // the intended value from our last observed disclosure state, not
+            // from that platform-dependent intermediate DOM value.
+            const nextOpen = !sourceControlsOpen;
+            details.open = nextOpen;
+            setSourceControlsOpen(nextOpen);
           }}
         >
           <span className={styles.aiSourceSummaryCopy}>

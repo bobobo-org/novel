@@ -103,7 +103,7 @@ assert.match(
 assert.doesNotMatch(composerSource, /open=\{sourceControlsOpen\}/u);
 assert.match(
   composerSource,
-  /<summary[\s\S]{0,500}onClick=\{\(event\) => \{[\s\S]{0,500}event\.preventDefault\(\);[\s\S]{0,300}details\.open = !details\.open;[\s\S]{0,200}setSourceControlsOpen\(details\.open\)/u,
+  /<summary[\s\S]{0,500}onClick=\{\(event\) => \{[\s\S]{0,500}event\.preventDefault\(\);[\s\S]{0,500}const nextOpen = !sourceControlsOpen;[\s\S]{0,200}details\.open = nextOpen;[\s\S]{0,200}setSourceControlsOpen\(nextOpen\)/u,
 );
 assert.match(composerSource, /sourceControlsRef\.current\.open = false;[\s\S]{0,100}setSourceControlsOpen\(false\)/u);
 assert.match(
