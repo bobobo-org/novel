@@ -25,6 +25,7 @@ export type RpgChoiceEnvelope = {
   chapterId: string;
   chapterRevision: number;
   storyStateRevision: number;
+  contextRevisionDigest: string;
   plan: RpgChatChoicePlan;
 };
 

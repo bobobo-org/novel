@@ -1139,6 +1139,52 @@
   box-shadow: 0 13px 36px rgba(0, 0, 0, 0.24);
 }
 
+.aiSourceSummary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  list-style: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.aiSourceSummary::-webkit-details-marker { display: none; }
+
+.aiSourceSummaryCopy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.aiSourceSummaryCopy small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+}
+
+.aiSourceSummaryCopy strong {
+  overflow: hidden;
+  color: #f5daa0;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiSourceToggle {
+  flex: 0 0 auto;
+  color: #d9e7f3;
+  font-size: 0.73rem;
+}
+
+.aiSourceBody {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(151, 177, 206, 0.16);
+}
+
 .aiSourceCard[data-selected-source="external"] {
   border-color: rgba(231, 184, 81, 0.58);
   background: linear-gradient(145deg, rgba(47, 36, 18, 0.98), rgba(20, 26, 43, 0.98));
@@ -1788,12 +1834,22 @@
   .choiceCard { min-height: 0; padding: 16px; }
   .choiceCard p { font-size: .96rem; line-height: 1.62; }
   .composerWrap { padding: 7px 8px max(8px, env(safe-area-inset-bottom)); }
-  .aiSourceCard { padding: 10px 11px; }
+  .aiSourceCard { padding: 7px 10px; }
+  .aiSourceSummary { min-height: 44px; }
+  .aiSourceSummaryCopy strong { font-size: 0.78rem; }
+  .aiSourceBody {
+    max-height: min(44dvh, 360px);
+    padding-top: 8px;
+    padding-right: 3px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
   .aiSourceHeading { align-items: stretch; flex-direction: column; }
   .aiSourceCard select { width: 100%; min-width: 0; min-height: 44px; }
   .externalAiControls { grid-template-columns: 1fr; }
   .externalConsent { grid-column: auto; }
-  .composerWrap:has(.composer textarea:focus) .aiSourceCard,
+  .composerWrap:has(.composer textarea:focus) .aiSourceCard:not([open]),
   .composerWrap:has(.composer textarea:focus) .closedAiSetupCard { display: none; }
   .composer { padding: 7px; border-radius: 15px; }
   .composer textarea { min-height: 46px; max-height: 128px; padding: 7px 8px; font-size: 16px; }

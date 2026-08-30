@@ -16,6 +16,7 @@ import {
   learningPreferredTool,
   learningRetrievalWeight,
   learningSemanticThreshold,
+  type ControlledLearningActiveConfiguration,
   type ControlledLearningApprovalVerificationInput,
   type ControlledKnowledgeRule,
   type ControlledLearningOutcome,
@@ -67,6 +68,7 @@ import {
   type ClosedAgentExecutionResult,
   type ClosedAgentMemoryRecord,
   type ClosedAgentPlan,
+  type ClosedAgentPlanningBinding,
   type ClosedAgentRejectionRecord,
   type ClosedAgentTaskRecord,
   type ClosedAgentTaskRequest,
@@ -387,6 +389,100 @@ function safeClosedAgentTaskErrorCode(cause: unknown) {
     : "CLOSED_AGENT_TASK_FAILED";
 }
 
+const CLOSED_AGENT_PLANNER_STRATEGIES = new Set([
+  "standard",
+  "continuity-first",
+  "critical-review",
+  "character-depth",
+]);
+
+const IDEMPOTENT_BROWSER_TO_LOCAL_RETRY_CODES = new Set([
+  "BROWSER_EXPLICIT_ESCALATION_REQUIRED",
+  "BROWSER_AI_ESCALATE_LOCAL_OLLAMA",
+  "BROWSER_AI_QUALITY_INSUFFICIENT",
+  "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTOR_UNAVAILABLE",
+  "BROWSER_AI_REQUIRED_GENERATIVE_EXECUTION_FAILED",
+]);
+
+function closedAgentPlanningBindingPayload(
+  binding: Omit<ClosedAgentPlanningBinding, "bindingDigest">,
+) {
+  return {
+    schemaVersion: binding.schemaVersion,
+    plannerStrategy: binding.plannerStrategy,
+    controlledLearningApplied: binding.controlledLearningApplied,
+    controlledLearningVersionId: binding.controlledLearningVersionId,
+    controlledLearningConfigurationDigest:
+      binding.controlledLearningConfigurationDigest,
+    controlledLearningReasonCode: binding.controlledLearningReasonCode,
+  };
+}
+
+async function createClosedAgentPlanningBinding(input: {
+  plan: ClosedAgentPlan;
+  learning: ControlledLearningActiveConfiguration;
+}): Promise<ClosedAgentPlanningBinding> {
+  const payload = closedAgentPlanningBindingPayload({
+    schemaVersion: "closed-agent-planning-binding-v1",
+    plannerStrategy: input.plan.plannerStrategy,
+    controlledLearningApplied: input.learning.applied,
+    controlledLearningVersionId: input.learning.versionId,
+    controlledLearningConfigurationDigest: input.learning.configurationDigest,
+    controlledLearningReasonCode: input.learning.reasonCode,
+  });
+  return {
+    ...payload,
+    bindingDigest: await sha256Hex(stableStringify(payload)),
+  };
+}
+
+async function verifyClosedAgentPlanningBinding(
+  binding: ClosedAgentPlanningBinding | undefined,
+) {
+  if (!binding) return false;
+  const appliedIdentityValid = binding.controlledLearningApplied
+    ? Boolean(
+      binding.controlledLearningVersionId
+      && isCryptographicClosedAIModelDigest(
+        binding.controlledLearningConfigurationDigest,
+      )
+      && binding.controlledLearningReasonCode === null,
+    )
+    : (
+      binding.controlledLearningVersionId === null
+      || typeof binding.controlledLearningVersionId === "string"
+        && binding.controlledLearningVersionId.length <= 192
+    )
+    && (
+      binding.controlledLearningConfigurationDigest === null
+      || isCryptographicClosedAIModelDigest(
+        binding.controlledLearningConfigurationDigest,
+      )
+    )
+    && (
+      binding.controlledLearningReasonCode === null
+      || /^CONTROLLED_LEARNING_[A-Z0-9_]{1,80}$/u.test(
+        binding.controlledLearningReasonCode,
+      )
+    );
+  return binding.schemaVersion === "closed-agent-planning-binding-v1"
+    && CLOSED_AGENT_PLANNER_STRATEGIES.has(binding.plannerStrategy)
+    && appliedIdentityValid
+    && isCryptographicClosedAIModelDigest(binding.bindingDigest)
+    && binding.bindingDigest === await sha256Hex(stableStringify(
+      closedAgentPlanningBindingPayload(binding),
+    ));
+}
+
+function planningLearningReceipt(binding: ClosedAgentPlanningBinding) {
+  return {
+    applied: binding.controlledLearningApplied,
+    versionId: binding.controlledLearningVersionId,
+    configurationDigest: binding.controlledLearningConfigurationDigest,
+    reasonCode: binding.controlledLearningReasonCode,
+  };
+}
+
 async function closedAgentRequestContractDigest(request: ClosedAgentTaskRequest) {
   return sha256Hex(stableStringify({
     domain: "closed-agent-request-contract-v1",
@@ -409,8 +505,23 @@ async function closedAgentRequestContractDigest(request: ClosedAgentTaskRequest)
     sourceChapterId: request.sourceChapterId ?? null,
     sourceRevision: request.sourceRevision ?? null,
     generationOptions: request.generationOptions ?? null,
+    ephemeralPrompt: request.ephemeralPrompt ?? false,
+    applicationValidationBindingDigest:
+      request.applicationValidationBindingDigest ?? null,
     regeneration: request.regeneration ?? null,
   }));
+}
+
+async function closedAgentTaskAcceptedPayload(
+  request: ClosedAgentTaskRequest,
+  requestContractDigest: string,
+) {
+  return {
+    taskId: request.taskId,
+    taskType: request.taskType,
+    objectiveDigest: await sha256Hex(request.objective),
+    requestContractDigest,
+  };
 }
 
 async function closedAgentContextDigest(request: ClosedAgentTaskRequest) {
@@ -768,6 +879,13 @@ export class ClosedAgentOS {
       || candidate.modelId.length > 192
       || !isCryptographicClosedAIModelDigest(candidate.modelDigest)
       || !isCryptographicClosedAIModelDigest(candidate.requestContractDigest)
+      || candidate.planningBinding !== undefined
+        && !await verifyClosedAgentPlanningBinding(candidate.planningBinding)
+      || candidate.applicationValidationBindingDigest !== undefined
+        && candidate.applicationValidationBindingDigest !== null
+        && !isCryptographicClosedAIModelDigest(
+          candidate.applicationValidationBindingDigest,
+        )
       || (candidate.taskType !== undefined && (
         candidate.taskType.length < 3
         || candidate.taskType.length > 120
@@ -1070,6 +1188,8 @@ export class ClosedAgentOS {
         || candidate.sourceRevision !== (input.request.sourceRevision ?? null)
         || candidate.planDigest !== input.plan.planDigest
         || candidate.requestContractDigest !== input.requestContractDigest
+        || (candidate.applicationValidationBindingDigest ?? null)
+          !== (input.request.applicationValidationBindingDigest ?? null)
         || stableStringify(candidate.regeneration)
           !== stableStringify(input.regenerationEvidence)
         || candidate.evaluation.passed !== true
@@ -1356,6 +1476,21 @@ export class ClosedAgentOS {
     if (!request.taskId || !request.objective.trim()) {
       throw osError("CLOSED_AGENT_TASK_INVALID");
     }
+    const hasApplicationValidator = typeof request.validateBeforePersistence === "function";
+    const hasApplicationValidationBinding = Boolean(
+      request.applicationValidationBindingDigest,
+    );
+    if (
+      hasApplicationValidator !== hasApplicationValidationBinding
+      || (
+        hasApplicationValidationBinding
+        && !isCryptographicClosedAIModelDigest(
+          request.applicationValidationBindingDigest,
+        )
+      )
+    ) {
+      throw osError("CLOSED_AGENT_TRANSIENT_VALIDATION_CONTRACT_INVALID");
+    }
     const {
       createTraditionalChineseNormalizationPolicy,
       TRADITIONAL_CHINESE_NORMALIZER_VERSION,
@@ -1439,6 +1574,40 @@ export class ClosedAgentOS {
     }
     if (request.signal?.aborted) throw osError("CLOSED_AGENT_TASK_CANCELLED");
     const existing = await this.state.get<ClosedAgentTaskRecord>(request.taskId);
+    if (
+      existing?.state === "failed"
+      && existing.requestContractDigest !== undefined
+      && existing.requestContractDigest !== requestContractDigest
+    ) {
+      throw osError("CLOSED_AGENT_IDEMPOTENCY_CONFLICT");
+    }
+    const retryBackendValue: unknown = request.idempotentRetryBackend;
+    const retryBackendSupplied = retryBackendValue !== undefined;
+    const idempotentRetryBackend = retryBackendValue === "local-ollama"
+      ? retryBackendValue
+      : null;
+    const retryPolicyAuthorizesLocal =
+      request.allowPreAuthorizedClosedEscalation === true
+      && (
+        request.browserComputePolicy === "balanced"
+        || request.browserComputePolicy === "quality-first"
+      )
+      && request.preferredBackend === undefined;
+    if (retryBackendSupplied && (
+      idempotentRetryBackend !== "local-ollama"
+      || !retryPolicyAuthorizesLocal
+      || request.regeneration
+      || existing?.state !== "failed"
+      || existing.backendId !== "browser-ai"
+      || existing.requestContractDigest !== requestContractDigest
+      || !IDEMPOTENT_BROWSER_TO_LOCAL_RETRY_CODES.has(existing.errorCode ?? "")
+      || !await this.hasVerifiedTaskAcceptedRequestContract(
+        request,
+        requestContractDigest,
+      )
+    )) {
+      throw osError("CLOSED_AGENT_IDEMPOTENCY_CONFLICT");
+    }
     if (request.regeneration && existing && existing.state !== "failed") {
       throw osError("CLOSED_AGENT_REGENERATION_TASK_ID_REUSE", undefined, {
         fallbackAttempted: false,
@@ -1470,10 +1639,14 @@ export class ClosedAgentOS {
         existing.schemaVersion !== CLOSED_AGENT_OS_SCHEMA_VERSION
         || existing.taskType !== request.taskType
         || existing.projectId !== candidate.projectId
+        || existing.requestContractDigest !== undefined
+          && existing.requestContractDigest !== requestContractDigest
         || !sameClosedAINamespace(candidate.namespace, expectedReplayNamespace)
         || !sameClosedAINamespace(existing.namespace, expectedReplayNamespace)
         || candidate.contextDigest !== replayContextDigest
         || candidate.requestContractDigest !== requestContractDigest
+        || (candidate.applicationValidationBindingDigest ?? null)
+          !== (request.applicationValidationBindingDigest ?? null)
         || candidate.sourceChapterId !== (request.sourceChapterId ?? null)
         || candidate.sourceRevision !== (request.sourceRevision ?? null)
         || !await verifyTraditionalChineseNormalizationPolicy(
@@ -1490,27 +1663,71 @@ export class ClosedAgentOS {
       ) {
         throw osError("CLOSED_AGENT_IDEMPOTENCY_CONFLICT");
       }
-      const replayRequest = { ...request, namespace: candidate.namespace };
-      const blocks = await this.ledger.repository.list(this.ledgerId(request));
-      const planLookup = await this.cache.get<ClosedAgentPlan>(
-        "agent-plan",
-        candidate.namespace,
-        this.planCacheInput(replayRequest, candidate.backendId),
-      );
-      if (
-        !planLookup.entry
-        || planLookup.entry.value.schemaVersion !== CLOSED_AGENT_OS_SCHEMA_VERSION
-        || planLookup.entry.value.taskId !== request.taskId
-        || planLookup.entry.value.backendId !== candidate.backendId
-      ) throw osError("CLOSED_AGENT_IDEMPOTENCY_PLAN_MISSING");
       if (!await this.hasVerifiedCandidateLedgerIntegrity(candidate, true)) {
         throw osError("CLOSED_AGENT_IDEMPOTENCY_CANDIDATE_INTEGRITY_INVALID");
       }
+      const planningBinding = candidate.planningBinding;
+      if (planningBinding && !await verifyClosedAgentPlanningBinding(planningBinding)) {
+        throw osError("CLOSED_AGENT_IDEMPOTENCY_PLAN_MISSING");
+      }
       const activeLearning = await this.learning.activeConfiguration(candidate.namespace);
+      const activeLearningMatchesBinding = Boolean(
+        planningBinding
+        && activeLearning.applied === planningBinding.controlledLearningApplied
+        && activeLearning.versionId === planningBinding.controlledLearningVersionId
+        && activeLearning.configurationDigest
+          === planningBinding.controlledLearningConfigurationDigest,
+      );
+      const replayRequest = {
+        ...request,
+        namespace: candidate.namespace,
+        learningConfiguration: planningBinding && !activeLearningMatchesBinding
+          ? { "planner.strategy": planningBinding.plannerStrategy }
+          : activeLearning.configuration,
+      };
+      const blocks = await this.ledger.repository.list(this.ledgerId(request));
+      const boundReplayPlan = planningBinding
+        ? await createClosedAgentPlan({
+          request: replayRequest,
+          backendId: candidate.backendId,
+          complexity: candidate.planComplexity,
+        })
+        : null;
+      let replayPlan: ClosedAgentPlan | null = boundReplayPlan;
+      let replayPlanCacheHit = false;
+      if (!request.ephemeralPrompt && !hasApplicationValidator) {
+        const cachedReplayPlan = (await this.cache.get<ClosedAgentPlan>(
+          "agent-plan",
+          candidate.namespace,
+          this.planCacheInput(replayRequest, candidate.backendId),
+        )).entry?.value ?? null;
+        replayPlanCacheHit = Boolean(
+          cachedReplayPlan
+          && (!boundReplayPlan
+            || stableStringify(cachedReplayPlan) === stableStringify(boundReplayPlan)),
+        );
+        replayPlan = boundReplayPlan ?? cachedReplayPlan;
+      }
+      if (!replayPlan && (request.ephemeralPrompt || hasApplicationValidator)) {
+        replayPlan = await createClosedAgentPlan({
+          request: replayRequest,
+          backendId: candidate.backendId,
+          complexity: candidate.planComplexity,
+        });
+      }
+      if (
+        !replayPlan
+        || replayPlan.schemaVersion !== CLOSED_AGENT_OS_SCHEMA_VERSION
+        || replayPlan.taskId !== request.taskId
+        || replayPlan.backendId !== candidate.backendId
+        || replayPlan.planDigest !== candidate.planDigest
+        || planningBinding
+          && replayPlan.plannerStrategy !== planningBinding.plannerStrategy
+      ) throw osError("CLOSED_AGENT_IDEMPOTENCY_PLAN_MISSING");
       return {
         task: existing,
         candidate,
-        plan: planLookup.entry.value,
+        plan: replayPlan,
         toolExecutions: structuredClone(candidate.toolExecutions ?? []),
         route: {
           backendId: candidate.backendId,
@@ -1519,8 +1736,14 @@ export class ClosedAgentOS {
           reasonCode: "IDEMPOTENT_REPLAY",
           fallbackAttempted: false,
         },
-        cache: { candidateHit: true, planHit: true, bypassReason: null },
-        learning: activeLearning,
+        cache: {
+          candidateHit: true,
+          planHit: replayPlanCacheHit,
+          bypassReason: null,
+        },
+        learning: planningBinding
+          ? planningLearningReceipt(planningBinding)
+          : activeLearning,
         ledgerHeadHash: blocks.at(-1)?.blockHash ?? "",
       };
     }
@@ -1542,6 +1765,8 @@ export class ClosedAgentOS {
           || request.preferredBackend
             && request.preferredBackend !== snapshot.backendId
           || snapshot.requestContractDigest !== requestContractDigest
+          || (snapshot.applicationValidationBindingDigest ?? null)
+            !== (request.applicationValidationBindingDigest ?? null)
         ) {
           throw osError("CLOSED_AGENT_IDEMPOTENCY_CONFLICT");
         }
@@ -1556,10 +1781,28 @@ export class ClosedAgentOS {
         const recoveryLearning = await this.learning.activeConfiguration(
           snapshot.namespace,
         );
+        if (
+          snapshot.planningBinding
+          && !await verifyClosedAgentPlanningBinding(snapshot.planningBinding)
+        ) {
+          throw osError("CLOSED_AGENT_IDEMPOTENCY_PLAN_MISSING");
+        }
+        const recoveryLearningMatchesBinding = Boolean(
+          snapshot.planningBinding
+          && recoveryLearning.applied
+            === snapshot.planningBinding.controlledLearningApplied
+          && recoveryLearning.versionId
+            === snapshot.planningBinding.controlledLearningVersionId
+          && recoveryLearning.configurationDigest
+            === snapshot.planningBinding.controlledLearningConfigurationDigest,
+        );
         const recoveryRequest: ClosedAgentTaskRequest = {
           ...request,
           namespace: snapshot.namespace,
-          learningConfiguration: recoveryLearning.configuration,
+          learningConfiguration:
+            snapshot.planningBinding && !recoveryLearningMatchesBinding
+              ? { "planner.strategy": snapshot.planningBinding.plannerStrategy }
+              : recoveryLearning.configuration,
         };
         const recoveryPlan = await createClosedAgentPlan({
           request: recoveryRequest,
@@ -1621,12 +1864,17 @@ export class ClosedAgentOS {
             planHit: false,
             bypassReason: request.regeneration?.cacheBypassReason ?? null,
           },
-          learning: recoveryLearning,
+          learning: snapshot.planningBinding
+            ? planningLearningReceipt(snapshot.planningBinding)
+            : recoveryLearning,
           ledgerHeadHash: recovered.ledgerHeadHash,
         };
       }
     }
-    const createdAt = this.now().toISOString();
+    const retryingFailedTask = existing?.state === "failed";
+    const createdAt = retryingFailedTask
+      ? existing.createdAt
+      : this.now().toISOString();
     let task: ClosedAgentTaskRecord = {
       schemaVersion: CLOSED_AGENT_OS_SCHEMA_VERSION,
       kind: "task",
@@ -1635,22 +1883,24 @@ export class ClosedAgentOS {
       namespace: structuredClone(request.namespace),
       taskType: request.taskType,
       backendId: null,
+      requestContractDigest,
       state: "queued",
       errorCode: null,
       createdAt,
       updatedAt: createdAt,
     };
     await this.state.put(task);
-    await this.ledger.append({
-      ledgerId: this.ledgerId(request),
-      namespace: request.namespace,
-      eventType: "task-accepted",
-      payload: {
-        taskId: request.taskId,
-        taskType: request.taskType,
-        objectiveDigest: await sha256Hex(request.objective),
-      },
-    });
+    if (!retryingFailedTask) {
+      await this.ledger.append({
+        ledgerId: this.ledgerId(request),
+        namespace: request.namespace,
+        eventType: "task-accepted",
+        payload: await closedAgentTaskAcceptedPayload(
+          request,
+          requestContractDigest,
+        ),
+      });
+    }
     try {
       this.emitProgress(request, "probing", "正在核對三個閉端後端的真實狀態", 8);
       const routingLearning = await this.learning.activeConfiguration(request.namespace);
@@ -1659,7 +1909,12 @@ export class ClosedAgentOS {
         learningConfiguration: routingLearning.configuration,
       };
       const snapshots = await this.backendSnapshots(request.signal, request.namespace);
-      const selectedRoute = selectClosedAIBackend(request, snapshots);
+      const selectedRoute = selectClosedAIBackend(
+        idempotentRetryBackend
+          ? { ...request, preferredBackend: idempotentRetryBackend }
+          : request,
+        snapshots,
+      );
       const route = {
         ...selectedRoute,
         backend: closedBrowserTaskExecutionSnapshot(
@@ -1738,42 +1993,55 @@ export class ClosedAgentOS {
       });
 
       const planInput = this.planCacheInput(request, route.backend.id);
-      const planResult = await this.cache.compute(
-        "agent-plan",
-        request.namespace,
-        planInput,
-        () => createClosedAgentPlan({
-          request,
-          backendId: route.backend.id,
-          complexity: route.complexity,
-        }),
-        {
-          tags: ["closed-agent-plan", `task:${request.taskType}`],
-          ttlMs: learningCacheTtl(request.learningConfiguration, "agent-plan"),
-        },
-      );
-      let plan = planResult.value;
-      let planCacheHit = planResult.cacheHit;
-      if (
-        plan.schemaVersion !== CLOSED_AGENT_OS_SCHEMA_VERSION
-        || plan.taskId !== request.taskId
-        || plan.backendId !== route.backend.id
-      ) {
-        await this.cache.repository.remove(planResult.entry.id);
+      let plan: ClosedAgentPlan;
+      let planCacheHit = false;
+      if (request.ephemeralPrompt || hasApplicationValidator) {
+        // The role objectives include the full caller prompt. Sensitive hidden
+        // reviews and application-gated normal generations therefore stage the
+        // plan in memory until the application accepts the model output.
         plan = await createClosedAgentPlan({
           request,
           backendId: route.backend.id,
           complexity: route.complexity,
         });
-        await this.cache.put({
-          layer: "agent-plan",
-          namespace: request.namespace,
-          input: planInput,
-          value: plan,
-          tags: ["closed-agent-plan", `task:${request.taskType}`],
-          ttlMs: learningCacheTtl(request.learningConfiguration, "agent-plan"),
-        });
-        planCacheHit = false;
+      } else {
+        const planResult = await this.cache.compute(
+          "agent-plan",
+          request.namespace,
+          planInput,
+          () => createClosedAgentPlan({
+            request,
+            backendId: route.backend.id,
+            complexity: route.complexity,
+          }),
+          {
+            tags: ["closed-agent-plan", `task:${request.taskType}`],
+            ttlMs: learningCacheTtl(request.learningConfiguration, "agent-plan"),
+          },
+        );
+        plan = planResult.value;
+        planCacheHit = planResult.cacheHit;
+        if (
+          plan.schemaVersion !== CLOSED_AGENT_OS_SCHEMA_VERSION
+          || plan.taskId !== request.taskId
+          || plan.backendId !== route.backend.id
+        ) {
+          await this.cache.repository.remove(planResult.entry.id);
+          plan = await createClosedAgentPlan({
+            request,
+            backendId: route.backend.id,
+            complexity: route.complexity,
+          });
+          await this.cache.put({
+            layer: "agent-plan",
+            namespace: request.namespace,
+            input: planInput,
+            value: plan,
+            tags: ["closed-agent-plan", `task:${request.taskType}`],
+            ttlMs: learningCacheTtl(request.learningConfiguration, "agent-plan"),
+          });
+          planCacheHit = false;
+        }
       }
       this.emitProgress(
         request,
@@ -1786,7 +2054,11 @@ export class ClosedAgentOS {
         },
       );
       for (const role of plan.roles) assertClosedAgentPermission({ request, role });
-      await this.recordOperationalLearningSignal({
+      const planningBinding = await createClosedAgentPlanningBinding({
+        plan,
+        learning: activeLearning,
+      });
+      const recordPlannerLearning = () => this.recordOperationalLearningSignal({
         request,
         outcome: "planner_result",
         score: 1,
@@ -1799,11 +2071,10 @@ export class ClosedAgentOS {
           backendId: route.backend.id,
           planDigest: plan.planDigest,
           roleCount: plan.roles.length,
-          plannerStrategy: String(
-            request.learningConfiguration?.["planner.strategy"] ?? "standard",
-          ),
+          plannerStrategy: plan.plannerStrategy,
         },
       });
+      if (!hasApplicationValidator) await recordPlannerLearning();
       const { toolResults, toolExecutions } = await this.executeTools(request, plan);
       if (request.context.some((item) =>
         item.kind === "author-note"
@@ -1821,45 +2092,48 @@ export class ClosedAgentOS {
         40,
         { backendId: route.backend.id },
       );
-      const actorContextResult = await this.cache.compute(
-        "retrieval",
-        actorNamespace,
-        {
-          taskType: request.taskType,
-          context: await Promise.all(request.context.map(async (item) => ({
-            id: item.id,
-            kind: item.kind,
-            learningFacet: item.learningFacet ?? "general",
-            visibility: item.visibility,
-            privacyLevel: item.privacyLevel,
-            approved: item.approved,
-            textDigest: await sha256Hex(item.text),
-          }))),
-          learningConfiguration: request.learningConfiguration ?? {},
-        },
-        async () => request.context
-          .map((item, index) => ({ item, index }))
-          .filter(({ item }) =>
-            item.approved
-            && item.visibility !== "author-only"
-            && item.visibility !== "evaluator"
-            && item.privacyLevel === request.namespace.privacyLevel)
-          .sort((left, right) =>
-            learningRetrievalWeight(
-              request.learningConfiguration,
-              right.item.kind,
-              right.item.learningFacet,
-            ) - learningRetrievalWeight(
-              request.learningConfiguration,
-              left.item.kind,
-              left.item.learningFacet,
-            ) || left.index - right.index)
-          .map(({ item }) => item),
-        {
-          tags: ["actor-context", `task:${request.taskType}`],
-          ttlMs: learningCacheTtl(request.learningConfiguration, "retrieval"),
-        },
-      );
+      const selectActorContext = () => request.context
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) =>
+          item.approved
+          && item.visibility !== "author-only"
+          && item.visibility !== "evaluator"
+          && item.privacyLevel === request.namespace.privacyLevel)
+        .sort((left, right) =>
+          learningRetrievalWeight(
+            request.learningConfiguration,
+            right.item.kind,
+            right.item.learningFacet,
+          ) - learningRetrievalWeight(
+            request.learningConfiguration,
+            left.item.kind,
+            left.item.learningFacet,
+          ) || left.index - right.index)
+        .map(({ item }) => item);
+      const actorContextResult = hasApplicationValidator
+        ? { value: selectActorContext(), cacheHit: false }
+        : await this.cache.compute(
+          "retrieval",
+          actorNamespace,
+          {
+            taskType: request.taskType,
+            context: await Promise.all(request.context.map(async (item) => ({
+              id: item.id,
+              kind: item.kind,
+              learningFacet: item.learningFacet ?? "general",
+              visibility: item.visibility,
+              privacyLevel: item.privacyLevel,
+              approved: item.approved,
+              textDigest: await sha256Hex(item.text),
+            }))),
+            learningConfiguration: request.learningConfiguration ?? {},
+          },
+          async () => selectActorContext(),
+          {
+            tags: ["actor-context", `task:${request.taskType}`],
+            ttlMs: learningCacheTtl(request.learningConfiguration, "retrieval"),
+          },
+        );
       const actorContext = actorContextResult.value;
       const traditionalChineseNormalizationPolicy =
         await createTraditionalChineseNormalizationPolicy({
@@ -1987,7 +2261,7 @@ export class ClosedAgentOS {
         50,
         { backendId: route.backend.id },
       );
-      if (request.regeneration) {
+      if (request.regeneration || request.ephemeralPrompt) {
         executionStartedAt = this.now().toISOString();
         execution = await this.executeQualityPipeline({
           backend,
@@ -2003,7 +2277,9 @@ export class ClosedAgentOS {
         this.emitProgress(
           request,
           "generating",
-          "已依明確重新生成要求略過舊候選快取",
+          request.ephemeralPrompt
+            ? "敏感內部複核已略過提示與候選快取"
+            : "已依明確重新生成要求略過舊候選快取",
           80,
           {
             backendId: route.backend.id,
@@ -2312,7 +2588,10 @@ export class ClosedAgentOS {
         externalRequest: execution.externalRequest,
         planComplexity: plan.complexity,
         planDigest: plan.planDigest,
+        planningBinding,
         requestContractDigest,
+        applicationValidationBindingDigest:
+          request.applicationValidationBindingDigest ?? null,
         evaluation,
         status: "awaiting-approval",
         candidateOnly: true,
@@ -2341,6 +2620,37 @@ export class ClosedAgentOS {
         createdAt: updatedAt,
         updatedAt,
       };
+      if (request.validateBeforePersistence) {
+        // The application validator receives a detached value and runs before
+        // candidate-generated/evaluated, learning, state, or cache writes.  A
+        // rejected echo therefore leaves only metadata-only task evidence; no
+        // model output or hidden prompt can enter durable storage.
+        await request.validateBeforePersistence(structuredClone(candidate));
+        if (request.signal?.aborted) {
+          throw osError("CLOSED_AGENT_TASK_CANCELLED");
+        }
+        // Planner/tool learning is intentionally deferred until the application
+        // gate accepts the model output. A rejected RPG/adult candidate must not
+        // train the local learning store or leave prompt-derived cache entries.
+        await recordPlannerLearning();
+        for (const toolExecution of toolExecutions) {
+          await this.recordOperationalLearningSignal({
+            request,
+            outcome: "tool_result",
+            score: 1,
+            tags: [
+              "tool-success",
+              `tool:${toolExecution.toolId}`,
+              toolExecution.cacheHit ? "tool-cache-hit" : "tool-cache-miss",
+            ],
+            feature: {
+              toolId: toolExecution.toolId,
+              role: toolExecution.role,
+              resultDigest: toolExecution.outputDigest,
+            },
+          });
+        }
+      }
       const candidateGeneratedPayload = retainedCandidateGeneratedPayload(candidate);
       const candidateGeneratedResult = {
         elapsedMs: candidateMetrics.elapsedMs,
@@ -2432,7 +2742,12 @@ export class ClosedAgentOS {
         throw osError("CLOSED_AGENT_LEDGER_INTEGRITY_FAILED");
       }
       await this.state.putMany([candidate, task]);
-      if (!candidateCacheHit && !request.regeneration && executionReceipt) {
+      if (
+        !candidateCacheHit
+        && !request.regeneration
+        && !request.ephemeralPrompt
+        && executionReceipt
+      ) {
         const artifact: ClosedAgentCachedExecutionArtifact = {
           schemaVersion: "closed-agent-cached-execution-v1",
           execution,
@@ -2559,6 +2874,8 @@ export class ClosedAgentOS {
       || candidateTask.id !== candidate.taskId
       || candidateTask.projectId !== candidate.projectId
       || candidateTask.backendId !== candidate.backendId
+      || candidateTask.requestContractDigest !== undefined
+        && candidateTask.requestContractDigest !== candidate.requestContractDigest
       || candidateTask.state !== "awaiting-approval"
       || candidateTask.errorCode !== null
       || !sameClosedAINamespace(candidateTask.namespace, candidate.namespace)
@@ -3905,29 +4222,35 @@ export class ClosedAgentOS {
           contextDigest,
         }));
         const startedAt = this.now().toISOString();
-        const cacheResult = await this.cache.compute(
-          "tool-result",
-          request.namespace,
-          {
-            toolId,
-            taskId: request.taskId,
-            objectiveDigest,
-            learningConfiguration: request.learningConfiguration ?? {},
-          },
-          () => tool.execute({
-            namespace: request.namespace,
-            taskId: request.taskId,
-            taskType: request.taskType,
-            objective: request.objective,
-            approvedContext,
-            payload: { taskType: request.taskType },
-            signal: request.signal,
-          }),
-          {
-            tags: ["closed-agent-tool", `tool:${toolId}`],
-            ttlMs: learningCacheTtl(request.learningConfiguration, "tool-result"),
-          },
-        );
+        const executeTool = () => tool.execute({
+          namespace: request.namespace,
+          taskId: request.taskId,
+          taskType: request.taskType,
+          objective: request.objective,
+          approvedContext,
+          payload: { taskType: request.taskType },
+          signal: request.signal,
+        });
+        // acceptance-checklist can contain strict rules excerpted from the
+        // objective. A hidden fallback review therefore executes tools only in
+        // memory so no draft sentence can reach the tool-result cache.
+        const cacheResult = request.ephemeralPrompt || request.validateBeforePersistence
+          ? { value: await executeTool(), cacheHit: false }
+          : await this.cache.compute(
+            "tool-result",
+            request.namespace,
+            {
+              toolId,
+              taskId: request.taskId,
+              objectiveDigest,
+              learningConfiguration: request.learningConfiguration ?? {},
+            },
+            executeTool,
+            {
+              tags: ["closed-agent-tool", `tool:${toolId}`],
+              ttlMs: learningCacheTtl(request.learningConfiguration, "tool-result"),
+            },
+          );
         const completedAt = this.now().toISOString();
         const outputDigest = await sha256Hex(stableStringify(cacheResult.value));
         const receiptDigest = await sha256Hex(stableStringify({
@@ -3967,33 +4290,37 @@ export class ClosedAgentOS {
           rawInputStored: false,
           rawOutputStored: false,
         });
-        await this.recordOperationalLearningSignal({
-          request,
-          outcome: "tool_result",
-          score: 1,
-          tags: [
-            "tool-success",
-            `tool:${toolId}`,
-            cacheResult.cacheHit ? "tool-cache-hit" : "tool-cache-miss",
-          ],
-          feature: {
-            toolId,
-            role,
-            resultDigest: outputDigest,
-          },
-        });
+        if (!request.validateBeforePersistence) {
+          await this.recordOperationalLearningSignal({
+            request,
+            outcome: "tool_result",
+            score: 1,
+            tags: [
+              "tool-success",
+              `tool:${toolId}`,
+              cacheResult.cacheHit ? "tool-cache-hit" : "tool-cache-miss",
+            ],
+            feature: {
+              toolId,
+              role,
+              resultDigest: outputDigest,
+            },
+          });
+        }
       } catch (cause) {
-        await this.recordOperationalLearningSignal({
-          request,
-          outcome: "tool_result",
-          score: 0,
-          tags: [
-            "tool-failure",
-            `tool:${toolId}`,
-            `error:${String((cause as { code?: string })?.code || "UNKNOWN")}`,
-          ],
-          feature: { toolId, role, success: false },
-        });
+        if (!request.validateBeforePersistence) {
+          await this.recordOperationalLearningSignal({
+            request,
+            outcome: "tool_result",
+            score: 0,
+            tags: [
+              "tool-failure",
+              `tool:${toolId}`,
+              `error:${String((cause as { code?: string })?.code || "UNKNOWN")}`,
+            ],
+            feature: { toolId, role, success: false },
+          });
+        }
         throw cause;
       }
     }
@@ -4164,6 +4491,26 @@ export class ClosedAgentOS {
 
   private ledgerId(request: ClosedAgentTaskRequest) {
     return `closed-agent:${request.namespace.projectId}:${request.taskId}`;
+  }
+
+  private async hasVerifiedTaskAcceptedRequestContract(
+    request: ClosedAgentTaskRequest,
+    requestContractDigest: string,
+  ) {
+    const ledgerId = this.ledgerId(request);
+    const [verification, blocks, namespaceDigest, payloadDigest] = await Promise.all([
+      this.ledger.verify(ledgerId),
+      this.ledger.repository.list(ledgerId),
+      closedAINamespaceDigest(request.namespace),
+      closedAgentTaskAcceptedPayload(request, requestContractDigest)
+        .then((payload) => sha256Hex(stableStringify(payload))),
+    ]);
+    const exact = blocks.filter((block) => (
+      block.eventType === "task-accepted"
+      && block.namespaceDigest === namespaceDigest
+      && block.payloadDigest === payloadDigest
+    ));
+    return verification.valid && exact.length === 1;
   }
 
   private learningLedgerId(projectId: string, candidateId: string) {

@@ -20,6 +20,10 @@ import { resolveProjectStoryBible } from "@/lib/novel-ai/domain/story-bible-sele
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import type { SovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
+import {
+  isRpgLogicalTurnProviderTaskId,
+} from "@/lib/novel-ai/conversation/rpg-logical-turn";
 import type { ConversationLearningCoordinatorLoader } from "./use-conversation-learning-loader";
 
 type SessionSnapshot = {
@@ -122,7 +126,6 @@ export function useConversationSessionController({
   const [queuedSessionId, setQueuedSessionId] = useState<string | null>(null);
   const requestTokenRef = useRef(0);
   const sessionIntentRef = useRef({ token: 0, sessionId: "" });
-  const reconciledSessionIdsRef = useRef(new Set<string>());
 
   const beginSessionIntent = useCallback((sessionId: string) => {
     const next = {
@@ -152,7 +155,6 @@ export function useConversationSessionController({
     if (
       (interruptedInvocations.length || interruptedMessages.length)
       && !operationLocked()
-      && !reconciledSessionIdsRef.current.has(sessionId)
     ) {
       const releaseLease = await acquireSessionLease(projectId, sessionId);
       if (releaseLease) try {
@@ -174,8 +176,28 @@ export function useConversationSessionController({
             canonicalMutationCount: 0,
             safeProgress: { stage: "interrupted", percent: 0, message: "頁面重新載入後已安全停止；可按重試重新執行。" },
           }).catch(() => invocation)));
+        const messageById = new Map(nextMessages.map((message) => [message.id, message]));
+        const completedRpgInvocationMessageIds = new Set((await Promise.all(nextInvocations
+          .filter((invocation) => (
+            invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+            && invocation.status === "completed"
+            && Boolean(invocation.executionReceipt)
+          ))
+          .map(async (invocation) => {
+            const logicalTurnId = messageById.get(invocation.messageId)?.parentMessageId;
+            if (!logicalTurnId) return null;
+            return await isRpgLogicalTurnProviderTaskId(
+              logicalTurnId,
+              invocation.executionReceipt?.providerRunId,
+            )
+              ? invocation.messageId
+              : null;
+          }))).filter((messageId): messageId is string => Boolean(messageId)));
         await Promise.all(nextMessages
-          .filter((message) => ["pending", "streaming"].includes(message.status))
+          .filter((message) => (
+            ["pending", "streaming"].includes(message.status)
+            && !completedRpgInvocationMessageIds.has(message.id)
+          ))
           .map((message) => conversation.updateMessageStatus({
             projectId,
             sessionId,
@@ -191,11 +213,8 @@ export function useConversationSessionController({
           conversation.listAttachments(projectId, sessionId),
         ]);
       } finally {
-        reconciledSessionIdsRef.current.add(sessionId);
         releaseLease();
       }
-    } else if (!interruptedInvocations.length && !interruptedMessages.length) {
-      reconciledSessionIdsRef.current.add(sessionId);
     }
     const pendingLearningArtifacts = nextArtifacts.filter((artifact) => (
       artifact.artifactType === "learning_rule" && artifact.status === "candidate"

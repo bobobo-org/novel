@@ -1,3 +1,6 @@
+import type { AdultNarrativeBlueprint, AdultNarrativeBlueprintInput } from "./adult-narrative-structure";
+import type { AdultExperienceProfile } from "../../../novel-data/adult-experience-profile";
+
 export const INTIMACY_SCHEMA_VERSION = "h2p3-segmented-scene-state-machine-v1";
 export const INTIMACY_MIGRATION_VERSION = "016_segmented_scene_state_machine";
 
@@ -23,6 +26,7 @@ export type IntimacyParticipantInput = {
   relationshipId?: string;
   relationshipStage?: string;
   consentState: "active" | "unspecified" | "withdrawn" | "invalid";
+  consentRevocable: boolean;
   required?: boolean;
 };
 
@@ -47,6 +51,9 @@ export type IntimacyScene = {
   updatedAt: string;
   archivedAt?: string;
   version: number;
+  narrativeBlueprint?: AdultNarrativeBlueprint;
+  adultMode?: true;
+  adultExperienceProfileVersion?: AdultExperienceProfile["version"];
 };
 
 export type IntimacyStage = {
@@ -68,6 +75,11 @@ export type IntimacyStage = {
   createdAt: string;
   updatedAt: string;
   version: number;
+  narrativeActId?: AdultNarrativeBlueprint["acts"][number]["actId"];
+  structuralEngineIds?: AdultNarrativeBlueprint["engineComposition"];
+  worldAdapterId?: AdultNarrativeBlueprint["worldAdapter"]["id"];
+  requiredStateChanges?: AdultNarrativeBlueprint["acts"][number]["requiredChangeDimensions"];
+  consentCheckpoint?: boolean;
 };
 
 export type IntimacyStageVersion = {
@@ -154,4 +166,7 @@ export type IntimacyScenePlanInput = {
   stageTypes?: IntimacyStageType[];
   narrativePurpose?: string;
   consequencePlan?: string;
+  adultMode?: boolean;
+  adultExperienceProfile?: AdultExperienceProfile | null;
+  adultNarrative?: Omit<AdultNarrativeBlueprintInput, "participants">;
 };

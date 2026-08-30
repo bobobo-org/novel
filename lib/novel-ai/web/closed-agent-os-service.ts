@@ -6,6 +6,7 @@ import {
   type ClosedAIProgressEvent,
   type ClosedAIQualityMode,
   type ClosedAIRegenerationContract,
+  type ClosedAgentCandidate,
   type ClosedAgentExecutionResult,
 } from "../closed-agent-os";
 import type { ClosedAINamespace } from "../closed-ai-cache";
@@ -179,6 +180,14 @@ export type ExecuteStudioClosedAgentInput = {
   sourceRevision?: number;
   regeneration?: ClosedAIRegenerationContract;
   generationOptions?: PlatformAIRequest["generationOptions"];
+  /** Do not persist this invocation's prompt or prompt-derived cache values. */
+  ephemeralPrompt?: boolean;
+  applicationValidationBindingDigest?: string;
+  validateBeforePersistence?: (
+    candidate: Readonly<ClosedAgentCandidate>,
+  ) => void | Promise<void>;
+  /** Same-contract continuation; the OS runtime re-verifies explicit Local authorization. */
+  idempotentRetryBackend?: "local-ollama";
   taskId?: string;
   contextTokenBudget?: number;
   conversationSessionId?: string;
@@ -469,6 +478,11 @@ export async function executeStudioClosedAgent(
       sourceRevision: input.sourceRevision,
       regeneration: input.regeneration,
       generationOptions: input.generationOptions,
+      ephemeralPrompt: input.ephemeralPrompt ?? false,
+      applicationValidationBindingDigest:
+        input.applicationValidationBindingDigest,
+      validateBeforePersistence: input.validateBeforePersistence,
+      idempotentRetryBackend: input.idempotentRetryBackend,
       complexity,
       qualityMode: input.qualityMode,
       browserComputePolicy: input.browserComputePolicy ?? "browser-first",

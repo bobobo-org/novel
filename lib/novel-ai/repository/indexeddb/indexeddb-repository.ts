@@ -12,6 +12,12 @@ import type {
   RejectCharacterProposalResult,
 } from "../../character-agent/types";
 import { acceptChoicePayloadFingerprint, assertAcceptChoiceInput, buildAcceptedChoiceRecords } from "../../services/accept-choice";
+import {
+  assertRpgContextRevisionGuard,
+  assertRpgContextRevisionGuardIntegrity,
+  RPG_CONTEXT_REVISION_STORE_NAMES,
+  type RpgContextRevisionRecords,
+} from "../../services/rpg-context-revision";
 import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type ApproveConversationArtifactTransactionInput, type ApproveConversationArtifactTransactionResult, type CommitStudioCandidateTransactionInput, type CommitStudioCandidateTransactionResult, type MarkConversationArtifactApprovedFromExternalCommitInput, type NovelRepository, type NovelStoreName, type StudioCandidateOperationJournal } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 import { assertStudioCandidateReplay, buildStudioCandidateCommitRecords } from "../studio-candidate-transaction";
@@ -207,6 +213,9 @@ export class IndexedDbNovelRepository implements NovelRepository {
     return bundle;
   }
   async acceptChoiceTransaction(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult> {
+    if (input.rpgContextRevisionGuard) {
+      await assertRpgContextRevisionGuardIntegrity(input.rpgContextRevisionGuard);
+    }
     const conversationPayloadFingerprint = input.conversationApproval
       ? await acceptedChoiceConversationApprovalPayloadFingerprint(input)
       : null;
@@ -287,6 +296,9 @@ export class IndexedDbNovelRepository implements NovelRepository {
       "projects", "chapters", "candidates", "storyStates", "acceptedChoices",
       "storyBranches", "storyBibles", "storyBibleDeltas", "approvalTransactions",
       "idempotencyRecords", "operationJournal", "rpgTurnReceipts",
+      ...(input.rpgContextRevisionGuard
+        ? [...RPG_CONTEXT_REVISION_STORE_NAMES] as NovelStoreName[]
+        : []),
       ...(input.conversationApproval
         ? ["conversationSessions", "conversationMessages", "conversationToolInvocations", "conversationArtifacts", "conversationSummaries", "conversationApprovalTransactions"] as NovelStoreName[]
         : []),
@@ -382,6 +394,18 @@ export class IndexedDbNovelRepository implements NovelRepository {
       ]);
       const storyBible = resolveProjectStoryBible(project, storyBibles);
       if (!project || !chapter || !candidate || !storyState || !storyBible) throw new RepositoryOperationError("ACCEPT_CHOICE_RECORD_MISSING");
+      if (input.rpgContextRevisionGuard) {
+        const contextRows = await Promise.all(RPG_CONTEXT_REVISION_STORE_NAMES.map(async (store) => (
+          [
+            store,
+            await request(tx.objectStore(store).index("projectId").getAll(input.projectId)) as DomainRecord[],
+          ] as const
+        )));
+        assertRpgContextRevisionGuard(
+          input.rpgContextRevisionGuard,
+          Object.fromEntries(contextRows) as unknown as RpgContextRevisionRecords,
+        );
+      }
       let records: ReturnType<typeof buildAcceptedChoiceRecords>;
       let conversationRecords: NonNullable<Awaited<ReturnType<typeof prepareAcceptedChoiceConversationApproval>>> | null = null;
       if (input.conversationApproval) {

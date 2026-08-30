@@ -1488,7 +1488,12 @@ export class LoopbackPrivateHubTransport {
       taskType: input.request.taskType,
       timeoutMs: profile.timeoutMs,
       options,
-      cacheNamespace: input.request.namespace,
+      // Fallback-review prompts can contain full unpublished drafts. Keep the
+      // verified generation receipt, but do not let the Private Hub retain an
+      // exact prompt/output cache entry for this opt-in ephemeral transaction.
+      cacheNamespace: input.request.ephemeralPrompt
+        ? undefined
+        : input.request.namespace,
       signal: input.request.signal,
     })) {
       if (event.type === "started") {

@@ -27,6 +27,7 @@ export type ConversationWorkspaceViewProps = {
   project: SidebarProps["project"];
   activeSession: SidebarProps["sessions"][number] | null;
   currentChapterTitle: string | null;
+  currentChapter: TimelineProps["currentChapter"];
   fixedPlayMode: TimelineProps["fixedPlayMode"];
   sidebarOpen: boolean;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
@@ -69,6 +70,7 @@ export type ConversationWorkspaceViewProps = {
   characters: TimelineProps["characters"];
   relationships: TimelineProps["relationships"];
   messageActions: TimelineProps["actions"];
+  recoverRpgChoices: () => Promise<void>;
   retryActionRef: MutableRefObject<(() => void) | null>;
   draft: ComposerProps["draft"];
   setDraft: ComposerProps["onDraftChange"];
@@ -89,11 +91,12 @@ export type ConversationWorkspaceViewProps = {
   externalRunConsent: ComposerProps["externalRunConsent"];
   externalSelected: ComposerProps["externalSelected"];
   externalProviderConfigured: ComposerProps["externalProviderConfigured"];
+  sourceControlsCollapseSignal: number;
   onFilesSelected: ComposerProps["onFilesSelected"];
   retryLocalAttachment: ComposerProps["onRetryAttachment"];
   removeLocalAttachment: ComposerProps["onRemoveAttachment"];
   stopGeneration: ComposerProps["onStop"];
-  sendRequest: ComposerProps["onSend"];
+  sendRequest: (contentOverride?: string, onAccepted?: () => void) => Promise<void>;
   prepareClosedAi: ComposerProps["onPrepareClosedAi"];
   cancelClosedAiSetup: ComposerProps["onCancelClosedAiSetup"];
   onAiExecutionModeChange: ComposerProps["onAiExecutionModeChange"];
@@ -179,6 +182,7 @@ export function ConversationWorkspaceView(props: ConversationWorkspaceViewProps)
         timeline={(
           <MessageTimeline
             project={props.project}
+            currentChapter={props.currentChapter}
             projectId={props.projectId}
             sessionId={props.activeSessionId}
             messages={props.messages}
@@ -205,10 +209,12 @@ export function ConversationWorkspaceView(props: ConversationWorkspaceViewProps)
             actions={props.messageActions}
             onStarter={props.setDraft}
             onRetry={() => props.retryActionRef.current?.()}
+            onRecoverRpgChoices={() => { void props.recoverRpgChoices(); }}
           />
         )}
         composer={(
           <MessageComposer
+            key={`conversation-message-composer:${props.sourceControlsCollapseSignal}`}
             active={Boolean(props.activeSession)}
             projectId={props.projectId}
             busy={props.busy}
@@ -241,7 +247,7 @@ export function ConversationWorkspaceView(props: ConversationWorkspaceViewProps)
             onRemoveAttachment={props.removeLocalAttachment}
             onToggleArtifacts={() => props.setArtifactOpen((value) => !value)}
             onStop={props.stopGeneration}
-            onSend={() => { void props.sendRequest(); }}
+            onSend={(onAccepted) => { void props.sendRequest(undefined, onAccepted); }}
             onPrepareClosedAi={() => { void props.prepareClosedAi(); }}
             onCancelClosedAiSetup={props.cancelClosedAiSetup}
             onAiExecutionModeChange={props.onAiExecutionModeChange}

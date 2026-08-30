@@ -48,8 +48,8 @@ function sceneInput(overrides = {}) {
     title: "Compatibility state machine scene",
     purpose: "Validate state machine compatibility without generating explicit prose.",
     participants: [
-      { characterId: "char_a", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "active", relationshipId: "rel_a_b", relationshipStage: "established" },
-      { characterId: "char_b", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "active", relationshipId: "rel_a_b", relationshipStage: "established" },
+      { characterId: "char_a", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "active", consentRevocable: true, relationshipId: "rel_a_b", relationshipStage: "established" },
+      { characterId: "char_b", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "active", consentRevocable: true, relationshipId: "rel_a_b", relationshipStage: "established" },
     ],
     ...overrides,
   };

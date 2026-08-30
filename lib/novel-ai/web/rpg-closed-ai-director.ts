@@ -1,4 +1,9 @@
 import type { RpgChoice } from "../game/progression/rpg-progression";
+import {
+  assertValidStoryProseOutput,
+  hasCopiedStoryProse,
+  hasInternalStoryProseRepetition,
+} from "./story-output-quality";
 
 export type RpgDirectedChoice = RpgChoice;
 
@@ -129,6 +134,10 @@ const INTERNAL_PROMPT_KEYS = new Set([
   "canonicalstatus",
   "schemaversion",
   "virtualcandidate",
+  "privatesecrets",
+  "hiddenmotivations",
+  "secretmotive",
+  "authoronlycharactersecrets",
 ]);
 
 function internalPromptKey(key: string) {
@@ -364,10 +373,69 @@ export function rpgTextSimilarity(left: string, right: string) {
   return (2 * overlap) / (a.size + b.size);
 }
 
+function hasRepeatedNarrativeBlock(value: string) {
+  const sentences = value
+    .split(/(?<=[。！？!?])\s*/u)
+    .map((sentence) => normalized(sentence))
+    .filter((sentence) => sentence.length >= 18);
+  const seen = new Set<string>();
+  for (let index = 0; index <= sentences.length - 3; index += 1) {
+    const block = sentences.slice(index, index + 3).join("");
+    if (block.length < 120) continue;
+    if (seen.has(block)) return true;
+    seen.add(block);
+  }
+  return false;
+}
+
+/**
+ * Rejects a whole-scene replay against already accepted prose.  Deterministic
+ * fallback candidates use the same gate as model output so a retry cannot
+ * silently append the previous chapter again.
+ */
+export function validateRpgContinuationNovelty(
+  value: string,
+  recentAcceptedTexts: readonly string[],
+) {
+  const candidate = normalized(value);
+  let mostSimilar = 0;
+  for (const previousValue of recentAcceptedTexts) {
+    const previous = normalized(previousValue);
+    if (!previous) continue;
+    const firstReplayIndex = candidate.indexOf(previous);
+    const repeatsShortAcceptedPassage = previous.length >= 48
+      && firstReplayIndex >= 0
+      && candidate.indexOf(previous, firstReplayIndex + previous.length) >= 0;
+    if (
+      candidate === previous
+      || repeatsShortAcceptedPassage
+      || hasCopiedStoryProse(value, previousValue)
+      || (candidate.length >= 300 && previous.includes(candidate))
+      || (previous.length >= 300 && candidate.includes(previous))
+    ) {
+      throw Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        similarityScore: 1,
+      });
+    }
+    if (previous.length < 120) continue;
+    mostSimilar = Math.max(mostSimilar, rpgTextSimilarity(candidate, previous));
+  }
+  // Normal serial scenes intentionally retain names, locations and an active
+  // conflict. Reject near-copies, not ordinary continuity that happens to
+  // share those anchors.
+  if (mostSimilar >= 0.82) {
+    throw Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+      similarityScore: mostSimilar,
+    });
+  }
+  return { similarityScore: mostSimilar };
+}
+
 export async function cleanRpgContinuation(
   raw: string,
   recentAcceptedTexts: string[],
   language: StoryOutputLanguage = "zh-TW",
+  prompt?: string | null,
 ) {
   const unwrapped = raw
     .replace(/^\s*```(?:text|markdown)?\s*/i, "")
@@ -389,18 +457,12 @@ export async function cleanRpgContinuation(
       recentAcceptedTexts.join("\n"),
     );
   }
-  const mostSimilar = recentAcceptedTexts.reduce(
-    (highest, previous) => Math.max(highest, rpgTextSimilarity(value, previous)),
-    0,
-  );
   // A short answer can also be a verbatim replay. Report the actionable
   // repetition fault first so regeneration changes the scene instead of only
   // padding the same paragraph to satisfy the length gate.
-  if (mostSimilar >= 0.68) throw Object.assign(
-    new Error("RPG_AI_CONTINUATION_REPETITIVE"),
-    { similarityScore: mostSimilar },
-  );
+  validateRpgContinuationNovelty(value, recentAcceptedTexts);
   validateRpgStoryTurnContract(value, language);
+  assertValidStoryProseOutput({ content: value, language, prompt });
   if (/^(?:說明|分析|以下是|作為(?:AI|人工智慧)|工程|JSON|```)/i.test(value)) {
     throw new Error("RPG_AI_CONTINUATION_NOT_STORY");
   }
@@ -414,6 +476,36 @@ export async function cleanRpgContinuation(
     throw new Error("RPG_AI_CONTINUATION_LANGUAGE_MISMATCH");
   }
   return value;
+}
+
+const ORPHAN_FRAGMENT_PUNCTUATION = /^[，。、；：」』）】]/u;
+const ORPHAN_POSSESSIVE_FRAGMENT = /^的(?!確)(?:[\p{Script=Han}]{1,12})(?=[，。！？、；：\s]|$)/u;
+const ORPHAN_ASPECT_FRAGMENT = /^了(?!解|然|不起|如指掌)(?:這|这|那|一|兩|两|三|幾|几|多少|此|所有|整個|整个|完整|最後|最后|先前)/u;
+
+/**
+ * Detect only observable truncation evidence at a prose/dialogue boundary.
+ * A previous single-character blacklist rejected grammatical words such as
+ * 「的確」「前輩」「後來」「了解」even though they are complete openings.
+ */
+function hasVisibleRpgOpeningFragment(value: string) {
+  const proseOpening = value
+    .split(/\n+/u)
+    .map((paragraph) => paragraph.trim())
+    .find((paragraph) => paragraph && !/^〈[^〉]+〉$/u.test(paragraph)) ?? "";
+  if (
+    ORPHAN_FRAGMENT_PUNCTUATION.test(proseOpening)
+    || ORPHAN_POSSESSIVE_FRAGMENT.test(proseOpening)
+    || ORPHAN_ASPECT_FRAGMENT.test(proseOpening)
+  ) return true;
+  for (const match of value.matchAll(/「([^」\n]{1,80})/gu)) {
+    const opening = match[1]?.trimStart() ?? "";
+    if (
+      ORPHAN_FRAGMENT_PUNCTUATION.test(opening)
+      || ORPHAN_POSSESSIVE_FRAGMENT.test(opening)
+      || ORPHAN_ASPECT_FRAGMENT.test(opening)
+    ) return true;
+  }
+  return false;
 }
 
 export function validateRpgStoryTurnContract(
@@ -448,6 +540,46 @@ export function validateRpgStoryTurnContract(
     throw new Error("RPG_AI_CONTINUATION_LEGACY_TEMPLATE_VISIBLE");
   }
   if (language !== "en") {
+    if (hasVisibleRpgOpeningFragment(value)) {
+      throw new Error("RPG_AI_CONTINUATION_FRAGMENT_VISIBLE");
+    }
+    if (
+      /(?:主角|[\u3400-\u9fff]{2,8})說出「[^」]*(?:・|｜)[^」]*」後(?:立刻)?動手/u.test(value)
+      || /(?:NEXT TURN|下一步選擇|策略\s*[：:]|可能收益\s*[：:]|已知代價\s*[：:]|風險\s*[：:])/iu.test(value)
+    ) {
+      throw new Error("RPG_AI_CONTINUATION_UI_LABEL_VISIBLE");
+    }
+    if (
+      /隊伍正在觀察主角是否願意承擔選擇後果/u.test(value)
+      || /若唯一方案需要剝奪第三方的選擇權/u.test(value)
+      || /若行動只服務個人勝負而非原定目標/u.test(value)
+      || /若主角要求隱瞞無辜者會承受的代價/u.test(value)
+    ) {
+      throw new Error("RPG_AI_CONTINUATION_POLICY_FIELD_VISIBLE");
+    }
+    if (
+      /我先去做能證明[^。！？」]{2,80}的那一步/u.test(value)
+      || /你可以(?:往前|試)，但別把[^。！？」]{2,80}(?:當成你的籌碼|替我作決定)/u.test(value)
+      || /我只交出親眼核對過的部分/u.test(value)
+    ) {
+      throw new Error("RPG_AI_CONTINUATION_ROLE_TEMPLATE_VISIBLE");
+    }
+  }
+  const proseParagraphs = value
+    .split(/\n+/u)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length >= 48 && !/^〈[^〉]+〉$/u.test(paragraph));
+  for (let left = 0; left < proseParagraphs.length; left += 1) {
+    for (let right = left + 1; right < proseParagraphs.length; right += 1) {
+      if (rpgTextSimilarity(proseParagraphs[left]!, proseParagraphs[right]!) >= 0.78) {
+        throw new Error("RPG_AI_CONTINUATION_INTERNAL_PARAGRAPH_LOOP");
+      }
+    }
+  }
+  if (hasRepeatedNarrativeBlock(value) || hasInternalStoryProseRepetition(value)) {
+    throw new Error("RPG_AI_CONTINUATION_WHOLE_SCENE_LOOP");
+  }
+  if (language !== "en") {
     const openingQuotes = value.match(/「/gu)?.length ?? 0;
     const closingQuotes = value.match(/」/gu)?.length ?? 0;
     if (openingQuotes !== closingQuotes || /「[^」\n]{0,180}「/u.test(value)) {
@@ -465,17 +597,6 @@ export function validateRpgStoryTurnContract(
     .split(/\n+/u)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean).length;
-  const proseParagraphs = value
-    .split(/\n+/u)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length >= 48 && !/^〈[^〉]+〉$/u.test(paragraph));
-  for (let left = 0; left < proseParagraphs.length; left += 1) {
-    for (let right = left + 1; right < proseParagraphs.length; right += 1) {
-      if (rpgTextSimilarity(proseParagraphs[left]!, proseParagraphs[right]!) >= 0.78) {
-        throw new Error("RPG_AI_CONTINUATION_INTERNAL_PARAGRAPH_LOOP");
-      }
-    }
-  }
   const sentenceCount = language === "en"
     ? value.match(/[.!?](?:\s|$)/gu)?.length ?? 0
     : value.match(/[。！？!?]/gu)?.length ?? 0;
@@ -497,6 +618,7 @@ export function validateRpgStoryTurnContract(
       maximumParagraphs: 16,
     });
   }
+  assertValidStoryProseOutput({ content: value, language });
   return {
     narrativeLength,
     paragraphCount,

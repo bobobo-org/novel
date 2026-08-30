@@ -1,3 +1,5 @@
+import type { ExternalRpgConsentAssertion } from "./external-rpg-consent-contract";
+
 export const NOVEL_AI_EXECUTION_MODES = ["closed-only", "hybrid", "external-only"] as const;
 export type NovelAIExecutionMode = (typeof NOVEL_AI_EXECUTION_MODES)[number];
 
@@ -108,6 +110,14 @@ export type ExternalAIGenerationRequest = {
   executionMode: NovelAIExecutionMode;
   providerId: ExternalAIProviderId;
   externalConsent: boolean;
+  /** Declares the narrower server-side validation path for this operation. */
+  operation?: "generic-candidate" | "rpg-turn";
+  /** Exact, short-lived single-run binding required for bounded RPG egress. */
+  rpgConsentAssertion?: ExternalRpgConsentAssertion;
+  rpgProjectId?: string;
+  rpgFieldManifestDigest?: string;
+  /** Canonical, server-revalidated bounded reader-visible RPG context. */
+  rpgPublicPayload?: unknown;
   prompt: string;
   systemInstruction?: string;
   requestId?: string;

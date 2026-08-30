@@ -3,13 +3,38 @@ import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
+import {
+  buildTopicWorldFamilyStageMatrix,
+  serializeTopicWorldFamilyDraftSelection,
+} from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
 import { createProjectBackup, validateBackupPayload } from "../lib/novel-ai/repository/backup.ts";
 import { resolveCapabilityCatalog } from "../lib/novel-ai/capabilities/capability-resolver.ts";
+import { acceptChoicePayloadFingerprint } from "../lib/novel-ai/services/accept-choice/index.ts";
 
 const results = [];
 async function test(name, work) { const started = performance.now(); try { await work(); results.push({ name, status: "PASS", elapsedMs: Math.round(performance.now() - started) }); } catch (error) { results.push({ name, status: "FAIL", elapsedMs: Math.round(performance.now() - started), error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }); } }
 const effect = (delta = 3) => ({ statChanges: { reputation: delta }, relationshipChanges: {}, resourceChanges: {}, moneyChange: 0, worldFlags: {}, questProgress: {}, achievementProgress: {}, timelineEvents: ["choice"] });
-function fixtureDraft(title) { const draft = createDraft("quick"); draft.title = title; draft.coreIdea = optionalValue("A choice changes the city.", "user_defined"); draft.protagonist = optionalValue("Lin Zhao", "user_defined"); return draft; }
+function fixtureDraft(title) {
+  const draft = createDraft("quick");
+  draft.title = title;
+  draft.genrePackId = "pack-6";
+  draft.genreId = "classic-topic-009";
+  draft.coreIdea = optionalValue("A choice changes the city.", "user_defined");
+  draft.protagonist = optionalValue("Lin Zhao", "user_defined");
+  const stageMatrix = buildTopicWorldFamilyStageMatrix({
+    seed: `novel-project:${draft.projectId}:procedural-v1`,
+    topicId: draft.genreId,
+    playMode: "general",
+  });
+  draft.answers.stageFamily = optionalValue(
+    serializeTopicWorldFamilyDraftSelection({
+      matrix: stageMatrix,
+      familyId: stageMatrix.stageFamilies[0].familyId,
+    }),
+    "user_defined",
+  );
+  return draft;
+}
 async function fixture(repository, label = "fixture") {
   const bundle = buildProjectBundle(fixtureDraft(label)); await repository.createProject(bundle, `create:${label}`);
   const chapter = await repository.put("chapters", { ...makeRecord(bundle.project.id), title: "Chapter 1", order: 1, content: "Opening.", summary: null, status: "draft" });
@@ -23,6 +48,14 @@ async function fixture(repository, label = "fixture") {
 }
 
 const repo = new MemoryNovelRepository(), first = await fixture(repo, "primary");
+await test("legacy unguarded acceptance fingerprint remains byte-compatible", async () => {
+  assert.equal(acceptChoicePayloadFingerprint({
+    projectId: "p", chapterId: "ch", candidateId: "ca", parentBranchId: null,
+    acceptedText: "text", choiceLabel: "A", expectedProjectRevision: 1,
+    expectedChapterRevision: 2, expectedCandidateRevision: 3,
+    expectedStoryStateRevision: 4, expectedStoryBibleRevision: 5,
+  }), "fnv1a32:2297f001");
+});
 await test("accept choice commits all canonical records", async () => { const value = await repo.acceptChoiceTransaction(first.input); assert.equal(value.replayed, false); assert.match(value.chapter.content, /opens the gate/); assert.equal(value.storyState.protagonistStats.reputation, 3); assert.equal((await repo.listAcceptedChoices(first.project.id)).length, 1); assert.equal((await repo.listStoryBranches(first.project.id)).length, 1); assert.equal((await repo.list("operationJournal", first.project.id)).length, 1); });
 await test("same idempotency key replays without duplicate effect", async () => { const value = await repo.acceptChoiceTransaction(first.input); assert.equal(value.replayed, true); assert.equal((await repo.listAcceptedChoices(first.project.id)).length, 1); assert.equal((await repo.listStoryBranches(first.project.id)).length, 1); assert.equal(value.storyState.protagonistStats.reputation, 3); });
 await test("double click is serialized and idempotent", async () => { const repository = new MemoryNovelRepository(), row = await fixture(repository, "double"); const values = await Promise.all([repository.acceptChoiceTransaction(row.input), repository.acceptChoiceTransaction(row.input)]); assert.deepEqual(values.map((item) => item.replayed).sort(), [false, true]); assert.equal((await repository.listAcceptedChoices(row.project.id)).length, 1); });
@@ -50,7 +83,7 @@ const studioPage = await readFile(new URL("../app/studio/page.tsx", import.meta.
 const studioStorage = await readFile(new URL("../app/studio/settings/storage/settings-client.tsx", import.meta.url), "utf8");
 const adminStorage = await readFile(new URL("../app/api/admin/storage/diagnostics/route.ts", import.meta.url), "utf8");
 await test("Studio localStorage shell excludes canonical interaction data", async () => { const serializer = studio.slice(studio.indexOf("function shellStateForLocalStorage"), studio.indexOf("function projectFromCanonical")); assert.match(serializer, /candidate:\s*null/); assert.match(serializer, /gameStates:\s*\{\}/); assert.match(serializer, /branches:\s*\[\]/); assert.match(serializer, /draft:\s*""/); assert.doesNotMatch(studio, /STUDIO_CANONICAL_HYDRATION_FAILED[\s\S]{0,160}setState\(legacy\)/); });
-await test("screen query is presentation state with popstate support", async () => { assert.match(studio, /history\.pushState/); assert.match(studio, /popstate/); assert.match(studio, /acceptStudioChoice/); assert.match(studioPage, /requested === "interactive" \? "choice"/); });
+await test("screen query is presentation state with popstate support", async () => { assert.match(studio, /history\.replaceState/); assert.match(studio, /popstate/); assert.match(studio, /acceptStudioChoice/); assert.match(studioPage, /\["choice", "interactive", "rpg"\]\.includes\(requestedScreen\)/); });
 await test("Studio and Admin diagnostics use the shared capability resolver", async () => { assert.match(studioStorage, /resolveCapabilityCatalog/); assert.match(adminStorage, /resolveCapabilityCatalog/); assert.match(adminStorage, /novelCapabilityCatalog/); });
 
 const report = { suite: "p21r1-high-risk-closure", generatedAt: new Date().toISOString(), pass: results.filter((item) => item.status === "PASS").length, fail: results.filter((item) => item.status === "FAIL").length, results };

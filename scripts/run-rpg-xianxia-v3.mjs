@@ -414,13 +414,30 @@ register(18, "parity", "RPG 頁面與 Conversation 使用相同結算結果", as
   assert.deepEqual(conversation, page);
 });
 
-register(19, "parity", "對話輸入 1／2／3、A／B／C 與中文語意均正確對應", async () => {
+register(19, "parity", "新選項線格式精確比對 key 與完整標題；舊版只接受裸 A／B／C", async () => {
   const { snapshot } = await seedFixture();
   const choices = snapshot.baseChoices;
-  for (const [input, index] of [["A", 0], ["B", 1], ["C", 2], ["1", 0], ["2", 1], ["3", 2], ["一", 0], ["二", 1], ["三", 2], ["選第一個", 0]]) {
+  for (const [input, index] of [
+    ["A", 0],
+    ["B", 1],
+    ["C", 2],
+    [`選擇 A｜${choices[0].title}`, 0],
+    [`選擇 B｜${choices[1].title}`, 1],
+    [`選擇 C｜${choices[2].title}`, 2],
+  ]) {
     assert.equal(parseRpgChoiceSelection(input, choices)?.id, choices[index].id);
   }
-  assert.equal(parseRpgChoiceSelection("我要走穩健路線", choices)?.approach, "steady");
+  for (const ambiguous of ["1", "第一個", "選 A", "A。", "我要走穩健路線", choices[0].title]) {
+    assert.equal(parseRpgChoiceSelection(ambiguous, choices), null);
+  }
+  const overlapping = [
+    { ...choices[0], key: "A", title: "進城" },
+    { ...choices[1], key: "B", title: "進城救人" },
+    { ...choices[2], key: "C", title: "留在城外" },
+  ];
+  assert.equal(parseRpgChoiceSelection("選擇 B｜進城救人", overlapping)?.key, "B");
+  assert.equal(parseRpgChoiceSelection("選擇 A｜進城救人", overlapping), null);
+  assert.equal(parseRpgChoiceSelection("進城救人", overlapping), null);
 });
 
 register(20, "parity", "過期章節 revision 的選項會被拒絕", async () => {

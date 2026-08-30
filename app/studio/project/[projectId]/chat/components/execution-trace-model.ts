@@ -57,6 +57,18 @@ const ERROR_COPY: Record<string, FriendlyConversationError> = {
     title: "這一回合已有候選",
     message: "同一張選擇卡已建立故事候選；請先查看、採用或放棄目前候選。",
   },
+  RPG_FALLBACK_CLOSED_REVIEW_REQUIRED: {
+    title: "正文尚未通過閉端 AI 複核",
+    message: "內部後備草稿沒有顯示、沒有建立候選，也沒有寫入正式作品；請稍後重試這一回合。",
+  },
+  RPG_STORY_AI_TIMEOUT: {
+    title: "閉端 AI 尚未完成正文",
+    message: "未完成內容沒有顯示或寫入作品；系統只會在複核完成後建立候選，請稍後重試。",
+  },
+  NO_CLOSED_PROVIDER_AVAILABLE: {
+    title: "目前沒有可完成複核的閉端模型",
+    message: "內部草稿不會直接曝光或寫入作品；請在瀏覽器 AI 或本機 Ollama 可用後重試。",
+  },
   CONVERSATION_CANCELLED: {
     title: "已停止這次生成",
     message: "未完成內容沒有寫入正式故事；你可以調整方向後重新嘗試。",

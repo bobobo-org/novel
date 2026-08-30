@@ -43,6 +43,7 @@ import {
 import { adaptStudioProfileForExplicitLocalCompute } from "@/lib/novel-ai/web/studio-local-performance-policy";
 import { scheduleBrowserModelPrewarm } from "@/lib/novel-ai/providers/browser-ai/browser-prewarm-controller";
 import {
+  assertValidStoryProseOutput,
   hasVerifiedExecutedStoryOutput,
   isUsableChineseStoryOutput,
 } from "@/lib/novel-ai/web/story-output-quality";
@@ -2733,6 +2734,12 @@ export default function StudioClient({
             : "本機模型已完成推理，但這份候選偏短；你可以重新生成或直接編輯。",
         };
       }
+      assertValidStoryProseOutput({
+        content,
+        language: "zh-TW",
+        minimumHanCharacters: 20,
+        prompt: taskInput.input,
+      });
     } catch (error) {
       if (signal?.aborted) {
         setAiModeMessage("已取消互動故事生成；沒有建立候選，也沒有修改 Canon 或 RPG 數值。");

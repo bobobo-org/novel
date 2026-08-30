@@ -1,10 +1,18 @@
-import crypto from "crypto";
 import type { SQLiteProjectConnection } from "../../storage/sqlite/sqlite-connection";
+import { ADULT_EXPERIENCE_PROFILE_VERSION } from "../../../novel-data/adult-experience-profile";
 import { intimacySceneError } from "./intimacy-scene-errors";
 import { writeIntimacyAudit, hashContent } from "./intimacy-scene-audit";
 import { IntimacySceneRepository } from "./intimacy-scene-repository";
 import { assertSceneTransition, assertStageTransition, DEFAULT_STAGE_TYPES } from "./intimacy-stage-machine";
 import { assertValidation, validateParticipants } from "./intimacy-scene-validator";
+import {
+  AdultNarrativeStructureError,
+  createAdultNarrativeBlueprint,
+  validateAdultNarrativeBlueprint,
+  validateAdultNarrativeStageEvidence,
+  type AdultNarrativeBlueprint,
+  type AdultNarrativeStageEvidence,
+} from "./adult-narrative-structure";
 import type { IntimacyBranch, IntimacyContinuityState, IntimacyScene, IntimacyScenePlanInput, IntimacySceneStatus, IntimacyStage, IntimacyStageStatus, IntimacyStageVersion, IntimacyVersionOperation } from "./intimacy-scene-types";
 
 function now() { return new Date().toISOString(); }
@@ -24,6 +32,27 @@ export class IntimacySceneService {
     this.ensureProjectRow(input.projectId);
     const validation = validateParticipants(input.participants);
     assertValidation(validation);
+    if (input.adultNarrative && (input.adultMode !== true
+      || input.adultExperienceProfile?.version !== ADULT_EXPERIENCE_PROFILE_VERSION
+      || input.adultExperienceProfile?.fictionalAdultsConfirmed !== true
+      || input.adultExperienceProfile.consentContinuityRequired !== true
+      || input.adultExperienceProfile.realPersonLikenessBlocked !== true)) {
+      throw intimacySceneError(
+        "INTIMACY_ADULT_PROFILE_REQUIRED",
+        "Adult structural planning requires project adult mode and an existing confirmed fictional-adult experience profile.",
+      );
+    }
+    const narrativeBlueprint = input.adultNarrative
+      ? createAdultNarrativeBlueprint({
+          ...input.adultNarrative,
+          participants: input.participants.map((participant) => ({
+            participantId: participant.characterId,
+            ageStatus: participant.verifiedAdultStatus,
+            consentState: participant.consentState,
+            consentRevocable: participant.consentRevocable === true,
+          })),
+        })
+      : undefined;
     const sceneId = this.repo.id("scene");
     const branchId = "main";
     const createdAt = now();
@@ -31,7 +60,10 @@ export class IntimacySceneService {
       sceneId, projectId: input.projectId, chapterId: input.chapterId, branchId, scenarioPackId: input.scenarioPackId,
       policyVersion: input.policyVersion, rating: input.rating, explicitness: input.explicitness, title: input.title,
       purpose: input.purpose, status: "planned", plannedStageCount: 0, approvedStageCount: 0,
-      participantCount: input.participants.length, createdAt, updatedAt: createdAt, version: 1
+      participantCount: input.participants.length, createdAt, updatedAt: createdAt, version: 1,
+      narrativeBlueprint,
+      adultMode: narrativeBlueprint ? true : undefined,
+      adultExperienceProfileVersion: narrativeBlueprint ? input.adultExperienceProfile?.version : undefined,
     });
     this.repo.insert("intimacy_scenes", sceneId, scene, {
       chapter_id: scene.chapterId ?? null, branch_id: branchId, scenario_pack_id: scene.scenarioPackId ?? null, policy_version: scene.policyVersion,
@@ -48,23 +80,32 @@ export class IntimacySceneService {
     });
     const branch: IntimacyBranch = { branchId, sceneId, projectId: input.projectId, branchName: "Main", branchStatus: "active", policyVersion: input.policyVersion, createdAt, updatedAt: createdAt };
     this.repo.insert("intimacy_scene_branches", this.repo.id("branchrow"), branch, { scene_id: sceneId, branch_id: branchId, parent_branch_id: null, divergence_stage_id: null, divergence_version_id: null, branch_name: branch.branchName, branch_status: branch.branchStatus, continuity_snapshot_id: null, policy_version: input.policyVersion });
-    const stages = this.createDefaultStages(sceneId, input.stageTypes ?? DEFAULT_STAGE_TYPES);
+    const stageTypes = narrativeBlueprint
+      ? narrativeBlueprint.acts.map((act) => act.stageType)
+      : input.stageTypes ?? DEFAULT_STAGE_TYPES;
+    const stages = this.createDefaultStages(sceneId, stageTypes, narrativeBlueprint);
     this.updateSceneCounts(sceneId);
-    this.createContinuitySnapshot({ sceneId, branchId, locationState: "unspecified", timeState: "unspecified", consentState: "active", requiredNextBeat: stages[0]?.stageType ?? "setup" });
+    this.createContinuitySnapshot({ sceneId, branchId, locationState: "unspecified", timeState: "unspecified", consentState: "active", withdrawalState: "none", requiredNextBeat: stages[0]?.stageType ?? "setup" });
     writeIntimacyAudit(this.options.connection, { projectId: input.projectId, sceneId, branchId, action: "createScenePlan", nextStatus: "planned", policyVersion: input.policyVersion, validationResult: validation });
     return { scene: this.getScene(sceneId), stages, validation, dataLeftDevice: false, externalRequestCount: 0 };
   }
 
-  createDefaultStages(sceneId: string, stageTypes = DEFAULT_STAGE_TYPES) {
+  createDefaultStages(sceneId: string, stageTypes = DEFAULT_STAGE_TYPES, narrativeBlueprint?: AdultNarrativeBlueprint) {
     const scene = this.mustScene(sceneId);
     const createdAt = now();
     const stages = stageTypes.map((stageType, index) => {
       const stageId = this.repo.id("stage");
+      const narrativeAct = narrativeBlueprint?.acts[index];
       const stage: IntimacyStage = compact({
         stageId, sceneId, projectId: this.options.projectId, branchId: scene.branchId, stageType, ordinal: index + 1,
-        title: stageTitle(stageType), goal: stageGoal(stageType), targetLength: 220, status: index === 0 ? "ready" : "planned",
+        title: narrativeAct?.label ?? stageTitle(stageType), goal: narrativeAct?.structuralGoal ?? stageGoal(stageType), targetLength: 220, status: index === 0 ? "ready" : "planned",
         previousStageId: undefined, nextStageId: undefined, required: stageType !== "explicit" && stageType !== "peak", skippable: stageType === "explicit" || stageType === "peak",
-        createdAt, updatedAt: createdAt, version: 1
+        createdAt, updatedAt: createdAt, version: 1,
+        narrativeActId: narrativeAct?.actId,
+        structuralEngineIds: narrativeBlueprint?.engineComposition,
+        worldAdapterId: narrativeBlueprint?.worldAdapter.id,
+        requiredStateChanges: narrativeAct?.requiredChangeDimensions,
+        consentCheckpoint: narrativeAct?.consentCheckpoint,
       });
       this.repo.insert("intimacy_scene_stages", stageId, stage, {
         scene_id: sceneId, branch_id: scene.branchId, stage_id: stageId, stage_type: stageType, ordinal: stage.ordinal, title: stage.title, goal: stage.goal,
@@ -105,8 +146,13 @@ export class IntimacySceneService {
 
   transitionStage(sceneId: string, stageId: string, nextStatus: IntimacyStageStatus, options: { withdrawalState?: string } = {}) {
     const stage = this.mustStage(stageId);
+    const scene = this.mustScene(sceneId);
     if (stage.sceneId !== sceneId) throw intimacySceneError("INTIMACY_BRANCH_CONTAMINATION", "Stage does not belong to scene.");
     if (stage.status === "archived") throw intimacySceneError("INTIMACY_STAGE_ARCHIVED", "Archived stage cannot transition.");
+    if (scene.narrativeBlueprint && !["paused", "cancelled", "rejected", "failed", "archived", "skipped"].includes(nextStatus)) {
+      this.assertAdultSceneLiveSafety(scene, stage.branchId, options.withdrawalState);
+      this.assertAdultStageMapping(scene, stage);
+    }
     this.assertDependencies(stage);
     assertStageTransition(stage.status, nextStatus, { required: stage.required, skippable: stage.skippable, withdrawalState: options.withdrawalState });
     const previous = stage.status;
@@ -122,6 +168,14 @@ export class IntimacySceneService {
   createStageVersion(sceneId: string, stageId: string, input: { operation?: IntimacyVersionOperation; draftText?: string; summary?: string; metadata?: Record<string, unknown> }) {
     const stage = this.mustStage(stageId);
     const scene = this.mustScene(sceneId);
+    if (stage.sceneId !== sceneId) throw intimacySceneError("INTIMACY_BRANCH_CONTAMINATION", "Stage does not belong to scene.");
+    if (scene.narrativeBlueprint) {
+      this.assertAdultSceneLiveSafety(scene, stage.branchId);
+      this.assertAdultStageVersionEvidence(scene, stage, input.metadata?.adultNarrativeEvidence, [
+        input.draftText ?? "[structural placeholder only]",
+        input.summary ?? `${stage.stageType} structural summary`,
+      ]);
+    }
     const current = this.listVersions(stageId).find((version) => version.status === "current" || version.status === "approved");
     if (current) {
       current.status = "superseded";
@@ -149,10 +203,19 @@ export class IntimacySceneService {
 
   approveVersion(sceneId: string, stageId: string, versionId: string) {
     const version = this.mustVersion(versionId);
+    const stage = this.mustStage(stageId);
+    const scene = this.mustScene(sceneId);
+    if (version.stageId !== stageId || version.sceneId !== sceneId || stage.sceneId !== sceneId || version.branchId !== stage.branchId) {
+      throw intimacySceneError("INTIMACY_BRANCH_CONTAMINATION", "Version does not belong to the target scene, stage, and branch.");
+    }
+    if (scene.narrativeBlueprint) {
+      this.assertAdultSceneLiveSafety(scene, stage.branchId);
+      this.assertAdultStageVersionEvidence(scene, stage, version.metadata?.adultNarrativeEvidence, [version.draftText, version.summary]);
+    }
+    this.transitionStage(sceneId, stageId, "approved");
     version.status = "approved";
     this.repo.updateRow("intimacy_scene_stage_versions", versionId, version, { status: "approved" });
-    this.transitionStage(sceneId, stageId, "approved");
-    this.createContinuitySnapshot({ sceneId, stageId, versionId, branchId: version.branchId, completedActions: [version.summary], requiredNextBeat: "next-stage" });
+    this.createContinuitySnapshot({ sceneId, stageId, versionId, branchId: version.branchId, completedActions: [version.summary], requiredNextBeat: "next-stage", consentState: "active", withdrawalState: "none" });
     return version;
   }
 
@@ -166,7 +229,7 @@ export class IntimacySceneService {
   rollbackStageToVersion(sceneId: string, stageId: string, versionId: string) {
     const version = this.mustVersion(versionId);
     if (version.stageId !== stageId || version.sceneId !== sceneId) throw intimacySceneError("INTIMACY_ROLLBACK_INVALID", "Version does not belong to target stage.");
-    const restored = this.createStageVersion(sceneId, stageId, { operation: "rollback", draftText: version.draftText, summary: version.summary, metadata: { restoredFrom: versionId } });
+    const restored = this.createStageVersion(sceneId, stageId, { operation: "rollback", draftText: version.draftText, summary: version.summary, metadata: { ...version.metadata, restoredFrom: versionId } });
     writeIntimacyAudit(this.options.connection, { projectId: this.options.projectId, sceneId, stageId, versionId: restored.versionId, branchId: version.branchId, action: "rollbackStageToVersion", previousStatus: version.status, nextStatus: restored.status });
     return restored;
   }
@@ -174,11 +237,18 @@ export class IntimacySceneService {
   createBranchFromStage(sceneId: string, stageId: string, name = "Alternative branch") {
     const scene = this.mustScene(sceneId);
     const stage = this.mustStage(stageId);
+    if (stage.sceneId !== sceneId) throw intimacySceneError("INTIMACY_BRANCH_CONTAMINATION", "Stage does not belong to scene.");
+    const sourceStages = this.listStages(sceneId).filter((source) => source.branchId === stage.branchId);
+    if (!sourceStages.some((source) => source.stageId === stageId)) {
+      throw intimacySceneError("INTIMACY_BRANCH_CONTAMINATION", "Divergence stage is not part of the selected source branch.");
+    }
     const branchId = this.repo.id("branch");
     const branch: IntimacyBranch = { branchId, sceneId, projectId: this.options.projectId, parentBranchId: stage.branchId, divergenceStageId: stageId, divergenceVersionId: stage.currentVersionId, branchName: name, branchStatus: "active", policyVersion: scene.policyVersion, createdAt: now(), updatedAt: now() };
     this.repo.insert("intimacy_scene_branches", this.repo.id("branchrow"), branch, { scene_id: sceneId, branch_id: branchId, parent_branch_id: branch.parentBranchId ?? null, divergence_stage_id: stageId, divergence_version_id: stage.currentVersionId ?? null, branch_name: name, branch_status: "active", continuity_snapshot_id: null, policy_version: scene.policyVersion });
-    const stages = this.listStages(sceneId).map((source) => {
+    const sourceToClone = new Map<string, string>();
+    const stages = sourceStages.map((source) => {
       const clone: IntimacyStage = { ...source, stageId: this.repo.id("stage"), branchId, status: source.stageId === stageId ? "ready" : source.status, currentVersionId: undefined, previousStageId: undefined, nextStageId: undefined, createdAt: now(), updatedAt: now(), version: 1 };
+      sourceToClone.set(source.stageId, clone.stageId);
       this.repo.insert("intimacy_scene_stages", clone.stageId, clone, { scene_id: sceneId, branch_id: branchId, stage_id: clone.stageId, stage_type: clone.stageType, ordinal: clone.ordinal, title: clone.title, goal: clone.goal, target_length: clone.targetLength, status: clone.status, current_version_id: null, previous_stage_id: null, next_stage_id: null, required: clone.required ? 1 : 0, skippable: clone.skippable ? 1 : 0, version: 1, archived_at: null });
       return clone;
     });
@@ -187,7 +257,22 @@ export class IntimacySceneService {
       cloned.nextStageId = stages[index + 1]?.stageId;
       this.repo.updateRow("intimacy_scene_stages", cloned.stageId, cloned, { previous_stage_id: cloned.previousStageId ?? null, next_stage_id: cloned.nextStageId ?? null });
     });
-    this.createContinuitySnapshot({ sceneId, branchId, requiredNextBeat: "branch-review" });
+    const sourceIds = new Set(sourceStages.map((source) => source.stageId));
+    const sourceDependencies = this.options.connection
+      .all("SELECT row_json FROM intimacy_scene_stage_dependencies WHERE project_id=? AND scene_id=?", [this.options.projectId, sceneId])
+      .map((row) => JSON.parse(String(row.row_json)) as { stageId: string; dependsOnStageId: string; dependencyType: string; requiredStatus: string; condition?: Record<string, unknown> })
+      .filter((dependency) => sourceIds.has(dependency.stageId) && sourceIds.has(dependency.dependsOnStageId));
+    for (const dependency of sourceDependencies) {
+      const clonedStageId = sourceToClone.get(dependency.stageId);
+      const clonedParentId = sourceToClone.get(dependency.dependsOnStageId);
+      if (clonedStageId && clonedParentId) {
+        this.addDependency(sceneId, clonedStageId, clonedParentId, dependency.dependencyType, dependency.requiredStatus, {
+          ...(dependency.condition ?? {}),
+          rebuiltForBranch: branchId,
+        });
+      }
+    }
+    this.createContinuitySnapshot({ sceneId, branchId, requiredNextBeat: "branch-review", consentState: "active", withdrawalState: "none" });
     return { branch, stages };
   }
 
@@ -206,6 +291,14 @@ export class IntimacySceneService {
   }
 
   createContinuitySnapshot(input: Partial<IntimacyContinuityState> & { sceneId: string; branchId: string; beforeSnapshot?: unknown; afterSnapshot?: unknown; delta?: unknown; validationResult?: unknown }) {
+    const scene = this.getScene(input.sceneId);
+    if (scene?.narrativeBlueprint
+      && (!Object.prototype.hasOwnProperty.call(input, "consentState")
+        || !Object.prototype.hasOwnProperty.call(input, "withdrawalState")
+        || !["active", "unspecified", "withdrawn", "invalid"].includes(String(input.consentState ?? ""))
+        || !["none", "active"].includes(String(input.withdrawalState ?? "")))) {
+      throw intimacySceneError("INTIMACY_CONTINUITY_CONSENT_REQUIRED", "Adult structural continuity must explicitly record consent and withdrawal state.");
+    }
     const continuityId = this.repo.id("continuity");
     const createdAt = now();
     const state: IntimacyContinuityState = {
@@ -226,7 +319,7 @@ export class IntimacySceneService {
   getScene(sceneId: string) { return this.repo.getById<IntimacyScene>("intimacy_scenes", sceneId); }
   listStages(sceneId: string) { return this.repo.listByScene<IntimacyStage>("intimacy_scene_stages", sceneId, "ordinal ASC, created_at ASC"); }
   listVersions(stageId: string) { return this.options.connection.all("SELECT row_json FROM intimacy_scene_stage_versions WHERE project_id=? AND stage_id=? ORDER BY created_at", [this.options.projectId, stageId]).map((row) => JSON.parse(String(row.row_json)) as IntimacyStageVersion); }
-  listContinuity(sceneId: string) { return this.repo.listByScene<IntimacyContinuityState>("intimacy_continuity_states", sceneId, "created_at ASC"); }
+  listContinuity(sceneId: string) { return this.repo.listByScene<IntimacyContinuityState>("intimacy_continuity_states", sceneId, "created_at ASC, rowid ASC"); }
   listBranches(sceneId: string) { return this.repo.listByScene<IntimacyBranch>("intimacy_scene_branches", sceneId, "created_at ASC"); }
   counts() {
     return {
@@ -239,6 +332,67 @@ export class IntimacySceneService {
       dataLeftDevice: false,
       externalRequestCount: 0,
     };
+  }
+
+  private assertAdultSceneLiveSafety(scene: IntimacyScene, branchId: string, requestedWithdrawalState?: string) {
+    const blueprintValidation = scene.narrativeBlueprint
+      ? validateAdultNarrativeBlueprint(scene.narrativeBlueprint)
+      : { ok: true, issues: [] };
+    if (!blueprintValidation.ok) throw new AdultNarrativeStructureError(blueprintValidation.issues);
+    const participants = this.options.connection
+      .all("SELECT row_json FROM intimacy_scene_participants WHERE project_id=? AND scene_id=? ORDER BY ordinal", [this.options.projectId, scene.sceneId])
+      .map((row) => JSON.parse(String(row.row_json)) as IntimacyScenePlanInput["participants"][number]);
+    if (participants.length < 2 || participants.length !== scene.participantCount
+      || new Set(participants.map((participant) => participant.characterId)).size !== participants.length) {
+      throw intimacySceneError("INTIMACY_LIVE_CONSENT_INVALID", "Latest participant roster no longer matches the verified adult scene plan.", {
+        expectedCount: scene.participantCount,
+        actualCount: participants.length,
+      });
+    }
+    const participantValidation = validateParticipants(participants);
+    if (!participantValidation.ok) {
+      throw intimacySceneError("INTIMACY_LIVE_CONSENT_INVALID", "Latest participant age and revocable-consent state blocks forward progress.", participantValidation);
+    }
+    const latestContinuity = this.listContinuity(scene.sceneId)
+      .filter((state) => state.branchId === branchId)
+      .at(-1);
+    if (!latestContinuity || latestContinuity.consentState !== "active" || latestContinuity.withdrawalState !== "none"
+      || (requestedWithdrawalState != null && requestedWithdrawalState !== "none")) {
+      throw intimacySceneError("INTIMACY_WITHDRAWAL_ACTIVE", "Latest continuity records withdrawn or inactive consent; forward progress is blocked.", {
+        branchId,
+        consentState: latestContinuity?.consentState ?? "missing",
+        withdrawalState: requestedWithdrawalState ?? latestContinuity?.withdrawalState ?? "missing",
+      });
+    }
+  }
+
+  private assertAdultStageMapping(scene: IntimacyScene, stage: IntimacyStage) {
+    const blueprint = scene.narrativeBlueprint;
+    if (!blueprint) return;
+    const act = blueprint.acts[stage.ordinal - 1];
+    if (!act || stage.narrativeActId !== act.actId || stage.stageType !== act.stageType
+      || JSON.stringify(stage.structuralEngineIds) !== JSON.stringify(blueprint.engineComposition)
+      || stage.worldAdapterId !== blueprint.worldAdapter.id
+      || stage.consentCheckpoint !== true) {
+      throw new AdultNarrativeStructureError([{
+        code: "STAGE_ACT_MAPPING_INVALID",
+        message: "Adult structural stage no longer matches its blueprint act, engines, adapter, and consent checkpoint.",
+        path: `stages.${stage.ordinal - 1}`,
+      }]);
+    }
+  }
+
+  private assertAdultStageVersionEvidence(scene: IntimacyScene, stage: IntimacyStage, evidence: unknown, structuralText: unknown[]) {
+    const blueprint = scene.narrativeBlueprint;
+    if (!blueprint) return;
+    this.assertAdultStageMapping(scene, stage);
+    const validation = validateAdultNarrativeStageEvidence({
+      blueprint,
+      actId: stage.narrativeActId,
+      evidence: evidence as AdultNarrativeStageEvidence | undefined,
+      structuralText,
+    });
+    if (!validation.ok) throw new AdultNarrativeStructureError(validation.issues);
   }
 
   private updateSceneCounts(sceneId: string) {

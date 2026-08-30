@@ -1,6 +1,7 @@
 import { applyStoryChoiceEffect, validateStoryChoiceEffect } from "../../game/effects";
 import { makeRecord, type AcceptedChoice, type ApprovalTransaction, type Chapter, type ChoiceCandidate, type IdempotencyRecord, type NovelProject, type OperationJournal, type RpgTurnReceipt, type StoryBible, type StoryBibleDelta, type StoryBranch, type StoryState } from "../../domain";
 import { RepositoryOperationError, type AcceptChoiceTransactionInput } from "../../repository/contracts";
+import { sameRpgContextRevisionGuard } from "../rpg-context-revision";
 import {
   CULTIVATION_REALM_CATALOG_V3,
   RPG_RESOURCE_CATALOG_V3,
@@ -51,6 +52,11 @@ export function acceptChoicePayloadFingerprint(input: AcceptChoiceTransactionInp
   // Keep the historical fingerprint byte-for-byte when this optional RC6
   // boundary is absent, so previously accepted choices remain replayable.
   if (input.conversationApproval) payload.conversationApproval = input.conversationApproval;
+  // Preserve the exact historical replay fingerprint when the optional RPG
+  // context guard is absent. New guarded choices bind the full vector.
+  if (input.rpgContextRevisionGuard) {
+    payload.rpgContextRevisionGuard = input.rpgContextRevisionGuard;
+  }
   const serialized = stableStringify(payload);
   let hash = 0x811c9dc5;
   for (const byte of new TextEncoder().encode(serialized)) { hash ^= byte; hash = Math.imul(hash, 0x01000193) >>> 0; }
@@ -84,6 +90,9 @@ export function assertAcceptChoiceInput(input: AcceptChoiceTransactionInput, cur
   if (candidate.revision !== input.expectedCandidateRevision || candidate.inputRevision !== input.expectedProjectRevision) throw new RepositoryOperationError("CANDIDATE_STALE");
   if (storyState.revision !== input.expectedStoryStateRevision || candidate.storyStateRevision !== input.expectedStoryStateRevision) throw new RepositoryOperationError("STORY_STATE_REVISION_CONFLICT");
   if (candidate.chapterRevision !== input.expectedChapterRevision) throw new RepositoryOperationError("CANDIDATE_STALE");
+  if (!sameRpgContextRevisionGuard(candidate.rpgContextRevisionGuard, input.rpgContextRevisionGuard)) {
+    throw new RepositoryOperationError("CANDIDATE_RPG_CONTEXT_GUARD_MISMATCH");
+  }
   if (storyBible.projectId !== input.projectId) throw new RepositoryOperationError("PROJECT_SCOPE_MISMATCH");
   if (storyBible.revision !== input.expectedStoryBibleRevision || candidate.storyBibleRevision !== input.expectedStoryBibleRevision) throw new RepositoryOperationError("STORY_BIBLE_REVISION_CONFLICT");
   if (input.parentBranchId && (!parentBranch || parentBranch.projectId !== input.projectId || parentBranch.chapterId !== input.chapterId)) throw new RepositoryOperationError("PARENT_BRANCH_INVALID");

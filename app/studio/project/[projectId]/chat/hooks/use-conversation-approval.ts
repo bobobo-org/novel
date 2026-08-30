@@ -36,6 +36,7 @@ import {
   rejectStudioClosedAgentCandidate,
 } from "@/lib/novel-ai/web/closed-agent-os-service";
 import { approveRpgChatTurn, loadRpgChatSnapshot } from "@/lib/novel-ai/web/rpg-chat-turn";
+import { settleApprovedRpgTurnClosedAgent } from "@/lib/novel-ai/web/rpg-approval-settlement";
 import {
   artifactStory,
   parseLearningImportCandidate,
@@ -201,6 +202,7 @@ export function useConversationApprovalController({
   acquireLease,
   currentCanonRevisionDigest,
   createRpgChoicesMessage,
+  recoverRpgChoices,
   loadWorkspace,
   refreshSession,
   setRetryAvailable,
@@ -227,6 +229,7 @@ export function useConversationApprovalController({
     parentMessageId: string;
     signal: AbortSignal;
   }) => Promise<unknown>;
+  recoverRpgChoices: () => Promise<void>;
   loadWorkspace: (preferredSessionId?: string) => Promise<boolean>;
   refreshSession: (sessionId: string) => Promise<boolean>;
   setRetryAvailable: (value: boolean) => void;
@@ -292,6 +295,9 @@ export function useConversationApprovalController({
     }
     setBusy(true);
     setSafeError(null);
+    let rpgCanonCommitted = false;
+    let rpgApprovalSettled = false;
+    let rpgChoicesCompleted = false;
     try {
       let selected = artifact;
       if (contentWasEdited) {
@@ -553,13 +559,15 @@ export function useConversationApprovalController({
             expectedSourceRevision: freshArtifact.sourceRevision,
           },
         });
-        const latest = (await conversation.listMessages(projectId, session.id)).at(-1) ?? sourceMessage;
+        rpgCanonCommitted = true;
+        rpgApprovalSettled = true;
         const controller = new AbortController();
         await createRpgChoicesMessage({
           sessionId: session.id,
-          parentMessageId: latest.id,
+          parentMessageId: currentMessage.id,
           signal: controller.signal,
         });
+        rpgChoicesCompleted = true;
       } else if (freshArtifact.targetStore === "chapters") {
         const closedCandidateId = !contentWasEdited
           ? await closedCandidateIdForUneditedApproval(repository, sourceMessage)
@@ -641,8 +649,82 @@ export function useConversationApprovalController({
       setDrawer(null);
       await loadWorkspace(sessionId);
     } catch (error) {
+      let rpgSettlementError: unknown = null;
+      if (!rpgCanonCommitted && artifact.artifactType === "rpg") {
+        const durableArtifact = await repository.get<ConversationArtifact>(
+          "conversationArtifacts",
+          artifact.id,
+        ).catch(() => null);
+        rpgCanonCommitted = durableArtifact?.status === "approved";
+      }
+      if (rpgCanonCommitted && !rpgApprovalSettled && artifact.artifactType === "rpg") {
+        try {
+          await settleApprovedRpgTurnClosedAgent({
+            repository,
+            projectId,
+            sessionId,
+            artifactId: artifact.id,
+          });
+          rpgApprovalSettled = true;
+        } catch (settlementError) {
+          rpgSettlementError = settlementError;
+        }
+      }
       await loadWorkspace(sessionId).catch(() => undefined);
-      setSafeError({ code: approvalErrorCode(error), message: approvalErrorMessage(error) });
+      if (rpgCanonCommitted && !rpgApprovalSettled) {
+        retryActionRef.current = () => { void recoverRpgChoices(); };
+        setRetryAvailable(true);
+        setRetryLabel("完成核准並重建三選一");
+        setArtifactOpen(false);
+        setDrawer(null);
+        setProgress("上一回合 Canon 已保存；正在等待完成閉端 AI 核准帳本與記憶結算，尚未建立下一組三選一。");
+        setSafeError({
+          code: approvalErrorCode(rpgSettlementError),
+          message: "上一回合正文、數值與回合收據已安全保存，但閉端 AI 核准結算尚未完整落盤。請重試；系統會先完成冪等結算，再建立三選一，絕不重複寫入 Canon。",
+        });
+      } else if (rpgCanonCommitted && !rpgChoicesCompleted) {
+        try {
+          const canonRevisionDigest = await currentCanonRevisionDigest();
+          await conversation.invalidateSummariesForCanonChange(
+            projectId,
+            canonRevisionDigest,
+          );
+        } catch {
+          // Canon is already committed. Summary invalidation is a recoverable
+          // post-commit concern and must never hide the choice recovery entry.
+        }
+        retryActionRef.current = () => { void recoverRpgChoices(); };
+        setRetryAvailable(true);
+        setRetryLabel("重新建立三選一");
+        setArtifactOpen(false);
+        setDrawer(null);
+        setProgress("上一回合正文、數值與 Canon 已核准保存；只有下一組三選一尚未完成。");
+        setSafeError({
+          code: "RPG_NEXT_CHOICES_RECOVERY_REQUIRED",
+          message: "上一回合已核准並完整保留。請重新建立下一組三選一；這次只產生選項，不會再次寫入 Canon。",
+        });
+      } else if (rpgCanonCommitted) {
+        retryActionRef.current = () => {
+          void loadWorkspace(sessionId).then((loaded) => {
+            if (!loaded) return;
+            retryActionRef.current = null;
+            setRetryAvailable(false);
+            setSafeError(null);
+            setProgress("上一回合與下一組三選一均已保存；畫面已重新整理。");
+          }).catch(() => undefined);
+        };
+        setRetryAvailable(true);
+        setRetryLabel("重新整理");
+        setArtifactOpen(false);
+        setDrawer(null);
+        setProgress("上一回合與下一組三選一均已保存；只有摘要更新或畫面重新整理未完成。");
+        setSafeError({
+          code: "RPG_POST_COMMIT_REFRESH_REQUIRED",
+          message: "正文、數值、Canon 與下一組三選一都已保存，不會重複寫入。請重新整理目前對話。",
+        });
+      } else {
+        setSafeError({ code: approvalErrorCode(error), message: approvalErrorMessage(error) });
+      }
     } finally {
       operationLockRef.current = false;
       releaseLease();

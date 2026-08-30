@@ -424,8 +424,10 @@ await test("source contracts expose save-home-task gating and verified closed AI
   assert.match(backends, /LOCAL_BOUNDED_QUALITY_REPAIR_REASONS/);
   assert.match(backends, /fallbackPolicy: "none"/);
   assert.match(studioClosedAI, /BROWSER_TO_LOCAL_RETRY_CODES/);
-  assert.match(studioClosedAI, /preferredBackend: "local-ollama"/);
-  assert.match(studioClosedAI, /allowPreAuthorizedClosedEscalation: true/);
+  assert.match(studioClosedAI, /idempotentRetryBackend: "local-ollama"/);
+  assert.match(studioClosedAI, /mayRetryOnPairedLocalRuntime/);
+  assert.match(studioClosedAI, /hasExplicitLocalComputeAuthorization\(browserComputePolicy\)/);
+  assert.match(studioClosedAI, /allowPreAuthorizedClosedEscalation/);
   assert.match(learningWorkspace, /extractManualLearningFile/);
   assert.match(learningWorkspace, /splitManualLearningDocument/);
   assert.match(learningWorkspace, /\.pdf,\.docx/);

@@ -39,8 +39,8 @@ function sceneInput(overrides = {}) {
     title: "Private structural scene",
     purpose: "Track continuity and branch planning without generating explicit prose.",
     participants: [
-      { characterId: "char_a", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "active", relationshipId: "rel_a_b", relationshipStage: "established" },
-      { characterId: "char_b", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "active", relationshipId: "rel_a_b", relationshipStage: "established" },
+      { characterId: "char_a", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "active", consentRevocable: true, relationshipId: "rel_a_b", relationshipStage: "established" },
+      { characterId: "char_b", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "active", consentRevocable: true, relationshipId: "rel_a_b", relationshipStage: "established" },
     ],
     ...overrides,
   };
@@ -104,7 +104,7 @@ function runScene() {
   h.assert("scene counts updated", service.getScene(result.scene.sceneId).plannedStageCount === DEFAULT_STAGE_TYPES.length);
   h.assert("audit create row", Number(connection.get("SELECT count(*) AS count FROM intimacy_scene_audits WHERE project_id=? AND action='createScenePlan'", [projectId])?.count ?? 0) === 1);
   expectThrow("unknown participant blocked", () => service.createScenePlan(sceneInput({ participants: [{ characterId: "char_x", role: "lead", verifiedAdultStatus: "unknown", consentState: "active" }] })));
-  expectThrow("withdrawn consent blocked", () => service.createScenePlan(sceneInput({ participants: [{ characterId: "char_x", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "withdrawn" }] })));
+  expectThrow("withdrawn consent blocked", () => service.createScenePlan(sceneInput({ participants: [{ characterId: "char_x", role: "lead", verifiedAdultStatus: "verified_adult", consentState: "withdrawn", consentRevocable: true }] })));
   expectThrow("project mismatch blocked", () => service.createScenePlan(sceneInput({ projectId: "other-project" })));
   const scene = result.scene;
   h.assert("scene ready transition", service.transitionScene(scene.sceneId, "ready").status === "ready");
@@ -309,15 +309,15 @@ fs.rmSync(storageDir, { recursive: true, force: true, maxRetries: 5, retryDelay:
 h.assert("cleanup", !fs.existsSync(storageDir));
 
 const expected = {
-  schema: 45,
+  schema: 55,
   scene: 24,
-  "state-machine": 20,
+  "state-machine": 21,
   versioning: 16,
-  continuity: 15,
+  continuity: 16,
   branching: 16,
-  persistence: 15,
-  "runtime-contract": 21,
-  all: 164,
+  persistence: 14,
+  "runtime-contract": 25,
+  all: 180,
 }[suite] ?? 1;
 
 printAndExit(h.summary({

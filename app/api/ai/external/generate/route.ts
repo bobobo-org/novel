@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import {
   isExternalAIProviderId,
   isNovelAIExecutionMode,
@@ -16,6 +17,14 @@ import {
   reserveExternalAIRequest,
 } from "@/lib/novel-ai/providers/external/external-request-guard.server";
 import { evaluateExternalAIPublicExecution } from "@/lib/novel-ai/providers/external/external-execution-policy.server";
+import {
+  consumeExternalRpgConsentAssertion,
+  ExternalRpgConsentError,
+} from "@/lib/novel-ai/providers/external/external-rpg-consent.server";
+import {
+  ExternalRpgRequestError,
+  validateExternalRpgRequestBody,
+} from "@/lib/novel-ai/providers/external/external-rpg-request.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +63,88 @@ export async function POST(request: Request) {
     );
   }
 
+  if (!isNovelAIExecutionMode(body.executionMode)) {
+    return NextResponse.json(
+      { error: "缺少有效的 AI 執行模式。", code: "INVALID_EXECUTION_MODE" },
+      { status: 400, headers: SAFE_RESPONSE_HEADERS },
+    );
+  }
+  if (!isExternalAIProviderId(body.providerId)) {
+    return NextResponse.json(
+      { error: "缺少有效的外接 AI 提供者。", code: "INVALID_EXTERNAL_PROVIDER" },
+      { status: 400, headers: SAFE_RESPONSE_HEADERS },
+    );
+  }
+
+  const hasRpgConsentFields = body.rpgConsentAssertion !== undefined
+    || body.rpgProjectId !== undefined
+    || body.rpgFieldManifestDigest !== undefined
+    || body.rpgPublicPayload !== undefined;
+  const rpgOperation = body.operation === "rpg-turn";
+  if (hasRpgConsentFields && !rpgOperation) {
+    return NextResponse.json(
+      { error: "RPG 外送欄位缺少正確的操作類型。", code: "EXTERNAL_RPG_OPERATION_INVALID" },
+      { status: 400, headers: SAFE_RESPONSE_HEADERS },
+    );
+  }
+  let canonicalRpgPrompt: string | null = null;
+  if (rpgOperation) {
+    if (
+      body.rpgConsentAssertion === undefined
+      || typeof body.rpgProjectId !== "string"
+      || typeof body.rpgFieldManifestDigest !== "string"
+      || typeof body.requestId !== "string"
+      || body.rpgPublicPayload === undefined
+    ) {
+      return NextResponse.json(
+        { error: "本次 RPG 外送缺少完整的單次同意綁定。", code: "EXTERNAL_RPG_CONSENT_REQUIRED" },
+        { status: 403, headers: SAFE_RESPONSE_HEADERS },
+      );
+    }
+    try {
+      const validated = validateExternalRpgRequestBody({
+        body,
+        acceptsEventStream: request.headers.get("accept")?.includes("text/event-stream") === true,
+      });
+      canonicalRpgPrompt = validated.canonicalPrompt;
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error: error instanceof Error ? error.message : "RPG 外送資料超出公開欄位界線。",
+          code: error instanceof ExternalRpgRequestError || (error && typeof error === "object" && "code" in error)
+            ? String((error as { code?: unknown }).code)
+            : "EXTERNAL_RPG_PUBLIC_PAYLOAD_INVALID",
+        },
+        { status: 400, headers: SAFE_RESPONSE_HEADERS },
+      );
+    }
+    try {
+      consumeExternalRpgConsentAssertion({
+        assertion: body.rpgConsentAssertion,
+        expected: {
+          projectId: typeof body.rpgProjectId === "string" ? body.rpgProjectId : "",
+          logicalRequestId: typeof body.requestId === "string" ? body.requestId : "",
+          providerId: body.providerId,
+          promptDigest: createHash("sha256").update(canonicalRpgPrompt).digest("hex"),
+          fieldManifestDigest: typeof body.rpgFieldManifestDigest === "string"
+            ? body.rpgFieldManifestDigest
+            : "",
+        },
+      });
+    } catch (error) {
+      if (error instanceof ExternalRpgConsentError) {
+        return NextResponse.json(
+          { error: error.message, code: error.code },
+          { status: error.status, headers: SAFE_RESPONSE_HEADERS },
+        );
+      }
+      return NextResponse.json(
+        { error: "本次 RPG 外送同意無法驗證。", code: "EXTERNAL_RPG_CONSENT_UNKNOWN" },
+        { status: 403, headers: SAFE_RESPONSE_HEADERS },
+      );
+    }
+  }
+
   const clientId = externalAIClientIdentifier(request);
   let lease: ReturnType<typeof reserveExternalAIRequest>;
   try {
@@ -76,25 +167,14 @@ export async function POST(request: Request) {
 
   let streamOwnsLease = false;
   try {
-    if (!isNovelAIExecutionMode(body.executionMode)) {
-      return NextResponse.json(
-        { error: "缺少有效的 AI 執行模式。", code: "INVALID_EXECUTION_MODE" },
-        { status: 400, headers: { ...SAFE_RESPONSE_HEADERS, ...lease.headers } },
-      );
-    }
-    if (!isExternalAIProviderId(body.providerId)) {
-      return NextResponse.json(
-        { error: "缺少有效的外接 AI 提供者。", code: "INVALID_EXTERNAL_PROVIDER" },
-        { status: 400, headers: { ...SAFE_RESPONSE_HEADERS, ...lease.headers } },
-      );
-    }
-
     const generationRequest = {
       executionMode: body.executionMode,
       providerId: body.providerId,
       externalConsent: body.externalConsent === true,
-      prompt: typeof body.prompt === "string" ? body.prompt : "",
-      systemInstruction: typeof body.systemInstruction === "string" ? body.systemInstruction : undefined,
+      prompt: canonicalRpgPrompt ?? (typeof body.prompt === "string" ? body.prompt : ""),
+      systemInstruction: rpgOperation
+        ? undefined
+        : typeof body.systemInstruction === "string" ? body.systemInstruction : undefined,
       requestId: typeof body.requestId === "string" ? body.requestId : undefined,
       maxOutputTokens: typeof body.maxOutputTokens === "number" ? body.maxOutputTokens : undefined,
       temperature: typeof body.temperature === "number" ? body.temperature : undefined,

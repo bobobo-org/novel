@@ -96,6 +96,7 @@ import {
   generateRpgChatTurnCandidate,
   loadRpgChatSnapshot,
   planRpgChatChoices,
+  RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
   RPG_CHAT_STORY_AI_TIMEOUT_MS,
   type RpgChatChoicePlan,
   type RpgChatSnapshot,
@@ -163,7 +164,11 @@ type RpgMutationLine = {
 const FORMULA = rpgFormulaExplanation();
 const RULE_STORAGE_PREFIX = "novel:rpg-rules:v2:";
 const RPG_TURN_COMPLETION_GRACE_MS = 5_000;
-const RPG_TURN_TIMEOUT_MS = RPG_CHAT_STORY_AI_TIMEOUT_MS + RPG_TURN_COMPLETION_GRACE_MS;
+const RPG_TURN_TIMEOUT_MS = (
+  RPG_CHAT_STORY_AI_TIMEOUT_MS
+  + RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS
+  + RPG_TURN_COMPLETION_GRACE_MS
+);
 
 type PlayModeDashboardCopy = {
   identity: string;
@@ -1023,7 +1028,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     setTurnDraft("");
     setTurnElapsedSeconds(0);
     setBusy(true);
-    setStatus(`已選擇「${choice.key}｜${choice.title}」；閉端 AI 正在產生完整小說正文，最長等待 180 秒。只有模型實際失敗或逾時才會使用規則後備；正式 Canon 尚未修改。`);
+    setStatus(`已選擇「${choice.key}｜${choice.title}」；閉端 AI 正文階段完整等待 180 秒。若仍無有效正文，才會建立三份不可見後備草稿，並追加最多 60 秒閉端複核；正式 Canon 尚未修改。`);
     try {
       const repository = createNovelRepository();
       const snapshot = await loadRpgChatSnapshot(repository, projectId, rules, learningRepository);
@@ -1031,6 +1036,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         snapshot.chapter.id !== data.chapter.id
         || snapshot.chapter.revision !== data.chapter.revision
         || snapshot.storyState.revision !== data.storyState.revision
+        || snapshot.contextRevisionDigest !== aiChoicePlan?.contextRevisionDigest
       ) {
         throw Object.assign(new Error("作品狀態已更新，請從新選項重新開始。"), {
           code: "RPG_CHAT_CHOICES_STALE",
@@ -1044,14 +1050,14 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           onProgress: (event) => {
             if (controller.signal.aborted || turnRunIdRef.current !== runId) return;
             const generated = event.generatedCharacters ?? 0;
-            setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}；閉端 AI 正文最長等待 180 秒，仍是候選，尚未寫入 Canon。`);
+            setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}；正文階段最長 180 秒；若進入隱藏後備複核，最多另加 60 秒。尚未寫入 Canon。`);
           },
         }),
         new Promise<never>((_resolve, reject) => {
           turnTimeout = window.setTimeout(() => {
             controller.abort();
             reject(Object.assign(
-              new Error("閉端 AI 的 180 秒期限已結束，裝置後備仍未在 5 秒內完成；已安全停止，正文與所有數值均維持原狀。"),
+              new Error("閉端 AI 正文 180 秒與後備複核 60 秒均未完成；已安全停止，正文與所有數值均維持原狀。"),
               { code: "RPG_AI_TURN_TIMEOUT" },
             ));
           }, RPG_TURN_TIMEOUT_MS);
@@ -1074,9 +1080,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
         await rejectStudioClosedAgentCandidate(aiChoiceCandidateRef.current).catch(() => undefined);
         aiChoiceCandidateRef.current = null;
       }
-      setStatus(candidate.actualExecutor === "deterministic-rule-fallback"
-        ? "閉端 AI 無法完成正文，已誠實使用規則後備產生完整候選；請閱讀後按「核准寫入」或「拒絕」。"
-        : `候選正文已完成（${candidate.model}）；尚未修改 Canon，請閱讀後核准或拒絕。`);
+      setStatus(`候選正文已完成（${candidate.model}）；尚未修改 Canon，請閱讀後核准或拒絕。`);
     } catch (error) {
       if (turnRunIdRef.current !== runId) return;
       const code = closedAIErrorCode(error) || "RPG_CANDIDATE_GENERATION_FAILED";
@@ -1114,9 +1118,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
       setLastResolution(candidate.resolution);
       setLastMutationLines(pendingMutationLines);
       setLastContinuation(candidate.story);
-      setLastExecutorLabel(candidate.actualExecutor === "deterministic-rule-fallback"
-        ? "規則後備敘事"
-        : `閉端模型 · ${candidate.model}`);
+      setLastExecutorLabel(`已驗證模型 · ${candidate.model}`);
       setPendingTurnCandidate(null);
       setPendingMutationLines([]);
       setSelectedChoice(null);
@@ -1666,7 +1668,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                       <p className={styles.resolutionProgress} role="status" aria-live="polite" data-testid="rpg-resolution-progress">
                         <b>正在產生或提交本回合</b>
                         <span>{status}</span>
-                        <small>已等待 {turnElapsedSeconds} 秒；閉端 AI 最長等待 180 秒，只有模型實際失敗或逾時才會使用規則後備。候選完成前不會修改正文或數值。</small>
+                        <small>已等待 {turnElapsedSeconds} 秒；正文階段完整保留 180 秒，之後若進入不可見後備草稿複核，最多另加 60 秒。候選完成前不會修改正文或數值。</small>
                       </p>
                     ) : null}
                     {turnDraft ? (

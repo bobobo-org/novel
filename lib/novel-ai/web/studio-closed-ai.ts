@@ -9,6 +9,7 @@ import type {
   ClosedAIProgressEvent,
   ClosedAIQualityMode,
   ClosedAIRegenerationContract,
+  ClosedAgentCandidate,
 } from "../closed-agent-os";
 import { isCryptographicClosedAIModelDigest } from "../closed-agent-os/types";
 import type {
@@ -62,6 +63,8 @@ export type StudioClosedAITaskInput = {
   projectId: string;
   task: string;
   input: string;
+  /** Stable caller-owned id used by one bounded generation/review stage. */
+  taskId?: string;
   targetLength?: number;
   sourceChapterId?: string;
   sourceRevision?: number;
@@ -72,6 +75,16 @@ export type StudioClosedAITaskInput = {
   qualityMode?: ClosedAIQualityMode;
   browserComputePolicy?: PlatformAIRequest["browserComputePolicy"];
   generationOptions?: PlatformAIRequest["generationOptions"];
+  /**
+   * Runs with prompt-derived caches disabled. Intended for hidden internal
+   * drafts that must never survive the invocation; the final candidate and
+   * digest-only execution proof remain durable.
+   */
+  ephemeralPrompt?: boolean;
+  applicationValidationBindingDigest?: string;
+  validateBeforePersistence?: (
+    candidate: Readonly<ClosedAgentCandidate>,
+  ) => void | Promise<void>;
   /** Caller-owned wall-clock budget used only by pre-creation provider coordination. */
   coordinationBudgetMs?: number;
   signal?: AbortSignal;
@@ -454,7 +467,7 @@ async function runStudioClosedAIUnsettled(
   input: StudioClosedAITaskInput,
   execute?: PlatformExecutor,
 ) {
-  const requestId = `studio-closed-${crypto.randomUUID()}`;
+  const requestId = input.taskId?.trim() || `studio-closed-${crypto.randomUUID()}`;
   const taskType = studioPlatformTaskType(input.task);
   const targetInstruction = input.targetLength
     ? taskType === "chapter.continue"
@@ -513,6 +526,10 @@ async function runStudioClosedAIUnsettled(
       allowPreAuthorizedClosedEscalation,
       preferredBackend: preferredRegenerationBackend,
       generationOptions: input.generationOptions,
+      ephemeralPrompt: input.ephemeralPrompt ?? false,
+      applicationValidationBindingDigest:
+        input.applicationValidationBindingDigest,
+      validateBeforePersistence: input.validateBeforePersistence,
       onProgress: input.onProgress,
     };
     let result;
@@ -529,19 +546,19 @@ async function runStudioClosedAIUnsettled(
       // A browser executor can disappear between readiness probing and actual
       // generation. For an explicitly authorised closed-compute policy, retry
       // once on the paired Local Ollama runtime instead of stranding the user
-      // on BROWSER_EXPLICIT_ESCALATION_REQUIRED. This remains device-only and
-      // still fails closed when Local Ollama is unavailable.
+      // on BROWSER_EXPLICIT_ESCALATION_REQUIRED. The logical request contract
+      // stays byte-for-byte stable; the OS accepts this transient route hint
+      // only against the same durable failed Browser task and allowlisted code.
       result = await executeStudioClosedAgent({
         ...agentRequest,
-        taskId: `${requestId}:local-retry`,
-        browserComputePolicy: "quality-first",
-        allowPreAuthorizedClosedEscalation: true,
-        preferredBackend: "local-ollama",
+        idempotentRetryBackend: "local-ollama",
       });
     }
     if (
       !CLOSED_REGENERATION_BACKENDS.has(result.candidate.backendId)
       || result.candidate.canonicalMutationCount !== 0
+      || (result.candidate.applicationValidationBindingDigest ?? null)
+        !== (input.applicationValidationBindingDigest ?? null)
       || (input.regeneration && (
         result.candidate.backendId !== preferredRegenerationBackend
         || result.candidate.actualExecutor !== preferredRegenerationBackend
@@ -594,6 +611,9 @@ async function runStudioClosedAIUnsettled(
       warnings: result.candidate.evaluation.warningCodes,
       toolExecutions: result.toolExecutions,
       ledgerHeadHash: result.ledgerHeadHash,
+      requestContractDigest: result.candidate.requestContractDigest,
+      applicationValidationBindingDigest:
+        result.candidate.applicationValidationBindingDigest,
       canonicalMutationCount: result.candidate.canonicalMutationCount,
       regeneration: result.candidate.regeneration ?? null,
       cache: result.cache,

@@ -20,6 +20,8 @@ import {
   STORY_STAGE_GENERATION_VERSION,
   STORY_STAGE_PROMPT_REGISTRY_VERSION,
 } from "../lib/novel-ai/generation/stages/index.ts";
+import { createAdultNarrativeBlueprint } from "../lib/novel-ai/adult/scenes/index.ts";
+import { createAdultExperienceProfile } from "../lib/novel-data/adult-experience-profile.ts";
 
 const mode = process.argv[2] || "all";
 const h = createHarness(`H2P.4 Universal Local Stage Generation (${mode})`);
@@ -30,6 +32,22 @@ fs.mkdirSync(storageDir, { recursive: true });
 
 const connection = await SQLiteProjectConnection.open({ projectId, storageDir });
 const generator = new StoryStageGenerator();
+const adultExperienceProfile = { ...createAdultExperienceProfile(), fictionalAdultsConfirmed: true };
+const adultNarrativeBlueprint = createAdultNarrativeBlueprint({
+  mode: "adult_only",
+  primaryEngine: "E2_pretext",
+  secondaryEngine: "E8_world_heat",
+  worldAdapter: "ancient_court",
+  parameters: { intensity: 2, consent_mode: "continuous_reconfirmation", ntr: false, climax_as_power: false, taboo_proximity: 0, aftercare: "required" },
+  participants: [
+    { participantId: "char_lin_zhao", ageStatus: "verified_adult", consentState: "active", consentRevocable: true },
+    { participantId: "char_mo_qing", ageStatus: "verified_adult", consentState: "active", consentRevocable: true },
+  ],
+  safetyAssertions: { allParticipantsVerifiedAdults: true, activeRevocableConsent: true, participantsUnrelatedByBlood: true, noCoercion: true, noHiddenRecording: true, noExploitativePowerExchange: true, noRealCatalogCopying: true },
+  narrativeGoal: "A voluntary private choice changes a public alliance.",
+  irreversibleEvent: "Both adults become accountable for the changed alliance.",
+  cost: "They lose a previously neutral political refuge.",
+});
 const health = await checkOllamaHealth();
 h.assert("Ollama runtime reachable", health.runtimeStatus === "running", health);
 h.assert("Ollama has generation model", Boolean(health.selectedModel), health);
@@ -95,6 +113,10 @@ function contextFor(profileId, suffix = "main", overrides = {}) {
     forbiddenEvents: ["不得讓已知死亡角色復活", "不得讓赤霄劍憑空回到主角手中"],
     requiredNextBeat: "留下下一段可以接續的明確線索。",
     narrativePurpose: "推進調查與壓迫感，不直接解開全部謎底。",
+    adultMode: isAdult ? true : undefined,
+    adultExperienceProfile: isAdult ? adultExperienceProfile : undefined,
+    adultNarrativeBlueprint: isAdult ? adultNarrativeBlueprint : undefined,
+    adultNarrativeActId: isAdult ? adultNarrativeBlueprint.acts.find((act) => act.stageType === stage.stageType)?.actId : undefined,
     targetLength: 220,
     tone: isAdult ? "克制、親密但不露骨" : "緊湊、清晰、有懸念",
     perspective: "第三人稱有限視角",
@@ -105,6 +127,7 @@ function contextFor(profileId, suffix = "main", overrides = {}) {
       participantsVerifiedAdult: true,
       relationshipPermitted: true,
       consentState: "active",
+      consentRevocable: true,
       withdrawalState: "none",
       ratingPermitted: true,
       localOnlyRequired: true,

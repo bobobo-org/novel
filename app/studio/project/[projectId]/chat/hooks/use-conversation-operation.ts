@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import type {
   ConversationClosedAgentCacheOriginProof,
   ConversationExecutionReceipt,
+  ExternalAttemptProvenance,
   ConversationMessage,
   ConversationToolInvocation,
 } from "@/lib/novel-ai/domain";
@@ -84,6 +85,7 @@ export function toExecutionReceipt(input: {
   outputDigest: string | null;
   externalRequest: boolean;
   dataLeftDevice: boolean;
+  externalAttempt?: ExternalAttemptProvenance;
   receipt?: {
     startedAt?: string;
     completedAt?: string;
@@ -111,6 +113,7 @@ export function toExecutionReceipt(input: {
     outputDigest: input.outputDigest,
     externalRequest: input.externalRequest,
     dataLeftDevice: input.dataLeftDevice,
+    ...(input.externalAttempt ? { externalAttempt: structuredClone(input.externalAttempt) } : {}),
     latencyMs: Number.isFinite(started) && Number.isFinite(completed)
       ? Math.max(0, completed - started)
       : null,

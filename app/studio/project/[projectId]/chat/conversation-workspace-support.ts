@@ -4,11 +4,14 @@ import type {
   Character,
   ConversationArtifact,
   ConversationMessage,
+  ConversationToolInvocation,
   LearningImportSession,
   NovelProject,
+  StoryState,
   WorldRule,
 } from "@/lib/novel-ai/domain";
 import type { ConversationPlan } from "@/lib/novel-ai/conversation/planner";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import { artifactStory, parseRpgChoices } from "./components/conversation-presentation";
 import type { ArtifactView } from "./components/conversation-types";
@@ -27,6 +30,97 @@ export function latestRpgChoicesFrom(messages: ConversationMessage[]) {
     if (message.role === "assistant" && message.candidateIds.length) break;
   }
   return null;
+}
+
+export type RpgChoiceRecoveryTarget = {
+  sourceArtifactId: string;
+  parentMessageId: string;
+  reason: "missing" | "failed_or_interrupted";
+};
+
+export type RpgChoiceRecoverySnapshot = {
+  chapter: Pick<Chapter, "id" | "revision"> | null;
+  storyState: Pick<StoryState, "revision" | "worldFlags"> | null;
+};
+
+/**
+ * Finds the one safe recovery point after an RPG turn has already been
+ * approved into Canon but its following A/B/C card was never completed.
+ * Recovery deliberately starts from the approved source message and never
+ * replays the approval transaction.
+ */
+export function findRpgChoiceRecoveryTarget(
+  messages: ConversationMessage[],
+  artifacts: ConversationArtifact[],
+  snapshot: RpgChoiceRecoverySnapshot,
+  invocations: ConversationToolInvocation[] = [],
+): RpgChoiceRecoveryTarget | null {
+  if (snapshot.storyState?.worldFlags?.["story.arc.archived"] === true) return null;
+  // A recovery must continue the chapter currently visible in Canon. An
+  // approved RPG artifact from another chapter can coexist in the same
+  // session, but must never become the source for this chapter's next A/B/C.
+  const chapter = snapshot.chapter;
+  if (!chapter) return null;
+
+  const messageIndexById = new Map(messages.map((message, index) => [message.id, index]));
+  let latestApproved: { artifact: ConversationArtifact; messageIndex: number } | null = null;
+  for (const artifact of artifacts) {
+    if (artifact.artifactType !== "rpg" || artifact.status !== "approved") continue;
+    if (artifact.targetStore !== "chapters" || artifact.targetRecordId !== chapter.id) continue;
+    const messageIndex = messageIndexById.get(artifact.sourceMessageId);
+    if (messageIndex === undefined) continue;
+    if (!latestApproved || messageIndex >= latestApproved.messageIndex) {
+      latestApproved = { artifact, messageIndex };
+    }
+  }
+  if (!latestApproved) return null;
+
+  const laterCandidateExists = artifacts.some((artifact) => {
+    if (artifact.artifactType !== "rpg" || artifact.status !== "candidate") return false;
+    if (artifact.targetStore !== "chapters" || artifact.targetRecordId !== chapter.id) return false;
+    const messageIndex = messageIndexById.get(artifact.sourceMessageId);
+    return messageIndex !== undefined && messageIndex > latestApproved.messageIndex;
+  });
+  if (laterCandidateExists) return null;
+
+  const laterMessages = messages.slice(latestApproved.messageIndex + 1);
+  const laterMessageById = new Map(laterMessages.map((message) => [message.id, message]));
+  const choicePlanInFlight = invocations.some((invocation) => {
+    if (!["pending", "running"].includes(invocation.status)) return false;
+    if (invocation.toolId !== CONVERSATION_LOCAL_TOOL_IDS.rpgChoicePlan) return false;
+    const message = laterMessageById.get(invocation.messageId);
+    return Boolean(
+      message
+      && message.role === "assistant"
+      && message.parentMessageId === latestApproved.artifact.sourceMessageId
+      && ["pending", "streaming"].includes(message.status),
+    );
+  });
+  if (choicePlanInFlight) return null;
+  const completedChoicesExist = laterMessages.some((message) => {
+    if (message.role !== "assistant") return false;
+    if (message.parentMessageId !== latestApproved.artifact.sourceMessageId) return false;
+    if (message.status !== "completed") return false;
+    const envelope = parseRpgChoices(message.content)?.envelope;
+    if (!envelope) return false;
+    // When the live snapshot is temporarily unavailable, fail closed instead
+    // of creating a second choice card from an unknown Canon revision.
+    if (!snapshot.chapter || !snapshot.storyState) return true;
+    return envelope.chapterId === chapter.id
+      && envelope.chapterRevision === chapter.revision
+      && envelope.storyStateRevision === snapshot.storyState.revision;
+  });
+  if (completedChoicesExist) return null;
+
+  return {
+    sourceArtifactId: latestApproved.artifact.id,
+    parentMessageId: latestApproved.artifact.sourceMessageId,
+    reason: laterMessages.some((message) => (
+      message.role === "assistant" && ["failed", "cancelled"].includes(message.status)
+    ))
+      ? "failed_or_interrupted"
+      : "missing",
+  };
 }
 
 export function errorCode(error: unknown) {

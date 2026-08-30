@@ -6,3 +6,5 @@ export * from "./intimacy-scene-validator";
 export * from "./intimacy-stage-validator";
 export * from "./intimacy-scene-schema";
 export * from "./intimacy-runtime-contract";
+export * from "./adult-narrative-structure";
+export * from "./adult-narrative-runtime-binding";

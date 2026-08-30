@@ -3,6 +3,10 @@ import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import {
+  acceptStudioChoice,
+  persistStudioChoiceCandidate,
+} from "../lib/novel-ai/repository/studio-canonical.ts";
+import {
   buildTopicWorldFamilyStageMatrix,
   serializeTopicWorldFamilyDraftSelection,
 } from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
@@ -17,7 +21,6 @@ import {
   readStoryEnding,
 } from "../lib/novel-ai/game/story-ending-contract.ts";
 import {
-  approveRpgChatTurn,
   buildDeterministicRpgChatTurnCandidate,
   buildRpgReaderSafeCausalPayload,
   buildRpgRuleChoicePlan,
@@ -114,6 +117,73 @@ const closureLedger = (snapshot) => Object.fromEntries([
   "story.ending.resolvedTurn",
   "story.ending.ledgerEntry",
 ].map((key) => [key, snapshot.storyState.worldFlags[key]]));
+
+function fixtureProjectSeed(snapshot) {
+  const protagonist = snapshot.characters.find((character) => (
+    snapshot.storyBible.protagonistIds.includes(character.id)
+  )) ?? snapshot.characters[0];
+  return {
+    id: snapshot.project.id,
+    title: snapshot.project.title,
+    chapterId: snapshot.chapter.id,
+    chapterTitle: snapshot.chapter.title,
+    draft: snapshot.chapter.content,
+    packId: snapshot.project.genrePackId,
+    topicId: snapshot.project.genreId,
+    subCategory: snapshot.project.subgenreId,
+    coreIdea: snapshot.project.coreIdea.value,
+    protagonist: protagonist?.name ?? null,
+    goal: protagonist?.goal.value ?? null,
+    worldRule: snapshot.worldRules[0]?.description ?? null,
+    conflict: snapshot.conflict,
+    style: snapshot.project.narrativeStyle.value,
+    adultMode: snapshot.project.adultMode,
+    adultExperienceProfile: snapshot.project.adultExperienceProfile ?? null,
+  };
+}
+
+async function commitRulesFixture(repository, snapshot, candidate) {
+  const saved = await persistStudioChoiceCandidate(
+    repository,
+    fixtureProjectSeed(snapshot),
+    {
+      optionKey: candidate.choice.key,
+      text: `${candidate.choice.title}｜${candidate.choice.description}`,
+      consequence: `${candidate.choice.consequence}；${candidate.resolution.outcomeLabel}`,
+      effect: candidate.resolution.effect,
+      providerId: "arc-closure-test-fixture",
+      modelId: "deterministic-hidden-draft-fixture",
+      externalRequest: false,
+      dataLeftDevice: false,
+      rpgContextRevisionGuard: structuredClone(candidate.contextRevisionGuard),
+      rpgSettlement: candidate.resolution.settlement,
+    },
+  );
+  return acceptStudioChoice(
+    repository,
+    saved.candidate.id,
+    candidate.story,
+    `${candidate.choice.key}｜${candidate.choice.title}｜${candidate.resolution.outcomeLabel}`,
+  );
+}
+
+// This suite advances the same synthetic arc with low-level test fixtures. The
+// production novelty gate is covered elsewhere; omit accumulated prose here so
+// it does not turn an arc-state contract test into a repetition-quality test.
+function withoutAccumulatedFixtureProse(snapshot) {
+  return {
+    ...snapshot,
+    chapter: {
+      ...snapshot.chapter,
+      content: "",
+    },
+    chapters: snapshot.chapters.map((chapter) => ({
+      ...chapter,
+      content: "",
+    })),
+    acceptedChoices: [],
+  };
+}
 
 const falseEndingSignals = evaluateStoryEnding({
   coreGoalDecisivelyAnswered: false,
@@ -302,9 +372,12 @@ for (const playMode of scenarios) {
       ? snapshot.baseChoices[0]
       : snapshot.baseChoices.find((choice) => choice.approach === "steady") ?? snapshot.baseChoices[0];
     const candidate = await buildDeterministicRpgChatTurnCandidate({
-      snapshot,
+      snapshot: withoutAccumulatedFixtureProse(snapshot),
       choice: selected,
       failureReason: "ARC_CLOSURE_CONTRACT_TEST",
+    }).catch((error) => {
+      error.arcClosureTestContext = `${playMode}/turn-${index + 1}/${selected.encounter.arcNextAction ?? selected.encounter.arcPhase}`;
+      throw error;
     });
     const resolutionPrompt = JSON.parse(buildRpgResolutionDirectorPrompt({
       context: snapshot.directorContext,
@@ -348,7 +421,7 @@ for (const playMode of scenarios) {
       );
       assert.doesNotMatch(candidate.story, /等待下一步選擇|下一回合能追查/u);
     }
-    await approveRpgChatTurn({ repository, snapshot, candidate });
+    await commitRulesFixture(repository, snapshot, candidate);
 
     const persisted = await repository.get("storyStates", snapshot.storyState.id);
     assert.ok(persisted);
@@ -409,7 +482,7 @@ for (const playMode of scenarios) {
 
   const epilogueChoice = closed.baseChoices[0];
   const epilogueCandidate = await buildDeterministicRpgChatTurnCandidate({
-    snapshot: closed,
+    snapshot: withoutAccumulatedFixtureProse(closed),
     choice: epilogueChoice,
     failureReason: "ARC_EPILOGUE_CONTRACT_TEST",
   });
@@ -420,7 +493,7 @@ for (const playMode of scenarios) {
     /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
   );
   assert.doesNotMatch(epilogueCandidate.story, /下一回合能追查|新的三條|等待下一步選擇/u);
-  await approveRpgChatTurn({ repository, snapshot: closed, candidate: epilogueCandidate });
+  await commitRulesFixture(repository, closed, epilogueCandidate);
 
   const afterEpilogue = await loadRpgChatSnapshot(repository, bundle.project.id);
   assert.equal(afterEpilogue.progression.turn, 9);
@@ -465,13 +538,13 @@ for (const playMode of scenarios) {
   assert.equal(continuationChoice.encounter.arcPhase, "setup");
   assert.equal(continuationChoice.encounter.arcStartTurn, 10);
   const continuationCandidate = await buildDeterministicRpgChatTurnCandidate({
-    snapshot: afterEpilogue,
+    snapshot: withoutAccumulatedFixtureProse(afterEpilogue),
     choice: continuationChoice,
     failureReason: "ARC_SEQUEL_CONTRACT_TEST",
   });
   assert.ok(continuationCandidate.executionReceipt.fallbackGenerationMs < 1_000);
   assert.match(continuationCandidate.story, /另一段故事由此開始|走向新地點/u);
-  await approveRpgChatTurn({ repository, snapshot: afterEpilogue, candidate: continuationCandidate });
+  await commitRulesFixture(repository, afterEpilogue, continuationCandidate);
   const sequel = await loadRpgChatSnapshot(repository, bundle.project.id);
   assert.equal(sequel.progression.turn, 10);
   assert.deepEqual(sequel.baseChoices.map((choice) => choice.key), ["A", "B", "C"]);
@@ -510,7 +583,7 @@ for (const playMode of scenarios) {
   assert.deepEqual(closureLedger(archiveClosed), immutableClosureLedger);
   const archiveChoice = archiveClosed.baseChoices[2];
   const archiveCandidate = await buildDeterministicRpgChatTurnCandidate({
-    snapshot: archiveClosed,
+    snapshot: withoutAccumulatedFixtureProse(archiveClosed),
     choice: archiveChoice,
     failureReason: "ARC_ARCHIVE_CONTRACT_TEST",
   });
@@ -521,11 +594,7 @@ for (const playMode of scenarios) {
     /核准規則|規則校準|本回合|下一回合|回合制|關係張力|狀態更新|結算結果|下一輪可用|Story Bible|Canon/u,
   );
   assert.doesNotMatch(archiveCandidate.story, /下一回合能追查|新的三條|等待下一步選擇/u);
-  await approveRpgChatTurn({
-    repository: archiveRepository,
-    snapshot: archiveClosed,
-    candidate: archiveCandidate,
-  });
+  await commitRulesFixture(archiveRepository, archiveClosed, archiveCandidate);
   const archived = await loadRpgChatSnapshot(archiveRepository, archiveProjectId);
   assert.equal(archived.progression.turn, 9);
   assert.equal(archived.storyState.worldFlags["story.arc.archived"], true);

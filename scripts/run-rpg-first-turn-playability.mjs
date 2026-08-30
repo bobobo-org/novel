@@ -5,6 +5,10 @@ import { makeRecord, optionalValue } from "../lib/novel-ai/domain/index.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import {
+  acceptStudioChoice,
+  persistStudioChoiceCandidate,
+} from "../lib/novel-ai/repository/studio-canonical.ts";
+import {
   buildTopicWorldFamilyStageMatrix,
   serializeTopicWorldFamilyDraftSelection,
 } from "../lib/novel-ai/game/topic-world-family-stage-matrix.ts";
@@ -14,28 +18,37 @@ import {
   buildDeterministicRpgChatTurnCandidate,
   buildRpgRuleChoicePlan,
   loadRpgChatSnapshot,
+  RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
   RPG_CHAT_STORY_AI_TIMEOUT_MS,
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
 import { rpgTextSimilarity } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 import { runStudioClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
 
 assert.equal(RPG_CHAT_STORY_AI_TIMEOUT_MS, 180_000);
+assert.equal(RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS, 60_000);
 const [rpgTurnSource, conversationRpgSource, rpgWorkspaceSource] = await Promise.all([
   readFile(new URL("../lib/novel-ai/web/rpg-chat-turn.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/rpg/rpg-workspace.tsx", import.meta.url), "utf8"),
 ]);
 assert.match(rpgTurnSource, /qualityMode: "balanced"[\s\S]{0,120}browserComputePolicy: "quality-first"/u);
-assert.match(rpgTurnSource, /failureReason: generationController\.signal\.aborted[\s\S]{0,120}"RPG_STORY_AI_TIMEOUT"/u);
+assert.match(rpgTurnSource, /RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 60_000/u);
+assert.match(rpgTurnSource, /const generationDeadlineMs = Math\.max\([\s\S]{0,160}input\.generationDeadlineMs \?\? RPG_CHAT_STORY_AI_TIMEOUT_MS/u);
+assert.match(rpgTurnSource, /const reviewDeadlineMs = Math\.min\([\s\S]{0,220}input\.fallbackReviewDeadlineMs \?\? RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS/u);
+assert.match(rpgTurnSource, /actualExecutor === "deterministic-rule-fallback"[\s\S]{0,500}RPG_FALLBACK_CLOSED_REVIEW_REQUIRED/u);
+assert.doesNotMatch(rpgTurnSource, /remainingTotalDeadlineMs|RPG_STORY_AI_TOTAL_TIMEOUT/u);
 const userAbortGuard = rpgTurnSource.indexOf("if (input.signal?.aborted) throw error;");
-const deterministicFallback = rpgTurnSource.indexOf("story = buildDeterministicRpgTurnStory", userAbortGuard);
+const deterministicFallback = rpgTurnSource.indexOf("const draft = buildDeterministicRpgTurnStory", userAbortGuard);
 assert.ok(userAbortGuard >= 0 && deterministicFallback > userAbortGuard, "user cancellation must escape before rules fallback");
-assert.match(conversationRpgSource, /閉端 AI 正在依你選定的 A／B／C 分支產生完整小說正文；最長等待 180 秒/u);
-assert.match(rpgWorkspaceSource, /閉端 AI 正在產生完整小說正文，最長等待 180 秒/u);
+assert.match(rpgTurnSource, /postFallbackClosedReview/u);
+assert.match(rpgTurnSource, /reviewAttempts/u);
+assert.match(rpgTurnSource, /RPG_FALLBACK_CLOSED_REVIEW_REQUIRED/u);
+assert.match(conversationRpgSource, /正文階段完整等待 180 秒[\s\S]{0,90}追加最多 60 秒閉端複核/u);
+assert.match(rpgWorkspaceSource, /正文階段完整等待 180 秒[\s\S]{0,90}追加最多 60 秒閉端複核/u);
 assert.match(
   rpgWorkspaceSource,
-  /RPG_TURN_TIMEOUT_MS = RPG_CHAT_STORY_AI_TIMEOUT_MS \+ RPG_TURN_COMPLETION_GRACE_MS/u,
-  "the workspace safety guard must be derived from the same 180-second AI deadline",
+  /RPG_TURN_TIMEOUT_MS = \([\s\S]{0,120}RPG_CHAT_STORY_AI_TIMEOUT_MS[\s\S]{0,80}RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS[\s\S]{0,80}RPG_TURN_COMPLETION_GRACE_MS/u,
+  "the workspace safety guard must include the independent 180-second generation and 60-second review deadlines",
 );
 assert.doesNotMatch(rpgWorkspaceSource, /300_000|超過 300 秒/u);
 
@@ -74,6 +87,55 @@ const scenarios = [
   { playMode: "romance", expectedMode: "cultivation", expectedActionPoints: 3 },
   { playMode: "management", expectedMode: "management", expectedActionPoints: 5 },
 ];
+
+function fixtureProjectSeed(snapshot) {
+  const protagonist = snapshot.characters.find((character) => (
+    snapshot.storyBible.protagonistIds.includes(character.id)
+  )) ?? snapshot.characters[0];
+  return {
+    id: snapshot.project.id,
+    title: snapshot.project.title,
+    chapterId: snapshot.chapter.id,
+    chapterTitle: snapshot.chapter.title,
+    draft: snapshot.chapter.content,
+    packId: snapshot.project.genrePackId,
+    topicId: snapshot.project.genreId,
+    subCategory: snapshot.project.subgenreId,
+    coreIdea: snapshot.project.coreIdea.value,
+    protagonist: protagonist?.name ?? null,
+    goal: protagonist?.goal.value ?? null,
+    worldRule: snapshot.worldRules[0]?.description ?? null,
+    conflict: snapshot.conflict,
+    style: snapshot.project.narrativeStyle.value,
+    adultMode: snapshot.project.adultMode,
+    adultExperienceProfile: snapshot.project.adultExperienceProfile ?? null,
+  };
+}
+
+async function commitRulesFixture(repository, snapshot, candidate) {
+  const saved = await persistStudioChoiceCandidate(
+    repository,
+    fixtureProjectSeed(snapshot),
+    {
+      optionKey: candidate.choice.key,
+      text: `${candidate.choice.title}｜${candidate.choice.description}`,
+      consequence: `${candidate.choice.consequence}；${candidate.resolution.outcomeLabel}`,
+      effect: candidate.resolution.effect,
+      providerId: "contract-test-fixture",
+      modelId: "deterministic-hidden-draft-fixture",
+      externalRequest: false,
+      dataLeftDevice: false,
+      rpgContextRevisionGuard: structuredClone(candidate.contextRevisionGuard),
+      rpgSettlement: candidate.resolution.settlement,
+    },
+  );
+  return acceptStudioChoice(
+    repository,
+    saved.candidate.id,
+    candidate.story,
+    `${candidate.choice.key}｜${candidate.choice.title}｜${candidate.resolution.outcomeLabel}`,
+  );
+}
 const observations = [];
 const deterministicChoiceCoverage = {
   sets: 0,
@@ -316,7 +378,20 @@ for (const scenario of scenarios) {
   assert.deepEqual(await repository.get("chapters", chapter.id), chapterBefore);
   assert.equal((await repository.get("storyStates", snapshot.storyState.id)).revision, snapshot.storyState.revision);
 
-  await approveRpgChatTurn({ repository, snapshot, candidate });
+  await assert.rejects(
+    approveRpgChatTurn({ repository, snapshot, candidate }),
+    (error) => error?.code === "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
+    "a single deterministic draft must be rejected before candidate or Canon persistence",
+  );
+  assert.deepEqual(await repository.get("chapters", chapter.id), chapterBefore);
+  assert.equal(
+    (await repository.get("storyStates", snapshot.storyState.id)).revision,
+    snapshot.storyState.revision,
+  );
+  // The playability suite then commits through the lower-level rules fixture
+  // boundary so it can continue testing the next-turn state machine. Product
+  // callers must use approveRpgChatTurn and cannot access this test helper.
+  await commitRulesFixture(repository, snapshot, candidate);
   const next = await loadRpgChatSnapshot(repository, bundle.project.id);
   assert.equal(next.progression.turn, 1);
   assert.ok(next.chapter.content.includes(candidate.story));

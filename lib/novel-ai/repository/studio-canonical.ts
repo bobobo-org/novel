@@ -1,5 +1,5 @@
 import { buildProjectBundle, createDraft } from "../domain/creation";
-import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type NovelProject, type RpgTurnSettlement, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
+import { makeRecord, optionalValue, type AcceptedChoice, type Chapter, type ChoiceCandidate, type ExternalAttemptProvenance, type NovelProject, type RpgContextRevisionGuard, type RpgTurnSettlement, type StoryBible, type StoryBranch, type StoryChoiceEffect, type StoryState } from "../domain";
 import { resolveProjectStoryBible } from "../domain/story-bible-selection";
 import { createProjectBackup } from "./backup";
 import { RepositoryOperationError, type AcceptChoiceConversationApprovalInput, type AcceptChoiceTransactionResult, type NovelRepository } from "./contracts";
@@ -234,6 +234,8 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
   modelId: string | null;
   externalRequest?: boolean;
   dataLeftDevice?: boolean;
+  externalAttempt?: ExternalAttemptProvenance;
+  rpgContextRevisionGuard?: RpgContextRevisionGuard;
   rpgSettlement?: RpgTurnSettlement;
 }) {
   const current = await ensureStudioCanonicalProject(repository, input);
@@ -252,6 +254,9 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
     chapterRevision: current.chapter.revision,
     storyStateRevision: current.storyState.revision,
     storyBibleRevision: current.storyBible.revision,
+    rpgContextRevisionGuard: candidate.rpgContextRevisionGuard
+      ? structuredClone(candidate.rpgContextRevisionGuard)
+      : undefined,
     rpgSettlement: candidate.rpgSettlement,
     provenance: {
       ...base.provenance,
@@ -262,6 +267,9 @@ export async function persistStudioChoiceCandidate(repository: NovelRepository, 
       taskType: "interactive_choice",
       externalRequest: candidate.externalRequest === true,
       dataLeftDevice: candidate.dataLeftDevice === true,
+      ...(candidate.externalAttempt ? {
+        externalAttempt: structuredClone(candidate.externalAttempt),
+      } : {}),
       contextSources: ["project", "chapter", "story_state"],
       elapsedMs: null,
     },
@@ -302,6 +310,9 @@ export async function acceptStudioChoice(
       : candidate.revision,
     expectedStoryStateRevision: candidate.storyStateRevision,
     expectedStoryBibleRevision: candidate.storyBibleRevision,
+    rpgContextRevisionGuard: candidate.rpgContextRevisionGuard
+      ? structuredClone(candidate.rpgContextRevisionGuard)
+      : undefined,
     conversationApproval,
   });
 }

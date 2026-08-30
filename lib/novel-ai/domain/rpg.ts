@@ -196,6 +196,41 @@ export type RpgTurnSettlement = {
   scheduledConsequences: DelayedConsequence[];
 };
 
+/**
+ * Immutable optimistic-concurrency boundary for one RPG choice/turn.  The
+ * vector deliberately covers every Canon source used by the director, not
+ * only the chapter and StoryState.  `digest` is the reader-card identity;
+ * repositories compare the complete vector again inside the write
+ * transaction so a digest pre-check can never become a TOCTOU gap.
+ */
+export type RpgContextRevisionEntry = {
+  id: string;
+  revision: number;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type RpgContextRevisionVector = {
+  projects: RpgContextRevisionEntry[];
+  chapters: RpgContextRevisionEntry[];
+  storyStates: RpgContextRevisionEntry[];
+  storyBibles: RpgContextRevisionEntry[];
+  characters: RpgContextRevisionEntry[];
+  relationships: RpgContextRevisionEntry[];
+  worlds: RpgContextRevisionEntry[];
+  worldRules: RpgContextRevisionEntry[];
+  lore: RpgContextRevisionEntry[];
+  timeline: RpgContextRevisionEntry[];
+  acceptedChoices: RpgContextRevisionEntry[];
+  rpgTurnReceipts: RpgContextRevisionEntry[];
+};
+
+export type RpgContextRevisionGuard = {
+  schemaVersion: "rpg-context-revision-guard-v1";
+  digest: string;
+  vector: RpgContextRevisionVector;
+};
+
 export type RpgTurnReceipt = DomainRecord & {
   receiptId: string;
   projectId: string;

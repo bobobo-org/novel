@@ -12,7 +12,13 @@ import type {
   RejectCharacterProposalInput,
   RejectCharacterProposalResult,
 } from "../../character-agent/types";
-import { acceptChoicePayloadFingerprint, buildAcceptedChoiceRecords } from "../../services/accept-choice";
+import { acceptChoicePayloadFingerprint, assertAcceptChoiceInput, buildAcceptedChoiceRecords } from "../../services/accept-choice";
+import {
+  assertRpgContextRevisionGuard,
+  assertRpgContextRevisionGuardIntegrity,
+  RPG_CONTEXT_REVISION_STORE_NAMES,
+  type RpgContextRevisionRecords,
+} from "../../services/rpg-context-revision";
 import { NOVEL_STORES, RepositoryOperationError, RevisionConflictError, type AcceptChoiceTransactionInput, type AcceptChoiceTransactionResult, type ApproveConversationArtifactTransactionInput, type ApproveConversationArtifactTransactionResult, type CommitStudioCandidateTransactionInput, type CommitStudioCandidateTransactionResult, type MarkConversationArtifactApprovedFromExternalCommitInput, type NovelRepository, type NovelStoreName, type StudioCandidateOperationJournal } from "../contracts/index";
 import { assertCompleteReplacePayload, buildImportIdMap, remapImportedRecord, validateImportRecords } from "../import-remap";
 import { assertStudioCandidateReplay, buildStudioCandidateCommitRecords } from "../studio-candidate-transaction";
@@ -118,6 +124,9 @@ export class MemoryNovelRepository implements NovelRepository {
     return run;
   }
   private async acceptChoiceTransactionInternal(input: AcceptChoiceTransactionInput): Promise<AcceptChoiceTransactionResult> {
+    if (input.rpgContextRevisionGuard) {
+      await assertRpgContextRevisionGuardIntegrity(input.rpgContextRevisionGuard);
+    }
     const replay = (await this.list<IdempotencyRecord>("idempotencyRecords", input.projectId)).find((item) => item.idempotencyKey === input.idempotencyKey);
     if (replay) {
       if (replay.payloadFingerprint !== acceptChoicePayloadFingerprint(input)) throw new RepositoryOperationError("IDEMPOTENCY_PAYLOAD_MISMATCH");
@@ -221,6 +230,37 @@ export class MemoryNovelRepository implements NovelRepository {
         sourceMessage,
         artifact,
         toolInvocations,
+      });
+    }
+    if (input.rpgContextRevisionGuard) {
+      // Re-read the entire director input immediately before the synchronous
+      // write section. No await occurs between this CAS and the writes below,
+      // so a mutation during conversation preflight cannot slip through.
+      const [contextRows, currentCandidate, currentParentBranch] = await Promise.all([
+        Promise.all(RPG_CONTEXT_REVISION_STORE_NAMES.map(async (store) => (
+          [store, await this.list<DomainRecord>(store, input.projectId)] as const
+        ))),
+        this.get<ChoiceCandidate>("candidates", input.candidateId),
+        input.parentBranchId
+          ? this.get<StoryBranch>("storyBranches", input.parentBranchId)
+          : Promise.resolve(null),
+      ]);
+      const contextRecords = Object.fromEntries(contextRows) as unknown as RpgContextRevisionRecords;
+      assertRpgContextRevisionGuard(input.rpgContextRevisionGuard, contextRecords);
+      const currentProject = contextRecords.projects.find((row) => row.id === input.projectId) as NovelProject | undefined;
+      const currentChapter = contextRecords.chapters.find((row) => row.id === input.chapterId) as Chapter | undefined;
+      const currentStoryState = contextRecords.storyStates.find((row) => row.id === storyState.id) as StoryState | undefined;
+      const currentStoryBible = contextRecords.storyBibles.find((row) => row.id === storyBible.id) as StoryBible | undefined;
+      if (!currentProject || !currentChapter || !currentStoryState || !currentStoryBible || !currentCandidate) {
+        throw new RepositoryOperationError("ACCEPT_CHOICE_RECORD_MISSING");
+      }
+      assertAcceptChoiceInput(input, {
+        project: currentProject,
+        chapter: currentChapter,
+        candidate: currentCandidate,
+        storyState: currentStoryState,
+        storyBible: currentStoryBible,
+        parentBranch: currentParentBranch,
       });
     }
     const before = new Map(NOVEL_STORES.map((name) => [name, new Map([...(this.stores.get(name)?.entries() ?? [])].map(([id, row]) => [id, structuredClone(row)]))]));

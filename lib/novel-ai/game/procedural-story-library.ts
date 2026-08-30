@@ -561,10 +561,10 @@ export function proceduralCharacterAt(input: {
     proactiveAction: `${name}先一步在${location}${action}，讓所有人不得不面對局面已經改變。`,
     refusalCondition,
     directDialogue: [
-      `「先把${goal}的證據放到桌上。」${name}沒有移開視線，「碰到${refusalCondition}，我會立刻停手。」`,
-      `「別替我答應。」${name}指向仍未處理的線索，「我要先確認${goal}，而且不能越過${refusalCondition}。」`,
-      `「退路留給需要的人。」${name}收起原本要交出的東西，「等${goal}有了著落，我再決定走到哪一步。」`,
-      `「現在說合作還太早。」${name}把話截在眾人動身以前，「先處理${goal}；${refusalCondition}，這是我的底線。」`,
+      `「先看那道痕。」${name}將燈挪近，讓紙背的刮痕浮了出來。`,
+      `「別碰封口。」${name}擋下伸來的手，目光仍停在未乾的墨上。`,
+      `「退路留給傷者。」${name}收起鑰匙，自己站到最靠近門的位置。`,
+      `「有人說謊。」${name}把兩張時刻不同的收條並排攤開。`,
     ][index % 4],
     portrait: {
       baseId: profile.portraitBaseId,
@@ -622,10 +622,22 @@ function asCastMember(
   if (contextualMove.endsWith(generatedSuffix)) {
     contextualMove = contextualMove.slice(0, -generatedSuffix.length);
   }
-  const directDialogue: Record<ProceduralCastRole, string> = {
-    catalyst: `「我先去做能證明${character.goal}的那一步。」${character.name}把話說得很快，「若碰到${character.refusalCondition}，我會停下來，不替任何人遮掩。」`,
-    counterforce: `「你可以往前，但別把${character.goal}當成你的籌碼。」${character.name}擋住去路，「${character.refusalCondition}，這條線我不會讓。」`,
-    witness: `「我只交出親眼核對過的部分。」${character.name}按住證物，「先讓我確認${character.goal}；${character.refusalCondition}，我就不會替任何一方背書。」`,
+  const directDialogue: Record<ProceduralCastRole, readonly string[]> = {
+    catalyst: [
+      `「傷者先走。」${character.name}把側門鑰匙推給離門最近的人。`,
+      `「替我守住窗。」${character.name}已經蹲下檢查散落的封條。`,
+      `「再給我一刻鐘。」${character.name}將最可疑的一頁抽到燈下。`,
+    ],
+    counterforce: [
+      `「停在那裡。」${character.name}橫過門閂，沒有讓出窄門。`,
+      `「這張證詞被換過。」${character.name}彈了彈紙角的新墨。`,
+      `「你漏看了代價。」${character.name}指向被留在門外的人。`,
+    ],
+    witness: [
+      `「封泥是新的。」${character.name}把碎屑放到白紙中央。`,
+      `「兩份口供少了一刻鐘。」${character.name}圈出相接不起來的兩行。`,
+      `「鞋印不是往外。」${character.name}將紙背畫出的路線轉向眾人。`,
+    ],
   };
   return {
     ...character,
@@ -633,7 +645,7 @@ function asCastMember(
     narrativeRoleLabel: contract.label,
     storyFunction: contract.functions[contractIndex],
     proactiveAction: `${character.name}${actionFrame.opening}，${contextualMove}，${actionFrame.ending}。`,
-    directDialogue: directDialogue[narrativeRole],
+    directDialogue: directDialogue[narrativeRole][variant % directDialogue[narrativeRole].length],
   };
 }
 

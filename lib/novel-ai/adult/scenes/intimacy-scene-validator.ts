@@ -11,6 +11,9 @@ export function validateParticipants(participants: IntimacyParticipantInput[]): 
     if (participant.consentState !== "active") {
       issues.push({ code: "INTIMACY_CONSENT_NOT_ACTIVE", severity: "blocking", message: "Consent state must be active before planning the scene.", subjectId: participant.characterId });
     }
+    if (participant.consentRevocable !== true) {
+      issues.push({ code: "INTIMACY_CONSENT_NOT_REVOCABLE", severity: "blocking", message: "Consent must remain revocable throughout the scene.", subjectId: participant.characterId });
+    }
   }
   return { ok: !issues.some((issue) => issue.severity === "blocking"), issues, dataLeftDevice: false, externalRequestCount: 0 };
 }

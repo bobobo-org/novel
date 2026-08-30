@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import type { SQLiteProjectConnection } from "../../storage/sqlite/sqlite-connection";
 import type { StorySceneProfileId } from "../../scenes/story-scene-types";
+import type { AdultExperienceProfile } from "../../../novel-data/adult-experience-profile";
+import type { AdultNarrativeActId, AdultNarrativeBlueprint } from "../../adult/scenes/adult-narrative-structure";
 
 export type StoryStageOperation =
   | "planStages"
@@ -41,6 +43,10 @@ export type StoryStageContext = {
   forbiddenEvents?: string[];
   requiredNextBeat?: string;
   narrativePurpose?: string;
+  adultMode?: boolean;
+  adultExperienceProfile?: AdultExperienceProfile | null;
+  adultNarrativeBlueprint?: AdultNarrativeBlueprint;
+  adultNarrativeActId?: AdultNarrativeActId;
   targetLength?: number;
   tone?: string;
   perspective?: string;
@@ -51,6 +57,7 @@ export type StoryStageContext = {
     participantsVerifiedAdult?: boolean;
     relationshipPermitted?: boolean;
     consentState?: "active" | "withdrawn" | "unspecified";
+    consentRevocable?: boolean;
     withdrawalState?: "none" | "active";
     ratingPermitted?: boolean;
     localOnlyRequired?: boolean;

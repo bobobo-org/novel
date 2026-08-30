@@ -226,8 +226,55 @@ async function makeFixture(viewport, title) {
   });
   const page = await context.newPage();
   const pageErrors = [];
+  const consoleMessages = [];
+  const requestFailures = [];
+  const navigationResponses = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  const created = await createProject(page, title);
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleMessages.push({ type: message.type(), text: message.text().slice(0, 600) });
+    }
+  });
+  page.on("requestfailed", (request) => {
+    requestFailures.push({
+      method: request.method(),
+      url: request.url(),
+      errorText: request.failure()?.errorText ?? "UNKNOWN",
+    });
+  });
+  page.on("response", (response) => {
+    if (response.request().isNavigationRequest()) {
+      navigationResponses.push({ status: response.status(), url: response.url() });
+    }
+  });
+  let created;
+  try {
+    created = await createProject(page, title);
+  } catch (error) {
+    const pageState = await page.evaluate(() => ({
+      url: location.href,
+      title: document.title,
+      readyState: document.readyState,
+      workspaceCount: document.querySelectorAll('[data-testid="conversation-first-workspace"]').length,
+      bodyText: (document.body?.innerText ?? "").replace(/\s+/gu, " ").slice(0, 1_600),
+    })).catch(() => ({
+      url: page.url(),
+      title: "UNAVAILABLE",
+      readyState: "UNAVAILABLE",
+      workspaceCount: -1,
+      bodyText: "UNAVAILABLE",
+    }));
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\nRC6_FIXTURE_DIAGNOSTICS:${JSON.stringify({
+        pageState,
+        navigationResponses: navigationResponses.slice(-8),
+        requestFailures: requestFailures.slice(-8),
+        consoleMessages: consoleMessages.slice(-8),
+        pageErrors: pageErrors.slice(-8),
+      })}`,
+      { cause: error },
+    );
+  }
   return { context, page, pageErrors, ...created };
 }
 
@@ -1702,7 +1749,7 @@ harness.test("mobile", "390x844 keeps the composer usable and turns side panels 
   });
   assert.equal(layout.overflow, false);
   assert(layout.composer && layout.composer.left >= 0 && layout.composer.right <= 390 && layout.composer.bottom <= 844);
-  assert(layout.send && layout.send.left >= 0 && layout.send.right <= 390 && layout.send.bottom <= 844 && layout.send.height >= 39);
+  assert(layout.send && layout.send.left >= 0 && layout.send.right <= 390 && layout.send.bottom <= 844 && layout.send.height >= 44);
   assert(layout.sidebarRight !== null && layout.sidebarRight <= 0);
 
   const sidebarToggle = page.getByTestId("conversation-mobile-sidebar-toggle");
@@ -1724,11 +1771,64 @@ harness.test("mobile", "390x844 keeps the composer usable and turns side panels 
   assert.deepEqual(pageErrors, []);
 });
 
+harness.test("mobile", "AI source controls stay open while selecting or consenting with an empty composer", async () => {
+  const { page, pageErrors } = await getMobileFixture();
+  const sourceControls = page.getByTestId("conversation-ai-source-controls");
+  assert.equal(await sourceControls.evaluate((element) => element.open), false);
+  await sourceControls.locator("summary").click();
+  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  const openedSourceLayout = await sourceControls.evaluate((element) => {
+    const select = element.querySelector("select");
+    const body = select?.closest("div");
+    const rect = select?.getBoundingClientRect();
+    return {
+      activeTag: document.activeElement?.tagName ?? null,
+      detailsDisplay: getComputedStyle(element).display,
+      bodyDisplay: body ? getComputedStyle(body).display : null,
+      selectDisplay: select ? getComputedStyle(select).display : null,
+      selectVisibility: select ? getComputedStyle(select).visibility : null,
+      selectRect: rect ? { width: rect.width, height: rect.height, top: rect.top, bottom: rect.bottom } : null,
+    };
+  });
+  assert(
+    openedSourceLayout.selectRect?.width > 0 && openedSourceLayout.selectRect.height >= 44,
+    JSON.stringify(openedSourceLayout),
+  );
+
+  await sourceControls.getByLabel("模式").selectOption("external-only");
+  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  const provider = sourceControls.getByLabel("外來供應商");
+  const providerValues = await provider.locator("option").evaluateAll((options) => (
+    options.map((option) => option.value)
+  ));
+  if (providerValues.length > 1) await provider.selectOption(providerValues.at(-1));
+  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+
+  const consent = sourceControls.locator('input[type="checkbox"]');
+  await consent.check();
+  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  await page.getByLabel("小說專案訊息").fill("");
+  assert.equal(await page.getByRole("button", { name: "送出" }).isEnabled(), false);
+  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+
+  await sourceControls.getByLabel("模式").selectOption("closed-only");
+  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  await sourceControls.locator("summary").click();
+  await page.waitForFunction(() => (
+    document.querySelector('[data-testid="conversation-ai-source-controls"]')?.open === false
+  ));
+  assert.deepEqual(pageErrors, []);
+});
+
 harness.test("mobile", "requested status expands an inline readable dashboard without a nested raw-data sheet", async () => {
   const { page, projectId } = await getMobileFixture();
   await lockFixtureToRpg(page, projectId);
   assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
+  const sourceControls = page.getByTestId("conversation-ai-source-controls");
+  await sourceControls.locator("summary").click();
+  assert.equal(await sourceControls.evaluate((element) => element.open), true);
   const dashboard = await sendLocalStatusQuery(page);
+  assert.equal(await sourceControls.evaluate((element) => element.open), false);
   const box = await dashboard.boundingBox();
   assert(box && box.x >= -1 && box.x + box.width <= 391, JSON.stringify(box));
   assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);

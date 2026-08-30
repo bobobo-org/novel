@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
+  Chapter,
   ConversationArtifact,
   ConversationAttachment,
   ConversationMessage,
@@ -29,6 +30,8 @@ import { useConversationTimelineWindow } from "../hooks/use-conversation-timelin
 import { useConversationApproval } from "../hooks/use-conversation-approval";
 import { useConversationAttachments } from "../hooks/use-conversation-attachments";
 import { useConversationBranch } from "../hooks/use-conversation-branch";
+import { inspectRpgChoiceTurn } from "../hooks/use-conversation-rpg";
+import { findRpgChoiceRecoveryTarget } from "../conversation-workspace-support";
 import type { ConversationMessageActions } from "./conversation-types";
 import { parseRpgChoices } from "./conversation-presentation";
 import { MessageRow } from "./message-row";
@@ -55,34 +58,16 @@ const dashboardTargetCache = new WeakMap<
 function findDashboardTarget(
   messages: ConversationMessage[],
   artifacts: ConversationArtifact[],
-  artifactsByMessage: Map<string, ConversationArtifact[]>,
 ): DashboardTarget {
   const choiceMessages: ConversationMessage[] = [];
-  const attemptsBySource = new Map<string, ConversationMessage[]>();
-  const responseByParent = new Map<string, ConversationMessage>();
   for (const message of messages) {
     if (parseRpgChoices(message.content)) choiceMessages.push(message);
-    if (message.role === "user" && message.sourceMessageId) {
-      const attempts = attemptsBySource.get(message.sourceMessageId) ?? [];
-      attempts.push(message);
-      attemptsBySource.set(message.sourceMessageId, attempts);
-    }
-    if (message.role === "assistant" && message.parentMessageId) {
-      responseByParent.set(message.parentMessageId, message);
-    }
   }
   for (let index = choiceMessages.length - 1; index >= 0; index -= 1) {
     const choiceMessage = choiceMessages[index];
-    const attempts = attemptsBySource.get(choiceMessage.id) ?? [];
-    const consumed = attempts.some((attempt) => {
-      const response = responseByParent.get(attempt.id);
-      if (!response || ["pending", "streaming"].includes(response.status)) return true;
-      if (["failed", "cancelled"].includes(response.status)) return false;
-      return (artifactsByMessage.get(response.id) ?? []).some((artifact) => (
-        artifact.artifactType === "rpg" && ["candidate", "approved"].includes(artifact.status)
-      ));
-    });
-    if (!consumed) return { messageId: choiceMessage.id, placement: "choices" as const };
+    if (!inspectRpgChoiceTurn(messages, artifacts, choiceMessage.id).consumed) {
+      return { messageId: choiceMessage.id, placement: "choices" as const };
+    }
   }
   const approved = [...artifacts].reverse().find((artifact) => (
     artifact.artifactType === "rpg" && artifact.status === "approved"
@@ -95,7 +80,6 @@ function findDashboardTarget(
 function readDashboardTarget(
   messages: ConversationMessage[],
   artifacts: ConversationArtifact[],
-  artifactsByMessage: Map<string, ConversationArtifact[]>,
 ): DashboardTarget {
   let byArtifacts = dashboardTargetCache.get(messages);
   if (!byArtifacts) {
@@ -103,7 +87,7 @@ function readDashboardTarget(
     dashboardTargetCache.set(messages, byArtifacts);
   }
   if (byArtifacts.has(artifacts)) return byArtifacts.get(artifacts) ?? null;
-  const target = findDashboardTarget(messages, artifacts, artifactsByMessage);
+  const target = findDashboardTarget(messages, artifacts);
   byArtifacts.set(artifacts, target);
   return target;
 }
@@ -475,6 +459,7 @@ function PlayModeDashboard({
 
 export function MessageTimeline({
   project,
+  currentChapter,
   projectId,
   sessionId,
   messages,
@@ -501,8 +486,10 @@ export function MessageTimeline({
   actions,
   onStarter,
   onRetry,
+  onRecoverRpgChoices,
 }: {
   project: NovelProject | null;
+  currentChapter: Pick<Chapter, "id" | "revision"> | null;
   projectId: string;
   sessionId: string;
   messages: ConversationMessage[];
@@ -529,6 +516,7 @@ export function MessageTimeline({
   actions: ConversationMessageActions;
   onStarter: (starter: string) => void;
   onRetry: () => void;
+  onRecoverRpgChoices: () => void;
 }) {
   const gameStory = fixedPlayMode ? isGameStoryPlayMode(fixedPlayMode) : false;
   const portraitWorlds = useMemo(
@@ -554,7 +542,13 @@ export function MessageTimeline({
   const invocationsByMessage = useMemo(() => new Map(
     invocations.map((invocation) => [invocation.messageId, invocation]),
   ), [invocations]);
-  const dashboardTarget = readDashboardTarget(messages, artifacts, artifactsByMessage);
+  const dashboardTarget = readDashboardTarget(messages, artifacts);
+  const rpgChoiceRecoveryTarget = gameStory
+    ? findRpgChoiceRecoveryTarget(messages, artifacts, {
+        chapter: currentChapter,
+        storyState,
+      }, invocations)
+    : null;
   const {
     containerRef,
     visibleMessages,
@@ -640,6 +634,15 @@ export function MessageTimeline({
             relationships={relationships}
           />;
         })}
+        {rpgChoiceRecoveryTarget ? (
+          <section className={styles.resultCard} data-testid="rpg-next-choice-recovery" role="status">
+            <strong>下一輪三選一尚未建立</strong>
+            <p>上一回合正文、數值與 Canon 已安全保留。你可以只重建下一組選項，不會再次採用或重複寫入上一回合。</p>
+            <button type="button" disabled={busy} onClick={onRecoverRpgChoices}>
+              繼續下一輪／重新建立三選一
+            </button>
+          </section>
+        ) : null}
         {busy ? <ToolProgressCard progress={progress} canStop={canStop} onStop={actions.stopGeneration} label={stopLabel} /> : null}
         {safeError ? (() => {
           const friendly = friendlyConversationExecutionError(safeError.code, safeError.message);

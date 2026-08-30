@@ -275,11 +275,31 @@ function isRpgChoice(content: string, hasActiveRpgTurn: boolean) {
     || /^(?:選擇|选择|選|选)?(?:穩健|稳健|觀察|观察|保守|安全|資源|资源|關係|关系|交換|交换|協商|协商|大膽|大胆|冒險|冒险|突破|高風險|高风险|激進|激进)(?:路線|路线|策略|方案)?$/u.test(compact);
 }
 
+function isBareGameContinuation(content: string) {
+  const compact = content.normalize("NFKC").trim().replace(/[\s，,。.!！?？、:：｜|／/()（）「」『』]/gu, "");
+  return /^(?:請|请|麻煩|麻烦)?(?:(?:繼續|继续)(?:目前)?(?:故事|劇情|剧情|遊戲|游戏|下一輪|下一轮|下一步|回合)?|(?:下一輪|下一轮|下一步|下回合))(?:吧)?$/u.test(compact);
+}
+
 function selectedRule(input: PlannerInput, objective: string): IntentRule | null {
   const classificationObjective = intentClassificationObjective(objective);
   if (isRpgChoice(classificationObjective, Boolean(input.hasActiveRpgTurn))) {
     return {
       intent: "rpg_custom_action",
+      pattern: /./u,
+      taskType: "chapter.continue",
+      executionKind: "rpg",
+      targetStore: "chapters",
+      approvalRequired: true,
+    };
+  }
+  if (
+    input.fixedPlayMode
+    && isGameStoryPlayMode(input.fixedPlayMode)
+    && !input.hasActiveRpgTurn
+    && isBareGameContinuation(classificationObjective)
+  ) {
+    return {
+      intent: "rpg_turn",
       pattern: /./u,
       taskType: "chapter.continue",
       executionKind: "rpg",

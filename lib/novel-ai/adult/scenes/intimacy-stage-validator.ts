@@ -9,6 +9,12 @@ export function validateStageSequence(stages: IntimacyStage[]) {
   }
   const consent = stages.find((stage) => stage.stageType === "consent");
   const escalation = stages.find((stage) => stage.stageType === "escalation" || stage.stageType === "explicit" || stage.stageType === "peak");
+  if (escalation && !consent) {
+    issues.push({ code: "INTIMACY_STAGE_CONSENT_REQUIRED", severity: "blocking", message: "Escalation stages require an explicit consent stage." });
+  }
+  if (consent && (!consent.required || consent.skippable)) {
+    issues.push({ code: "INTIMACY_STAGE_CONSENT_MUST_BE_REQUIRED", severity: "blocking", message: "Consent stage must be required and cannot be skipped." });
+  }
   if (escalation && consent && consent.ordinal > escalation.ordinal) {
     issues.push({ code: "INTIMACY_STAGE_DEPENDENCY_UNMET", severity: "blocking", message: "Consent stage must precede escalation stages." });
   }

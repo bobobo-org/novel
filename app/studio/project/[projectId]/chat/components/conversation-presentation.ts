@@ -124,8 +124,13 @@ export function parseRpgChoices(value: string): ParsedRpgChoices | null {
       && typeof parsed.chapterId === "string"
       && Number.isInteger(parsed.chapterRevision)
       && Number.isInteger(parsed.storyStateRevision)
+      && typeof parsed.contextRevisionDigest === "string"
+      && parsed.contextRevisionDigest.length === 64
       && plan?.schemaVersion === "rpg-chat-turn-v1"
-      && typeof plan.candidateId === "string";
+      && typeof plan.candidateId === "string"
+      && plan.contextRevisionDigest === parsed.contextRevisionDigest
+      && objectValue(plan.contextRevisionGuard)?.schemaVersion === "rpg-context-revision-guard-v1"
+      && objectValue(plan.contextRevisionGuard)?.digest === parsed.contextRevisionDigest;
     return {
       envelope: executable ? parsed as unknown as RpgChoiceEnvelope : null,
       choices,

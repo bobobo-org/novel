@@ -389,21 +389,26 @@ for (const value of [
   "帳冊與備用藥材",
   "顧行舟",
   "葉聞雪",
-  "蘇氏藥坊",
-  "顧氏航運",
-  "葉氏記錄院",
   storyScenario.treasure.name,
 ]) {
   assert.ok(value && story.includes(value), `novel fallback prose did not render ${value}`);
 }
 assert.match(story, /「.+」/u, "supporting characters must speak in the novel scene");
 assert.match(story, /精密資料分析・進階模組/u, "fallback must turn an approved mastery into a concrete action");
-assert.match(story, /資源依存[\s\S]{0,100}顧氏航運|顧氏航運[\s\S]{0,100}資源依存/u, "organization history must change the fallback scene");
-assert.doesNotMatch(story, /82\s*\/\s*100|實效\s*×|幕後動機\s*[：:]/u, "fallback must not dump mastery numbers or a secret field");
-assert.match(story, /蘇錦魚[\s\S]{0,180}「我先去做/u, "the allied family character must take a catalyst action and speak");
-assert.match(story, /顧行舟[\s\S]{0,220}「你可以試/u, "the rival family character must obstruct a route and speak from a different stance");
-assert.match(story, /葉聞雪[\s\S]{0,180}「我只交出/u, "the witness must verify evidence and speak from a third stance");
-assert.doesNotMatch(story, /我願意一起處理/u, "three different roles must not share the old generic dialogue stem");
+assert.doesNotMatch(story, /資源依存\s*[：|]|組織關係網\s*[：:]|公開立場\s*[：:]|幕後動機\s*[：:]/u, "fallback must not dump organization-card fields into prose");
+assert.doesNotMatch(story, /82\s*\/\s*100|實效\s*×/u, "fallback must not dump mastery numbers");
+for (const characterName of ["蘇錦魚", "顧行舟", "葉聞雪"]) {
+  assert.match(
+    story,
+    new RegExp(`(?:「[^」]{2,80}」${characterName}|${characterName}[\\s\\S]{0,180}「[^」]{2,80}」)`, "u"),
+    `${characterName} must act and speak without reciting a character-card field`,
+  );
+}
+assert.doesNotMatch(
+  story,
+  /我願意一起處理|我先去做能證明|你可以(?:往前|試)，但別把|我只交出親眼核對過的部分/u,
+  "three roles must not share a fixed policy-declaration skeleton",
+);
 assert.doesNotMatch(
   story,
   /核准規則|規則校準|規則故事後備|因果維度|因果鏈|本回合|下一回合|回合制|關係張力|狀態收益|狀態修訂|狀態更新|結算結果|下一輪可用|下一次行動|等待下一步|Story Bible|Canon/u,
@@ -837,7 +842,7 @@ for (let index = 0; index < 1_000; index += 1) {
   const startedAt = performance.now();
   const output = generateMeasuredFallback(index);
   latencySamples.push(performance.now() - startedAt);
-  assert.ok(output.story.length > 900);
+  assert.ok(output.story.length > 900, `fallback prose was only ${output.story.length} characters`);
   assert.equal(output.outcomeLines.length, 4);
   assert.equal(output.nextChoices.map((choice) => choice.key).join(""), "ABC");
   assert.equal(new Set(output.nextChoices.map((choice) => choice.encounter.signature)).size, 3);

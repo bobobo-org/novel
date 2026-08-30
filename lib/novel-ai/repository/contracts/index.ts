@@ -1,4 +1,4 @@
-import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationCanonicalTargetStore, ConversationClosedAgentApprovalBindingProof, ConversationMessage, ConversationSession, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, RpgTurnReceipt, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
+import type { AcceptedChoice, ApprovalTransaction, Chapter, ChoiceCandidate, ConversationApprovalTransaction, ConversationArtifact, ConversationCanonicalTargetStore, ConversationClosedAgentApprovalBindingProof, ConversationMessage, ConversationSession, DomainRecord, IdempotencyRecord, NovelProject, ProjectBundle, RpgContextRevisionGuard, RpgTurnReceipt, StoryBible, StoryBibleDelta, StoryBranch, StoryState } from "../../domain/index";
 import type { ApproveDramaProjectionInput, ApproveDramaProjectionResult, DramaProjectionPackage, MarkDramaProjectionsStaleInput, MarkDramaProjectionsStaleResult } from "../../drama-os/types";
 import { CHARACTER_AGENT_STORE_NAMES } from "../../character-agent/repository";
 import type {
@@ -61,6 +61,12 @@ export type AcceptChoiceTransactionInput = {
   expectedCandidateRevision: number;
   expectedStoryStateRevision: number;
   expectedStoryBibleRevision: number;
+  /**
+   * Optional solely for replay compatibility with pre-guard choices.  Every
+   * newly planned RPG candidate supplies this complete vector, which the
+   * repository checks atomically with the Canon write.
+   */
+  rpgContextRevisionGuard?: RpgContextRevisionGuard;
   actor?: "user";
   origin?: "studio" | "repository";
   conversationApproval?: AcceptChoiceConversationApprovalInput;

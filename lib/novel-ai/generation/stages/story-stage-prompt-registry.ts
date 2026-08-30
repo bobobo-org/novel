@@ -54,6 +54,22 @@ export function buildStoryStagePrompt(context: StoryStageContext, operation: Sto
       requiredNextBeat: context.requiredNextBeat ?? "",
       narrativePurpose: context.narrativePurpose ?? "",
     },
+    adultNarrative: context.profileId === "adult_intimacy" && context.adultMode === true && context.adultNarrativeBlueprint
+      ? {
+          blueprint: context.adultNarrativeBlueprint,
+          currentActId: context.adultNarrativeActId,
+          experienceProfile: context.adultExperienceProfile ? {
+            version: context.adultExperienceProfile.version,
+            interactionMode: context.adultExperienceProfile.interactionMode,
+            personality: context.adultExperienceProfile.personality,
+            voiceStyle: context.adultExperienceProfile.voiceStyle,
+            relationshipDynamic: context.adultExperienceProfile.relationshipDynamic,
+            fictionalAdultsConfirmed: context.adultExperienceProfile.fictionalAdultsConfirmed,
+            consentContinuityRequired: context.adultExperienceProfile.consentContinuityRequired,
+            realPersonLikenessBlocked: context.adultExperienceProfile.realPersonLikenessBlocked,
+          } : null,
+        }
+      : undefined,
     instruction,
   };
   return [

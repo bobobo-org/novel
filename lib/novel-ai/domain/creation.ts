@@ -980,6 +980,10 @@ export function buildProjectBundle(draft: ProjectCreationDraft): ProjectBundle {
       "story.selectedFamilyName": selectedFamily.name,
       "story.selectedFamilyOrganizationId": selectedFamily.organizationId,
       "story.familyStageMemberIds": stageCharacters.map((character) => character.id).join("、"),
+      ...(cast[0] ? {
+        "story.activeSupportingCharacterId": cast[0].id,
+        "story.activeSupportingCharacterName": cast[0].name,
+      } : {}),
       "story.organizationCount": approvedCanon.canonRecords.organizations.length,
       "story.assetControlCount": approvedCanon.canonRecords.lore.length,
       "story.virtualCharacterCapacity": familyStage.matrix.capacity.characters,

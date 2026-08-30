@@ -50,7 +50,15 @@ import { useConversationSessionController } from "./hooks/use-conversation-sessi
 import { useConversationBranchController } from "./hooks/use-conversation-branch";
 import { useConversationAttachmentController } from "./hooks/use-conversation-attachments";
 import { useConversationApprovalController } from "./hooks/use-conversation-approval";
-import { useConversationRpgController } from "./hooks/use-conversation-rpg";
+import {
+  inspectRpgChoiceTurn,
+  rpgUserMessageMatchesChoice,
+  useConversationRpgController,
+} from "./hooks/use-conversation-rpg";
+import {
+  resolveRpgExecutionSourceBlock,
+  type RpgExecutionSourceSnapshot,
+} from "./hooks/rpg-execution-source-gate";
 import { useConversationLearningCoordinatorLoader } from "./hooks/use-conversation-learning-loader";
 import {
   acquireConversationLease,
@@ -120,6 +128,7 @@ export default function ConversationWorkspace({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [dashboardOpenRequest, setDashboardOpenRequest] = useState(0);
+  const [sourceControlsCollapseSignal, setSourceControlsCollapseSignal] = useState(0);
   const [drawer, setDrawer] = useState<DrawerPayload>(null);
   const [artifactDraft, setArtifactDraft] = useState("");
   const [artifactView, setArtifactView] = useState<"candidate" | "diff" | "comparison">("candidate");
@@ -137,10 +146,19 @@ export default function ConversationWorkspace({
     externalProviderConfigured,
     setExternalRunConsent,
     clearExternalRunConsent,
+    consumeExternalRunConsentIntent,
     changeAiExecutionMode,
     changeHybridAiSource,
     changeExternalProvider,
   } = useConversationExternalAiController(clearExternalSelectionError);
+  const rpgExecutionSourceSnapshot = {
+    externalSelected,
+    publicExecutionEnabled: externalExecutionEnabled,
+    providerConfigured: externalProviderConfigured,
+    providerStatusError: externalProviderStatusError,
+    singleRunConsentGranted: externalRunConsent,
+    externalExecutionModeSelected: aiExecutionMode !== "closed-only",
+  } satisfies RpgExecutionSourceSnapshot;
   const {
     closedAiSetup,
     closedAiSetupProgress,
@@ -168,6 +186,9 @@ export default function ConversationWorkspace({
   ) => Promise<void>>(async () => undefined);
   const operationLocked = useCallback(() => operationLockRef.current, []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const collapseSourceControlsAfterRpgStart = useCallback(() => {
+    setSourceControlsCollapseSignal((value) => value + 1);
+  }, []);
 
   const {
     project,
@@ -257,6 +278,7 @@ export default function ConversationWorkspace({
     createRpgChoicesMessage,
     executeRpgChoice,
     chooseRpgOption,
+    recoverRpgChoices,
     requestRpgChoiceFallback,
     rpgChoicePlanning,
   } = useConversationRpgController({
@@ -267,6 +289,10 @@ export default function ConversationWorkspace({
     conversation,
     activeSession,
     busy,
+    executionSourceSnapshot: rpgExecutionSourceSnapshot,
+    externalProviderId,
+    externalExecutionMode: aiExecutionMode,
+    consumeExternalRunConsentIntent,
     operationLockRef,
     retryActionRef,
     runRef,
@@ -281,6 +307,7 @@ export default function ConversationWorkspace({
     setSafeError,
     setProgress,
     setDrawer,
+    onRpgGenerationStarted: collapseSourceControlsAfterRpgStart,
   });
   const { approveArtifact, rejectArtifact } = useConversationApprovalController({
     projectId,
@@ -295,6 +322,7 @@ export default function ConversationWorkspace({
     acquireLease: acquireConversationLease,
     currentCanonRevisionDigest,
     createRpgChoicesMessage,
+    recoverRpgChoices,
     loadWorkspace,
     refreshSession,
     setRetryAvailable,
@@ -1066,13 +1094,12 @@ export default function ConversationWorkspace({
         operationLockRef.current = false;
         return;
       }
-      if (plan.executionKind !== "closed_agent") {
+      if (plan.executionKind === "rpg") {
+        const block = resolveRpgExecutionSourceBlock(rpgExecutionSourceSnapshot);
+        if (!block) throw new Error("CONVERSATION_EXTERNAL_RPG_SOURCE_GATE_MISSING");
         if (!existingUserRequest) setDraft(content);
-        setSafeError({
-          code: "CONVERSATION_EXTERNAL_SPECIALIZED_FLOW_FORBIDDEN",
-          message: "這項要求需要作品資料庫、RPG、附件或其他本機專用工具。請切回閉端 AI；系統不會把它靜默改送外來供應商。",
-        });
-        setProgress("本次外來 AI 沒有送出；專用本機流程與外來候選保持分離。");
+        setSafeError({ code: block.code, message: block.message });
+        setProgress(block.progress);
         operationLockRef.current = false;
         return;
       }
@@ -1104,6 +1131,16 @@ export default function ConversationWorkspace({
           message: "請先確認本次外送範圍與供應商，再勾選單次同意。未同意前不會送出。",
         });
         setProgress("等待本次外送同意；內容尚未離開裝置。");
+        operationLockRef.current = false;
+        return;
+      }
+      if (plan.executionKind !== "closed_agent") {
+        if (!existingUserRequest) setDraft(content);
+        setSafeError({
+          code: "CONVERSATION_EXTERNAL_SPECIALIZED_FLOW_FORBIDDEN",
+          message: "這項要求需要作品資料庫、附件或其他本機專用工具。請切回閉端 AI；系統不會把它靜默改送外來供應商。",
+        });
+        setProgress("本次外來 AI 沒有送出；專用本機流程與外來候選保持分離。");
         operationLockRef.current = false;
         return;
       }
@@ -1237,38 +1274,36 @@ export default function ConversationWorkspace({
         return;
       }
       const activeRpgChoiceMessage = plan.executionKind === "rpg" ? requestRpgChoices : null;
-      const rpgAttempts = activeRpgChoiceMessage
-        ? currentSessionMessages.filter((message) =>
-          message.role === "user"
-          && message.sourceMessageId === activeRpgChoiceMessage.message.id)
-        : [];
-      const responseFor = (attempt: ConversationMessage) => currentSessionMessages.filter((message) =>
-        message.role === "assistant" && message.parentMessageId === attempt.id).at(-1) ?? null;
-      const existingRpgUser = rpgAttempts.find((attempt) => {
-        const response = responseFor(attempt);
-        return attempt.content === content
-          && Boolean(response && ["failed", "cancelled"].includes(response.status));
-      }) ?? null;
-      const rpgChoiceConsumed = rpgAttempts.some((attempt) => {
-        const response = responseFor(attempt);
-        if (!response || ["pending", "streaming"].includes(response.status)) return true;
-        if (["failed", "cancelled"].includes(response.status)) return false;
-        const responseArtifacts = currentSessionArtifacts.filter((artifact) =>
-          artifact.sourceMessageId === response.id && artifact.artifactType === "rpg");
-        return responseArtifacts.some((artifact) => ["candidate", "approved"].includes(artifact.status));
-      });
-      if (
-        rpgChoiceConsumed
-      ) {
+      const persistedRpgChoice = activeRpgChoiceMessage
+        ? parseRpgChoiceSelection(content, activeRpgChoiceMessage.envelope.plan.choices)
+        : null;
+      const rpgTurnState = activeRpgChoiceMessage
+        ? inspectRpgChoiceTurn(
+            currentSessionMessages,
+            currentSessionArtifacts,
+            activeRpgChoiceMessage.message.id,
+          )
+        : null;
+      if (rpgTurnState?.consumed) {
         throw Object.assign(new Error("這張故事選擇卡已經建立過回合。"), {
           code: "RPG_CHAT_TURN_ALREADY_CREATED",
+        });
+      }
+      const existingRpgUser = rpgTurnState?.recoverableUser ?? null;
+      if (
+        existingRpgUser
+        && persistedRpgChoice
+        && !rpgUserMessageMatchesChoice(existingRpgUser, persistedRpgChoice)
+      ) {
+        throw Object.assign(new Error("這張選擇卡已保存另一個選擇；為避免重複結算，只能恢復原回合。"), {
+          code: "RPG_CHAT_TURN_CHOICE_CONFLICT",
         });
       }
       let userMessage = existingUserMessage ?? existingRpgUser ?? await conversation.appendMessage({
         projectId,
         sessionId,
         messageId: activeRpgChoiceMessage
-          ? `conversation-rpg-choice:${sessionId}:${activeRpgChoiceMessage.message.id}:${rpgAttempts.length + 1}`
+          ? `conversation-rpg-choice:${sessionId}:${activeRpgChoiceMessage.message.id}:${(rpgTurnState?.attempts.length ?? 0) + 1}`
           : undefined,
         role: "user",
         content: content || "請分析我剛附加的檔案。",
@@ -1350,6 +1385,7 @@ export default function ConversationWorkspace({
             expectedChapterId: requestRpgChoices.envelope.chapterId,
             expectedChapterRevision: requestRpgChoices.envelope.chapterRevision,
             expectedStoryStateRevision: requestRpgChoices.envelope.storyStateRevision,
+            expectedContextRevisionDigest: requestRpgChoices.envelope.contextRevisionDigest,
             userMessage,
             signal: controller.signal,
           });
@@ -1370,6 +1406,7 @@ export default function ConversationWorkspace({
             expectedChapterId: requestRpgChoices.envelope.chapterId,
             expectedChapterRevision: requestRpgChoices.envelope.chapterRevision,
             expectedStoryStateRevision: requestRpgChoices.envelope.storyStateRevision,
+            expectedContextRevisionDigest: requestRpgChoices.envelope.contextRevisionDigest,
             userMessage,
             signal: controller.signal,
           });
@@ -1709,6 +1746,7 @@ export default function ConversationWorkspace({
     project,
     activeSession,
     currentChapterTitle: currentChapter?.title ?? null,
+    currentChapter,
     fixedPlayMode,
     sidebarOpen,
     setSidebarOpen,
@@ -1751,6 +1789,7 @@ export default function ConversationWorkspace({
     characters,
     relationships,
     messageActions,
+    recoverRpgChoices,
     retryActionRef,
     draft,
     setDraft: changeDraft,
@@ -1771,6 +1810,7 @@ export default function ConversationWorkspace({
     externalRunConsent,
     externalSelected,
     externalProviderConfigured,
+    sourceControlsCollapseSignal,
     onFilesSelected,
     retryLocalAttachment,
     removeLocalAttachment,

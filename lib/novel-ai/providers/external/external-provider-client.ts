@@ -28,6 +28,38 @@ export class ExternalAIClientError extends Error {
   }
 }
 
+export async function generateExternalAICandidateClient(
+  request: ClientRequest,
+  options: Pick<StreamOptions, "signal"> = {},
+): Promise<ExternalAIGenerationResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/ai/external/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(request),
+      cache: "no-store",
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (options.signal?.aborted) {
+      throw new ExternalAIClientError("EXTERNAL_AI_CANCELLED", "外接 AI 已由使用者取消，沒有建立候選。");
+    }
+    throw error;
+  }
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok) {
+    throw new ExternalAIClientError(
+      String(payload.code || "EXTERNAL_AI_FAILED"),
+      String(payload.error || "外接 AI 沒有完成這次工作。"),
+    );
+  }
+  if (!isExternalAIGenerationResult(payload)) {
+    throw new ExternalAIClientError("EXTERNAL_AI_RESULT_INVALID", "外接 AI 完成資料不完整，沒有建立候選。");
+  }
+  return payload;
+}
+
 export async function generateExternalAIStream(
   request: ClientRequest,
   options: StreamOptions = {},

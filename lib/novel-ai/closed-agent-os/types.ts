@@ -235,6 +235,41 @@ export type ClosedAgentTaskRequest = {
   sourceRevision?: number;
   regeneration?: ClosedAIRegenerationContract;
   generationOptions?: PlatformAIRequest["generationOptions"];
+  /**
+   * Keeps a sensitive, caller-owned prompt transient. The OS may still retain
+   * the final candidate and its digest-only proof, but must not put a plan,
+   * prompt-derived tool result, or reusable generation artifact into cache.
+   * Ordinary Closed AI calls leave this disabled and retain normal caching.
+   */
+  ephemeralPrompt?: boolean;
+  /**
+   * Optional application-owned binding for a pre-persistence validation contract.
+   * The digest is sealed by requestContractDigest and the retained candidate
+   * ledger snapshot; raw validation inputs are never persisted here.
+   */
+  applicationValidationBindingDigest?: string;
+  /**
+   * Runs after model execution and the OS evaluator, but before any candidate
+   * content reaches state, ledger, learning, or candidate caches.  This is an
+   * application-layer gate for contracts (for example RPG continuity/outcome)
+   * that the generic Closed Agent OS cannot evaluate itself.
+   *
+   * The callback is deliberately excluded from request serialization.  Only
+   * applicationValidationBindingDigest is part of the durable contract. A
+   * validator without its exact cryptographic binding is rejected before any
+   * model work starts.
+   */
+  validateBeforePersistence?: (
+    candidate: Readonly<ClosedAgentCandidate>,
+  ) => void | Promise<void>;
+  /**
+   * Internal, transient route hint for retrying the exact same logical request
+   * after a verified Browser AI failure. It is deliberately excluded from the
+   * caller request contract and is accepted only when the durable failed task
+   * proves the same requestContractDigest and an allowlisted Browser error,
+   * while that original contract explicitly pre-authorizes Local escalation.
+   */
+  idempotentRetryBackend?: "local-ollama";
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
@@ -253,10 +288,21 @@ export type ClosedAgentPlan = {
   complexity: ClosedAITaskComplexity;
   qualityMode: ClosedAIQualityMode;
   backendId: ClosedAIBackendId;
+  plannerStrategy: string;
   roles: ClosedAgentRole[];
   steps: ClosedAgentPlanStep[];
   planDigest: string;
   candidateOnly: true;
+};
+
+export type ClosedAgentPlanningBinding = {
+  schemaVersion: "closed-agent-planning-binding-v1";
+  plannerStrategy: string;
+  controlledLearningApplied: boolean;
+  controlledLearningVersionId: string | null;
+  controlledLearningConfigurationDigest: string | null;
+  controlledLearningReasonCode: string | null;
+  bindingDigest: string;
 };
 
 export type ClosedAgentTool = {
@@ -459,8 +505,21 @@ export type ClosedAgentCandidate = {
   externalRequest?: boolean;
   planComplexity: ClosedAITaskComplexity;
   planDigest: string;
+  /**
+   * The exact learned planner decision used by the first successful execution.
+   * It contains no prompt or prose and is sealed by the retained candidate
+   * snapshot so replay does not depend on mutable active-learning state.
+   */
+  planningBinding?: ClosedAgentPlanningBinding;
   /** Exact caller contract for idempotent replay and crash recovery. */
   requestContractDigest: string;
+  /**
+   * Digest-only application validation contract supplied for this candidate.
+   * The raw application policy, participant IDs, and evidence never enter the
+   * generic OS candidate; the digest is sealed again by requestContractDigest
+   * and the retained candidate ledger snapshot.
+   */
+  applicationValidationBindingDigest?: string | null;
   evaluation: ClosedAgentEvaluation;
   status: "awaiting-approval" | "approved" | "rejected" | "committed" | "rolled-back";
   candidateOnly: true;
@@ -498,6 +557,8 @@ export type ClosedAgentTaskRecord = {
   namespace: ClosedAINamespace;
   taskType: PlatformTaskType;
   backendId: ClosedAIBackendId | null;
+  /** Digest-only logical request identity; raw objective/context are never stored. */
+  requestContractDigest?: string;
   state: "queued" | "running" | "awaiting-approval" | "completed" | "failed" | "cancelled";
   errorCode: string | null;
   createdAt: string;

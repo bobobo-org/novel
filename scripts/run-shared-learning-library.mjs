@@ -726,29 +726,34 @@ const currentApprovalSession = await novelRepository.get(
 );
 assert.ok(currentApprovalMessage);
 assert.ok(currentApprovalSession);
-const approval = await approveRpgChatTurn({
-  repository: novelRepository,
-  snapshot: approvalSnapshot,
-  candidate: deterministicCandidate,
-  conversationApproval: {
-    operationId: `conversation-rpg-approval:${approvalArtifact.id}`,
-    idempotencyKey: `conversation-rpg-approval:${approvalArtifact.id}:${approvalArtifact.candidateDigest}`,
-    sessionId: approvalSession.id,
-    artifactId: approvalArtifact.id,
-    sourceMessageId: currentApprovalMessage.id,
-    candidateDigest: approvalArtifact.candidateDigest,
-    expectedSessionRevision: currentApprovalSession.revision,
-    expectedArtifactRevision: approvalArtifact.revision,
-    expectedSourceMessageRevision: currentApprovalMessage.revision,
-    expectedSourceRevision: approvalSnapshot.chapter.revision,
-  },
-});
-assert.equal(approval.approved.canonicalMutationCount, 1);
-assert.ok(approval.transaction.chapter.content.includes(approvalStory));
-assert.ok(approval.transaction.rpgTurnReceipt);
+await assert.rejects(
+  approveRpgChatTurn({
+    repository: novelRepository,
+    snapshot: approvalSnapshot,
+    candidate: deterministicCandidate,
+    conversationApproval: {
+      operationId: `conversation-rpg-approval:${approvalArtifact.id}`,
+      idempotencyKey: `conversation-rpg-approval:${approvalArtifact.id}:${approvalArtifact.candidateDigest}`,
+      sessionId: approvalSession.id,
+      artifactId: approvalArtifact.id,
+      sourceMessageId: currentApprovalMessage.id,
+      candidateDigest: approvalArtifact.candidateDigest,
+      expectedSessionRevision: currentApprovalSession.revision,
+      expectedArtifactRevision: approvalArtifact.revision,
+      expectedSourceMessageRevision: currentApprovalMessage.revision,
+      expectedSourceRevision: approvalSnapshot.chapter.revision,
+    },
+  }),
+  (error) => error?.code === "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
+  "a single rules fallback must never cross the conversation approval boundary",
+);
+assert.equal(
+  (await novelRepository.get("chapters", approvalSnapshot.chapter.id))?.content.includes(approvalStory),
+  false,
+);
 assert.equal(
   (await novelRepository.get("conversationArtifacts", approvalArtifact.id))?.status,
-  "approved",
+  "candidate",
 );
 
 const [
@@ -887,8 +892,9 @@ console.log(JSON.stringify({
   automaticTeacherRuleCount: teacherRules.length,
   sharedTopKRuleCount: reducedShared.rules.length,
   rpgChoiceKeys: choicePlan.choices.map((choice) => choice.key),
-  approvalCanonicalMutationCount: approval.approved.canonicalMutationCount,
-  approvalReceiptWritten: Boolean(approval.transaction.rpgTurnReceipt),
+  fallbackDirectApprovalRejected: true,
+  fallbackCanonicalMutationCount: 0,
+  fallbackArtifactStatus: "candidate",
   sourceTextRetained: false,
   entireLibraryScanned: false,
 }, null, 2));

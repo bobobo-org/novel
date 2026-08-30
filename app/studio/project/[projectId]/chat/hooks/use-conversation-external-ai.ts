@@ -13,6 +13,15 @@ import {
   type ConversationAiSource,
 } from "../external-ai";
 
+export type ConversationExternalRunConsentIntent = {
+  intentId: string;
+  providerId: ExternalAIProviderId;
+  grantedAt: string;
+  expiresAt: string;
+};
+
+const EXTERNAL_RUN_CONSENT_INTENT_MS = 2 * 60 * 1_000;
+
 export function useConversationExternalAiController(
   onSelectionChange: () => void,
 ) {
@@ -22,12 +31,28 @@ export function useConversationExternalAiController(
   const [externalProviderStatuses, setExternalProviderStatuses] = useState<ExternalAIProviderPublicStatus[]>([]);
   const [externalProviderStatusError, setExternalProviderStatusError] = useState<string | null>(null);
   const [externalExecutionEnabled, setExternalExecutionEnabled] = useState(false);
-  const [externalRunConsent, setExternalRunConsent] = useState(false);
+  const [externalRunConsentIntent, setExternalRunConsentIntent] = useState<
+    ConversationExternalRunConsentIntent | null
+  >(null);
   const externalSelected = conversationUsesExternalAI(aiExecutionMode, hybridAiSource);
   const externalProviderConfigured = isExternalProviderConfigured(
     externalProviderStatuses,
     externalProviderId,
   );
+  const externalRunConsent = Boolean(
+    externalRunConsentIntent
+    && externalRunConsentIntent.providerId === externalProviderId,
+  );
+
+  useEffect(() => {
+    if (!externalRunConsentIntent) return;
+    const remainingMs = Date.parse(externalRunConsentIntent.expiresAt) - Date.now();
+    const timer = window.setTimeout(
+      () => setExternalRunConsentIntent(null),
+      Math.max(0, remainingMs),
+    );
+    return () => window.clearTimeout(timer);
+  }, [externalRunConsentIntent]);
 
   const refreshExternalProviderStatuses = useCallback(async (signal: AbortSignal) => {
     setExternalProviderStatusError(null);
@@ -74,25 +99,50 @@ export function useConversationExternalAiController(
   }, [refreshExternalProviderStatuses]);
 
   const clearExternalRunConsent = useCallback(() => {
-    setExternalRunConsent(false);
+    setExternalRunConsentIntent(null);
   }, []);
+
+  const setExternalRunConsent = useCallback((granted: boolean) => {
+    if (!granted) {
+      setExternalRunConsentIntent(null);
+      return;
+    }
+    const now = Date.now();
+    setExternalRunConsentIntent({
+      intentId: `conversation-external-consent:${crypto.randomUUID()}`,
+      providerId: externalProviderId,
+      grantedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + EXTERNAL_RUN_CONSENT_INTENT_MS).toISOString(),
+    });
+  }, [externalProviderId]);
+
+  const consumeExternalRunConsentIntent = useCallback(() => {
+    const intent = externalRunConsentIntent;
+    setExternalRunConsentIntent(null);
+    if (
+      !intent
+      || intent.providerId !== externalProviderId
+      || Date.parse(intent.expiresAt) <= Date.now()
+    ) return null;
+    return intent;
+  }, [externalProviderId, externalRunConsentIntent]);
 
   const changeAiExecutionMode = useCallback((mode: NovelAIExecutionMode) => {
     setAiExecutionMode(mode);
     setHybridAiSource(mode === "external-only" ? "external" : "closed");
-    setExternalRunConsent(false);
+    setExternalRunConsentIntent(null);
     onSelectionChange();
   }, [onSelectionChange]);
 
   const changeHybridAiSource = useCallback((source: ConversationAiSource) => {
     setHybridAiSource(source);
-    setExternalRunConsent(false);
+    setExternalRunConsentIntent(null);
     onSelectionChange();
   }, [onSelectionChange]);
 
   const changeExternalProvider = useCallback((providerId: ExternalAIProviderId) => {
     setExternalProviderId(providerId);
-    setExternalRunConsent(false);
+    setExternalRunConsentIntent(null);
     onSelectionChange();
   }, [onSelectionChange]);
 
@@ -104,10 +154,12 @@ export function useConversationExternalAiController(
     externalProviderStatusError,
     externalExecutionEnabled,
     externalRunConsent,
+    externalRunConsentIntent,
     externalSelected,
     externalProviderConfigured,
     setExternalRunConsent,
     clearExternalRunConsent,
+    consumeExternalRunConsentIntent,
     changeAiExecutionMode,
     changeHybridAiSource,
     changeExternalProvider,

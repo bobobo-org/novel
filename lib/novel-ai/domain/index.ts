@@ -1,6 +1,6 @@
 import type { DomainRecord, OptionalValue, Provenance } from "./common";
 import type { AdultExperienceProfile } from "../../novel-data/adult-experience-profile";
-import type { RpgStateV3, RpgTurnSettlement } from "./rpg";
+import type { RpgContextRevisionGuard, RpgStateV3, RpgTurnSettlement } from "./rpg";
 export * from "./common";
 export * from "./rpg";
 
@@ -275,6 +275,8 @@ export type ChoiceCandidate = Omit<DomainRecord, "provenance"> & {
   chapterRevision: number;
   storyStateRevision: number;
   storyBibleRevision?: number;
+  /** Optional for legacy candidates; required for newly planned RPG turns. */
+  rpgContextRevisionGuard?: RpgContextRevisionGuard;
   rpgSettlement?: RpgTurnSettlement;
 };
 export type AcceptedChoice = Omit<DomainRecord, "provenance"> & {
@@ -421,7 +423,33 @@ export type ProjectBackup = DomainRecord & {
   sovereignLearningSnapshot?: import("../sovereign-learning/backup").SovereignLearningBackupSnapshot;
   manifest?: BackupManifest;
 };
-export type AIProvenance = Provenance & { providerId: string; modelId: string | null; taskType: string; externalRequest: boolean; dataLeftDevice: boolean; contextSources: string[]; elapsedMs: number | null };
+export type ExternalAttemptProvenance = {
+  schemaVersion: "external-attempt-provenance-v1";
+  attempted: boolean;
+  providerId: string;
+  dispatchState: "policy-blocked" | "preflight-unavailable" | "provider-request-failed" | "provider-result-invalid";
+  dataLeftDevice: boolean;
+  failureCode: string;
+  receiptDigest: string;
+};
+
+export type AIProvenance = Provenance & {
+  providerId: string;
+  modelId: string | null;
+  taskType: string;
+  /** Describes the executor that produced the accepted candidate. */
+  externalRequest: boolean;
+  /** Describes the executor that produced the accepted candidate. */
+  dataLeftDevice: boolean;
+  /**
+   * Truthful lineage for a failed external attempt before a local executor
+   * produced the final candidate.  This must never be confused with the final
+   * executor fields above.
+   */
+  externalAttempt?: ExternalAttemptProvenance;
+  contextSources: string[];
+  elapsedMs: number | null;
+};
 
 export type ConversationSessionStatus = "active" | "archived" | "deleted";
 export type ConversationMessageRole = "user" | "assistant" | "tool" | "system_notice";
@@ -481,6 +509,8 @@ export type ConversationExecutionReceipt = {
   outputDigest: string | null;
   externalRequest: boolean;
   dataLeftDevice: boolean;
+  /** Aggregate logical-turn egress lineage when an external attempt failed. */
+  externalAttempt?: ExternalAttemptProvenance;
   latencyMs: number | null;
   closedAgentSchemaVersion?: "closed-agent-os-v2";
   closedAgentBackendId?: "browser-ai" | "local-ollama" | "private-ai-hub";

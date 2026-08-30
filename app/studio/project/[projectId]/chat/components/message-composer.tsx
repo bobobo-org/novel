@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 import type { ConversationToolInvocation } from "@/lib/novel-ai/domain";
 import type {
   ClosedAiBootstrapProgress,
@@ -96,7 +96,7 @@ export function MessageComposer({
   onRemoveAttachment: (localId: string) => void;
   onToggleArtifacts: () => void;
   onStop: () => void;
-  onSend: () => void;
+  onSend: (onAccepted?: () => void) => void;
   onPrepareClosedAi: () => void;
   onCancelClosedAiSetup: () => void;
   onAiExecutionModeChange: (mode: NovelAIExecutionMode) => void;
@@ -104,10 +104,16 @@ export function MessageComposer({
   onExternalProviderChange: (providerId: ExternalAIProviderId) => void;
   onExternalRunConsentChange: (consent: boolean) => void;
 }) {
+  const [sourceControlsOpen, setSourceControlsOpen] = useState(false);
+  const collapseSourceControls = () => setSourceControlsOpen(false);
+  const submitRequest = () => {
+    // Keep the panel open when validation rejects the request. The workspace
+    // invokes this callback only after it has persisted the user message, so a
+    // failed or blocked send leaves the source settings visible for repair.
+    onSend(collapseSourceControls);
+  };
   const externalBlocked = externalSelected && (
-    !externalExecutionEnabled
-    || !externalProviderConfigured
-    || !externalRunConsent
+    !externalRunConsent
     || localAttachments.length > 0
   );
   const composer = useConversationComposer({
@@ -116,13 +122,20 @@ export function MessageComposer({
     draft,
     attachmentCount: localAttachments.length,
     blocked: externalBlocked,
-    onSend,
+    onSend: submitRequest,
   });
   const selectedModel = BROWSER_WEBLLM_MODELS.find(
     (model) => model.modelId === closedAiSetup?.selectedModelId,
   );
   const taskRoutable = isClosedAiTaskRoutable(closedAiSetup);
   const showSetup = Boolean(!externalSelected && closedAiSetup && !taskRoutable);
+  const externalSourceStatus = !externalExecutionEnabled
+    ? "公開執行未開放"
+    : !externalProviderConfigured
+      ? "供應商未設定"
+      : !externalRunConsent
+        ? "等待本次同意"
+        : "本次已同意";
   const downloadMegabytes = closedAiSetup
     ? (closedAiSetup.setup.estimatedDownloadBytes / 1_000_000).toFixed(1)
     : "0.0";
@@ -140,91 +153,122 @@ export function MessageComposer({
       data-closed-ai-silent-external-fallback={closedAiSetup?.readiness.silentExternalFallback ?? false}
       aria-busy={busy}
     >
-      <section
+      <details
         className={styles.aiSourceCard}
         data-testid="conversation-ai-source-controls"
         data-execution-mode={aiExecutionMode}
         data-selected-source={externalSelected ? "external" : "closed"}
         data-external-provider-configured={externalProviderConfigured}
         data-external-execution-enabled={externalExecutionEnabled}
+        open={sourceControlsOpen}
       >
-        <div className={styles.aiSourceHeading}>
-          <div>
+        <summary
+          className={styles.aiSourceSummary}
+          onClick={(event) => {
+            // Mobile browsers may consume the first native <details> tap only
+            // to dismiss the virtual keyboard. Keep the disclosure controlled
+            // so one explicit tap always opens or closes the source panel.
+            event.preventDefault();
+            setSourceControlsOpen((open) => !open);
+          }}
+        >
+          <span className={styles.aiSourceSummaryCopy}>
             <small>AI 執行來源</small>
-            <strong>{externalSelected ? "外來 AI · 只建立候選" : "閉端 AI · 預設"}</strong>
-          </div>
-          <label>
-            模式
-            <select
-              value={aiExecutionMode}
-              disabled={busy}
-              onChange={(event) => onAiExecutionModeChange(event.target.value as NovelAIExecutionMode)}
-            >
-              <option value="closed-only">閉端 AI（預設）</option>
-              <option value="hybrid">混合模式（本次選來源）</option>
-              <option value="external-only">外來 AI 候選</option>
-            </select>
-          </label>
-        </div>
-        {aiExecutionMode === "hybrid" ? (
-          <label>
-            本次執行來源
-            <select
-              value={hybridAiSource}
-              disabled={busy}
-              onChange={(event) => onHybridAiSourceChange(event.target.value as "closed" | "external")}
-            >
-              <option value="closed">閉端 AI</option>
-              <option value="external">外來 AI</option>
-            </select>
-          </label>
-        ) : null}
-        {externalSelected ? (
-          <div className={styles.externalAiControls}>
+            <strong>
+              {externalSelected
+                ? `${EXTERNAL_AI_PROVIDER_LABELS[externalProviderId]} 外來候選 · ${externalSourceStatus}`
+                : "閉端 AI · 預設、不外傳"}
+            </strong>
+          </span>
+          <span className={styles.aiSourceToggle}>{sourceControlsOpen ? "收合" : "重新設定"}</span>
+        </summary>
+        <div className={styles.aiSourceBody}>
+          <div className={styles.aiSourceHeading}>
+            <div>
+              <small>候選來源設定</small>
+              <strong>{externalSelected ? "外來 AI · 只建立候選" : "閉端 AI · 預設"}</strong>
+            </div>
             <label>
-              外來供應商
+              模式
               <select
-                value={externalProviderId}
+                value={aiExecutionMode}
                 disabled={busy}
-                onChange={(event) => onExternalProviderChange(event.target.value as ExternalAIProviderId)}
+                onChange={(event) => {
+                  onAiExecutionModeChange(event.target.value as NovelAIExecutionMode);
+                }}
               >
-                {EXTERNAL_AI_PROVIDER_IDS.map((providerId) => {
-                  const status = externalProviderStatuses.find((item) => item.id === providerId);
-                  return (
-                    <option key={providerId} value={providerId} disabled={!status?.configured}>
-                      {EXTERNAL_AI_PROVIDER_LABELS[providerId]} · {status?.configured ? "已設定" : "未設定"}
-                    </option>
-                  );
-                })}
+                <option value="closed-only">閉端 AI（預設）</option>
+                <option value="hybrid">混合模式（本次選來源）</option>
+                <option value="external-only">外來 AI 候選</option>
               </select>
             </label>
-            <p className={styles.externalBoundary} role="status">
-              {!externalExecutionEnabled
-                ? "公開外來 AI 執行尚未開放；目前只能查看供應商設定，內容不會送出。"
-                : externalProviderStatusError
-                ?? (externalProviderConfigured
-                  ? "接點已設定；不會自動改用其他外來供應商、閉端 AI 或規則後備。"
-                  : "此供應商尚未在伺服器設定，無法送出。瀏覽器不會顯示或保存 API 金鑰。")}
-            </p>
-            <label className={styles.externalConsent}>
-              <input
-                type="checkbox"
-                checked={externalRunConsent}
-                disabled={busy || !externalExecutionEnabled || !externalProviderConfigured || localAttachments.length > 0 || !draft.trim()}
-                onChange={(event) => onExternalRunConsentChange(event.target.checked)}
-              />
-              <span>
-                我確認只把上方訊息欄目前的 {draft.trim().length.toLocaleString("zh-TW")} 字送到 {EXTERNAL_AI_PROVIDER_LABELS[externalProviderId]}；不自動包含正式章節、角色、世界、歷史對話或附件。這次送出後同意立即清除。
-              </span>
-            </label>
-            {localAttachments.length > 0 ? (
-              <p className={styles.externalBoundary}>附件維持本機分析邊界；若要使用外來 AI，請先移除附件。</p>
-            ) : null}
           </div>
-        ) : (
-          <p className={styles.externalBoundary}>閉端 AI 保持預設；失敗時不會靜默轉送任何外來供應商。</p>
-        )}
-      </section>
+          {aiExecutionMode === "hybrid" ? (
+            <label>
+              本次執行來源
+              <select
+                value={hybridAiSource}
+                disabled={busy}
+                onChange={(event) => {
+                  onHybridAiSourceChange(event.target.value as "closed" | "external");
+                }}
+              >
+                <option value="closed">閉端 AI</option>
+                <option value="external">外來 AI</option>
+              </select>
+            </label>
+          ) : null}
+          {externalSelected ? (
+            <div className={styles.externalAiControls}>
+              <label>
+                外來供應商
+                <select
+                  value={externalProviderId}
+                  disabled={busy}
+                  onChange={(event) => {
+                    onExternalProviderChange(event.target.value as ExternalAIProviderId);
+                  }}
+                >
+                  {EXTERNAL_AI_PROVIDER_IDS.map((providerId) => {
+                    const status = externalProviderStatuses.find((item) => item.id === providerId);
+                    return (
+                      <option key={providerId} value={providerId}>
+                        {EXTERNAL_AI_PROVIDER_LABELS[providerId]} · {status?.configured ? "已設定" : "未設定"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <p className={styles.externalBoundary} role="status">
+                {!externalExecutionEnabled
+                  ? "公開外來 AI 執行尚未開放，內容不會送出；RPG 會留下未外送紀錄後改由閉端 AI 完整 180 秒處理，一般要求則停止。"
+                  : externalProviderStatusError
+                  ?? (externalProviderConfigured
+                    ? "接點已設定；RPG 會優先使用這個外來 AI。若呼叫失敗或正文無效，才交給閉端 AI 完整 180 秒，必要時再進入獨立 60 秒隱藏複核。"
+                    : "此供應商尚未在伺服器設定；RPG 會留下未外送的真實失敗紀錄，再交給閉端 AI 完整 180 秒。瀏覽器不會顯示或保存 API 金鑰。")}
+              </p>
+              <label className={styles.externalConsent}>
+                <input
+                  type="checkbox"
+                  checked={externalRunConsent}
+                  disabled={busy || localAttachments.length > 0}
+                  onChange={(event) => {
+                    onExternalRunConsentChange(event.target.checked);
+                  }}
+                />
+                <span>
+                  我逐次同意把本次內容送到 {EXTERNAL_AI_PROVIDER_LABELS[externalProviderId]}。一般要求只送上方訊息欄目前的 {draft.trim().length.toLocaleString("zh-TW")} 字；若是 RPG 回合，最多另送最近章節尾 3,600 字、所選行動、12 名公開角色摘要、16 條公開關係、12 條世界規則、10 條非秘密 Lore、10 條時間線與 10 條未解伏筆。附件、API 金鑰、privateSecrets、隱藏動機與完整作品永不外送；同意只綁本專案、本次請求、這個供應商與內容摘要，使用一次或逾時即清除。
+                </span>
+              </label>
+              {localAttachments.length > 0 ? (
+                <p className={styles.externalBoundary}>附件維持本機分析邊界；若要使用外來 AI，請先移除附件。</p>
+              ) : null}
+            </div>
+          ) : (
+            <p className={styles.externalBoundary}>閉端 AI 保持預設；失敗時不會靜默轉送任何外來供應商。</p>
+          )}
+        </div>
+      </details>
       {showSetup ? (
         <section
           className={styles.closedAiSetupCard}
