@@ -1826,6 +1826,12 @@ harness.test("mobile", "AI source controls stay open while selecting or consenti
   }));
   assert.equal(await sourceControls.getAttribute("data-open"), "true");
   await sourceToggle.click();
+  await page.waitForFunction(() => {
+    const controls = document.querySelector('[data-testid="conversation-ai-source-controls"]');
+    const toggle = controls?.querySelector('[data-testid="conversation-ai-source-toggle"]');
+    return controls?.getAttribute("data-open") === "false"
+      && toggle?.getAttribute("aria-expanded") === "false";
+  });
   assert.equal(await sourceControls.getAttribute("data-open"), "false");
   assert.equal(await sourceToggle.getAttribute("aria-expanded"), "false");
   assert.deepEqual(pageErrors, []);
