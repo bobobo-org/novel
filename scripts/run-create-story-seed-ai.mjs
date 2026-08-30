@@ -24,6 +24,15 @@ import {
   probePreCreationProviderAvailability,
   runStudioPreCreationClosedAI,
 } from "../lib/novel-ai/web/studio-closed-ai.ts";
+import { prewarmClosedAIFromFrontdoor } from "../lib/novel-ai/web/frontdoor-closed-ai-prewarm.ts";
+import {
+  BROWSER_BACKGROUND_PREWARM_CONSENT_KEY,
+  grantBrowserBackgroundPrewarmConsent,
+  readBrowserBackgroundPrewarmConsent,
+  revokeBrowserBackgroundPrewarmConsent,
+} from "../lib/novel-ai/providers/browser-ai/browser-background-prewarm-consent.ts";
+import { requestConversationExternalProviderSnapshot } from
+  "../app/studio/project/[projectId]/chat/external-provider-status-request.ts";
 
 const validModelOutput = `\`\`\`json
 {
@@ -273,6 +282,7 @@ assert.match(client, /browserComputePolicy: "balanced"/u, "backend routing remai
 assert.match(client, /這不是逾時/u, "an unavailable model is not mislabeled as a timeout");
 assert.match(client, /等待滿 60 秒/u, "the timeout message is reserved for the actual deadline");
 assert.match(client, /coordinationBudgetMs: CREATION_AI_DEADLINE_MS/u, "the full deadline is passed into browser-to-Ollama coordination");
+assert.match(client, /taskId: `\$\{coordinationTaskIdBase\}-output-\$\{outputRepairAttempt \+ 1\}`/u, "each bounded output stage keeps a stable task identity");
 assert.match(client, /create-ai-story-seed-batch/u, "the visible result identifies its candidate batch");
 assert.match(client, /createDeviceFallbackStorySeed\(\{/u, "device fallback uses a nonce-driven varied batch");
 assert.match(client, /if \(!tryAcquireCreationStorySeedRun\(seedAssistantBusyRef\)\) return;/u, "the click handler takes a synchronous ref lock before provider work");
@@ -395,6 +405,282 @@ assert.ok(
   "the Browser AI escalation is reported as an in-budget Local Ollama handoff, not a device fallback",
 );
 
+let terminalExecutorCalls = 0;
+await assert.rejects(
+  runStudioPreCreationClosedAI({
+    projectId: "terminal-precreation-draft",
+    task: "story_seed",
+    input: "不可重試的設定錯誤必須立即停止",
+    browserComputePolicy: "balanced",
+  }, async () => {
+    terminalExecutorCalls += 1;
+    throw Object.assign(new Error("invalid request contract"), {
+      code: "CLOSED_AI_BOUNDARY_VIOLATION",
+      retryable: false,
+    });
+  }),
+  (error) => error?.code === "CLOSED_AI_BOUNDARY_VIOLATION",
+  "terminal Closed AI errors are never converted into polling",
+);
+assert.equal(terminalExecutorCalls, 1, "a terminal error runs the generator exactly once");
+
+const waitingController = new AbortController();
+let waitingExecutorCalls = 0;
+let waitingSnapshotReads = 0;
+await assert.rejects(
+  runStudioPreCreationClosedAI({
+    projectId: "unknown-provider-wait-draft",
+    task: "story_seed",
+    input: "模型暫時未就緒時只等待狀態",
+    browserComputePolicy: "balanced",
+    coordinationBudgetMs: 10_000,
+    signal: waitingController.signal,
+  }, async () => {
+    waitingExecutorCalls += 1;
+    throw Object.assign(new Error("browser model is still preparing"), {
+      code: "BROWSER_AI_MODEL_NOT_READY",
+      retryable: true,
+    });
+  }, {
+    readSnapshots: async () => {
+      waitingSnapshotReads += 1;
+      return [];
+    },
+    wait: async (_delayMs, signal) => {
+      waitingController.abort("CREATE_STORY_SEED_TEST_STOP");
+      if (signal?.aborted) throw signal.reason;
+    },
+  }),
+  (error) => error === "CREATE_STORY_SEED_TEST_STOP",
+  "the waiting coordinator remains cancellable",
+);
+assert.equal(waitingExecutorCalls, 1, "unknown/loading polling never resends a full generation");
+assert.equal(waitingSnapshotReads, 1, "the coordinator checks status before its backoff wait");
+
+let recoveredNow = 0;
+let recoveredSnapshotReads = 0;
+const recoveredRequests = [];
+const recoveredResult = await runStudioPreCreationClosedAI({
+  projectId: "provider-recovers-draft",
+  task: "story_seed",
+  input: "同一個模型從載入中轉成已就緒",
+  browserComputePolicy: "balanced",
+  coordinationBudgetMs: 10_000,
+}, async (request) => {
+  recoveredRequests.push(request);
+  if (recoveredRequests.length === 1) {
+    throw Object.assign(new Error("browser model is warming"), {
+      code: "BROWSER_AI_MODEL_NOT_READY",
+      retryable: true,
+    });
+  }
+  return {
+    requestId: request.requestId,
+    providerId: "browser-ai",
+    modelId: "browser-test-model",
+    modelDigest: "sha256:precreation-browser-recovered",
+    content: validModelOutput,
+    candidateOnly: true,
+    externalRequest: false,
+    dataLeavesDevice: false,
+    elapsedMs: 2,
+    provenance: {
+      providerId: "browser-ai",
+      modelId: "browser-test-model",
+      privacyMode: "strict-local",
+      reason: "pre-creation loading-to-ready recovery",
+      contextSources: [],
+      externalRequest: false,
+      dataLeavesDevice: false,
+      fallbackChain: [],
+      warnings: [],
+    },
+  };
+}, {
+  now: () => recoveredNow,
+  wait: async (delayMs) => {
+    recoveredNow += delayMs;
+  },
+  readSnapshots: async () => {
+    recoveredSnapshotReads += 1;
+    return recoveredSnapshotReads === 1
+      ? [
+          { id: "browser-ai", status: "runtime_not_installed", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false, detail: "browser_hybrid_runtime_webllm_preparing" },
+          { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false },
+        ]
+      : [
+          { id: "browser-ai", status: "ready", capabilities: ["text"], modelId: "browser-test-model", maxContext: 4096, local: true, requiresInternet: false },
+          { id: "local-ollama", status: "runtime_unavailable", capabilities: ["text"], modelId: null, maxContext: 0, local: true, requiresInternet: false },
+        ];
+  },
+});
+assert.equal(recoveredResult.provider, "browser-ai");
+assert.equal(recoveredRequests.length, 2, "loading-to-ready transition permits one bounded recovery attempt");
+assert.equal(recoveredSnapshotReads, 2, "readiness is observed before the recovery attempt");
+assert.equal(
+  new Set(recoveredRequests.map((request) => request.requestId)).size,
+  1,
+  "all recovery work preserves one taskId and one candidate batch",
+);
+
+const internalDeadlineStartedAt = performance.now();
+await assert.rejects(
+  runStudioPreCreationClosedAI({
+    projectId: "internal-deadline-draft",
+    task: "story_seed",
+    input: "即使 provider 忽略 signal，協調器本身也必須截止",
+    browserComputePolicy: "balanced",
+    coordinationBudgetMs: 1_000,
+  }, async () => new Promise(() => {})),
+  (error) => error?.code === "PRECREATION_COORDINATION_TIMEOUT",
+  "the coordinator owns a hard deadline even without a caller AbortSignal",
+);
+assert.ok(
+  performance.now() - internalDeadlineStartedAt < 1_500,
+  "the internal deadline settles a hanging provider promptly",
+);
+
+let hangingSnapshotExecutorCalls = 0;
+const hangingSnapshotStartedAt = performance.now();
+await assert.rejects(
+  runStudioPreCreationClosedAI({
+    projectId: "hanging-snapshot-deadline-draft",
+    task: "story_seed",
+    input: "狀態查詢不回應也必須由同一硬期限停止",
+    browserComputePolicy: "balanced",
+    coordinationBudgetMs: 1_000,
+  }, async () => {
+    hangingSnapshotExecutorCalls += 1;
+    throw Object.assign(new Error("provider temporarily unavailable"), {
+      code: "BROWSER_AI_MODEL_NOT_READY",
+      retryable: true,
+    });
+  }, {
+    readSnapshots: async () => new Promise(() => {}),
+  }),
+  (error) => error?.code === "PRECREATION_COORDINATION_TIMEOUT",
+  "a snapshot reader that ignores AbortSignal cannot hang the coordinator",
+);
+assert.equal(hangingSnapshotExecutorCalls, 1, "a hanging status probe never causes another generation");
+assert.ok(
+  performance.now() - hangingSnapshotStartedAt < 1_500,
+  "the hard deadline covers provider status probes as well as generation",
+);
+
+let frontdoorBrowserSchedules = 0;
+let frontdoorLocalWarmups = 0;
+const frontdoorInstalledResult = await prewarmClosedAIFromFrontdoor({
+  browserBackgroundPrewarmAuthorized: true,
+  rememberedLocalInferenceVerified: true,
+  signal: new AbortController().signal,
+}, {
+  scheduleBrowser: async () => {
+    frontdoorBrowserSchedules += 1;
+    return { scheduled: true, reasonCode: "PREWARM_IDLE_SCHEDULED", cancel: () => {} };
+  },
+  prewarmLocal: async () => {
+    frontdoorLocalWarmups += 1;
+    return true;
+  },
+});
+assert.equal(frontdoorInstalledResult.browser, "PREWARM_IDLE_SCHEDULED");
+assert.equal(frontdoorBrowserSchedules, 1, "the front door schedules an installed Browser model once");
+assert.equal(frontdoorLocalWarmups, 0, "a scheduled Browser model does not also wake Local Ollama");
+
+const frontdoorLocalResult = await prewarmClosedAIFromFrontdoor({
+  browserBackgroundPrewarmAuthorized: true,
+  rememberedLocalInferenceVerified: true,
+  signal: new AbortController().signal,
+}, {
+  scheduleBrowser: async () => ({
+    scheduled: false,
+    reasonCode: "PREWARM_MODEL_NOT_INSTALLED",
+    cancel: () => {},
+  }),
+  prewarmLocal: async () => {
+    frontdoorLocalWarmups += 1;
+    return true;
+  },
+});
+assert.equal(frontdoorLocalResult.local, "warmed");
+assert.equal(frontdoorLocalWarmups, 1, "only a previously verified Local session receives one fallback warmup");
+
+const frontdoorHiddenResult = await prewarmClosedAIFromFrontdoor({
+  browserBackgroundPrewarmAuthorized: true,
+  rememberedLocalInferenceVerified: true,
+  signal: new AbortController().signal,
+}, {
+  scheduleBrowser: async () => ({
+    scheduled: false,
+    reasonCode: "PREWARM_TAB_HIDDEN",
+    cancel: () => {},
+  }),
+  prewarmLocal: async () => {
+    frontdoorLocalWarmups += 1;
+    return true;
+  },
+});
+assert.equal(frontdoorHiddenResult.local, "not_needed");
+assert.equal(frontdoorLocalWarmups, 1, "a hidden/power-limited front door never wakes another runtime");
+
+const frontdoorUnauthorizedResult = await prewarmClosedAIFromFrontdoor({
+  browserBackgroundPrewarmAuthorized: false,
+  rememberedLocalInferenceVerified: false,
+  signal: new AbortController().signal,
+}, {
+  scheduleBrowser: async () => {
+    frontdoorBrowserSchedules += 1;
+    throw new Error("UNAUTHORISED_BROWSER_PREWARM_MUST_NOT_RUN");
+  },
+  prewarmLocal: async () => {
+    frontdoorLocalWarmups += 1;
+    return true;
+  },
+});
+assert.equal(frontdoorUnauthorizedResult.browser, "PREWARM_NOT_AUTHORIZED");
+assert.equal(frontdoorUnauthorizedResult.local, "not_verified");
+assert.equal(frontdoorBrowserSchedules, 1, "the front door never inspects or schedules Browser AI without persisted consent");
+assert.equal(frontdoorLocalWarmups, 1, "an unverified Local runtime is not woken as a substitute");
+
+const consentValues = new Map();
+const consentStorage = {
+  getItem: (key) => consentValues.get(key) ?? null,
+  setItem: (key, value) => consentValues.set(key, value),
+  removeItem: (key) => consentValues.delete(key),
+};
+assert.equal(readBrowserBackgroundPrewarmConsent(consentStorage), false);
+assert.equal(grantBrowserBackgroundPrewarmConsent(consentStorage), true);
+assert.equal(consentValues.get(BROWSER_BACKGROUND_PREWARM_CONSENT_KEY), "granted");
+assert.equal(readBrowserBackgroundPrewarmConsent(consentStorage), true);
+assert.equal(revokeBrowserBackgroundPrewarmConsent(consentStorage), true);
+assert.equal(readBrowserBackgroundPrewarmConsent(consentStorage), false);
+
+let providerStatusFetchCalls = 0;
+await assert.rejects(
+  requestConversationExternalProviderSnapshot({
+    timeoutMs: 20,
+    fetchImpl: async () => {
+      providerStatusFetchCalls += 1;
+      return new Promise(() => {});
+    },
+  }),
+  (error) => error?.code === "EXTERNAL_PROVIDER_STATUS_TIMEOUT",
+  "a provider-status request that ignores AbortSignal still reaches its own deadline",
+);
+const recoveredProviderStatus = await requestConversationExternalProviderSnapshot({
+  timeoutMs: 100,
+  fetchImpl: async () => {
+    providerStatusFetchCalls += 1;
+    return new Response(JSON.stringify({ providers: [], executionEnabled: false }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+});
+assert.equal(providerStatusFetchCalls, 2, "the timed-out shared request is cleared so a later refresh can retry");
+assert.deepEqual(recoveredProviderStatus.providers, []);
+assert.equal(recoveredProviderStatus.executionEnabled, false);
+
 const abortedBeforeStart = new AbortController();
 abortedBeforeStart.abort("CREATE_STORY_SEED_PRE_ABORTED");
 let preAbortedExecutorCalled = false;
@@ -444,9 +730,12 @@ assert.ok(
 
 console.log(JSON.stringify({
   suite: "create-story-seed-ai",
-  passed: 68,
+  passed: 95,
   coordinator: "unified-automatic",
   hardDeadlineMs: 60_000,
+  retryStormPrevented: true,
+  stableCoordinationTaskId: true,
+  frontdoorConditionalPrewarm: true,
   fallbackDistinctBatches: fallbackBatches.length,
   callerAbortRace: true,
   progressMilestones: preCreationProgress.length,

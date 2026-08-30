@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useState, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import type { ConversationToolInvocation } from "@/lib/novel-ai/domain";
 import type {
   ClosedAiBootstrapProgress,
@@ -104,8 +104,15 @@ export function MessageComposer({
   onExternalProviderChange: (providerId: ExternalAIProviderId) => void;
   onExternalRunConsentChange: (consent: boolean) => void;
 }) {
+  const sourceControlsRef = useRef<HTMLDetailsElement>(null);
   const [sourceControlsOpen, setSourceControlsOpen] = useState(false);
-  const collapseSourceControls = () => setSourceControlsOpen(false);
+  const collapseSourceControls = () => {
+    // Native <details>.open is the disclosure's single source of truth.  Keep
+    // the React state only for the visible label; controlling both the open
+    // attribute and the summary click can leave Chromium stuck open.
+    if (sourceControlsRef.current) sourceControlsRef.current.open = false;
+    setSourceControlsOpen(false);
+  };
   const submitRequest = () => {
     // Keep the panel open when validation rejects the request. The workspace
     // invokes this callback only after it has persisted the user message, so a
@@ -154,24 +161,16 @@ export function MessageComposer({
       aria-busy={busy}
     >
       <details
+        ref={sourceControlsRef}
         className={styles.aiSourceCard}
         data-testid="conversation-ai-source-controls"
         data-execution-mode={aiExecutionMode}
         data-selected-source={externalSelected ? "external" : "closed"}
         data-external-provider-configured={externalProviderConfigured}
         data-external-execution-enabled={externalExecutionEnabled}
-        open={sourceControlsOpen}
+        onToggle={(event) => setSourceControlsOpen(event.currentTarget.open)}
       >
-        <summary
-          className={styles.aiSourceSummary}
-          onClick={(event) => {
-            // Mobile browsers may consume the first native <details> tap only
-            // to dismiss the virtual keyboard. Keep the disclosure controlled
-            // so one explicit tap always opens or closes the source panel.
-            event.preventDefault();
-            setSourceControlsOpen((open) => !open);
-          }}
-        >
+        <summary className={styles.aiSourceSummary}>
           <span className={styles.aiSourceSummaryCopy}>
             <small>AI 執行來源</small>
             <strong>

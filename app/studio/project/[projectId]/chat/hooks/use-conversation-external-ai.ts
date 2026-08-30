@@ -12,6 +12,8 @@ import {
   isExternalProviderConfigured,
   type ConversationAiSource,
 } from "../external-ai";
+import { requestConversationExternalProviderSnapshot } from
+  "../external-provider-status-request";
 
 export type ConversationExternalRunConsentIntent = {
   intentId: string;
@@ -57,15 +59,11 @@ export function useConversationExternalAiController(
   const refreshExternalProviderStatuses = useCallback(async (signal: AbortSignal) => {
     setExternalProviderStatusError(null);
     try {
-      const response = await fetch("/api/ai/external/providers", {
-        cache: "no-store",
-        signal,
-      });
-      if (!response.ok) throw new Error("外來 AI 接點狀態暫時無法讀取。");
-      const snapshot = await response.json() as {
-        providers?: ExternalAIProviderPublicStatus[];
-        executionEnabled?: boolean;
-      };
+      // React StrictMode mounts, cleans up, then mounts effects again in
+      // development.  Share the small same-origin status request instead of
+      // aborting and immediately resending it; the per-mount signal still
+      // prevents stale state updates after navigation.
+      const snapshot = await requestConversationExternalProviderSnapshot();
       if (signal.aborted) return;
       const providers = Array.isArray(snapshot.providers)
         ? snapshot.providers.filter((provider) => EXTERNAL_AI_PROVIDER_IDS.includes(provider.id))

@@ -640,7 +640,7 @@ test("browser-task-vs-generative", "packaged browser task model cannot generate 
   };
 });
 
-test("frontdoor-session-summary", "frontdoor reads a truthful tab-only local AI summary without probing loopback", async () => {
+test("frontdoor-session-summary", "frontdoor reads truthful tab state and defers one authorised warmup without blind loopback probing", async () => {
   const frontdoorSource = await readFile(
     new URL("../app/frontdoor-client.tsx", import.meta.url),
     "utf8",
@@ -649,6 +649,12 @@ test("frontdoor-session-summary", "frontdoor reads a truthful tab-only local AI 
   assert.doesNotMatch(frontdoorSource, /getStudioClosedAIRuntimeCoordinator/u);
   assert.doesNotMatch(frontdoorSource, /scheduleBrowserIdle/u);
   assert.match(frontdoorSource, /readLocalClosedAITabSessionSummary/u);
+  assert.match(frontdoorSource, /readBrowserBackgroundPrewarmConsent/u);
+  assert.match(frontdoorSource, /import\("@\/lib\/novel-ai\/web\/frontdoor-closed-ai-prewarm"\)/u);
+  assert.match(frontdoorSource, /rememberedLocalInferenceVerified/u);
+  assert.match(frontdoorSource, /browserBackgroundPrewarmAuthorized/u);
+  assert.match(frontdoorSource, /visibilitychange/u);
+  assert.match(frontdoorSource, /pagehide/u);
   const storage = new MemoryStorage();
   const origin = "https://preview.example";
   const storageKey = closedAITabSessionStorageKey("local-ollama");

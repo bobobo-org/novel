@@ -46,6 +46,10 @@ const [
   readFile("lib/novel-ai/conversation/rpg-logical-turn.ts", "utf8"),
   readFile("app/studio/project/[projectId]/chat/conversation.module.css", "utf8"),
 ]);
+const externalProviderStatusRequestSource = await readFile(
+  "app/studio/project/[projectId]/chat/external-provider-status-request.ts",
+  "utf8",
+);
 
 const externalRunSource = externalRunnerSource;
 assert.match(conversationSource, /runConversationExternalAgent\(\{/u);
@@ -65,7 +69,11 @@ assert.match(contractSource, /dataLeavesDevice:\s*true/u);
 // Current chat defaults to closed AI and reads only the public provider/status
 // snapshot. Public execution can be disabled independently from configuration.
 assert.match(externalControllerSource, /useState<NovelAIExecutionMode>\("closed-only"\)/u);
-assert.match(externalControllerSource, /fetch\("\/api\/ai\/external\/providers"/u);
+assert.match(externalControllerSource, /requestConversationExternalProviderSnapshot\(\)/u);
+assert.match(externalProviderStatusRequestSource, /fetchImpl\("\/api\/ai\/external\/providers"/u);
+assert.match(externalProviderStatusRequestSource, /EXTERNAL_PROVIDER_STATUS_TIMEOUT_MS = 10_000/u);
+assert.match(externalProviderStatusRequestSource, /controller\.abort\("EXTERNAL_PROVIDER_STATUS_TIMEOUT"\)/u);
+assert.match(externalProviderStatusRequestSource, /Promise\.race\(\[remote, timeout\]\)\.finally/u);
 assert.match(externalControllerSource, /setExternalExecutionEnabled\(snapshot\.executionEnabled === true\)/u);
 assert.match(externalControllerSource, /window\.addEventListener\("focus", refresh\)/u);
 assert.match(externalControllerSource, /document\.addEventListener\("visibilitychange", refreshWhenVisible\)/u);
@@ -87,12 +95,14 @@ assert.match(composerSource, /<details[\s\S]{0,300}conversation-ai-source-contro
 assert.match(composerSource, /<summary[\s\S]{0,160}className=\{styles\.aiSourceSummary\}/u);
 assert.match(composerSource, /重新設定/u);
 assert.match(composerSource, /const \[sourceControlsOpen, setSourceControlsOpen\] = useState\(false\)/u);
+assert.match(composerSource, /const sourceControlsRef = useRef<HTMLDetailsElement>\(null\)/u);
 assert.match(
   composerSource,
-  /<details[\s\S]{0,500}open=\{sourceControlsOpen\}[\s\S]{0,500}event\.preventDefault\(\);[\s\S]{0,120}setSourceControlsOpen\(\(open\) => !open\)/u,
+  /<details[\s\S]{0,300}ref=\{sourceControlsRef\}[\s\S]{0,500}onToggle=\{\(event\) => setSourceControlsOpen\(event\.currentTarget\.open\)\}/u,
 );
-assert.doesNotMatch(composerSource, /onToggle=\{/u);
-assert.match(composerSource, /const collapseSourceControls = \(\) => setSourceControlsOpen\(false\)/u);
+assert.doesNotMatch(composerSource, /open=\{sourceControlsOpen\}/u);
+assert.doesNotMatch(composerSource, /event\.preventDefault\(\)/u);
+assert.match(composerSource, /sourceControlsRef\.current\.open = false;[\s\S]{0,100}setSourceControlsOpen\(false\)/u);
 assert.match(
   composerSource,
   /const submitRequest = \(\) => \{[\s\S]{0,300}onSend\(collapseSourceControls\);\s*\}/u,

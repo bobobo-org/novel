@@ -56,6 +56,11 @@ import {
 } from "@/lib/novel-ai/providers/browser-ai/webllm-model-registry";
 import { scheduleBrowserModelPrewarm } from "@/lib/novel-ai/providers/browser-ai/browser-prewarm-controller";
 import {
+  grantBrowserBackgroundPrewarmConsent,
+  readBrowserBackgroundPrewarmConsent,
+  revokeBrowserBackgroundPrewarmConsent,
+} from "@/lib/novel-ai/providers/browser-ai/browser-background-prewarm-consent";
+import {
   browserSemanticRuntimeSnapshot,
   deleteBrowserSemanticModel,
   installBrowserSemanticModel,
@@ -1020,7 +1025,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     const approved = window.confirm(
       `${current?.cacheComplete ? "即將驗證" : "即將準備"} ${manifest.displayName}（完整模型約 ${formatBytes(manifest.estimatedDownloadBytes)}）。\n\n`
       + `授權：${manifest.license}\n版本：${manifest.sourceRevision.slice(0, 12)}…\n\n`
-      + `${cacheAction}是否繼續？`,
+      + `${cacheAction}\n\n安裝成功後，你日後進入首頁時，系統可在頁面可見、裝置閒置且非省電／計量連線時，從本機快取背景預熱；不會下載新檔或送出作品。刪除模型即可撤銷。是否繼續？`,
     );
     if (!approved) return;
     const controller = new AbortController();
@@ -1038,6 +1043,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       });
       const snapshot = await browserWebLLMRuntimeSnapshot();
       setBrowserWebLlm(snapshot);
+      grantBrowserBackgroundPrewarmConsent();
       setRuntimeStatus(`${manifest.displayName} 已安裝，並完成離線快取驗證。`);
       await refresh(false);
     } catch (error) {
@@ -1062,6 +1068,12 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
 
   async function prewarmBrowserModel() {
     if (runtimeBusy) return;
+    const backgroundPrewarmConsentAlreadyGranted =
+      readBrowserBackgroundPrewarmConsent();
+    const allowFutureBackgroundPrewarm = backgroundPrewarmConsentAlreadyGranted
+      || window.confirm(
+        "這次仍會立即從離線快取預熱。是否也允許日後進入首頁時，在頁面可見、裝置閒置且非省電／計量連線的條件下自動預熱？\n\n不會下載新檔或送出作品；選擇取消只代表不保存日後授權。",
+      );
     const controller = new AbortController();
     browserModelInstallController.current = controller;
     setBrowserModelOperation("prewarm");
@@ -1070,6 +1082,9 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
     try {
       const warmed = await prewarmBrowserWebLLMModel(controller.signal);
       setBrowserWebLlm(warmed.snapshot);
+      if (allowFutureBackgroundPrewarm) {
+        grantBrowserBackgroundPrewarmConsent();
+      }
       setRuntimeStatus(
         warmed.engineReused
           ? `${warmed.modelId} 已在記憶體中，可直接生成。`
@@ -1108,6 +1123,7 @@ export default function ClosedAIWorkspace({ projectId }: { projectId: string }) 
       const snapshot = await deleteBrowserWebLLMModel(modelId, { userConfirmed: true });
       setBrowserWebLlm(snapshot);
       setBrowserProof(null);
+      revokeBrowserBackgroundPrewarmConsent();
       setRuntimeStatus(`${manifest?.displayName ?? modelId} 已從此裝置刪除。`);
       await refresh(false);
     } catch (error) {

@@ -9,6 +9,7 @@ import {
   previewLegacyStudioProjects,
 } from "@/lib/novel-ai/repository/migration/legacy-studio-migration";
 import { readLocalClosedAITabSessionSummary } from "@/lib/novel-ai/providers/closed/tab-session-recovery";
+import { readBrowserBackgroundPrewarmConsent } from "@/lib/novel-ai/providers/browser-ai/browser-background-prewarm-consent";
 import styles from "./frontdoor-luxury.module.css";
 
 type FrontdoorProps = {
@@ -139,6 +140,45 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
     return () => {
       active = false;
       window.clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const stopWarmup = () => {
+      if (!controller.signal.aborted) controller.abort("FRONTDOOR_NOT_VISIBLE");
+    };
+    const stopWhenHidden = () => {
+      if (document.visibilityState === "hidden") stopWarmup();
+    };
+    document.addEventListener("visibilitychange", stopWhenHidden);
+    window.addEventListener("pagehide", stopWarmup, { once: true });
+    const timer = window.setTimeout(() => {
+      if (controller.signal.aborted || document.visibilityState === "hidden") return;
+      const rememberedLocalInferenceVerified =
+        readLocalClosedAITabSessionSummary(window.location.origin)
+        === "inference_verified";
+      const browserBackgroundPrewarmAuthorized =
+        readBrowserBackgroundPrewarmConsent();
+      if (!browserBackgroundPrewarmAuthorized && !rememberedLocalInferenceVerified) {
+        return;
+      }
+      // Keep the public first paint small.  This dynamically loaded helper only
+      // warms an installed Browser model or a previously verified Local Ollama
+      // session; it never downloads, opens Private Hub, or retries on failure.
+      void import("@/lib/novel-ai/web/frontdoor-closed-ai-prewarm")
+        .then(({ prewarmClosedAIFromFrontdoor }) => prewarmClosedAIFromFrontdoor({
+          browserBackgroundPrewarmAuthorized,
+          rememberedLocalInferenceVerified,
+          signal: controller.signal,
+        }))
+        .catch(() => undefined);
+    }, 450);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", stopWhenHidden);
+      window.removeEventListener("pagehide", stopWarmup);
+      controller.abort("FRONTDOOR_UNMOUNTED");
     };
   }, []);
 

@@ -985,6 +985,12 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       batchNonce: seedAssistantBatchNonceRef.current,
       batchOrdinal,
     };
+    const coordinationTaskIdBase = [
+      "create-story-seed",
+      draft.projectId,
+      variation.batchNonce,
+      String(batchOrdinal),
+    ].join("-");
     const batchLabel = `候選批次 ${String(batchOrdinal).padStart(3, "0")}`;
     const playModePending = !currentPlayMode;
     const controller = new AbortController();
@@ -1018,6 +1024,10 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
       const runSeedAI = (outputRepairAttempt: number) => runStudioPreCreationClosedAI({
           projectId: draft.projectId,
           task: "story_seed",
+          // One visible batch may contain one bounded format-repair stage. Each
+          // stage owns a stable idempotency key, while transient provider waits
+          // inside that stage never create another task.
+          taskId: `${coordinationTaskIdBase}-output-${outputRepairAttempt + 1}`,
           input: outputRepairAttempt === 0
             ? basePrompt
             : `${basePrompt}\n上一份輸出未通過完整 JSON 欄位檢查。這次必須只輸出可解析且九個值均非空白的 JSON。`,
@@ -1101,20 +1111,25 @@ export default function CreateProjectClient({ cloneFrom = null }: { cloneFrom?: 
           variation,
         );
       });
-      const code = timedOut
+      const reportedCode = String(
+        (error as { code?: unknown })?.code ?? "MODEL_NOT_READY",
+      );
+      const coordinationTimedOut = timedOut
+        || reportedCode === "PRECREATION_COORDINATION_TIMEOUT";
+      const code = coordinationTimedOut
         ? "CREATE_STORY_SEED_TIMEOUT"
-        : String((error as { code?: unknown })?.code ?? "MODEL_NOT_READY");
+        : reportedCode;
       const providerUnavailable = CLOSED_AI_UNAVAILABLE_CODES.has(code);
       setSeedAssistantSource("裝置安全後備（非 AI）");
       const pendingModeReminder = playModePending
         ? " 這份雛形不綁定玩法；仍須由你親自選擇創作／遊玩方式。"
         : "";
-      setSeedAssistantStatus(timedOut
+      setSeedAssistantStatus(coordinationTimedOut
         ? `閉端 AI 等待滿 60 秒仍未完成，已將本次裝置後備候選填入空白欄位；手填欄位不會被覆蓋。${pendingModeReminder}`
         : providerUnavailable
           ? `已確認瀏覽器 AI 與本機 Ollama 都不可用，已將本次裝置後備候選填入空白欄位（${code}）；手填欄位不會被覆蓋。${pendingModeReminder}`
           : `閉端 AI 在協調與輸出修正後仍未完成，已將本次裝置後備候選填入空白欄位（${code}）；手填欄位不會被覆蓋。${pendingModeReminder}`);
-      setMessage(timedOut
+      setMessage(coordinationTimedOut
         ? `閉端 AI 已等待滿 60 秒但未完成，因此顯示 ${batchLabel} 的裝置後備雛形；你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`
         : providerUnavailable
           ? `閉端 AI 已確認目前裝置沒有可用模型，因此顯示 ${batchLabel} 的裝置後備雛形；這不是逾時，你已填的內容仍完整保留，也尚未建立作品。${pendingModeReminder}`

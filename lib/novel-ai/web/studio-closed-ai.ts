@@ -232,7 +232,10 @@ export async function probePreCreationProviderAvailability(
   snapshots: PlatformProviderSnapshot[];
 }> {
   try {
-    const snapshots = await readSnapshots(signal);
+    const snapshots = await settleOnCallerAbort(
+      signal,
+      () => readSnapshots(signal),
+    );
     return {
       availability: classifyPreCreationProviderAvailability(snapshots),
       snapshots,
@@ -256,6 +259,71 @@ function waitForPreCreationRetry(delayMs: number, signal?: AbortSignal) {
     };
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+const PRECREATION_RETRY_BACKOFF_MS = [500, 1_000, 2_000, 4_000, 5_000] as const;
+const PRECREATION_MAX_GENERATION_ATTEMPTS = 3;
+
+type PreCreationRetryProvider = "browser-ai" | "local-ollama";
+
+export type PreCreationCoordinatorSeams = {
+  /** Test seam: production always uses the platform's passive snapshot reader. */
+  readSnapshots?: SnapshotReader;
+  /** Test seam: production always uses the abort-aware wall-clock wait. */
+  wait?: typeof waitForPreCreationRetry;
+  /** Test seam: production always uses Date.now. */
+  now?: () => number;
+};
+
+function preCreationErrorIsExplicitlyRetryable(error: unknown) {
+  if (BROWSER_TO_LOCAL_RETRY_CODES.has(studioClosedAIErrorCode(error))) return true;
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "retryable" in error
+    && (error as { retryable?: unknown }).retryable === true,
+  );
+}
+
+function preCreationFailedProvider(
+  error: unknown,
+  preferredProvider: "local-ollama" | undefined,
+): PreCreationRetryProvider {
+  if (preferredProvider === "local-ollama") return "local-ollama";
+  const code = studioClosedAIErrorCode(error);
+  if (/^BROWSER_/u.test(code)) return "browser-ai";
+  return /OLLAMA|LOCAL|BRIDGE/iu.test(code) ? "local-ollama" : "browser-ai";
+}
+
+function preCreationDeadlineReason() {
+  return Object.assign(
+    new Error("Pre-creation Closed AI coordination reached its wall-clock deadline."),
+    { code: "PRECREATION_COORDINATION_TIMEOUT", retryable: false },
+  );
+}
+
+function linkPreCreationDeadline(
+  callerSignal: AbortSignal | undefined,
+  budgetMs: number,
+) {
+  const controller = new AbortController();
+  const forwardCallerAbort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(callerSignal?.reason ?? callerAbortReason(callerSignal!));
+    }
+  };
+  callerSignal?.addEventListener("abort", forwardCallerAbort, { once: true });
+  if (callerSignal?.aborted) forwardCallerAbort();
+  const deadline = setTimeout(() => {
+    if (!controller.signal.aborted) controller.abort(preCreationDeadlineReason());
+  }, budgetMs);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(deadline);
+      callerSignal?.removeEventListener("abort", forwardCallerAbort);
+    },
+  };
 }
 
 /**
@@ -799,114 +867,194 @@ export function runStudioClosedAI(
 export async function runStudioPreCreationClosedAI(
   input: StudioClosedAITaskInput & { task: "story_seed" },
   execute: PlatformExecutor = executePlatformAI,
+  seams: PreCreationCoordinatorSeams = {},
 ) {
   return settleOnCallerAbort(input.signal, async () => {
-    const coordinatorStartedAt = Date.now();
+    const now = seams.now ?? Date.now;
+    const wait = seams.wait ?? waitForPreCreationRetry;
+    const readSnapshots = seams.readSnapshots ?? localProviderSnapshots;
+    const coordinatorStartedAt = now();
     const coordinationBudgetMs = Math.min(
       60_000,
       Math.max(1_000, input.coordinationBudgetMs ?? 60_000),
     );
-    if (execute === executePlatformAI) {
-      const runtime = getStudioClosedAIRuntimeCoordinator();
-      if (runtime.localClient.hasActiveOrRememberedSession()) {
-        try {
-          await runtime.connectLocalAutomatically(input.signal);
-        } catch (error) {
-          if (input.signal?.aborted) throw error;
-          // Local Ollama is optional. The strict-local platform router may still
-          // select an already verified Browser AI runtime; otherwise it fails
-          // truthfully and the create page can offer its explicit device fallback.
+    const deadline = linkPreCreationDeadline(input.signal, coordinationBudgetMs);
+    const coordinationTaskId = input.taskId?.trim()
+      || `precreation-story-seed-${crypto.randomUUID()}`;
+    const coordinatedInput: StudioClosedAITaskInput & { task: "story_seed" } = {
+      ...input,
+      taskId: coordinationTaskId,
+      signal: deadline.signal,
+    };
+    try {
+      if (execute === executePlatformAI) {
+        const runtime = getStudioClosedAIRuntimeCoordinator();
+        if (runtime.localClient.hasActiveOrRememberedSession()) {
+          try {
+            await settleOnCallerAbort(
+              deadline.signal,
+              () => runtime.connectLocalAutomatically(deadline.signal),
+            );
+          } catch {
+            if (deadline.signal.aborted) throw callerAbortReason(deadline.signal);
+            // Local Ollama is optional. The strict-local platform router may still
+            // select an already verified Browser AI runtime; otherwise it fails
+            // truthfully and the create page can offer its explicit device fallback.
+          }
         }
       }
-    }
-    const localEscalationAuthorized = hasExplicitLocalComputeAuthorization(
-      resolveStudioClosedComputePolicy(input.browserComputePolicy),
-    );
-    let preferredProvider: "local-ollama" | undefined;
-    let retryCount = 0;
-    while (true) {
-      if (input.signal?.aborted) throw callerAbortReason(input.signal);
-      try {
-        return await runStudioClosedAI(
-          input,
-          preferredProvider
-            ? (request) => execute({ ...request, preferredProvider })
-            : execute,
-        );
-      } catch (error) {
-        if (input.signal?.aborted) throw error;
-        const code = studioClosedAIErrorCode(error);
-        const browserRequestedLocal = localEscalationAuthorized
-          && BROWSER_TO_LOCAL_RETRY_CODES.has(code);
-        if (browserRequestedLocal && preferredProvider !== "local-ollama") {
-          preferredProvider = "local-ollama";
-          retryCount += 1;
-          input.onProgress?.({
-            taskId: `precreation-coordinator:${input.projectId}`,
-            phase: "routing",
-            label: "瀏覽器 AI 尚未完成，正在同一個 60 秒預算內轉交本機 Ollama；尚未啟用裝置後備。",
-            percent: 46,
-            occurredAt: new Date().toISOString(),
-            backendId: "local-ollama",
-          });
-          continue;
+      const localEscalationAuthorized = hasExplicitLocalComputeAuthorization(
+        resolveStudioClosedComputePolicy(input.browserComputePolicy),
+      );
+      const attempts: Record<PreCreationRetryProvider, number> = {
+        "browser-ai": 0,
+        "local-ollama": 0,
+      };
+      const observedNotReady = new Set<PreCreationRetryProvider>();
+      let preferredProvider: "local-ollama" | undefined;
+      let failedProvider: PreCreationRetryProvider | null = null;
+      let lastError: unknown = null;
+      let totalGenerationAttempts = 0;
+      let probeCount = 0;
+      let shouldAttemptGeneration = true;
+
+      while (true) {
+        if (deadline.signal.aborted) throw callerAbortReason(deadline.signal);
+
+        if (shouldAttemptGeneration) {
+          if (totalGenerationAttempts >= PRECREATION_MAX_GENERATION_ATTEMPTS) {
+            shouldAttemptGeneration = false;
+          } else {
+            totalGenerationAttempts += 1;
+            try {
+              return await runStudioClosedAI(
+                coordinatedInput,
+                preferredProvider
+                  ? (request) => execute({ ...request, preferredProvider })
+                  : execute,
+              );
+            } catch (error) {
+              if (deadline.signal.aborted) throw callerAbortReason(deadline.signal);
+              lastError = error;
+              failedProvider = preCreationFailedProvider(error, preferredProvider);
+              attempts[failedProvider] += 1;
+              const browserRequestedLocal = localEscalationAuthorized
+                && BROWSER_TO_LOCAL_RETRY_CODES.has(studioClosedAIErrorCode(error));
+              if (
+                browserRequestedLocal
+                && failedProvider !== "local-ollama"
+                && attempts["local-ollama"] === 0
+                && totalGenerationAttempts < PRECREATION_MAX_GENERATION_ATTEMPTS
+              ) {
+                preferredProvider = "local-ollama";
+                shouldAttemptGeneration = true;
+                input.onProgress?.({
+                  taskId: coordinationTaskId,
+                  phase: "routing",
+                  label: "瀏覽器 AI 尚未完成，正在同一個 60 秒預算內轉交本機 Ollama；尚未啟用裝置後備。",
+                  percent: 46,
+                  occurredAt: new Date().toISOString(),
+                  backendId: "local-ollama",
+                });
+                continue;
+              }
+              if (!preCreationErrorIsExplicitlyRetryable(error)) throw error;
+              shouldAttemptGeneration = false;
+            }
+          }
         }
 
-        // Injected executors are test/integration seams and have no truthful
-        // provider snapshot reader. Preserve their original error rather than
-        // pretending a provider is loading.
-        if (execute !== executePlatformAI) throw error;
-
-        const elapsedMs = Date.now() - coordinatorStartedAt;
+        const elapsedMs = now() - coordinatorStartedAt;
         const remainingMs = coordinationBudgetMs - elapsedMs;
-        if (remainingMs <= 0) throw error;
+        if (remainingMs <= 0) throw preCreationDeadlineReason();
         const { availability, snapshots } = await probePreCreationProviderAvailability(
-          input.signal,
+          deadline.signal,
+          readSnapshots,
         );
+        if (deadline.signal.aborted) throw callerAbortReason(deadline.signal);
         if (availability === "unavailable") {
           throw Object.assign(
             new Error("Browser AI and Local Ollama are both unavailable."),
             {
               code: "NO_CLOSED_PROVIDER_AVAILABLE",
               retryable: false,
-              cause: error,
+              cause: lastError,
             },
           );
+        }
+
+        for (const provider of ["browser-ai", "local-ollama"] as const) {
+          const snapshot = snapshots.find((item) => item.id === provider);
+          if (snapshot && snapshot.status !== "ready") observedNotReady.add(provider);
         }
         const localReady = snapshots.some((snapshot) => (
           snapshot.id === "local-ollama" && snapshot.status === "ready"
         ));
+        const failedProviderRecovered = Boolean(
+          failedProvider
+          && observedNotReady.has(failedProvider)
+          && snapshots.some((snapshot) => (
+            snapshot.id === failedProvider && snapshot.status === "ready"
+          )),
+        );
         if (
           localEscalationAuthorized
           && localReady
-          && preferredProvider !== "local-ollama"
+          && failedProvider !== "local-ollama"
+          && attempts["local-ollama"] === 0
+          && totalGenerationAttempts < PRECREATION_MAX_GENERATION_ATTEMPTS
         ) {
           preferredProvider = "local-ollama";
-          retryCount += 1;
+          shouldAttemptGeneration = true;
           input.onProgress?.({
-            taskId: `precreation-coordinator:${input.projectId}`,
+            taskId: coordinationTaskId,
             phase: "routing",
-            label: "瀏覽器 AI 此次未完成；已找到可用的本機 Ollama，正在繼續生成，尚未啟用裝置後備。",
+            label: "瀏覽器 AI 此次未完成；已找到已就緒的本機 Ollama，正在繼續同一批生成。",
             percent: 52,
             occurredAt: new Date().toISOString(),
             backendId: "local-ollama",
           });
           continue;
         }
-        retryCount += 1;
-        const delayMs = Math.min(1_000, Math.max(100, remainingMs));
+        if (
+          failedProviderRecovered
+          && failedProvider
+          && attempts[failedProvider] < 2
+          && totalGenerationAttempts < PRECREATION_MAX_GENERATION_ATTEMPTS
+        ) {
+          preferredProvider = failedProvider === "local-ollama" ? "local-ollama" : undefined;
+          shouldAttemptGeneration = true;
+          observedNotReady.delete(failedProvider);
+          input.onProgress?.({
+            taskId: coordinationTaskId,
+            phase: "routing",
+            label: `閉端模型已由未就緒轉為可用，正在恢復同一批生成；不會建立新批次。`,
+            percent: 58,
+            occurredAt: new Date().toISOString(),
+            backendId: failedProvider,
+          });
+          continue;
+        }
+
+        probeCount += 1;
+        const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1_000));
         input.onProgress?.({
-          taskId: `precreation-coordinator:${input.projectId}`,
+          taskId: coordinationTaskId,
           phase: "probing",
           label: availability === "loading"
-            ? `閉端模型仍在載入或驗證（第 ${retryCount} 次檢查）；會在 60 秒上限內繼續等候，不會提前誤判為後備。`
-            : `閉端模型回報可重試狀態（第 ${retryCount} 次檢查）；正在 60 秒上限內重新協調。`,
-          percent: Math.min(82, 50 + retryCount * 4),
+            ? `閉端模型正在載入或驗證；同一批次保留中，最多再等待 ${remainingSeconds} 秒。`
+            : `閉端模型暫時未就緒；只檢查狀態、不重送生成，最多再等待 ${remainingSeconds} 秒。`,
+          percent: Math.min(82, 50 + probeCount * 2),
           occurredAt: new Date().toISOString(),
           backendId: preferredProvider,
         });
-        await waitForPreCreationRetry(delayMs, input.signal);
+        const backoffMs = PRECREATION_RETRY_BACKOFF_MS[
+          Math.min(probeCount - 1, PRECREATION_RETRY_BACKOFF_MS.length - 1)
+        ];
+        await wait(Math.max(1, Math.min(backoffMs, remainingMs)), deadline.signal);
       }
+    } finally {
+      deadline.cleanup();
     }
   });
 }
