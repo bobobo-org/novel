@@ -1122,7 +1122,7 @@ await test("official production UI connects local runtimes on demand and exposes
     /\.refresh\(|restoreRememberedSession|backendSnapshots|connectAutomatically|connectLocalAutomatically|connectPrivateHubAutomatically/u,
     "public mount discovery must never restore, probe, or connect a Companion backend",
   );
-  assert.ok(studioClosedAISource.includes("connectLocalAutomatically(input.signal)"));
+  assert.ok(studioClosedAISource.includes("connectLocalAutomatically(deadline.signal)"));
   assert.ok(studioClosedAISource.includes("localClient.hasActiveOrRememberedSession()"));
   assert.ok(closedAgentServiceSource.includes("connectLocalAutomatically(input.signal)"));
   assert.ok(closedAgentServiceSource.includes("localClient.hasActiveOrRememberedSession()"));
