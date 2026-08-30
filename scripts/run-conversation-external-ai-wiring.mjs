@@ -207,12 +207,12 @@ assert.match(
 );
 assert.match(
   conversationCssSource,
-  /\.composerWrap:has\(\.composer textarea:focus\) \.aiSourceCard:not\(\[data-open="true"\]\),[\s\S]{0,120}display:\s*none;/u,
+  /\.composerWrap:has\(\.composer textarea:focus\) \.aiSourceCard,[\s\S]{0,160}\.composerWrap:has\(\.composer textarea:focus\) \.closedAiSetupCard\s*\{\s*display:\s*none;/u,
 );
-assert.doesNotMatch(
+assert.match(
   conversationCssSource,
-  /\.composerWrap:has\(\.composer textarea:focus\) \.aiSourceCard,\s*[\s\S]{0,120}display:\s*none;/u,
-  "an explicitly opened source panel must remain operable even while the composer retains focus",
+  /\.composerWrap:has\(\.composer textarea:focus:placeholder-shown\) \.aiSourceCard\[data-open="true"\]\s*\{\s*display:\s*grid;/u,
+  "an explicitly opened source panel stays operable only while the focused composer is still empty",
 );
 assert.match(
   conversationCssSource,
