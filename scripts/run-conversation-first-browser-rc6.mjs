@@ -1432,18 +1432,20 @@ harness.test("long-session", "1000-message edit-copy, approval, switching, and r
   await page.reload({ waitUntil: "domcontentloaded" });
   const timeline = page.getByTestId("conversation-message-timeline");
   await timeline.waitFor({ state: "visible" });
-  await page.waitForFunction(() => document.querySelector('[data-testid="conversation-message-timeline"]')?.getAttribute("data-total-messages") === "1000");
   await page.waitForFunction(() => document.querySelector('[data-testid="conversation-message-timeline"]')?.getAttribute("data-scroll-restoring") === "true");
+  await timeline.evaluate((element) => {
+    // Let the browser emit its native trusted scroll event. A synthetic event
+    // would miss the real race where automation or a touch scroll arrives
+    // inside the restore loop's 120 ms write guard.
+    element.scrollTop = 0;
+  });
+  await page.waitForFunction(() => document.querySelector('[data-testid="conversation-message-timeline"]')?.hasAttribute("data-scroll-restoring") === false);
+  await page.waitForFunction(() => document.querySelector('[data-testid="conversation-message-timeline"]')?.getAttribute("data-total-messages") === "1000");
   assert.equal(await timeline.getAttribute("data-rendered-messages"), "120");
   assert.equal(await timeline.locator("article[data-message-id]").count(), 120);
   const initialFirst = timeline.locator("article[data-message-id]").first();
   assert.equal(await initialFirst.getAttribute("data-message-id"), "rc6-long-message-0880");
   assert.equal(await timeline.locator("article[data-message-id]").last().getAttribute("data-message-id"), "rc6-long-message-0999");
-  await timeline.evaluate((element) => {
-    element.scrollTop = 0;
-    element.dispatchEvent(new Event("scroll", { bubbles: true }));
-  });
-  await page.waitForFunction(() => document.querySelector('[data-testid="conversation-message-timeline"]')?.hasAttribute("data-scroll-restoring") === false);
   await timeline.getByRole("button", { name: /載入較早訊息/u }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="conversation-message-timeline"]')?.getAttribute("data-rendered-messages") === "240");
   assert.equal(await timeline.locator("article[data-message-id]").first().getAttribute("data-message-id"), "rc6-long-message-0760");

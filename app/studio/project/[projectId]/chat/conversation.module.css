@@ -1836,11 +1836,29 @@
   .threadHeader { min-height: 54px; padding: 7px 11px; }
   .threadInner { padding-top: 16px; padding-bottom: 112px; }
   .threadInner > * { content-visibility: auto; contain-intrinsic-size: auto 380px; }
+  .threadInner > .message[data-rpg-choices="true"] {
+    content-visibility: visible;
+    contain-intrinsic-size: none;
+  }
   .message[data-rpg-story="true"] .messageBody { padding: 20px clamp(18px, 5vw, 30px); font-size: 1rem; line-height: 1.72; }
   .turnDecision { gap: 11px; padding: 18px; border-radius: 17px; }
   .choiceCard { min-height: 0; padding: 16px; }
   .choiceCard p { font-size: .96rem; line-height: 1.62; }
-  .composerWrap { padding: 7px 8px max(8px, env(safe-area-inset-bottom)); }
+  .composerWrap {
+    min-height: 0;
+    max-height: min(44dvh, 360px);
+    padding: 7px 8px max(8px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  /* An actionable A/B/C is the primary mobile control. Keep source/setup
+     settings out of its reading viewport; they return as soon as the card is
+     consumed or otherwise disabled. */
+  .main:has(.message[data-rpg-choices="true"] .choiceCard:not(:disabled)) .aiSourceCard,
+  .main:has(.message[data-rpg-choices="true"] .choiceCard:not(:disabled)) .closedAiSetupCard {
+    display: none;
+  }
   .aiSourceCard { padding: 7px 10px; }
   .aiSourceSummary { min-height: 44px; }
   .aiSourceSummaryCopy strong { font-size: 0.78rem; }

@@ -61,6 +61,15 @@ async function openFreshPage(url) {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
 }
 
+async function waitForTimelineScrollRestore(page, timeout = 10_000) {
+  const timeline = page.getByTestId("conversation-message-timeline");
+  await timeline.waitFor({ state: "visible", timeout });
+  await page.waitForFunction(() => {
+    const element = document.querySelector('[data-testid="conversation-message-timeline"]');
+    return Boolean(element && !element.hasAttribute("data-scroll-restoring"));
+  }, undefined, { timeout });
+}
+
 async function resetLocalStorageAndOpen(url) {
   if (page) {
     await page.close();
@@ -640,6 +649,7 @@ try {
     await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
     await page.getByTestId("rpg-inline-choices").waitFor({ state: "visible", timeout: 60_000 });
+    await waitForTimelineScrollRestore(page);
     const originalChoiceCard = page.locator('article[data-rpg-choices="true"]').last();
     const originalChoiceMessageId = await originalChoiceCard.getAttribute("data-message-id");
     assert.ok(originalChoiceMessageId, "the completed A/B/C card must expose its durable message identity");
@@ -653,9 +663,29 @@ try {
     for (const choice of ["A", "B", "C"]) {
       assert.equal(await originalChoiceCard.getByTestId(`rpg-choice-${choice}`).isEnabled(), true);
     }
+    const actionableChoiceGeometry = await originalChoiceCard.evaluate((card) => {
+      const timeline = document.querySelector('[data-testid="conversation-message-timeline"]');
+      const composer = document.querySelector('[data-testid="conversation-message-composer"]');
+      const sourceControls = document.querySelector('[data-testid="conversation-ai-source-controls"]');
+      const setupCard = document.querySelector('[data-testid="closed-ai-setup-card"]');
+      return {
+        timelineHeight: timeline?.getBoundingClientRect().height ?? 0,
+        composerHeight: composer?.getBoundingClientRect().height ?? 0,
+        composerMaxHeight: Math.min(innerHeight * 0.44, 360),
+        choiceContentVisibility: getComputedStyle(card).contentVisibility,
+        sourceControlsVisible: Boolean(sourceControls && getComputedStyle(sourceControls).display !== "none"),
+        setupCardVisible: Boolean(setupCard && getComputedStyle(setupCard).display !== "none"),
+      };
+    });
+    assert.ok(actionableChoiceGeometry.timelineHeight >= 96, JSON.stringify(actionableChoiceGeometry));
+    assert.ok(actionableChoiceGeometry.composerHeight <= actionableChoiceGeometry.composerMaxHeight + 1, JSON.stringify(actionableChoiceGeometry));
+    assert.equal(actionableChoiceGeometry.choiceContentVisibility, "visible");
+    assert.equal(actionableChoiceGeometry.sourceControlsVisible, false);
+    assert.equal(actionableChoiceGeometry.setupCardVisible, false);
 
     let originalCharacterRecord = null;
     try {
+      await originalChoiceCard.getByTestId("rpg-choice-A").click({ trial: true });
       await originalChoiceCard.getByTestId("rpg-choice-A").click();
       let durableASelections = [];
       for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -746,6 +776,7 @@ try {
 
       await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
       await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
+      await waitForTimelineScrollRestore(page);
       const reloadedOldCard = page.locator(`article[data-message-id="${originalChoiceMessageId}"]`);
       await reloadedOldCard.waitFor({ state: "visible", timeout: 60_000 });
       await reloadedOldCard.getByText("作品版本已變更；這張舊選擇卡已封存，請重新建立三選一。").waitFor({ state: "visible" });

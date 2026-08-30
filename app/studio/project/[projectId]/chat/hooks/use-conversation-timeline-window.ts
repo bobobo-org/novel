@@ -41,6 +41,7 @@ type ScrollSnapshot = {
 type ActiveSessionRestore = {
   token: number;
   lastWriteAt: number;
+  lastWrittenScrollTop: number;
 };
 
 function storageKey(projectId: string, sessionId: string) {
@@ -173,6 +174,7 @@ export function useConversationTimelineWindow({
       sessionRestoreStateRef.current = {
         token: restoreToken,
         lastWriteAt: Number.NEGATIVE_INFINITY,
+        lastWrittenScrollTop: Number.NaN,
       };
       container.setAttribute("data-scroll-restoring", "true");
       const restoreSessionScroll = () => {
@@ -180,6 +182,7 @@ export function useConversationTimelineWindow({
         if (!restoreState || restoreState.token !== restoreToken) return false;
         container.scrollTop = snapshot?.scrollTop ?? container.scrollHeight;
         restoreState.lastWriteAt = performance.now();
+        restoreState.lastWrittenScrollTop = container.scrollTop;
         followTailRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 96;
         return true;
       };
@@ -226,10 +229,14 @@ export function useConversationTimelineWindow({
     const container = event.currentTarget;
     const restoreState = sessionRestoreStateRef.current;
     if (restoreState) {
-      // Native scroll events caused by our scrollTop assignment are trusted.
-      // Layout growth can adjust their eventual offset, so position equality is
-      // not a reliable discriminator while the write guard is fresh.
+      // Only the exact offset written by the restore loop belongs to the loop.
+      // Pointer automation and real touch/wheel input can arrive inside the same
+      // 120 ms guard, so time alone would incorrectly pull the reader away from
+      // the choice they are trying to reach.
+      const matchesLastWrite = Number.isFinite(restoreState.lastWrittenScrollTop)
+        && Math.abs(container.scrollTop - restoreState.lastWrittenScrollTop) <= 1;
       const restoreGenerated = event.nativeEvent.isTrusted
+        && matchesLastWrite
         && performance.now() - restoreState.lastWriteAt <= 120;
       if (restoreGenerated) return;
       // A wheel/touch/keyboard/test scroll changed the offset while the layout
