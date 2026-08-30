@@ -211,10 +211,10 @@ function waitForRpgClosedAIRetry(delayMs: number, signal?: AbortSignal) {
 }
 
 /**
- * Keeps every closed-model failure inside one caller-owned deadline. A probe
- * may report that the runtimes are unavailable right now, but story
- * generation still waits and retries for the full user-visible 180-second
- * window because a browser or local runtime can finish loading during it.
+ * Keeps readiness polling and one closed-model dispatch inside one
+ * caller-owned deadline.  Loading/unknown/unavailable states never create a
+ * provider task.  Once a provider is ready, exactly one request is submitted;
+ * failure preserves the remaining visible wait without silently resending.
  */
 export async function runRpgClosedAIUntilDeadline<T>(input: {
   execute: (attempt: number, signal: AbortSignal) => Promise<T>;
@@ -248,63 +248,103 @@ export async function runRpgClosedAIUntilDeadline<T>(input: {
       code: "RPG_STORY_AI_ATTEMPT_INVALID",
     });
   }
-  let attempt = startAttempt - 1;
+  const attempt = startAttempt;
+  let poll = 0;
   let lastError: unknown = null;
+  const remaining = () => deadlineMs - (now() - startedAt);
+  const waitForNextProbe = async (
+    availability: PreCreationProviderAvailability,
+    error: unknown,
+  ) => {
+    const remainingMs = remaining();
+    if (remainingMs <= 0) throw rpgClosedAITimeoutError(attempt, error);
+    input.onRetry?.({ attempt, availability, remainingMs, error });
+    poll += 1;
+    const exponentialBackoff = retryBackoffMs * (2 ** Math.min(poll - 1, 6));
+    const maximumBackoff = Math.max(retryBackoffMs, 12_000);
+    await wait(
+      Math.min(exponentialBackoff, maximumBackoff, remainingMs),
+      input.signal,
+    );
+  };
+
   while (true) {
     if (input.signal?.aborted) throw input.signal.reason ?? lastError;
-    const remainingBeforeAttempt = deadlineMs - (now() - startedAt);
-    if (remainingBeforeAttempt <= 0) {
+    const remainingBeforeProbe = remaining();
+    if (remainingBeforeProbe <= 0) {
       throw rpgClosedAITimeoutError(attempt, lastError);
     }
-    attempt += 1;
+    let availability: PreCreationProviderAvailability = "unknown";
     try {
-      return {
-        value: await raceRpgClosedAIOperation({
-          operation: (signal) => input.execute(attempt, signal),
-          remainingMs: remainingBeforeAttempt,
-          callerSignal: input.signal,
-          attempts: attempt,
-        }),
+      availability = await raceRpgClosedAIOperation({
+        operation: probeAvailability,
+        remainingMs: remainingBeforeProbe,
+        callerSignal: input.signal,
         attempts: attempt,
-      };
-    } catch (error) {
-      if (input.signal?.aborted) throw input.signal.reason ?? error;
-      if (error && typeof error === "object" && "code" in error
-        && (error as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
-        throw error;
+      });
+    } catch (probeError) {
+      if (input.signal?.aborted) throw input.signal.reason ?? probeError;
+      if (probeError && typeof probeError === "object" && "code" in probeError
+        && (probeError as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
+        throw probeError;
       }
-      lastError = error;
-      let availability: PreCreationProviderAvailability = "unknown";
-      try {
-        const remainingBeforeProbe = deadlineMs - (now() - startedAt);
-        if (remainingBeforeProbe <= 0) {
-          throw rpgClosedAITimeoutError(attempt, error);
-        }
-        availability = await raceRpgClosedAIOperation({
-          operation: probeAvailability,
-          remainingMs: remainingBeforeProbe,
-          callerSignal: input.signal,
-          attempts: attempt,
-        });
-      } catch (probeError) {
-        if (input.signal?.aborted) throw input.signal.reason ?? probeError;
-        if (probeError && typeof probeError === "object" && "code" in probeError
-          && (probeError as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
-          throw probeError;
-        }
-      }
-      const remainingMs = deadlineMs - (now() - startedAt);
-      if (remainingMs <= 0) {
-        throw rpgClosedAITimeoutError(attempt, error);
-      }
-      input.onRetry?.({ attempt, availability, remainingMs, error });
-      const exponentialBackoff = retryBackoffMs * (2 ** Math.min(attempt - 1, 6));
-      const maximumBackoff = Math.max(retryBackoffMs, 12_000);
-      await wait(
-        Math.min(exponentialBackoff, maximumBackoff, remainingMs),
-        input.signal,
-      );
+      lastError = probeError;
     }
+    if (availability === "ready") break;
+    lastError = lastError ?? Object.assign(
+      new Error(`Closed AI provider is not ready (${availability}).`),
+      { code: "RPG_STORY_AI_NOT_READY", availability },
+    );
+    await waitForNextProbe(availability, lastError);
+  }
+
+  if (input.signal?.aborted) throw input.signal.reason ?? lastError;
+  const remainingBeforeAttempt = remaining();
+  if (remainingBeforeAttempt <= 0) {
+    throw rpgClosedAITimeoutError(attempt, lastError);
+  }
+  try {
+    return {
+      value: await raceRpgClosedAIOperation({
+        operation: (signal) => input.execute(attempt, signal),
+        remainingMs: remainingBeforeAttempt,
+        callerSignal: input.signal,
+        attempts: attempt,
+      }),
+      attempts: attempt,
+    };
+  } catch (error) {
+    if (input.signal?.aborted) throw input.signal.reason ?? error;
+    if (error && typeof error === "object" && "code" in error
+      && (error as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
+      throw error;
+    }
+    lastError = error;
+  }
+
+  // A failed provider call is never resubmitted automatically.  Keep the
+  // original user-visible deadline alive by polling readiness only; this makes
+  // the 180-second promise truthful without manufacturing attempt-2/3 tasks.
+  while (true) {
+    if (input.signal?.aborted) throw input.signal.reason ?? lastError;
+    const remainingBeforeProbe = remaining();
+    if (remainingBeforeProbe <= 0) throw rpgClosedAITimeoutError(attempt, lastError);
+    let availability: PreCreationProviderAvailability = "unknown";
+    try {
+      availability = await raceRpgClosedAIOperation({
+        operation: probeAvailability,
+        remainingMs: remainingBeforeProbe,
+        callerSignal: input.signal,
+        attempts: attempt,
+      });
+    } catch (probeError) {
+      if (input.signal?.aborted) throw input.signal.reason ?? probeError;
+      if (probeError && typeof probeError === "object" && "code" in probeError
+        && (probeError as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
+        throw probeError;
+      }
+    }
+    await waitForNextProbe(availability, lastError);
   }
 }
 
@@ -3962,7 +4002,6 @@ export async function generateRpgChatTurnCandidate(input: {
   };
   let generated: Awaited<ReturnType<typeof runStudioClosedAI>> | null = null;
   let story = "";
-  let validationCorrection = "";
   let generationError: unknown = null;
   let fallbackReviewReceipt: PostFallbackClosedReviewReceipt | null = null;
   let acceptedAdultApplicationValidationBaseDigest: string | null = null;
@@ -3983,7 +4022,7 @@ export async function generateRpgChatTurnCandidate(input: {
       dependencies: input.coordinationDependencies,
       execute: async (attempt, attemptSignal) => {
         let prevalidatedStory = "";
-        const attemptPrompt = `${directorPrompt}${validationCorrection}`;
+        const attemptPrompt = directorPrompt;
         const attemptTaskId = await providerTaskId("generation", attempt);
         const baseApplicationValidationBindingDigest = await sha256Hex(stableStringify({
           domain: "rpg-story-application-validation-v1",
@@ -4089,26 +4128,6 @@ export async function generateRpgChatTurnCandidate(input: {
           if (attemptResult.candidateId) {
             await rejectStudioClosedAgentCandidate(attemptResult.candidateId).catch(() => undefined);
           }
-          const errorCode = error instanceof Error ? error.message : String(error);
-          const metrics = error && typeof error === "object"
-            ? error as Record<string, unknown>
-            : {};
-          validationCorrection = `\n\n${JSON.stringify({
-            validatorCorrection: {
-              errorCode,
-              narrativeLength: Number(metrics.narrativeLength) || 0,
-              paragraphCount: Number(metrics.paragraphCount) || 0,
-              sentenceCount: Number(metrics.sentenceCount) || 0,
-              requiredNarrativeCharacters: input.snapshot.language === "en"
-                ? "1100-2200"
-                : "900-1600",
-              requiredParagraphs: "8-16",
-              lockedOutcome: resolution.outcome,
-              instruction: input.snapshot.language === "en"
-                ? "Discard the previous attempt. Regenerate from scratch; preserve the locked outcome, invent no numeric resource changes, and write 8 to 16 substantial paragraphs whose rhythm follows the scene."
-                : "捨棄前次內容並從頭重寫；明確服從鎖定結果，不得自創任何資源數字；以文學標題起首，之後寫 8 至 16 個節奏自然的完整小說段落，正文不得出現任何規則或系統術語。",
-            },
-          })}`;
           throw error;
         }
       },

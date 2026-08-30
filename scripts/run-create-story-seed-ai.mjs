@@ -25,6 +25,8 @@ import {
   runStudioPreCreationClosedAI,
 } from "../lib/novel-ai/web/studio-closed-ai.ts";
 import { prewarmClosedAIFromFrontdoor } from "../lib/novel-ai/web/frontdoor-closed-ai-prewarm.ts";
+import { scheduleBrowserModelPrewarm } from
+  "../lib/novel-ai/providers/browser-ai/browser-prewarm-controller.ts";
 import {
   BROWSER_BACKGROUND_PREWARM_CONSENT_KEY,
   grantBrowserBackgroundPrewarmConsent,
@@ -569,6 +571,123 @@ assert.ok(
 
 let frontdoorBrowserSchedules = 0;
 let frontdoorLocalWarmups = 0;
+
+const readyBrowserSnapshot = (overrides = {}) => ({
+  selectedModelId: "browser-prewarm-test-model",
+  activeModelId: null,
+  performance: { engineWarm: false },
+  models: [{
+    modelId: "browser-prewarm-test-model",
+    modelDigest: "a".repeat(64),
+    metadataRevision: 7,
+    installStatus: "ready",
+    cacheVerified: true,
+    shardIntegrityVerified: true,
+    cacheComplete: true,
+    allowed: true,
+    generationVerified: true,
+  }],
+  ...overrides,
+});
+const prewarmEnvironment = {
+  browserAvailable: () => true,
+  visibilityState: () => "visible",
+  navigator: () => ({}),
+};
+let scheduledIdleJobs = [];
+let browserPrewarmCalls = 0;
+const sharedPrewarmDependencies = {
+  ...prewarmEnvironment,
+  snapshot: async () => readyBrowserSnapshot(),
+  prewarm: async () => {
+    browserPrewarmCalls += 1;
+    return {};
+  },
+  scheduleIdle: (run) => {
+    const job = { run, cancelled: false };
+    scheduledIdleJobs.push(job);
+    return () => { job.cancelled = true; };
+  },
+};
+const firstScheduledWarm = await scheduleBrowserModelPrewarm(
+  { policy: "browser-first" },
+  sharedPrewarmDependencies,
+);
+const joinedScheduledWarm = await scheduleBrowserModelPrewarm(
+  { policy: "browser-first" },
+  sharedPrewarmDependencies,
+);
+assert.equal(scheduledIdleJobs.length, 1, "concurrent callers must share one idle handle");
+scheduledIdleJobs[0].run();
+assert.equal((await firstScheduledWarm.completion).status, "warmed");
+assert.equal((await joinedScheduledWarm.completion).status, "warmed");
+assert.equal(browserPrewarmCalls, 1, "concurrent callers must share one real Browser preload");
+
+scheduledIdleJobs = [];
+browserPrewarmCalls = 0;
+let resolveSharedPrewarm;
+const sharedPendingPrewarm = new Promise((resolve) => { resolveSharedPrewarm = resolve; });
+const firstLeaseController = new AbortController();
+const secondLeaseController = new AbortController();
+const leaseDependencies = {
+  ...sharedPrewarmDependencies,
+  prewarm: async () => {
+    browserPrewarmCalls += 1;
+    await sharedPendingPrewarm;
+    return {};
+  },
+};
+const firstLeaseWarm = await scheduleBrowserModelPrewarm(
+  { policy: "browser-first", signal: firstLeaseController.signal },
+  leaseDependencies,
+);
+const secondLeaseWarm = await scheduleBrowserModelPrewarm(
+  { policy: "browser-first", signal: secondLeaseController.signal },
+  leaseDependencies,
+);
+scheduledIdleJobs[0].run();
+firstLeaseController.abort("FIRST_STRICT_MODE_LEASE_RELEASED");
+assert.equal((await firstLeaseWarm.completion).status, "aborted");
+resolveSharedPrewarm();
+assert.equal((await secondLeaseWarm.completion).status, "warmed");
+assert.equal(browserPrewarmCalls, 1, "one caller abort must not duplicate or kill another lease");
+
+let alreadyWarmIdleSchedules = 0;
+const alreadyWarmDecision = await scheduleBrowserModelPrewarm(
+  { policy: "browser-first" },
+  {
+    ...sharedPrewarmDependencies,
+    snapshot: async () => readyBrowserSnapshot({
+      activeModelId: "browser-prewarm-test-model",
+      performance: { engineWarm: true },
+    }),
+    scheduleIdle: () => {
+      alreadyWarmIdleSchedules += 1;
+      return () => {};
+    },
+  },
+);
+assert.equal((await alreadyWarmDecision.completion).status, "already_warm");
+assert.equal(alreadyWarmIdleSchedules, 0, "an already warm matching engine must not schedule idle work");
+
+let incompletePrewarmCalls = 0;
+const incompleteModelDecision = await scheduleBrowserModelPrewarm(
+  { policy: "browser-first" },
+  {
+    ...sharedPrewarmDependencies,
+    snapshot: async () => readyBrowserSnapshot({
+      models: [{
+        ...readyBrowserSnapshot().models[0],
+        shardIntegrityVerified: false,
+        cacheComplete: false,
+      }],
+    }),
+    prewarm: async () => { incompletePrewarmCalls += 1; return {}; },
+  },
+);
+assert.equal((await incompleteModelDecision.completion).status, "not_installed");
+assert.equal(incompletePrewarmCalls, 0, "an incomplete or unverified cache must never be preloaded");
+
 const frontdoorInstalledResult = await prewarmClosedAIFromFrontdoor({
   browserBackgroundPrewarmAuthorized: true,
   rememberedLocalInferenceVerified: true,
@@ -576,14 +695,19 @@ const frontdoorInstalledResult = await prewarmClosedAIFromFrontdoor({
 }, {
   scheduleBrowser: async () => {
     frontdoorBrowserSchedules += 1;
-    return { scheduled: true, reasonCode: "PREWARM_IDLE_SCHEDULED", cancel: () => {} };
+    return {
+      scheduled: true,
+      reasonCode: "PREWARM_IDLE_SCHEDULED",
+      completion: Promise.resolve({ status: "warmed", reasonCode: "PREWARM_WARMED" }),
+      cancel: () => {},
+    };
   },
   prewarmLocal: async () => {
     frontdoorLocalWarmups += 1;
     return true;
   },
 });
-assert.equal(frontdoorInstalledResult.browser, "PREWARM_IDLE_SCHEDULED");
+assert.equal(frontdoorInstalledResult.browser, "PREWARM_WARMED");
 assert.equal(frontdoorBrowserSchedules, 1, "the front door schedules an installed Browser model once");
 assert.equal(frontdoorLocalWarmups, 0, "a scheduled Browser model does not also wake Local Ollama");
 
@@ -595,6 +719,10 @@ const frontdoorLocalResult = await prewarmClosedAIFromFrontdoor({
   scheduleBrowser: async () => ({
     scheduled: false,
     reasonCode: "PREWARM_MODEL_NOT_INSTALLED",
+    completion: Promise.resolve({
+      status: "not_installed",
+      reasonCode: "PREWARM_MODEL_NOT_INSTALLED",
+    }),
     cancel: () => {},
   }),
   prewarmLocal: async () => {
@@ -613,6 +741,7 @@ const frontdoorHiddenResult = await prewarmClosedAIFromFrontdoor({
   scheduleBrowser: async () => ({
     scheduled: false,
     reasonCode: "PREWARM_TAB_HIDDEN",
+    completion: Promise.resolve({ status: "aborted", reasonCode: "PREWARM_TAB_HIDDEN" }),
     cancel: () => {},
   }),
   prewarmLocal: async () => {

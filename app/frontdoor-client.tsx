@@ -145,6 +145,12 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
 
   useEffect(() => {
     const controller = new AbortController();
+    const scope = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    let idleHandle: number | null = null;
+    let fallbackTimer: number | null = null;
     const stopWarmup = () => {
       if (!controller.signal.aborted) controller.abort("FRONTDOOR_NOT_VISIBLE");
     };
@@ -153,16 +159,16 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
     };
     document.addEventListener("visibilitychange", stopWhenHidden);
     window.addEventListener("pagehide", stopWarmup, { once: true });
-    const timer = window.setTimeout(() => {
+
+    // Consent/session flags are cheap synchronous metadata. IndexedDB, cache
+    // inspection and AI chunks are deferred until after load and browser idle.
+    const rememberedLocalInferenceVerified =
+      readLocalClosedAITabSessionSummary(window.location.origin)
+      === "inference_verified";
+    const browserBackgroundPrewarmAuthorized =
+      readBrowserBackgroundPrewarmConsent();
+    const runWarmup = () => {
       if (controller.signal.aborted || document.visibilityState === "hidden") return;
-      const rememberedLocalInferenceVerified =
-        readLocalClosedAITabSessionSummary(window.location.origin)
-        === "inference_verified";
-      const browserBackgroundPrewarmAuthorized =
-        readBrowserBackgroundPrewarmConsent();
-      if (!browserBackgroundPrewarmAuthorized && !rememberedLocalInferenceVerified) {
-        return;
-      }
       // Keep the public first paint small.  This dynamically loaded helper only
       // warms an installed Browser model or a previously verified Local Ollama
       // session; it never downloads, opens Private Hub, or retries on failure.
@@ -173,9 +179,27 @@ export default function FrontdoorClient({ release, packs, classicTopics }: Front
           signal: controller.signal,
         }))
         .catch(() => undefined);
-    }, 450);
+    };
+    const scheduleAfterLoad = () => {
+      if (
+        controller.signal.aborted
+        || (!browserBackgroundPrewarmAuthorized && !rememberedLocalInferenceVerified)
+      ) return;
+      if (typeof scope.requestIdleCallback === "function") {
+        idleHandle = scope.requestIdleCallback(runWarmup, { timeout: 2_500 });
+      } else {
+        fallbackTimer = window.setTimeout(runWarmup, 1_500);
+      }
+    };
+    if (document.readyState === "complete") scheduleAfterLoad();
+    else window.addEventListener("load", scheduleAfterLoad, { once: true });
+
     return () => {
-      window.clearTimeout(timer);
+      window.removeEventListener("load", scheduleAfterLoad);
+      if (idleHandle !== null && scope.cancelIdleCallback) {
+        scope.cancelIdleCallback(idleHandle);
+      }
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
       document.removeEventListener("visibilitychange", stopWhenHidden);
       window.removeEventListener("pagehide", stopWarmup);
       controller.abort("FRONTDOOR_UNMOUNTED");

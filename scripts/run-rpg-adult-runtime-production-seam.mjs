@@ -48,6 +48,10 @@ function cloneFixture() {
   return createRpgAdultRuntimeProductionFixture();
 }
 
+const INJECTED_READY_COORDINATION = {
+  probeAvailability: async () => "ready",
+};
+
 function assertNoPrivateAdultEvidence(serialized, fixture, label) {
   const blockedValues = [
     ...fixture.adultNarrativeRuntime.participantIds,
@@ -81,6 +85,7 @@ const directCandidate = await generateRpgChatTurnCandidate({
   adultNarrativeRuntime: callerAttemptedOverride,
   adultNarrativeRuntimeClock: () => new Date("2026-08-30T06:00:00.000Z"),
   generationDeadlineMs: 100,
+  coordinationDependencies: INJECTED_READY_COORDINATION,
   closedAIInvoker: async (request) => {
     directRequests.push(request);
     return createRpgAdultRuntimeClosedResult(request, directFixture);
@@ -292,7 +297,7 @@ const fallbackReviewedCandidate = await generateRpgChatTurnCandidate({
   // Leave enough real wall-clock headroom for raceRpgClosedAIOperation while
   // the injected coordination clock still deterministically exhausts it.
   generationDeadlineMs: 200,
-  fallbackReviewDeadlineMs: 20,
+  fallbackReviewDeadlineMs: 200,
   coordinationDependencies: {
     now: () => reviewClock,
     wait: async (delayMs) => { reviewClock += delayMs; },
@@ -310,7 +315,8 @@ const fallbackReviewedCandidate = await generateRpgChatTurnCandidate({
     throw Object.assign(new Error("closed generation still loading"), { code: "MODEL_LOADING" });
   },
 });
-assert.ok(reviewGenerationRequests.length >= 2, "closed generation should exhaust its injected deadline");
+assert.equal(reviewGenerationRequests.length, 1, "closed generation must dispatch exactly once before fallback");
+assert.notEqual(reviewGenerationRequests[0].ephemeralPrompt, true);
 assert.equal(reviewRequests.length, 1, "hidden fallback review should execute once");
 assert.equal(reviewRequests[0].ephemeralPrompt, true);
 assert.match(reviewRequests[0].input, new RegExp(ADULT_PROMPT_VERSION, "u"));
@@ -366,6 +372,7 @@ assertNoPrivateAdultEvidence(
         return generateRpgChatTurnCandidate({
           ...closedInput,
           generationDeadlineMs: 100,
+          coordinationDependencies: INJECTED_READY_COORDINATION,
           closedAIInvoker: async (request) =>
             createRpgAdultRuntimeClosedResult(
               request,
@@ -399,7 +406,8 @@ assertNoPrivateAdultEvidence(
 
 const externalFixture = cloneFixture();
 let externalClock = 0;
-let externalInvocations = 0;
+let externalGenerationInvocations = 0;
+let externalReviewInvocations = 0;
 await assert.rejects(
   () => generateRpgChatTurnCandidate({
     snapshot: externalFixture.snapshot,
@@ -416,14 +424,16 @@ await assert.rejects(
       retryBackoffMs: 1,
     },
     closedAIInvoker: async (request) => {
-      externalInvocations += 1;
+      if (request.ephemeralPrompt) externalReviewInvocations += 1;
+      else externalGenerationInvocations += 1;
       return createRpgAdultRuntimeExternalResult(request, externalFixture);
     },
   }),
   (error) => error?.code === "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
   "an external execution result must never become an adult RPG candidate",
 );
-assert.ok(externalInvocations >= 2, "external-proof fixture did not exercise both guarded phases");
+assert.equal(externalGenerationInvocations, 1, "external-proof generation must dispatch exactly once");
+assert.equal(externalReviewInvocations, 1, "external-proof review must dispatch exactly once");
 
 for (const [label, unsafeSentence] of [
   ["direct terms", "她沒有聲張；兩人隨即明確描寫性交與射精，之後才把東側窄巷交給可信的人盯住。"],
@@ -436,7 +446,8 @@ for (const [label, unsafeSentence] of [
     unsafeSentence,
   );
   let explicitClock = 0;
-  let explicitInvocations = 0;
+  let explicitGenerationInvocations = 0;
+  let explicitReviewInvocations = 0;
   await assert.rejects(
     () => generateRpgChatTurnCandidate({
       snapshot: explicitFixture.snapshot,
@@ -453,9 +464,10 @@ for (const [label, unsafeSentence] of [
         retryBackoffMs: 1,
       },
       closedAIInvoker: async (request) => {
-        explicitInvocations += 1;
+        if (request.ephemeralPrompt) explicitReviewInvocations += 1;
+        else explicitGenerationInvocations += 1;
         return createRpgAdultRuntimeClosedResult(request, explicitFixture, {
-          candidateId: `candidate-explicit-${label}-${explicitInvocations}`,
+          candidateId: `candidate-explicit-${label}-${explicitGenerationInvocations}-${explicitReviewInvocations}`,
           story: explicitStory,
         });
       },
@@ -463,7 +475,8 @@ for (const [label, unsafeSentence] of [
     (error) => error?.code === "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
     `${label}: fade-to-black must be enforced on normal and hidden-review output`,
   );
-  assert.ok(explicitInvocations >= 2, `${label}: both guarded phases were not exercised`);
+  assert.equal(explicitGenerationInvocations, 1, `${label}: generation must dispatch exactly once`);
+  assert.equal(explicitReviewInvocations, 1, `${label}: review must dispatch exactly once`);
 }
 
 {
@@ -481,7 +494,8 @@ for (const [label, unsafeSentence] of [
     "葉聞雪親吻林澄後退入暗處。紙上沒有姓名，只有三次交貨的先後記號",
   );
   let clock = 0;
-  let invocations = 0;
+  let generationInvocations = 0;
+  let reviewInvocations = 0;
   await assert.rejects(
     () => generateRpgChatTurnCandidate({
       snapshot: thirdPartyFixture.snapshot,
@@ -498,9 +512,10 @@ for (const [label, unsafeSentence] of [
         retryBackoffMs: 1,
       },
       closedAIInvoker: async (request) => {
-        invocations += 1;
+        if (request.ephemeralPrompt) reviewInvocations += 1;
+        else generationInvocations += 1;
         return createRpgAdultRuntimeClosedResult(request, thirdPartyFixture, {
-          candidateId: `candidate-unauthorized-third-${invocations}`,
+          candidateId: `candidate-unauthorized-third-${generationInvocations}-${reviewInvocations}`,
           story: unauthorizedStory,
         });
       },
@@ -508,7 +523,8 @@ for (const [label, unsafeSentence] of [
     (error) => error?.code === "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
     "an unconsented known third character must not enter an adult transition",
   );
-  assert.ok(invocations >= 2, "unauthorized third-party fixture did not cross both guarded phases");
+  assert.equal(generationInvocations, 1, "unauthorized third-party generation must dispatch exactly once");
+  assert.equal(reviewInvocations, 1, "unauthorized third-party review must dispatch exactly once");
 }
 
 const generalFixture = cloneFixture();
@@ -524,6 +540,7 @@ const generalCandidate = await generateRpgChatTurnCandidate({
   choice: generalFixture.choice,
   logicalTurnId: "logical-turn-general-rpg-production",
   generationDeadlineMs: 100,
+  coordinationDependencies: INJECTED_READY_COORDINATION,
   closedAIInvoker: async (request) => {
     generalRequest = request;
     return createRpgAdultRuntimeClosedResult(request, generalFixture, {
@@ -544,6 +561,8 @@ console.log(JSON.stringify({
   status: "PASS",
   adultClosedPromptBound: true,
   fallbackReviewPromptBound: true,
+  singleGenerationDispatch: true,
+  singleFallbackReviewDispatch: true,
   failBeforeGeneration: true,
   externalExecutionRejected: true,
   externalAdultDispatchAttempted: false,

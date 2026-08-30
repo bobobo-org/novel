@@ -360,6 +360,23 @@ export function prewarmStudioInteractiveChoiceAI(signal?: AbortSignal) {
   return operation;
 }
 
+/**
+ * Homepage-only Local AI warmup. A fresh page has no configured model yet, so
+ * first restore the exact-origin tab session and then run the existing fixed
+ * model verification. No project, chapter, canon, or prompt text is supplied.
+ */
+export async function prewarmRememberedLocalClosedAI(signal?: AbortSignal) {
+  if (signal?.aborted) return false;
+  try {
+    const modelId = await getStudioClosedAIRuntimeCoordinator()
+      .restoreRememberedLocalForPrewarm(signal);
+    if (!modelId || signal?.aborted) return false;
+    return prewarmStudioInteractiveChoiceAI(signal);
+  } catch {
+    return false;
+  }
+}
+
 async function digestText(value: string) {
   return crypto.subtle.digest(
     "SHA-256",

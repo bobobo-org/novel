@@ -287,6 +287,9 @@ const adultLocal = await generateRpgChatTurnCandidateWithExternalCascade({
     return generateRpgChatTurnCandidate({
       ...closedInput,
       generationDeadlineMs: 100,
+      coordinationDependencies: {
+        probeAvailability: async () => "ready",
+      },
       closedAIInvoker: async (request) =>
         createRpgAdultRuntimeClosedResult(request, adultFixture),
     });

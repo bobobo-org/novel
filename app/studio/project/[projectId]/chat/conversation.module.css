@@ -1856,6 +1856,10 @@
   .aiSourceCard select { width: 100%; min-width: 0; min-height: 44px; }
   .externalAiControls { grid-template-columns: 1fr; }
   .externalConsent { grid-column: auto; }
+  /* Keep the composer geometry stable for the entire disclosure click.  When
+     the textarea loses focus on pointer-down, revealing this setup card before
+     pointer-up moves the toggle away and Chromium suppresses the click. */
+  .aiSourceCard[data-open="true"] ~ .closedAiSetupCard { display: none; }
   .composerWrap:has(.composer textarea:focus) .aiSourceCard:not([data-open="true"]),
   .composerWrap:has(.composer textarea:focus) .closedAiSetupCard { display: none; }
   .composer { padding: 7px; border-radius: 15px; }

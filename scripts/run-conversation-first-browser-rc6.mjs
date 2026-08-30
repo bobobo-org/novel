@@ -1825,12 +1825,56 @@ harness.test("mobile", "AI source controls stay open while selecting or consenti
     requestAnimationFrame(() => requestAnimationFrame(resolve));
   }));
   assert.equal(await sourceControls.getAttribute("data-open"), "true");
+  await page.evaluate(() => {
+    const trace = [];
+    globalThis.__conversationAiSourceToggleTrace = trace;
+    for (const eventName of ["pointerdown", "pointerup", "click"]) {
+      document.addEventListener(eventName, (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const toggle = target?.closest('[data-testid="conversation-ai-source-toggle"]');
+        if (!toggle) return;
+        trace.push({
+          eventName,
+          detail: "detail" in event ? event.detail : null,
+          pointerType: "pointerType" in event ? event.pointerType : null,
+          dataOpen: document.querySelector('[data-testid="conversation-ai-source-controls"]')
+            ?.getAttribute("data-open") ?? null,
+          ariaExpanded: toggle.getAttribute("aria-expanded"),
+        });
+      }, { capture: true, once: false });
+    }
+  });
   await sourceToggle.click();
   await page.waitForFunction(() => {
     const controls = document.querySelector('[data-testid="conversation-ai-source-controls"]');
     const toggle = controls?.querySelector('[data-testid="conversation-ai-source-toggle"]');
     return controls?.getAttribute("data-open") === "false"
       && toggle?.getAttribute("aria-expanded") === "false";
+  }, undefined, { timeout: 5_000 }).catch(async (error) => {
+    const diagnostic = await page.evaluate(() => {
+      const controls = document.querySelector('[data-testid="conversation-ai-source-controls"]');
+      const toggle = controls?.querySelector('[data-testid="conversation-ai-source-toggle"]');
+      const rect = toggle?.getBoundingClientRect();
+      const centreTarget = rect
+        ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        : null;
+      return {
+        trace: globalThis.__conversationAiSourceToggleTrace ?? [],
+        dataOpen: controls?.getAttribute("data-open") ?? null,
+        ariaExpanded: toggle?.getAttribute("aria-expanded") ?? null,
+        toggleCount: document.querySelectorAll('[data-testid="conversation-ai-source-toggle"]').length,
+        activeElement: document.activeElement instanceof Element
+          ? `${document.activeElement.tagName}:${document.activeElement.getAttribute("data-testid") ?? document.activeElement.getAttribute("aria-label") ?? ""}`
+          : null,
+        centreTarget: centreTarget instanceof Element
+          ? `${centreTarget.tagName}:${centreTarget.getAttribute("data-testid") ?? centreTarget.className ?? ""}`
+          : null,
+        display: toggle ? getComputedStyle(toggle).display : null,
+        pointerEvents: toggle ? getComputedStyle(toggle).pointerEvents : null,
+        connected: toggle?.isConnected ?? false,
+      };
+    });
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nAI_SOURCE_TOGGLE_DIAGNOSTIC:${JSON.stringify(diagnostic)}`);
   });
   assert.equal(await sourceControls.getAttribute("data-open"), "false");
   assert.equal(await sourceToggle.getAttribute("aria-expanded"), "false");

@@ -348,6 +348,22 @@ export class ClosedAIRuntimeCoordinator {
       && this.privateHubClient.getRememberWithinTab();
   }
 
+  /**
+   * Restores only an already remembered, exact-origin Local Ollama session for
+   * homepage warmup. It never opens pairing, creates a new trusted session, or
+   * consults Private Hub.
+   */
+  async restoreRememberedLocalForPrewarm(signal?: AbortSignal) {
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("Local AI warmup was cancelled.", "AbortError");
+    }
+    const local = await this.localClient.restoreRememberedSession(signal);
+    if (!local) return null;
+    configureLocalBridgeClient(this.localClient);
+    configureLocalBridgeModel(local.model.modelId);
+    return local.model.modelId;
+  }
+
   private executionReceiptKey(
     projectId: string,
     taskType: PlatformTaskType,

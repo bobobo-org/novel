@@ -50,8 +50,10 @@ export async function rpgLogicalTurnFallbackReviewTaskId(
 /**
  * Authenticates a durable provider run against one logical RPG turn.  Legacy
  * pre-attempt receipts remain replayable, while all new runs carry a distinct,
- * deterministic attempt identity so a rejected first candidate cannot poison
- * the second attempt through ClosedAgentOS idempotency replay.
+ * deterministic stage/attempt identity. Product generation dispatches attempt
+ * 1 only; fallback review has its own identity instead of silently creating a
+ * second generation task. Higher attempt values remain parseable solely for
+ * old persisted receipts and explicit operator tooling.
  */
 export async function parseRpgLogicalTurnProviderTaskId(
   logicalTurnId: string,

@@ -390,6 +390,10 @@ jobs:
             pnpm test:studio:chapter-isolation
             pnpm test:studio:writing-flow
             pnpm test:studio:task-session-rpg-ai
+            pnpm test:studio:rpg-fallback-quality
+            pnpm test:studio:rpg-adult-runtime-production-seam
+            pnpm test:studio:rpg-normal-os-validation
+            pnpm test:ai:rpg-external-cascade
             pnpm test:studio:rpg-v3-all
             pnpm test:ai:p15:consumer-platform
             pnpm test:ai:p21:three-high

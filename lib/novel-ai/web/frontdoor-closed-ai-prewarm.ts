@@ -2,7 +2,7 @@ import type {
   scheduleBrowserModelPrewarm,
   BrowserPrewarmDecision,
 } from "../providers/browser-ai/browser-prewarm-controller";
-import type { prewarmStudioInteractiveChoiceAI } from "./studio-closed-ai";
+import type { prewarmRememberedLocalClosedAI } from "./studio-closed-ai";
 
 export type FrontdoorClosedAIPrewarmResult = {
   browser: BrowserPrewarmDecision["reasonCode"];
@@ -11,7 +11,7 @@ export type FrontdoorClosedAIPrewarmResult = {
 
 type FrontdoorPrewarmDependencies = {
   scheduleBrowser: typeof scheduleBrowserModelPrewarm;
-  prewarmLocal: typeof prewarmStudioInteractiveChoiceAI;
+  prewarmLocal: typeof prewarmRememberedLocalClosedAI;
 };
 
 const DEFAULT_DEPENDENCIES: FrontdoorPrewarmDependencies = {
@@ -22,15 +22,10 @@ const DEFAULT_DEPENDENCIES: FrontdoorPrewarmDependencies = {
     return scheduleBrowserModelPrewarm(input);
   },
   prewarmLocal: async (signal) => {
-    const { prewarmStudioInteractiveChoiceAI } = await import("./studio-closed-ai");
-    return prewarmStudioInteractiveChoiceAI(signal);
+    const { prewarmRememberedLocalClosedAI } = await import("./studio-closed-ai");
+    return prewarmRememberedLocalClosedAI(signal);
   },
 };
-
-let activeFrontdoorWarm: {
-  signal: AbortSignal;
-  promise: Promise<FrontdoorClosedAIPrewarmResult>;
-} | null = null;
 
 /**
  * Warms only an already-installed, already-authorised Closed AI runtime.
@@ -51,11 +46,7 @@ export function prewarmClosedAIFromFrontdoor(
       local: "not_needed",
     });
   }
-  if (activeFrontdoorWarm && !activeFrontdoorWarm.signal.aborted) {
-    return activeFrontdoorWarm.promise;
-  }
-
-  const operation = (async (): Promise<FrontdoorClosedAIPrewarmResult> => {
+  return (async (): Promise<FrontdoorClosedAIPrewarmResult> => {
     let browserReason = input.browserBackgroundPrewarmAuthorized
       ? "PREWARM_BROWSER_FAILED"
       : "PREWARM_NOT_AUTHORIZED";
@@ -69,7 +60,12 @@ export function prewarmClosedAIFromFrontdoor(
         if (input.signal.aborted) {
           return { browser: "PREWARM_ABORTED", local: "not_needed" };
         }
-        if (decision.scheduled) {
+        const completion = await decision.completion;
+        browserReason = completion.reasonCode;
+        if (completion.status === "warmed" || completion.status === "already_warm") {
+          return { browser: browserReason, local: "not_needed" };
+        }
+        if (completion.status === "aborted") {
           return { browser: browserReason, local: "not_needed" };
         }
       } catch {
@@ -97,9 +93,5 @@ export function prewarmClosedAIFromFrontdoor(
       browser: browserReason,
       local: localWarmed ? "warmed" : "failed",
     };
-  })().finally(() => {
-    if (activeFrontdoorWarm?.promise === operation) activeFrontdoorWarm = null;
-  });
-  activeFrontdoorWarm = { signal: input.signal, promise: operation };
-  return operation;
+  })();
 }
