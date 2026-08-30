@@ -506,7 +506,7 @@ await test("unified story navigation absorbs RPG and release caches cannot pin s
   assert.match(workspace, /data-testid="rpg-resolution-progress"/u);
   assert.match(
     workspace,
-    /const RPG_TURN_TIMEOUT_MS = RPG_CHAT_STORY_AI_TIMEOUT_MS \+ RPG_TURN_COMPLETION_GRACE_MS/u,
+    /const RPG_TURN_TIMEOUT_MS = \(\s*RPG_CHAT_STORY_AI_TIMEOUT_MS\s*\+ RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS\s*\+ RPG_TURN_COMPLETION_GRACE_MS\s*\);/u,
   );
   assert.match(workspace, /signal: controller\.signal/u);
   assert.match(workspace, /data-testid="rpg-live-draft"/u);
