@@ -1127,6 +1127,8 @@
   background: linear-gradient(180deg, transparent, rgba(8, 13, 22, 0.96) 28%);
 }
 
+.composerSettings { display: contents; }
+
 .aiSourceCard {
   display: grid;
   width: min(100%, 880px);
@@ -1845,9 +1847,22 @@
   .choiceCard { min-height: 0; padding: 16px; }
   .choiceCard p { font-size: .96rem; line-height: 1.62; }
   .composerWrap {
+    display: grid;
     min-height: 0;
     max-height: min(44dvh, 360px);
+    grid-template-rows: minmax(0, 1fr) auto auto auto;
     padding: 7px 8px max(8px, env(safe-area-inset-bottom));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* The source/setup panels can be taller than the footer on a first visit.
+     Scroll only that settings region so the DOM, reading and visual order all
+     stay aligned while the writing control remains visible at the bottom. */
+  .composerSettings {
+    display: grid;
+    min-height: 0;
+    align-content: start;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
@@ -1882,6 +1897,12 @@
   .composerWrap:has(.composer textarea:focus) .closedAiSetupCard { display: none; }
   .composerWrap:has(.composer textarea:focus:placeholder-shown) .aiSourceCard[data-open="true"] { display: grid; }
   .composer { padding: 7px; border-radius: 15px; }
+  .attachmentStrip {
+    max-height: 96px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
   .composer textarea { min-height: 46px; max-height: 128px; padding: 7px 8px; font-size: 16px; }
   .sendButton,
   .leftActions button,

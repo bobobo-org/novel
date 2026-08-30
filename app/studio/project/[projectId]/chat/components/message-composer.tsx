@@ -153,15 +153,16 @@ export function MessageComposer({
       data-closed-ai-silent-external-fallback={closedAiSetup?.readiness.silentExternalFallback ?? false}
       aria-busy={busy}
     >
-      <section
-        className={styles.aiSourceCard}
-        data-testid="conversation-ai-source-controls"
-        data-open={sourceControlsOpen}
-        data-execution-mode={aiExecutionMode}
-        data-selected-source={externalSelected ? "external" : "closed"}
-        data-external-provider-configured={externalProviderConfigured}
-        data-external-execution-enabled={externalExecutionEnabled}
-      >
+      <div className={styles.composerSettings} data-testid="conversation-composer-settings">
+        <section
+          className={styles.aiSourceCard}
+          data-testid="conversation-ai-source-controls"
+          data-open={sourceControlsOpen}
+          data-execution-mode={aiExecutionMode}
+          data-selected-source={externalSelected ? "external" : "closed"}
+          data-external-provider-configured={externalProviderConfigured}
+          data-external-execution-enabled={externalExecutionEnabled}
+        >
         <button
           type="button"
           className={styles.aiSourceSummary}
@@ -270,16 +271,16 @@ export function MessageComposer({
             <p className={styles.externalBoundary}>閉端 AI 保持預設；失敗時不會靜默轉送任何外來供應商。</p>
           )}
         </div>
-      </section>
-      {showSetup ? (
-        <section
-          className={styles.closedAiSetupCard}
-          data-testid="closed-ai-setup-card"
-          data-status={taskRoutable ? "ready" : "setup_required"}
-          data-setup-lifecycle={closedAiSetupLifecycle}
-          data-estimated-download-bytes={closedAiSetup?.setup.estimatedDownloadBytes ?? 0}
-          aria-busy={closedAiSetupBusy}
-        >
+        </section>
+        {showSetup ? (
+          <section
+            className={styles.closedAiSetupCard}
+            data-testid="closed-ai-setup-card"
+            data-status={taskRoutable ? "ready" : "setup_required"}
+            data-setup-lifecycle={closedAiSetupLifecycle}
+            data-estimated-download-bytes={closedAiSetup?.setup.estimatedDownloadBytes ?? 0}
+            aria-busy={closedAiSetupBusy}
+          >
           <div>
             <small>第一次使用 · 閉端 AI 自動協調器</small>
             <h2>{closedAiSetup?.status === "unsupported"
@@ -321,8 +322,9 @@ export function MessageComposer({
           <p className={styles.closedAiSetupTruth}>
             系統會自動核對現有的本機與私有算力，依目前任務選出已驗證資源。若需要在此裝置下載模型，只會在你按下準備後開始；不會改用外部 AI 或規則模板冒充。
           </p>
-        </section>
-      ) : null}
+          </section>
+        ) : null}
+      </div>
       <div className={styles.composer}>
         <AttachmentTray
           attachments={localAttachments}

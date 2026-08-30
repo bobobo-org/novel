@@ -1742,16 +1742,52 @@ harness.test("mobile", "390x844 keeps the composer usable and turns side panels 
     const composer = document.querySelector('textarea[aria-label="小說專案訊息"]')?.getBoundingClientRect();
     const send = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "送出")?.getBoundingClientRect();
     const sidebar = document.querySelector('aside[aria-label="小說專案欄"]')?.getBoundingClientRect();
+    const footerElement = document.querySelector('[data-testid="conversation-message-composer"]');
+    const footer = footerElement?.getBoundingClientRect();
+    const settingsElement = footerElement?.querySelector('[data-testid="conversation-composer-settings"]');
+    const settings = settingsElement?.getBoundingClientRect();
+    const source = document.querySelector('[data-testid="conversation-ai-source-controls"]')?.getBoundingClientRect();
+    const setup = document.querySelector('[data-testid="closed-ai-setup-card"]')?.getBoundingClientRect();
     return {
       overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-      composer: composer ? { left: composer.left, right: composer.right, bottom: composer.bottom } : null,
+      composer: composer ? { top: composer.top, left: composer.left, right: composer.right, bottom: composer.bottom } : null,
       send: send ? { left: send.left, right: send.right, bottom: send.bottom, height: send.height } : null,
       sidebarRight: sidebar?.right ?? null,
+      footer: footer ? {
+        top: footer.top,
+        bottom: footer.bottom,
+        clientHeight: footerElement?.clientHeight ?? null,
+        scrollHeight: footerElement?.scrollHeight ?? null,
+        scrollTop: footerElement?.scrollTop ?? null,
+      } : null,
+      settings: settings ? {
+        top: settings.top,
+        bottom: settings.bottom,
+        clientHeight: settingsElement?.clientHeight ?? null,
+        scrollHeight: settingsElement?.scrollHeight ?? null,
+        scrollTop: settingsElement?.scrollTop ?? null,
+      } : null,
+      source: source ? { top: source.top, bottom: source.bottom } : null,
+      setup: setup ? { top: setup.top, bottom: setup.bottom } : null,
     };
   });
   assert.equal(layout.overflow, false);
-  assert(layout.composer && layout.composer.left >= 0 && layout.composer.right <= 390 && layout.composer.bottom <= 844);
-  assert(layout.send && layout.send.left >= 0 && layout.send.right <= 390 && layout.send.bottom <= 844 && layout.send.height >= 44);
+  assert(
+    layout.composer
+      && layout.composer.top >= 0
+      && layout.composer.left >= 0
+      && layout.composer.right <= 390
+      && layout.composer.bottom <= 844,
+    `mobile composer escaped the initial viewport: ${JSON.stringify(layout)}`,
+  );
+  assert(
+    layout.send
+      && layout.send.left >= 0
+      && layout.send.right <= 390
+      && layout.send.bottom <= 844
+      && layout.send.height >= 44,
+    `mobile send control escaped the initial viewport: ${JSON.stringify(layout)}`,
+  );
   assert(layout.sidebarRight !== null && layout.sidebarRight <= 0);
 
   const sidebarToggle = page.getByTestId("conversation-mobile-sidebar-toggle");
@@ -1929,6 +1965,89 @@ harness.test("mobile", "inline A/B/C choices are single-column touch targets and
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   await page.getByLabel("小說專案訊息").fill("自訂行動：先熄燈，再從屋脊繞到後門。");
   assert.equal(await page.getByRole("button", { name: "送出" }).isEnabled(), true);
+});
+
+harness.test("mobile", "320x568 keeps send reachable with a dense attachment tray", async () => {
+  const { page, pageErrors } = await getMobileFixture();
+  await page.setViewportSize({ width: 320, height: 568 });
+  const footer = page.getByTestId("conversation-message-composer");
+  const files = Array.from({ length: 12 }, (_, index) => ({
+    name: `mobile-attachment-${String(index + 1).padStart(2, "0")}.txt`,
+    mimeType: "text/plain",
+    buffer: Buffer.from(`mobile attachment ${index + 1}`),
+  }));
+  await footer.locator('input[type="file"]').setInputFiles(files);
+  const tray = footer.getByTestId("conversation-attachment-tray");
+  await tray.waitFor({ state: "visible" });
+  await page.waitForFunction(() => (
+    document.querySelectorAll('[data-testid="conversation-attachment-tray"] [data-attachment-id]').length === 12
+  ));
+  await footer.getByLabel("小說專案訊息").evaluate((element) => {
+    element.style.height = "128px";
+  });
+  const overflowLayout = await footer.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }));
+  assert.equal(overflowLayout.overflowY, "auto", JSON.stringify(overflowLayout));
+  assert(
+    overflowLayout.scrollHeight > overflowLayout.clientHeight,
+    `dense mobile composer did not exercise footer overflow: ${JSON.stringify(overflowLayout)}`,
+  );
+  await footer.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+  const layout = await footer.evaluate((element) => {
+    const trayElement = element.querySelector('[data-testid="conversation-attachment-tray"]');
+    const send = [...element.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "送出");
+    const footerBox = element.getBoundingClientRect();
+    const sendBox = send?.getBoundingClientRect();
+    const centreTarget = sendBox
+      ? document.elementFromPoint(sendBox.left + sendBox.width / 2, sendBox.top + sendBox.height / 2)
+      : null;
+    return {
+      footer: {
+        top: footerBox.top,
+        bottom: footerBox.bottom,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      },
+      tray: trayElement ? {
+        clientHeight: trayElement.clientHeight,
+        scrollHeight: trayElement.scrollHeight,
+      } : null,
+      send: sendBox ? {
+        top: sendBox.top,
+        left: sendBox.left,
+        right: sendBox.right,
+        bottom: sendBox.bottom,
+        height: sendBox.height,
+      } : null,
+      centreTargetIsSend: centreTarget === send || centreTarget?.closest("button") === send,
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    };
+  });
+  assert.equal(layout.horizontalOverflow, false, JSON.stringify(layout));
+  assert(
+    layout.tray && layout.tray.clientHeight <= 96 && layout.tray.scrollHeight > layout.tray.clientHeight,
+    `dense attachment tray did not stay bounded: ${JSON.stringify(layout)}`,
+  );
+  assert(
+    layout.send
+      && layout.send.top >= 0
+      && layout.send.left >= 0
+      && layout.send.right <= 320
+      && layout.send.bottom <= 568
+      && layout.send.height >= 44,
+    `dense mobile composer hid send: ${JSON.stringify(layout)}`,
+  );
+  assert.equal(layout.centreTargetIsSend, true, `dense mobile send was covered: ${JSON.stringify(layout)}`);
+  assert.deepEqual(pageErrors, []);
 });
 
 await startServer();
