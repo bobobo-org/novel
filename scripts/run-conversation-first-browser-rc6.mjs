@@ -1774,9 +1774,12 @@ harness.test("mobile", "390x844 keeps the composer usable and turns side panels 
 harness.test("mobile", "AI source controls stay open while selecting or consenting with an empty composer", async () => {
   const { page, pageErrors } = await getMobileFixture();
   const sourceControls = page.getByTestId("conversation-ai-source-controls");
-  assert.equal(await sourceControls.evaluate((element) => element.open), false);
-  await sourceControls.locator("summary").click();
-  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  const sourceToggle = sourceControls.getByTestId("conversation-ai-source-toggle");
+  assert.equal(await sourceControls.getAttribute("data-open"), "false");
+  assert.equal(await sourceToggle.getAttribute("aria-expanded"), "false");
+  await sourceToggle.click();
+  assert.equal(await sourceControls.getAttribute("data-open"), "true");
+  assert.equal(await sourceToggle.getAttribute("aria-expanded"), "true");
   const openedSourceLayout = await sourceControls.evaluate((element) => {
     const select = element.querySelector("select");
     const body = select?.closest("div");
@@ -1796,20 +1799,20 @@ harness.test("mobile", "AI source controls stay open while selecting or consenti
   );
 
   await sourceControls.getByLabel("模式").selectOption("external-only");
-  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  assert.equal(await sourceControls.getAttribute("data-open"), "true");
   const provider = sourceControls.getByLabel("外來供應商");
   const providerValues = await provider.locator("option").evaluateAll((options) => (
     options.map((option) => option.value)
   ));
   if (providerValues.length > 1) await provider.selectOption(providerValues.at(-1));
-  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  assert.equal(await sourceControls.getAttribute("data-open"), "true");
 
   const consent = sourceControls.locator('input[type="checkbox"]');
   await consent.check();
-  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  assert.equal(await sourceControls.getAttribute("data-open"), "true");
   await page.getByLabel("小說專案訊息").fill("");
   assert.equal(await page.getByRole("button", { name: "送出" }).isEnabled(), false);
-  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  assert.equal(await sourceControls.getAttribute("data-open"), "true");
 
   await sourceControls.getByLabel("模式").selectOption("closed-only");
   await page.waitForFunction(() => {
@@ -1821,9 +1824,10 @@ harness.test("mobile", "AI source controls stay open while selecting or consenti
   await page.evaluate(() => new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(resolve));
   }));
-  assert.equal(await sourceControls.evaluate((element) => element.open), true);
-  await sourceControls.locator("summary").click();
-  assert.equal(await sourceControls.evaluate((element) => element.open), false);
+  assert.equal(await sourceControls.getAttribute("data-open"), "true");
+  await sourceToggle.click();
+  assert.equal(await sourceControls.getAttribute("data-open"), "false");
+  assert.equal(await sourceToggle.getAttribute("aria-expanded"), "false");
   assert.deepEqual(pageErrors, []);
 });
 
@@ -1832,10 +1836,10 @@ harness.test("mobile", "requested status expands an inline readable dashboard wi
   await lockFixtureToRpg(page, projectId);
   assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);
   const sourceControls = page.getByTestId("conversation-ai-source-controls");
-  await sourceControls.locator("summary").click();
-  assert.equal(await sourceControls.evaluate((element) => element.open), true);
+  await sourceControls.getByTestId("conversation-ai-source-toggle").click();
+  assert.equal(await sourceControls.getAttribute("data-open"), "true");
   const dashboard = await sendLocalStatusQuery(page);
-  assert.equal(await sourceControls.evaluate((element) => element.open), false);
+  assert.equal(await sourceControls.getAttribute("data-open"), "false");
   const box = await dashboard.boundingBox();
   assert(box && box.x >= -1 && box.x + box.width <= 391, JSON.stringify(box));
   assert.equal(await page.getByLabel("作品結果抽屜").count(), 0);

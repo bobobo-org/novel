@@ -91,21 +91,20 @@ assert.match(composerSource, /privateSecrets、隱藏動機與完整作品永不
 assert.match(externalControllerSource, /ConversationExternalRunConsentIntent/u);
 assert.match(externalControllerSource, /intentId:\s*`conversation-external-consent:\$\{crypto\.randomUUID\(\)\}`/u);
 assert.match(externalControllerSource, /consumeExternalRunConsentIntent/u);
-assert.match(composerSource, /<details[\s\S]{0,300}conversation-ai-source-controls/u);
-assert.match(composerSource, /<summary[\s\S]{0,160}className=\{styles\.aiSourceSummary\}/u);
+assert.match(composerSource, /<section[\s\S]{0,300}conversation-ai-source-controls[\s\S]{0,160}data-open=\{sourceControlsOpen\}/u);
+assert.match(composerSource, /<button[\s\S]{0,220}conversation-ai-source-toggle[\s\S]{0,160}aria-expanded=\{sourceControlsOpen\}/u);
 assert.match(composerSource, /重新設定/u);
 assert.match(composerSource, /const \[sourceControlsOpen, setSourceControlsOpen\] = useState\(false\)/u);
-assert.match(composerSource, /const sourceControlsRef = useRef<HTMLDetailsElement>\(null\)/u);
 assert.match(
   composerSource,
-  /<details[\s\S]{0,300}ref=\{sourceControlsRef\}[\s\S]{0,500}onToggle=\{\(event\) => setSourceControlsOpen\(event\.currentTarget\.open\)\}/u,
+  /aria-controls="conversation-ai-source-controls-panel"[\s\S]{0,160}onClick=\{\(\) => setSourceControlsOpen\(\(open\) => !open\)\}/u,
 );
-assert.doesNotMatch(composerSource, /open=\{sourceControlsOpen\}/u);
 assert.match(
   composerSource,
-  /<summary[\s\S]{0,500}onClick=\{\(event\) => \{[\s\S]{0,500}event\.preventDefault\(\);[\s\S]{0,500}const nextOpen = !sourceControlsOpen;[\s\S]{0,200}details\.open = nextOpen;[\s\S]{0,200}setSourceControlsOpen\(nextOpen\)/u,
+  /id="conversation-ai-source-controls-panel"[\s\S]{0,160}hidden=\{!sourceControlsOpen\}/u,
 );
-assert.match(composerSource, /sourceControlsRef\.current\.open = false;[\s\S]{0,100}setSourceControlsOpen\(false\)/u);
+assert.doesNotMatch(composerSource, /<details|<summary|sourceControlsRef|event\.preventDefault\(\)/u);
+assert.match(composerSource, /const collapseSourceControls = \(\) => setSourceControlsOpen\(false\)/u);
 assert.match(
   composerSource,
   /const submitRequest = \(\) => \{[\s\S]{0,300}onSend\(collapseSourceControls\);\s*\}/u,
@@ -208,7 +207,7 @@ assert.match(
 );
 assert.match(
   conversationCssSource,
-  /\.composerWrap:has\(\.composer textarea:focus\) \.aiSourceCard:not\(\[open\]\),[\s\S]{0,120}display:\s*none;/u,
+  /\.composerWrap:has\(\.composer textarea:focus\) \.aiSourceCard:not\(\[data-open="true"\]\),[\s\S]{0,120}display:\s*none;/u,
 );
 assert.doesNotMatch(
   conversationCssSource,

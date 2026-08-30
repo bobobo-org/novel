@@ -1141,16 +1141,21 @@
 
 .aiSourceSummary {
   display: flex;
+  width: 100%;
   min-height: 44px;
+  padding: 0;
+  border: 0;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
   list-style: none;
   cursor: pointer;
   touch-action: manipulation;
 }
-
-.aiSourceSummary::-webkit-details-marker { display: none; }
 
 .aiSourceSummaryCopy {
   display: grid;
@@ -1184,6 +1189,8 @@
   padding-top: 10px;
   border-top: 1px solid rgba(151, 177, 206, 0.16);
 }
+
+.aiSourceBody[hidden] { display: none; }
 
 .aiSourceCard[data-selected-source="external"] {
   border-color: rgba(231, 184, 81, 0.58);
@@ -1849,7 +1856,7 @@
   .aiSourceCard select { width: 100%; min-width: 0; min-height: 44px; }
   .externalAiControls { grid-template-columns: 1fr; }
   .externalConsent { grid-column: auto; }
-  .composerWrap:has(.composer textarea:focus) .aiSourceCard:not([open]),
+  .composerWrap:has(.composer textarea:focus) .aiSourceCard:not([data-open="true"]),
   .composerWrap:has(.composer textarea:focus) .closedAiSetupCard { display: none; }
   .composer { padding: 7px; border-radius: 15px; }
   .composer textarea { min-height: 46px; max-height: 128px; padding: 7px 8px; font-size: 16px; }

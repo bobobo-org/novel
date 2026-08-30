@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useRef, useState, type ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 import type { ConversationToolInvocation } from "@/lib/novel-ai/domain";
 import type {
   ClosedAiBootstrapProgress,
@@ -104,15 +104,8 @@ export function MessageComposer({
   onExternalProviderChange: (providerId: ExternalAIProviderId) => void;
   onExternalRunConsentChange: (consent: boolean) => void;
 }) {
-  const sourceControlsRef = useRef<HTMLDetailsElement>(null);
   const [sourceControlsOpen, setSourceControlsOpen] = useState(false);
-  const collapseSourceControls = () => {
-    // Native <details>.open is the disclosure's single source of truth.  Keep
-    // the React state only for the visible label; controlling both the open
-    // attribute and the summary click can leave Chromium stuck open.
-    if (sourceControlsRef.current) sourceControlsRef.current.open = false;
-    setSourceControlsOpen(false);
-  };
+  const collapseSourceControls = () => setSourceControlsOpen(false);
   const submitRequest = () => {
     // Keep the panel open when validation rejects the request. The workspace
     // invokes this callback only after it has persisted the user message, so a
@@ -160,35 +153,22 @@ export function MessageComposer({
       data-closed-ai-silent-external-fallback={closedAiSetup?.readiness.silentExternalFallback ?? false}
       aria-busy={busy}
     >
-      <details
-        ref={sourceControlsRef}
+      <section
         className={styles.aiSourceCard}
         data-testid="conversation-ai-source-controls"
+        data-open={sourceControlsOpen}
         data-execution-mode={aiExecutionMode}
         data-selected-source={externalSelected ? "external" : "closed"}
         data-external-provider-configured={externalProviderConfigured}
         data-external-execution-enabled={externalExecutionEnabled}
-        onToggle={(event) => setSourceControlsOpen(event.currentTarget.open)}
       >
-        <summary
+        <button
+          type="button"
           className={styles.aiSourceSummary}
-          onClick={(event) => {
-            // Keep the disclosure uncontrolled, but make the user's one tap
-            // deterministic. Chromium can occasionally lose the native
-            // summary toggle while this panel is rerendering after a source
-            // change; imperatively flipping the native property avoids that
-            // race without reintroducing a controlled `open` attribute.
-            event.preventDefault();
-            const details = sourceControlsRef.current;
-            if (!details) return;
-            // Some Chromium builds apply the native summary toggle before the
-            // React click callback while others apply it afterwards. Derive
-            // the intended value from our last observed disclosure state, not
-            // from that platform-dependent intermediate DOM value.
-            const nextOpen = !sourceControlsOpen;
-            details.open = nextOpen;
-            setSourceControlsOpen(nextOpen);
-          }}
+          data-testid="conversation-ai-source-toggle"
+          aria-expanded={sourceControlsOpen}
+          aria-controls="conversation-ai-source-controls-panel"
+          onClick={() => setSourceControlsOpen((open) => !open)}
         >
           <span className={styles.aiSourceSummaryCopy}>
             <small>AI 執行來源</small>
@@ -199,8 +179,12 @@ export function MessageComposer({
             </strong>
           </span>
           <span className={styles.aiSourceToggle}>{sourceControlsOpen ? "收合" : "重新設定"}</span>
-        </summary>
-        <div className={styles.aiSourceBody}>
+        </button>
+        <div
+          id="conversation-ai-source-controls-panel"
+          className={styles.aiSourceBody}
+          hidden={!sourceControlsOpen}
+        >
           <div className={styles.aiSourceHeading}>
             <div>
               <small>候選來源設定</small>
@@ -286,7 +270,7 @@ export function MessageComposer({
             <p className={styles.externalBoundary}>閉端 AI 保持預設；失敗時不會靜默轉送任何外來供應商。</p>
           )}
         </div>
-      </details>
+      </section>
       {showSetup ? (
         <section
           className={styles.closedAiSetupCard}
