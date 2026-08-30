@@ -1812,11 +1812,18 @@ harness.test("mobile", "AI source controls stay open while selecting or consenti
   assert.equal(await sourceControls.evaluate((element) => element.open), true);
 
   await sourceControls.getByLabel("模式").selectOption("closed-only");
+  await page.waitForFunction(() => {
+    const details = document.querySelector('[data-testid="conversation-ai-source-controls"]');
+    return details?.getAttribute("data-execution-mode") === "closed-only"
+      && details?.getAttribute("data-selected-source") === "closed"
+      && !details?.querySelector('input[type="checkbox"]');
+  });
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
   assert.equal(await sourceControls.evaluate((element) => element.open), true);
   await sourceControls.locator("summary").click();
-  await page.waitForFunction(() => (
-    document.querySelector('[data-testid="conversation-ai-source-controls"]')?.open === false
-  ));
+  assert.equal(await sourceControls.evaluate((element) => element.open), false);
   assert.deepEqual(pageErrors, []);
 });
 

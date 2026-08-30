@@ -170,7 +170,21 @@ export function MessageComposer({
         data-external-execution-enabled={externalExecutionEnabled}
         onToggle={(event) => setSourceControlsOpen(event.currentTarget.open)}
       >
-        <summary className={styles.aiSourceSummary}>
+        <summary
+          className={styles.aiSourceSummary}
+          onClick={(event) => {
+            // Keep the disclosure uncontrolled, but make the user's one tap
+            // deterministic. Chromium can occasionally lose the native
+            // summary toggle while this panel is rerendering after a source
+            // change; imperatively flipping the native property avoids that
+            // race without reintroducing a controlled `open` attribute.
+            event.preventDefault();
+            const details = sourceControlsRef.current;
+            if (!details) return;
+            details.open = !details.open;
+            setSourceControlsOpen(details.open);
+          }}
+        >
           <span className={styles.aiSourceSummaryCopy}>
             <small>AI 執行來源</small>
             <strong>

@@ -101,7 +101,10 @@ assert.match(
   /<details[\s\S]{0,300}ref=\{sourceControlsRef\}[\s\S]{0,500}onToggle=\{\(event\) => setSourceControlsOpen\(event\.currentTarget\.open\)\}/u,
 );
 assert.doesNotMatch(composerSource, /open=\{sourceControlsOpen\}/u);
-assert.doesNotMatch(composerSource, /event\.preventDefault\(\)/u);
+assert.match(
+  composerSource,
+  /<summary[\s\S]{0,500}onClick=\{\(event\) => \{[\s\S]{0,500}event\.preventDefault\(\);[\s\S]{0,300}details\.open = !details\.open;[\s\S]{0,200}setSourceControlsOpen\(details\.open\)/u,
+);
 assert.match(composerSource, /sourceControlsRef\.current\.open = false;[\s\S]{0,100}setSourceControlsOpen\(false\)/u);
 assert.match(
   composerSource,
