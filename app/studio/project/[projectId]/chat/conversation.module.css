@@ -1860,8 +1860,9 @@
      the textarea loses focus on pointer-down, revealing this setup card before
      pointer-up moves the toggle away and Chromium suppresses the click. */
   .aiSourceCard[data-open="true"] ~ .closedAiSetupCard { display: none; }
-  .composerWrap:has(.composer textarea:focus) .aiSourceCard:not([data-open="true"]),
+  .composerWrap:has(.composer textarea:focus) .aiSourceCard,
   .composerWrap:has(.composer textarea:focus) .closedAiSetupCard { display: none; }
+  .composerWrap:has(.composer textarea:focus:placeholder-shown) .aiSourceCard[data-open="true"] { display: grid; }
   .composer { padding: 7px; border-radius: 15px; }
   .composer textarea { min-height: 46px; max-height: 128px; padding: 7px 8px; font-size: 16px; }
   .sendButton,
