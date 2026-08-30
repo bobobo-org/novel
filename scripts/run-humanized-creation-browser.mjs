@@ -194,7 +194,15 @@ async function assertCleanDiagnostics(label, options = {}) {
   if (workspaceProjectId) {
     assert.equal(new URL(page.url()).pathname, `/studio/project/${workspaceProjectId}/chat`);
     for (const testId of ["conversation-first-workspace", "rpg-inline-choices", "rpg-choice-A", "rpg-choice-B", "rpg-choice-C"]) {
-      assert.equal(await page.getByTestId(testId).isVisible(), true);
+      const hasVisibleTarget = await page.getByTestId(testId).evaluateAll((elements) => elements.some((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0
+          && rect.height > 0
+          && style.display !== "none"
+          && style.visibility !== "hidden";
+      }));
+      assert.equal(hasVisibleTarget, true, `${testId} must expose at least one visible target`);
     }
     allowedTargets.push(
       { pathname: "/" },
@@ -367,6 +375,158 @@ async function check(name, work) {
   results.push({ name, status: "PASS" });
 }
 
+async function waitUntilIdle(targetPage) {
+  await targetPage.waitForFunction(() => {
+    const composer = document.querySelector('textarea[aria-label="小說專案訊息"]');
+    return composer instanceof HTMLTextAreaElement && !composer.disabled;
+  });
+}
+
+async function readDurableRpgSelections(targetPage, projectId, key) {
+  return targetPage.evaluate(async ({ projectId: scopedProjectId, key: scopedKey }) => {
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-intelligence-platform");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const records = await new Promise((resolve, reject) => {
+      const request = database.transaction("conversationMessages", "readonly")
+        .objectStore("conversationMessages").getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    database.close();
+    return records.filter((message) => (
+      message.projectId === scopedProjectId
+      && message.role === "user"
+      && (
+        message.content.startsWith(`選擇 ${scopedKey}｜`)
+        || message.content.trim().toUpperCase() === scopedKey
+      )
+    )).map((message) => ({
+      id: message.id,
+      sourceMessageId: message.sourceMessageId,
+      status: message.status,
+    }));
+  }, { projectId, key });
+}
+
+async function readDurableRpgChoiceCardState(targetPage, projectId, messageId) {
+  return targetPage.evaluate(async ({ projectId: scopedProjectId, messageId: scopedMessageId }) => {
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-intelligence-platform");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(
+      ["conversationMessages", "conversationToolInvocations"],
+      "readonly",
+    );
+    const messageRequest = transaction.objectStore("conversationMessages").get(scopedMessageId);
+    const invocationRequest = transaction.objectStore("conversationToolInvocations").getAll();
+    const [message, invocations] = await Promise.all([
+      new Promise((resolve, reject) => {
+        messageRequest.onsuccess = () => resolve(messageRequest.result ?? null);
+        messageRequest.onerror = () => reject(messageRequest.error);
+      }),
+      new Promise((resolve, reject) => {
+        invocationRequest.onsuccess = () => resolve(invocationRequest.result);
+        invocationRequest.onerror = () => reject(invocationRequest.error);
+      }),
+    ]);
+    database.close();
+    const staleMarkers = invocations.filter((invocation) => (
+      invocation.projectId === scopedProjectId
+      && invocation.messageId === scopedMessageId
+      && invocation.toolId === "conversation:evidence:rpg-choice-stale"
+      && invocation.taskType === "rpg.choice.stale-abandonment.v1"
+    ));
+    return {
+      message: message ? {
+        id: message.id,
+        projectId: message.projectId,
+        role: message.role,
+        status: message.status,
+        contentDigest: message.contentDigest,
+        toolInvocationIds: message.toolInvocationIds,
+      } : null,
+      staleMarkers: staleMarkers.map((marker) => ({
+        id: marker.id,
+        taskId: marker.taskId,
+        status: marker.status,
+        actualExecutor: marker.actualExecutor,
+        externalRequest: marker.externalRequest,
+        dataLeftDevice: marker.dataLeftDevice,
+        canonicalMutationCount: marker.canonicalMutationCount,
+        safeErrorCode: marker.safeErrorCode,
+        safeProgress: marker.safeProgress,
+        inputDigest: marker.inputDigest,
+      })),
+    };
+  }, { projectId, messageId });
+}
+
+async function waitForDurableRpgChoiceStaleMarker(targetPage, projectId, messageId) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const state = await readDurableRpgChoiceCardState(targetPage, projectId, messageId);
+    const markerIds = new Set(state.staleMarkers.map((marker) => marker.id));
+    const linkedMarkerIds = state.message?.toolInvocationIds ?? [];
+    if (
+      state.staleMarkers.length > 0
+      && linkedMarkerIds.some((invocationId) => markerIds.has(invocationId))
+    ) return state;
+    await targetPage.waitForTimeout(100);
+  }
+  throw new Error(`RPG_STALE_CHOICE_MARKER_NOT_LINKED:${messageId}`);
+}
+
+async function mutateFirstCharacterRevision(targetPage, projectId) {
+  return targetPage.evaluate((scopedProjectId) => new Promise((resolve, reject) => {
+    const openRequest = indexedDB.open("novel-intelligence-platform");
+    openRequest.onerror = () => reject(openRequest.error);
+    openRequest.onsuccess = () => {
+      const database = openRequest.result;
+      const transaction = database.transaction("characters", "readwrite");
+      const store = transaction.objectStore("characters");
+      let original = null;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => {
+        database.close();
+        if (!original) reject(new Error("RPG_COLD_LOAD_CHARACTER_FIXTURE_MISSING"));
+        else resolve(original);
+      };
+      const getRequest = store.getAll();
+      getRequest.onerror = () => reject(getRequest.error);
+      getRequest.onsuccess = () => {
+        original = getRequest.result.find((record) => record.projectId === scopedProjectId) ?? null;
+        if (!original) return;
+        store.put({
+          ...original,
+          revision: Number(original.revision ?? 0) + 1,
+          updatedAt: new Date(Date.now() + 1_000).toISOString(),
+        });
+      };
+    };
+  }), projectId);
+}
+
+async function restoreCharacterRecord(targetPage, record) {
+  await targetPage.evaluate((original) => new Promise((resolve, reject) => {
+    const openRequest = indexedDB.open("novel-intelligence-platform");
+    openRequest.onerror = () => reject(openRequest.error);
+    openRequest.onsuccess = () => {
+      const database = openRequest.result;
+      const transaction = database.transaction("characters", "readwrite");
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.objectStore("characters").put(original);
+    };
+  }), record);
+}
+
 try {
   browser = await browserType.launch({ headless: true });
   context = await browser.newContext({
@@ -473,6 +633,214 @@ try {
     await page.getByTestId("rpg-inline-choices").waitFor({ state: "visible", timeout: 180_000 });
     for (const choice of ["A", "B", "C"]) {
       await page.getByTestId(`rpg-choice-${choice}`).waitFor({ state: "visible" });
+    }
+  });
+
+  await check("stale completed A/B/C is durably abandoned and rebuilt before B can continue", async () => {
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
+    await page.getByTestId("rpg-inline-choices").waitFor({ state: "visible", timeout: 60_000 });
+    const originalChoiceCard = page.locator('article[data-rpg-choices="true"]').last();
+    const originalChoiceMessageId = await originalChoiceCard.getAttribute("data-message-id");
+    assert.ok(originalChoiceMessageId, "the completed A/B/C card must expose its durable message identity");
+    const originalCardState = await readDurableRpgChoiceCardState(
+      page,
+      createdProjectId,
+      originalChoiceMessageId,
+    );
+    assert.equal(originalCardState.message?.role, "assistant");
+    assert.equal(originalCardState.message?.status, "completed", "the stale fixture must begin as a completed A/B/C card");
+    for (const choice of ["A", "B", "C"]) {
+      assert.equal(await originalChoiceCard.getByTestId(`rpg-choice-${choice}`).isEnabled(), true);
+    }
+
+    let originalCharacterRecord = null;
+    try {
+      await originalChoiceCard.getByTestId("rpg-choice-A").click();
+      let durableASelections = [];
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        durableASelections = await readDurableRpgSelections(page, createdProjectId, "A");
+        if (durableASelections.length === 1 && durableASelections[0].status === "completed") break;
+        await page.waitForTimeout(100);
+      }
+      assert.equal(durableASelections.length, 1, "one A click must persist exactly one auditable user turn");
+      assert.equal(durableASelections[0].status, "completed", "the selected A turn must finish durable persistence");
+      assert.equal(durableASelections[0].sourceMessageId, originalChoiceMessageId);
+      const selectedTurn = page.locator(`article[data-message-id="${durableASelections[0].id}"]`);
+      await selectedTurn.waitFor({ state: "visible", timeout: 10_000 });
+
+      const stopBeforeStale = page.getByRole("button", { name: "停止", exact: true });
+      await stopBeforeStale.waitFor({ state: "visible", timeout: 10_000 });
+      await stopBeforeStale.click();
+      await waitUntilIdle(page);
+
+      const preStaleState = await readDurableRpgChoiceCardState(
+        page,
+        createdProjectId,
+        originalChoiceMessageId,
+      );
+      assert.equal(preStaleState.staleMarkers.length, 0, "stopping the first attempt must not forge stale evidence");
+      assert.equal(
+        (await readDurableRpgSelections(page, createdProjectId, "A")).length,
+        1,
+        "stopping the first attempt must not duplicate the A turn",
+      );
+
+      originalCharacterRecord = await mutateFirstCharacterRevision(page, createdProjectId);
+      const composer = page.getByLabel("小說專案訊息");
+      await composer.fill("A");
+      await page.getByRole("button", { name: "送出", exact: true }).click();
+
+      durableASelections = await readDurableRpgSelections(page, createdProjectId, "A");
+      assert.equal(durableASelections.length, 1, "typed stale A must reuse the existing auditable A turn");
+      assert.equal(
+        durableASelections[0].status,
+        "completed",
+        "typed A must stay completed while its stale envelope is abandoned",
+      );
+      assert.equal(durableASelections[0].sourceMessageId, originalChoiceMessageId);
+      try {
+        await selectedTurn.waitFor({ state: "visible", timeout: 10_000 });
+      } catch (error) {
+        throw new Error(`RPG_STALE_CHOICE_TURN_NOT_VISIBLE ${JSON.stringify({
+          url: page.url(),
+          typedChoice: "A",
+          userMessages: await page.locator('article[data-role="user"]').allTextContents(),
+          alerts: await page.getByRole("alert").allTextContents(),
+          workspaceTail: (await page.getByTestId("conversation-first-workspace").innerText()).slice(-4_000),
+        })}`, { cause: error });
+      }
+      assert.equal(await selectedTurn.count(), 1, "one stale click must create exactly one RPG user turn");
+
+      const durableStaleState = await waitForDurableRpgChoiceStaleMarker(
+        page,
+        createdProjectId,
+        originalChoiceMessageId,
+      );
+      await waitUntilIdle(page);
+      assert.equal(durableStaleState.message?.status, "completed", "stale evidence must bind to the completed choice card");
+      assert.equal(durableStaleState.staleMarkers.length, 1, "one stale card must have exactly one durable marker");
+      const [staleMarker] = durableStaleState.staleMarkers;
+      assert.equal(staleMarker.id, staleMarker.taskId);
+      assert.equal(staleMarker.status, "failed");
+      assert.equal(staleMarker.actualExecutor, null);
+      assert.equal(staleMarker.externalRequest, false);
+      assert.equal(staleMarker.dataLeftDevice, false);
+      assert.equal(staleMarker.canonicalMutationCount, 0);
+      assert.equal(staleMarker.safeErrorCode, "RPG_CHAT_CHOICES_STALE");
+      assert.equal(staleMarker.safeProgress?.stage, "rpg-choice-stale-abandonment-v1");
+      assert.equal(staleMarker.inputDigest, durableStaleState.message?.contentDigest);
+      assert.equal(durableStaleState.message?.toolInvocationIds.includes(staleMarker.id), true);
+
+      const liveOldCard = page.locator(`article[data-message-id="${originalChoiceMessageId}"]`);
+      await liveOldCard.getByText("作品版本已變更；這張舊選擇卡已封存，請重新建立三選一。")
+        .waitFor({ state: "visible", timeout: 10_000 });
+      for (const choice of ["A", "B", "C"]) {
+        assert.equal(
+          await liveOldCard.getByTestId(`rpg-choice-${choice}`).isDisabled(),
+          true,
+          `stale choice ${choice} must disable immediately without a reload`,
+        );
+      }
+      await page.getByTestId("rpg-next-choice-recovery").waitFor({ state: "visible", timeout: 10_000 });
+
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
+      const reloadedOldCard = page.locator(`article[data-message-id="${originalChoiceMessageId}"]`);
+      await reloadedOldCard.waitFor({ state: "visible", timeout: 60_000 });
+      await reloadedOldCard.getByText("作品版本已變更；這張舊選擇卡已封存，請重新建立三選一。").waitFor({ state: "visible" });
+      for (const choice of ["A", "B", "C"]) {
+        assert.equal(
+          await reloadedOldCard.getByTestId(`rpg-choice-${choice}`).isDisabled(),
+          true,
+          `reloaded stale choice ${choice} must remain disabled`,
+        );
+      }
+      const reloadedDurableState = await readDurableRpgChoiceCardState(
+        page,
+        createdProjectId,
+        originalChoiceMessageId,
+      );
+      assert.equal(reloadedDurableState.staleMarkers.length, 1, "reload must retain exactly one stale marker");
+
+      const recovery = page.getByTestId("rpg-next-choice-recovery");
+      await recovery.waitFor({ state: "visible", timeout: 60_000 });
+      await recovery.getByRole("button", { name: "繼續下一輪／重新建立三選一" }).click();
+      await page.waitForFunction((oldMessageId) => (
+        [...document.querySelectorAll('article[data-rpg-choices="true"]')]
+          .some((element) => element.getAttribute("data-message-id") !== oldMessageId)
+      ), originalChoiceMessageId, { timeout: 180_000 });
+      await waitUntilIdle(page);
+
+      const rebuiltChoiceCard = page.locator('article[data-rpg-choices="true"]').last();
+      const rebuiltChoiceMessageId = await rebuiltChoiceCard.getAttribute("data-message-id");
+      assert.ok(rebuiltChoiceMessageId);
+      assert.notEqual(rebuiltChoiceMessageId, originalChoiceMessageId, "recovery must create a new choice-card message");
+      for (const choice of ["A", "B", "C"]) {
+        assert.equal(
+          await rebuiltChoiceCard.getByTestId(`rpg-choice-${choice}`).isEnabled(),
+          true,
+          `rebuilt choice ${choice} must be actionable`,
+        );
+      }
+
+      await rebuiltChoiceCard.getByTestId("rpg-choice-B").click();
+      const selectedBTurn = page.locator('article[data-role="user"]').filter({ hasText: /選擇 B｜/u });
+      await selectedBTurn.waitFor({ state: "visible", timeout: 5_000 });
+      const durableBSelections = await readDurableRpgSelections(page, createdProjectId, "B");
+      assert.equal(durableBSelections.length, 1, "one rebuilt-card B click must persist exactly one durable B turn");
+      assert.equal(durableBSelections[0].sourceMessageId, rebuiltChoiceMessageId);
+
+      const stop = page.getByRole("button", { name: "停止", exact: true });
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (await stop.isVisible()) {
+          await stop.click();
+          break;
+        }
+        if (await composer.isEnabled()) break;
+        await page.waitForTimeout(100);
+      }
+      await waitUntilIdle(page);
+      assert.equal(await selectedBTurn.count(), 1, "B continuation must not replay the selected turn");
+      assert.equal(
+        (await readDurableRpgSelections(page, createdProjectId, "B")).length,
+        1,
+        "cancellation or completion must leave exactly one durable B turn",
+      );
+
+      await mutateFirstCharacterRevision(page, createdProjectId);
+      assert.equal(
+        await rebuiltChoiceCard.getByTestId("rpg-choice-B").isEnabled(),
+        true,
+        "a cancelled durable B attempt must remain directly recoverable before context drift is detected",
+      );
+      await rebuiltChoiceCard.getByTestId("rpg-choice-B").click();
+      const directClickStaleState = await waitForDurableRpgChoiceStaleMarker(
+        page,
+        createdProjectId,
+        rebuiltChoiceMessageId,
+      );
+      await waitUntilIdle(page);
+      assert.equal(directClickStaleState.staleMarkers.length, 1);
+      assert.equal(
+        (await readDurableRpgSelections(page, createdProjectId, "B")).length,
+        1,
+        "direct stale B retry must reuse the completed user turn instead of duplicating it",
+      );
+      await rebuiltChoiceCard.getByText("作品版本已變更；這張舊選擇卡已封存，請重新建立三選一。")
+        .waitFor({ state: "visible", timeout: 10_000 });
+      for (const choice of ["A", "B", "C"]) {
+        assert.equal(
+          await rebuiltChoiceCard.getByTestId(`rpg-choice-${choice}`).isDisabled(),
+          true,
+          `direct-click stale choice ${choice} must disable immediately without a reload`,
+        );
+      }
+      await page.getByTestId("rpg-next-choice-recovery").waitFor({ state: "visible", timeout: 10_000 });
+    } finally {
+      if (originalCharacterRecord) {
+        await restoreCharacterRecord(page, originalCharacterRecord);
+      }
     }
   });
 

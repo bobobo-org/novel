@@ -15,6 +15,10 @@ import {
   parseClosedAgentFailureEvidence,
 } from "../closed-agent-os/safe-runtime-diagnostics";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
+import {
+  hasRpgChoiceStaleEvidenceIdentity,
+  isRpgChoiceStaleEvidenceInvocation,
+} from "./rpg-choice-stale-evidence";
 
 const CONVERSATION_STORE_PREFIX = "conversation";
 const MAX_PERSISTED_CONVERSATION_TEXT = 262_144;
@@ -150,6 +154,10 @@ export async function assertConversationRecordSafe(store: string, record: Domain
   }
   if (store === "conversationToolInvocations") {
     const invocation = record as ConversationToolInvocation;
+    if (
+      hasRpgChoiceStaleEvidenceIdentity(invocation)
+      && !isRpgChoiceStaleEvidenceInvocation(invocation)
+    ) fail("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_INVALID");
     const receipt = invocation.executionReceipt;
     const failureEvidence = invocation.safeProgress?.stage
       === CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE

@@ -52,12 +52,13 @@ type DashboardTarget = {
 
 const dashboardTargetCache = new WeakMap<
   ConversationMessage[],
-  WeakMap<ConversationArtifact[], DashboardTarget>
+  WeakMap<ConversationArtifact[], WeakMap<ConversationToolInvocation[], DashboardTarget>>
 >();
 
 function findDashboardTarget(
   messages: ConversationMessage[],
   artifacts: ConversationArtifact[],
+  invocations: ConversationToolInvocation[],
 ): DashboardTarget {
   const choiceMessages: ConversationMessage[] = [];
   for (const message of messages) {
@@ -65,7 +66,12 @@ function findDashboardTarget(
   }
   for (let index = choiceMessages.length - 1; index >= 0; index -= 1) {
     const choiceMessage = choiceMessages[index];
-    if (!inspectRpgChoiceTurn(messages, artifacts, choiceMessage.id).consumed) {
+    if (!inspectRpgChoiceTurn(
+      messages,
+      artifacts,
+      choiceMessage.id,
+      invocations,
+    ).closed) {
       return { messageId: choiceMessage.id, placement: "choices" as const };
     }
   }
@@ -80,15 +86,21 @@ function findDashboardTarget(
 function readDashboardTarget(
   messages: ConversationMessage[],
   artifacts: ConversationArtifact[],
+  invocations: ConversationToolInvocation[],
 ): DashboardTarget {
   let byArtifacts = dashboardTargetCache.get(messages);
   if (!byArtifacts) {
-    byArtifacts = new WeakMap<ConversationArtifact[], DashboardTarget>();
+    byArtifacts = new WeakMap<ConversationArtifact[], WeakMap<ConversationToolInvocation[], DashboardTarget>>();
     dashboardTargetCache.set(messages, byArtifacts);
   }
-  if (byArtifacts.has(artifacts)) return byArtifacts.get(artifacts) ?? null;
-  const target = findDashboardTarget(messages, artifacts);
-  byArtifacts.set(artifacts, target);
+  let byInvocations = byArtifacts.get(artifacts);
+  if (!byInvocations) {
+    byInvocations = new WeakMap<ConversationToolInvocation[], DashboardTarget>();
+    byArtifacts.set(artifacts, byInvocations);
+  }
+  if (byInvocations.has(invocations)) return byInvocations.get(invocations) ?? null;
+  const target = findDashboardTarget(messages, artifacts, invocations);
+  byInvocations.set(invocations, target);
   return target;
 }
 
@@ -542,7 +554,7 @@ export function MessageTimeline({
   const invocationsByMessage = useMemo(() => new Map(
     invocations.map((invocation) => [invocation.messageId, invocation]),
   ), [invocations]);
-  const dashboardTarget = readDashboardTarget(messages, artifacts);
+  const dashboardTarget = readDashboardTarget(messages, artifacts, invocations);
   const rpgChoiceRecoveryTarget = gameStory
     ? findRpgChoiceRecoveryTarget(messages, artifacts, {
         chapter: currentChapter,
@@ -636,8 +648,12 @@ export function MessageTimeline({
         })}
         {rpgChoiceRecoveryTarget ? (
           <section className={styles.resultCard} data-testid="rpg-next-choice-recovery" role="status">
-            <strong>下一輪三選一尚未建立</strong>
-            <p>上一回合正文、數值與 Canon 已安全保留。你可以只重建下一組選項，不會再次採用或重複寫入上一回合。</p>
+            <strong>{rpgChoiceRecoveryTarget.reason === "stale_choice_card"
+              ? "原三選一已因版本變更而封存"
+              : "下一輪三選一尚未建立"}</strong>
+            <p>{rpgChoiceRecoveryTarget.reason === "stale_choice_card"
+              ? "系統會依目前人物、世界、章節與狀態重新建立三條路線，不會重試失效的舊分支。"
+              : "上一回合正文、數值與 Canon 已安全保留。你可以只重建下一組選項，不會再次採用或重複寫入上一回合。"}</p>
             <button type="button" disabled={busy} onClick={onRecoverRpgChoices}>
               繼續下一輪／重新建立三選一
             </button>

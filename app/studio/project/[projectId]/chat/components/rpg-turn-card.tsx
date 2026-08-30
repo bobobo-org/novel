@@ -8,6 +8,7 @@ export function RpgTurnCard({
   messageId,
   busy,
   consumed,
+  abandoned,
   dashboard,
   onChoose,
 }: {
@@ -15,6 +16,7 @@ export function RpgTurnCard({
   messageId: string;
   busy: boolean;
   consumed: boolean;
+  abandoned: boolean;
   dashboard: ReactNode;
   onChoose: (key: RpgChoiceKey) => void;
 }) {
@@ -36,12 +38,13 @@ export function RpgTurnCard({
           <RpgChoiceCard
             key={choice.key}
             choice={choice}
-            disabled={busy || consumed || !parsed.envelope}
+            disabled={busy || consumed || abandoned || !parsed.envelope}
             onChoose={onChoose}
           />
         ))}
       </div>
       {consumed ? <p className={styles.emptyNote}>這張選擇卡已建立回合；請採用或放棄目前候選。</p> : null}
+      {abandoned ? <p className={styles.emptyNote}>作品版本已變更；這張舊選擇卡已封存，請重新建立三選一。</p> : null}
     </section>
   );
 }

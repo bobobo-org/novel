@@ -187,13 +187,19 @@ async function componentContract() {
       "the URL must remain intact when the prompt is rejected by a busy or locked sender",
     );
     assert.doesNotMatch(workspace, /setDraft\(initialPrompt\)/u, "a URL prompt must execute once instead of remaining as a draft");
-    assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts"), /conversation\.approveChapterArtifact\(/u);
+    const rpgApproval = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts");
+    assert.match(rpgApproval, /conversation\.approveChapterArtifact\(/u);
     const rpgController = await read("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts");
-    assert.match(rpgController, /plan = await planRpgChatChoices\(\{/u);
+    const rpgWire = await read("lib/novel-ai/web/rpg-chat-wire.ts");
+    assert.match(rpgController, /import\("@\/lib\/novel-ai\/web\/rpg-chat-turn"\)/u);
+    assert.doesNotMatch(rpgController, /^\s*import(?!\s+type\b)[^;]+from\s+"@\/lib\/novel-ai\/web\/rpg-chat-turn";/mu);
+    assert.doesNotMatch(rpgApproval, /^\s*import(?!\s+type\b)[^;]+from\s+"@\/lib\/novel-ai\/web\/rpg-chat-turn";/mu);
+    assert.doesNotMatch(rpgWire, /^\s*import(?!\s+type\b)/mu);
+    assert.match(rpgController, /plan = await runtime\.planRpgChatChoices\(\{/u);
     assert.match(rpgController, /fallbackReason: "USER_REQUESTED_RULE_FALLBACK"/u);
     assert.match(rpgController, /requestRpgChoiceFallback/u);
     assert.doesNotMatch(rpgController, /RPG_CHOICE_RULE_PLAN_IMMEDIATE/u);
-    assert.match(rpgController, /generateRpgChatTurnCandidate\(/u);
+    assert.match(rpgController, /rpgRuntime\.generateRpgChatTurnCandidate\(/u);
     assert.match(await read("app/studio/project/[projectId]/chat/hooks/use-conversation-attachments.ts"), /extractManualLearningFileInWorker\(/u);
   });
 }
@@ -272,12 +278,15 @@ async function bundleBudget() {
       path.join(chatRoot, "hooks", "use-conversation-attachments.ts"),
       path.join(chatRoot, "hooks", "use-conversation-learning-loader.ts"),
       path.join(chatRoot, "hooks", "use-conversation-external-ai.ts"),
+      path.join(chatRoot, "hooks", "use-conversation-rpg.ts"),
       path.join(root, "lib", "novel-ai", "web", "manual-learning-worker-client.ts"),
       path.join(root, "lib", "novel-ai", "web", "manual-learning-worker.ts"),
       path.join(root, "lib", "novel-ai", "web", "manual-learning-file-validation.ts"),
       path.join(root, "lib", "novel-ai", "web", "manual-learning-import-preparation.ts"),
       path.join(root, "lib", "novel-ai", "conversation", "attachments.ts"),
       path.join(root, "lib", "novel-ai", "conversation", "learning-import.ts"),
+      path.join(root, "lib", "novel-ai", "web", "rpg-chat-turn.ts"),
+      path.join(root, "lib", "novel-ai", "web", "rpg-chat-wire.ts"),
     ];
     const stats = await fs.stat(statsPath).catch(() => null);
     const newestSource = Math.max(...await Promise.all(sourcePaths.map(async (file) => (await fs.stat(file)).mtimeMs)));

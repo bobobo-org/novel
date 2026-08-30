@@ -40,11 +40,7 @@ import {
   ConversationRepositoryService,
 } from "@/lib/novel-ai/conversation/repository";
 import type { ManualLearningFileExtraction } from "@/lib/novel-ai/web/manual-learning-import-preparation";
-import {
-  buildRpgChatCustomAction,
-  loadLearningAwareRpgChatSnapshot,
-  parseRpgChoiceSelection,
-} from "@/lib/novel-ai/web/rpg-chat-turn";
+import { parseRpgChoiceSelection } from "@/lib/novel-ai/web/rpg-chat-wire";
 import { ConversationWorkspaceView } from "./components/conversation-workspace-view";
 import { useConversationSessionController } from "./hooks/use-conversation-session";
 import { useConversationBranchController } from "./hooks/use-conversation-branch";
@@ -216,6 +212,7 @@ export default function ConversationWorkspace({
     loadWorkspace,
     refreshSession,
     projectMessageIntoActiveSession,
+    projectInvocationIntoActiveSession,
     chooseSession: switchSession,
     beginSessionIntent,
     queueSessionIntent,
@@ -278,6 +275,7 @@ export default function ConversationWorkspace({
     createRpgChoicesMessage,
     executeRpgChoice,
     chooseRpgOption,
+    abandonStaleRpgChoiceCard,
     recoverRpgChoices,
     requestRpgChoiceFallback,
     rpgChoicePlanning,
@@ -300,6 +298,8 @@ export default function ConversationWorkspace({
     acquireLease: acquireConversationLease,
     maybeUpdateRollingSummary,
     loadWorkspace,
+    projectMessageIntoActiveSession,
+    projectInvocationIntoActiveSession,
     setRetryAvailable,
     setRetryLabel,
     setCancellable,
@@ -343,7 +343,7 @@ export default function ConversationWorkspace({
 
   useEffect(() => () => abortRef.current?.abort("CONVERSATION_UNMOUNTED"), []);
 
-  const latestRpgChoices = latestRpgChoicesFrom(messages);
+  const latestRpgChoices = latestRpgChoicesFrom(messages, invocations);
 
   async function chooseSession(sessionId: string) {
     if (isBranchPending()) {
@@ -1026,7 +1026,11 @@ export default function ConversationWorkspace({
     let requestRpgChoices = latestRpgChoices;
     if (existingUserRequest) {
       try {
-        requestRpgChoices = latestRpgChoicesFrom(await conversation.listMessages(projectId, sessionId));
+        const [branchMessages, branchInvocations] = await Promise.all([
+          conversation.listMessages(projectId, sessionId),
+          conversation.listToolInvocations(projectId, sessionId),
+        ]);
+        requestRpgChoices = latestRpgChoicesFrom(branchMessages, branchInvocations);
       } catch (error) {
         operationLockRef.current = false;
         setSafeError({ code: errorCode(error), message: errorMessage(error) });
@@ -1052,6 +1056,18 @@ export default function ConversationWorkspace({
       return;
     }
     const requestPlayMode = resolveStoryPlayMode(liveStoryState);
+    if (requestRpgChoices?.abandoned) {
+      retryActionRef.current = () => { void recoverRpgChoices(); };
+      setRetryAvailable(true);
+      setRetryLabel("重新建立三選一");
+      setSafeError({
+        code: "RPG_CHAT_CHOICES_STALE",
+        message: "原三選一已因作品版本變更而封存；請依目前人物、世界與章節狀態重新建立。",
+      });
+      setProgress("失效的舊分支不會再執行；等待重新建立三選一。");
+      operationLockRef.current = false;
+      return;
+    }
     const plan = await planConversationRequest({
       content,
       attachmentCount: requestLocalAttachments.length,
@@ -1213,8 +1229,11 @@ export default function ConversationWorkspace({
           code: "CONVERSATION_ATTACHMENT_RIGHTS_CONFIRMATION_REQUIRED",
         });
       }
-      const currentSessionMessages = await conversation.listMessages(projectId, sessionId);
-      const currentSessionArtifacts = await conversation.listArtifacts(projectId, sessionId);
+      const [currentSessionMessages, currentSessionArtifacts, currentSessionInvocations] = await Promise.all([
+        conversation.listMessages(projectId, sessionId),
+        conversation.listArtifacts(projectId, sessionId),
+        conversation.listToolInvocations(projectId, sessionId),
+      ]);
       const last = currentSessionMessages.at(-1) ?? null;
       const existingUserMessage = existingUserRequest
         ? currentSessionMessages.find((message) => message.id === existingUserRequest.userMessageId) ?? null
@@ -1282,11 +1301,19 @@ export default function ConversationWorkspace({
             currentSessionMessages,
             currentSessionArtifacts,
             activeRpgChoiceMessage.message.id,
+            currentSessionInvocations,
           )
         : null;
-      if (rpgTurnState?.consumed) {
+      if (rpgTurnState?.closed) {
+        if (rpgTurnState.abandoned) {
+          retryActionRef.current = () => { void recoverRpgChoices(); };
+          setRetryAvailable(true);
+          setRetryLabel("重新建立三選一");
+        }
         throw Object.assign(new Error("這張故事選擇卡已經建立過回合。"), {
-          code: "RPG_CHAT_TURN_ALREADY_CREATED",
+          code: rpgTurnState.abandoned
+            ? "RPG_CHAT_CHOICES_STALE"
+            : "RPG_CHAT_TURN_ALREADY_CREATED",
         });
       }
       const existingRpgUser = rpgTurnState?.recoverableUser ?? null;
@@ -1311,6 +1338,10 @@ export default function ConversationWorkspace({
         parentMessageId: last?.id ?? null,
         sourceMessageId: activeRpgChoiceMessage?.message.id ?? null,
       });
+      // Keep typed A/B/C consistent with clicking a choice card: the durable
+      // user turn must be visible immediately, even while the lazy RPG runtime
+      // or selected model is still loading.
+      projectMessageIntoActiveSession(sessionId, userMessage);
       onAccepted?.();
       let preparedAttachments: Array<{
         record: ConversationAttachment;
@@ -1391,6 +1422,11 @@ export default function ConversationWorkspace({
           });
           requestCompletion.capture(completed.message);
         } else if (plan.intent === "rpg_custom_action" && requestRpgChoices) {
+          const {
+            buildRpgChatCustomAction,
+            loadLearningAwareRpgChatSnapshot,
+          } = await import("@/lib/novel-ai/web/rpg-chat-turn");
+          controller.signal.throwIfAborted();
           const snapshot = await loadLearningAwareRpgChatSnapshot({
             repository,
             projectId,
@@ -1476,6 +1512,36 @@ export default function ConversationWorkspace({
     } catch (error) {
       if (runRef.current !== runId) return;
       const safeCode = errorCode(error);
+      if (safeCode === "RPG_CHAT_CHOICES_STALE" && requestRpgChoices) {
+        let abandonmentError: unknown = null;
+        try {
+          await abandonStaleRpgChoiceCard({
+            sessionId,
+            choiceSourceMessageId: requestRpgChoices.message.id,
+            message: null,
+          });
+        } catch (markerError) {
+          abandonmentError = markerError;
+        }
+        retryActionRef.current = () => { void recoverRpgChoices(); };
+        setRetryAvailable(true);
+        setRetryLabel(abandonmentError ? "重試封存並重建三選一" : "重新建立三選一");
+        setSafeError(abandonmentError
+          ? {
+              code: errorCode(abandonmentError),
+              message: "失效選項尚未安全封存；系統已停止，不會再執行舊分支。請重試封存並重建三選一。",
+            }
+          : {
+              code: safeCode,
+              message: "原三選一已因作品版本變更而封存；請依目前人物、世界與章節狀態重新建立。",
+            });
+        setProgress(abandonmentError
+          ? "舊分支已停止；等待安全封存後再建立新選項。"
+          : "失效的舊分支已封存；等待重新建立三選一。");
+        if (!existingUserRequest) clearTransientAttachments();
+        await loadWorkspace(sessionId).catch(() => undefined);
+        return;
+      }
       if (externalSelectedForRequest) {
         retryActionRef.current = null;
         setRetryAvailable(false);

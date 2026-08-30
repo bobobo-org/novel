@@ -296,6 +296,26 @@ export function useConversationSessionController({
     return true;
   }, []);
 
+  const projectInvocationIntoActiveSession = useCallback((
+    sessionId: string,
+    invocation: ConversationToolInvocation,
+  ) => {
+    if (sessionIntentRef.current.sessionId !== sessionId || invocation.sessionId !== sessionId) {
+      return false;
+    }
+    setInvocations((current) => {
+      const existingIndex = current.findIndex((item) => item.id === invocation.id);
+      if (existingIndex < 0) {
+        return [...current, invocation].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+      }
+      const next = [...current];
+      if ((next[existingIndex]?.revision ?? 0) > invocation.revision) return current;
+      next[existingIndex] = invocation;
+      return next;
+    });
+    return true;
+  }, []);
+
   const loadWorkspace = useCallback(async (
     preferredSessionId = "",
     options: WorkspaceLoadOptions = {},
@@ -459,6 +479,7 @@ export function useConversationSessionController({
     loadWorkspace,
     refreshSession,
     projectMessageIntoActiveSession,
+    projectInvocationIntoActiveSession,
     chooseSession,
     beginSessionIntent,
     queueSessionIntent,

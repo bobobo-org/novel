@@ -21,24 +21,17 @@ import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-re
 import {
   isRpgLogicalTurnProviderTaskId,
 } from "@/lib/novel-ai/conversation/rpg-logical-turn";
-import { rejectStudioClosedAgentCandidate } from "@/lib/novel-ai/web/closed-agent-os-service";
+import type { RpgChoice } from "@/lib/novel-ai/game/progression/rpg-progression";
 import {
-  buildRpgRuleChoicePlan,
-  buildRpgChatCustomAction,
-  generateRpgChatTurnCandidate,
-  loadLearningAwareRpgChatSnapshot,
   normalizeRpgChoiceWireText,
-  planRpgChatChoices,
-  resolveRpgChatTurnLockedResult,
   rpgChoiceWireText,
-  validateRpgStoryCandidateBeforePersistence,
-  type RpgChatChoicePlan,
-  type RpgChatTurnCandidate,
+} from "@/lib/novel-ai/web/rpg-chat-wire";
+import { isRpgChoiceStaleEvidenceInvocation } from "@/lib/novel-ai/conversation/rpg-choice-stale-evidence";
+import type {
+  RpgChatChoicePlan,
+  RpgChatTurnCandidate,
 } from "@/lib/novel-ai/web/rpg-chat-turn";
-import {
-  generateRpgChatTurnCandidateWithExternalCascade,
-  type ExternalRpgSingleRunIntent,
-} from "@/lib/novel-ai/web/rpg-external-cascade";
+import type { ExternalRpgSingleRunIntent } from "@/lib/novel-ai/web/rpg-external-cascade";
 import {
   verifyExternalRpgExecutionReceipt,
   verifyExternalRpgFailureLineage,
@@ -48,7 +41,6 @@ import type {
   ExternalAIProviderId,
   NovelAIExecutionMode,
 } from "@/lib/novel-ai/providers/external/external-provider-contract";
-import { settleApprovedRpgTurnClosedAgent } from "@/lib/novel-ai/web/rpg-approval-settlement";
 import {
   parseRpgCandidate,
   parseRpgChoices,
@@ -63,6 +55,15 @@ import {
   resolveRpgExecutionSourceBlock,
   type RpgExecutionSourceSnapshot,
 } from "./rpg-execution-source-gate";
+
+const loadRpgChatTurnRuntime = () => import("@/lib/novel-ai/web/rpg-chat-turn");
+
+function assertRpgRuntimeLoadActive(signal?: AbortSignal) {
+  if (!signal?.aborted) return;
+  throw Object.assign(new Error("RPG runtime loading was cancelled."), {
+    code: "CONVERSATION_CANCELLED",
+  });
+}
 
 function rpgErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
@@ -112,7 +113,7 @@ async function resolveRpgLogicalTurnExecutionTruth(candidate: RpgChatTurnCandida
 }
 
 export function rpgChoiceUserContent(
-  choice: RpgChatChoicePlan["choices"][number] | ReturnType<typeof buildRpgChatCustomAction>,
+  choice: RpgChatChoicePlan["choices"][number] | RpgChoice,
 ) {
   return choice.key === "custom"
     ? `自訂行動：${choice.title}`
@@ -121,7 +122,7 @@ export function rpgChoiceUserContent(
 
 export function rpgUserMessageMatchesChoice(
   message: ConversationMessage,
-  choice: RpgChatChoicePlan["choices"][number] | ReturnType<typeof buildRpgChatCustomAction>,
+  choice: RpgChatChoicePlan["choices"][number] | RpgChoice,
 ) {
   const content = normalizeRpgChoiceWireText(message.content);
   if (content === normalizeRpgChoiceWireText(rpgChoiceUserContent(choice))) return true;
@@ -133,6 +134,7 @@ export function inspectRpgChoiceTurn(
   messages: ConversationMessage[],
   artifacts: ConversationArtifact[],
   choiceSourceMessageId: string,
+  invocations: ConversationToolInvocation[] = [],
 ) {
   const attempts = messages.filter((message) => (
     message.role === "user" && message.sourceMessageId === choiceSourceMessageId
@@ -164,13 +166,27 @@ export function inspectRpgChoiceTurn(
       && responseIdsWithFinishedArtifact.has(response.id)
     ))
     .map((response) => response.parentMessageId!));
+  const choiceCard = messages.find((message) => message.id === choiceSourceMessageId) ?? null;
+  const abandoned = Boolean(choiceCard && invocations.some((invocation) => (
+    invocation.messageId === choiceSourceMessageId
+    && isRpgChoiceStaleEvidenceInvocation(invocation, choiceCard)
+  )));
+  const consumed = settledAttemptIds.size > 0;
+  const closed = consumed || abandoned;
   return {
     attempts,
     responses,
-    consumed: settledAttemptIds.size > 0,
-    recoverableUser: [...attempts]
-      .reverse()
-      .find((attempt) => !finishedAttemptIds.has(attempt.id)) ?? null,
+    consumed,
+    abandoned,
+    closed,
+    recoverableUser: closed
+      ? null
+      : [...attempts]
+        .reverse()
+        .find((attempt) => (
+          !["failed", "cancelled"].includes(attempt.status)
+          && !finishedAttemptIds.has(attempt.id)
+        )) ?? null,
   };
 }
 
@@ -221,6 +237,8 @@ export function useConversationRpgController({
   acquireLease,
   maybeUpdateRollingSummary,
   loadWorkspace,
+  projectMessageIntoActiveSession,
+  projectInvocationIntoActiveSession,
   setRetryAvailable,
   setRetryLabel,
   setCancellable,
@@ -248,6 +266,11 @@ export function useConversationRpgController({
   acquireLease: (projectId: string, sessionId: string) => Promise<(() => void) | null>;
   maybeUpdateRollingSummary: (sessionId: string) => Promise<unknown>;
   loadWorkspace: (preferredSessionId?: string) => Promise<boolean>;
+  projectMessageIntoActiveSession: (sessionId: string, message: ConversationMessage) => boolean;
+  projectInvocationIntoActiveSession: (
+    sessionId: string,
+    invocation: ConversationToolInvocation,
+  ) => boolean;
   setRetryAvailable: (value: boolean) => void;
   setRetryLabel: (value: string) => void;
   setCancellable: (value: boolean) => void;
@@ -271,13 +294,61 @@ export function useConversationRpgController({
     return true;
   }
 
-  const loadSnapshot = (signal?: AbortSignal) => loadLearningAwareRpgChatSnapshot({
-    repository,
-    projectId,
-    learningRepository,
-    ensureSharedLearningReady,
-    signal,
-  });
+  const loadSnapshot = async (signal?: AbortSignal) => {
+    const runtime = await loadRpgChatTurnRuntime();
+    assertRpgRuntimeLoadActive(signal);
+    return runtime.loadLearningAwareRpgChatSnapshot({
+      repository,
+      projectId,
+      learningRepository,
+      ensureSharedLearningReady,
+      signal,
+    });
+  };
+
+  async function assertRpgChoiceEnvelopeBaselineCurrent(
+    envelope: RpgChoiceEnvelope,
+    signal: AbortSignal,
+  ) {
+    assertRpgRuntimeLoadActive(signal);
+    if (
+      envelope.plan.contextRevisionDigest !== envelope.contextRevisionDigest
+      || envelope.plan.contextRevisionGuard.digest !== envelope.contextRevisionDigest
+    ) {
+      throw Object.assign(new Error("這組故事選項的版本證據不完整，請重新產生。"), {
+        code: "RPG_CHAT_CHOICES_STALE",
+      });
+    }
+    const project = await repository.get<NovelProject>("projects", projectId);
+    assertRpgRuntimeLoadActive(signal);
+    if (
+      !project
+      || project.deletedAt
+      || project.activeChapterId !== envelope.chapterId
+      || !project.storyStateId
+    ) {
+      throw Object.assign(new Error("作品狀態已改變，請重新產生本回合選項。"), {
+        code: "RPG_CHAT_CHOICES_STALE",
+      });
+    }
+    const [chapter, storyState] = await Promise.all([
+      repository.get<Chapter>("chapters", envelope.chapterId),
+      repository.get<StoryState>("storyStates", project.storyStateId),
+    ]);
+    assertRpgRuntimeLoadActive(signal);
+    if (
+      !chapter
+      || chapter.projectId !== projectId
+      || chapter.revision !== envelope.chapterRevision
+      || !storyState
+      || storyState.projectId !== projectId
+      || storyState.revision !== envelope.storyStateRevision
+    ) {
+      throw Object.assign(new Error("作品狀態已改變，請重新產生本回合選項。"), {
+        code: "RPG_CHAT_CHOICES_STALE",
+      });
+    }
+  }
 
   async function readRpgChoiceTurnState(
     sessionId: string,
@@ -294,6 +365,7 @@ export function useConversationRpgController({
         sessionMessages,
         sessionArtifacts,
         choiceSourceMessageId,
+        sessionInvocations,
       );
       const responseIds = new Set(turn.responses.map((response) => response.id));
       const durableCandidateResponseIds = new Set(sessionArtifacts
@@ -371,11 +443,44 @@ export function useConversationRpgController({
       }
     }
     return {
-      ...inspectRpgChoiceTurn(sessionMessages, sessionArtifacts, choiceSourceMessageId),
+      ...inspectRpgChoiceTurn(
+        sessionMessages,
+        sessionArtifacts,
+        choiceSourceMessageId,
+        sessionInvocations,
+      ),
       messages: sessionMessages,
       artifacts: sessionArtifacts,
       invocations: sessionInvocations,
     };
+  }
+
+  async function abandonStaleRpgChoiceCard(input: {
+    sessionId: string;
+    choiceSourceMessageId: string;
+    message: ConversationMessage | null;
+  }) {
+    const staleEvidence = await conversation.saveRpgChoiceStaleEvidence({
+      projectId,
+      sessionId: input.sessionId,
+      choiceCardMessageId: input.choiceSourceMessageId,
+    });
+    const sealedChoiceCard = await repository.get<ConversationMessage>(
+      "conversationMessages",
+      input.choiceSourceMessageId,
+    );
+    if (sealedChoiceCard) projectMessageIntoActiveSession(input.sessionId, sealedChoiceCard);
+    projectInvocationIntoActiveSession(input.sessionId, staleEvidence);
+    if (input.message?.status === "pending") {
+      const cancelled = await conversation.updateMessageStatus({
+        projectId,
+        sessionId: input.sessionId,
+        messageId: input.message.id,
+        expectedRevision: input.message.revision,
+        status: "cancelled",
+      }).catch(() => null);
+      if (cancelled) projectMessageIntoActiveSession(input.sessionId, cancelled);
+    }
   }
 
   async function createRpgChoicesMessage(input: {
@@ -428,16 +533,19 @@ export function useConversationRpgController({
       setProgress("閉端 AI 正在承接上一回合設計三條故事路線；最長等待 180 秒。你可隨時改用後備選項。");
       let plan: RpgChatChoicePlan;
       try {
-        plan = await planRpgChatChoices({
+        const runtime = await loadRpgChatTurnRuntime();
+        assertRpgRuntimeLoadActive(planningController.signal);
+        plan = await runtime.planRpgChatChoices({
           snapshot,
           signal: planningController.signal,
           onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 最長等待 180 秒`),
         });
         if (userRequestedFallback) {
           if (plan.actualExecutor !== "deterministic-rule-fallback") {
+            const { rejectStudioClosedAgentCandidate } = await import("@/lib/novel-ai/web/closed-agent-os-service");
             await rejectStudioClosedAgentCandidate(plan.candidateId).catch(() => undefined);
           }
-          const fallbackPlan = await buildRpgRuleChoicePlan({
+          const fallbackPlan = await runtime.buildRpgRuleChoicePlan({
             snapshot,
             fallbackReason: "USER_REQUESTED_RULE_FALLBACK",
           });
@@ -582,19 +690,21 @@ export function useConversationRpgController({
 
   async function executeRpgChoice(input: {
     sessionId: string;
-    choice: RpgChatChoicePlan["choices"][number] | ReturnType<typeof buildRpgChatCustomAction>;
+    choice: RpgChatChoicePlan["choices"][number] | RpgChoice;
     choicePlanCandidateId: string;
     choiceSourceMessageId: string;
     expectedChapterId: string;
     expectedChapterRevision: number;
     expectedStoryStateRevision: number;
     expectedContextRevisionDigest: string;
-    userMessage?: ConversationMessage;
+    userMessage: ConversationMessage;
     signal: AbortSignal;
   }) {
     return withRpgTurnLock(
       `${input.sessionId}:${input.choiceSourceMessageId}:${input.choicePlanCandidateId}`,
       async () => {
+        const rpgRuntime = await loadRpgChatTurnRuntime();
+        assertRpgRuntimeLoadActive(input.signal);
         const snapshot = await loadSnapshot(input.signal);
         if (
           snapshot.chapter.id !== input.expectedChapterId
@@ -611,34 +721,21 @@ export function useConversationRpgController({
           input.choiceSourceMessageId,
           true,
         );
-        if (turnState.consumed) {
+        if (turnState.closed) {
           throw Object.assign(new Error("這張故事選擇卡已經建立過回合。"), {
             code: "RPG_CHAT_TURN_ALREADY_CREATED",
           });
         }
         const recoverableUser = turnState.recoverableUser;
-        if (
-          recoverableUser
-          && input.userMessage
-          && recoverableUser.id !== input.userMessage.id
-        ) {
+        if (recoverableUser && recoverableUser.id !== input.userMessage.id) {
           throw Object.assign(new Error("這張選擇卡已有一筆尚未完成的選擇；必須先恢復同一回合。"), {
             code: "RPG_CHAT_TURN_CHOICE_CONFLICT",
           });
         }
-        const userMessage = input.userMessage ?? recoverableUser ?? await (async () => {
-          const last = turnState.messages.at(-1) ?? null;
-          const attemptNumber = turnState.attempts.length + 1;
-          return conversation.appendMessage({
-            projectId,
-            sessionId: input.sessionId,
-            messageId: `conversation-rpg-choice:${input.sessionId}:${input.choiceSourceMessageId}:${attemptNumber}`,
-            role: "user",
-            content: rpgChoiceUserContent(input.choice),
-            parentMessageId: last?.id ?? null,
-            sourceMessageId: input.choiceSourceMessageId,
-          });
-        })();
+        let userMessage = await repository.get<ConversationMessage>(
+          "conversationMessages",
+          input.userMessage.id,
+        ) ?? input.userMessage;
         if (
           userMessage.projectId !== projectId
           || userMessage.sessionId !== input.sessionId
@@ -650,13 +747,27 @@ export function useConversationRpgController({
             code: "RPG_CHAT_TURN_CHOICE_CONFLICT",
           });
         }
+        if (userMessage.status === "pending") {
+          userMessage = await conversation.updateMessageStatus({
+            projectId,
+            sessionId: input.sessionId,
+            messageId: userMessage.id,
+            expectedRevision: userMessage.revision,
+            status: "completed",
+          });
+        } else if (userMessage.status !== "completed") {
+          throw Object.assign(new Error("這筆選擇已經終止，不能沿用為新的故事回合。"), {
+            code: "RPG_CHAT_TURN_CHOICE_CONFLICT",
+          });
+        }
+        projectMessageIntoActiveSession(input.sessionId, userMessage);
         await maybeUpdateRollingSummary(input.sessionId);
         turnState = await readRpgChoiceTurnState(
           input.sessionId,
           input.choiceSourceMessageId,
           true,
         );
-        if (turnState.consumed) {
+        if (turnState.closed) {
           throw Object.assign(new Error("這張故事選擇卡已經建立過回合。"), {
             code: "RPG_CHAT_TURN_ALREADY_CREATED",
           });
@@ -685,7 +796,7 @@ export function useConversationRpgController({
             candidate: parsed,
             snapshot,
           });
-          const expectedResolution = resolveRpgChatTurnLockedResult(snapshot, input.choice);
+          const expectedResolution = rpgRuntime.resolveRpgChatTurnLockedResult(snapshot, input.choice);
           if (
             (externalReceipt && externalReceipt.projectId !== projectId)
             || (externalReceipt && externalReceipt.logicalRequestId !== userMessage.id)
@@ -707,7 +818,7 @@ export function useConversationRpgController({
               code: "RPG_EXTERNAL_DURABLE_ARTIFACT_INVALID",
             });
           }
-          const recoveredStory = await validateRpgStoryCandidateBeforePersistence({
+          const recoveredStory = await rpgRuntime.validateRpgStoryCandidateBeforePersistence({
             snapshot,
             choice: input.choice,
             resolution: expectedResolution,
@@ -875,6 +986,8 @@ export function useConversationRpgController({
             onRpgGenerationStarted();
             if (executionSourceSnapshot.externalSelected) {
               setProgress("已依本次單次同意優先交由指定外來 AI 產生完整小說正文；失敗後才啟動閉端 AI 的獨立 180 秒，必要時再追加最多 60 秒隱藏後備複核。");
+              const { generateRpgChatTurnCandidateWithExternalCascade } = await import("@/lib/novel-ai/web/rpg-external-cascade");
+              assertRpgRuntimeLoadActive(input.signal);
               candidate = await generateRpgChatTurnCandidateWithExternalCascade({
                 snapshot,
                 choice: input.choice,
@@ -894,7 +1007,7 @@ export function useConversationRpgController({
               });
             } else {
               setProgress("閉端 AI 正在依你選定的 A／B／C 分支產生完整小說正文；正文階段完整等待 180 秒。若仍無有效正文，才會在背景建立三份不可見草稿，並追加最多 60 秒閉端複核；複核通過才會顯示候選。");
-              candidate = await generateRpgChatTurnCandidate({
+              candidate = await rpgRuntime.generateRpgChatTurnCandidate({
                 snapshot,
                 choice: input.choice,
                 logicalTurnId: userMessage.id,
@@ -1011,6 +1124,7 @@ export function useConversationRpgController({
             });
             invocationCompleted = true;
           }
+          const { rejectStudioClosedAgentCandidate } = await import("@/lib/novel-ai/web/closed-agent-os-service");
           await rejectStudioClosedAgentCandidate(input.choicePlanCandidateId).catch(() => undefined);
           setDrawer({ kind: "artifact", artifactId: artifact.id });
           return { artifact, message: completedMessage };
@@ -1100,22 +1214,11 @@ export function useConversationRpgController({
     setCancellable(true);
     setBusy(true);
     setSafeError(null);
+    let optimisticUserMessage: ConversationMessage | null = null;
     try {
-      const snapshot = await loadSnapshot(controller.signal);
-      if (
-        snapshot.chapter.id !== envelope.chapterId
-        || snapshot.chapter.revision !== envelope.chapterRevision
-        || snapshot.storyState.revision !== envelope.storyStateRevision
-        || snapshot.contextRevisionDigest !== envelope.contextRevisionDigest
-        || envelope.plan.contextRevisionDigest !== envelope.contextRevisionDigest
-        || envelope.plan.contextRevisionGuard.digest !== envelope.contextRevisionDigest
-      ) {
-        throw Object.assign(new Error("作品狀態已改變，請重新產生本回合選項。"), {
-          code: "RPG_CHAT_CHOICES_STALE",
-        });
-      }
+      await assertRpgChoiceEnvelopeBaselineCurrent(envelope, controller.signal);
       const turnState = await readRpgChoiceTurnState(sessionId, sourceMessageId, true);
-      if (turnState.consumed) {
+      if (turnState.closed) {
         throw Object.assign(new Error("這組選項已經建立過回合。"), {
           code: "RPG_CHAT_TURN_ALREADY_CREATED",
         });
@@ -1132,6 +1235,29 @@ export function useConversationRpgController({
         && artifact.status === "candidate"
       )));
       if (!hasDurableCandidate && blockUnsupportedExecutionSource()) return;
+      const userMessage = existingUser ?? await conversation.appendMessage({
+        projectId,
+        sessionId,
+        messageId: `conversation-rpg-choice:${sessionId}:${sourceMessageId}:${turnState.attempts.length + 1}`,
+        role: "user",
+        content: rpgChoiceUserContent(choice),
+        status: "pending",
+        parentMessageId: turnState.messages.at(-1)?.id ?? null,
+        sourceMessageId,
+      });
+      optimisticUserMessage = userMessage;
+      if (
+        userMessage.projectId !== projectId
+        || userMessage.sessionId !== sessionId
+        || userMessage.role !== "user"
+        || userMessage.sourceMessageId !== sourceMessageId
+        || !rpgUserMessageMatchesChoice(userMessage, choice)
+      ) {
+        throw Object.assign(new Error("已保存的選擇與本次重試不一致；不會建立第二筆選擇。"), {
+          code: "RPG_CHAT_TURN_CHOICE_CONFLICT",
+        });
+      }
+      projectMessageIntoActiveSession(sessionId, userMessage);
       await executeRpgChoice({
         sessionId,
         choice,
@@ -1141,11 +1267,43 @@ export function useConversationRpgController({
         expectedChapterRevision: envelope.chapterRevision,
         expectedStoryStateRevision: envelope.storyStateRevision,
         expectedContextRevisionDigest: envelope.contextRevisionDigest,
-        userMessage: existingUser ?? undefined,
+        userMessage,
         signal: controller.signal,
       });
       await loadWorkspace(sessionId);
     } catch (error) {
+      if (rpgErrorCode(error) === "RPG_CHAT_CHOICES_STALE") {
+        let staleUserMessage = optimisticUserMessage
+          ? await repository.get<ConversationMessage>(
+              "conversationMessages",
+              optimisticUserMessage.id,
+            ).catch(() => null)
+          : null;
+        if (!staleUserMessage) {
+          staleUserMessage = (await readRpgChoiceTurnState(
+            sessionId,
+            sourceMessageId,
+            false,
+          ).catch(() => null))?.recoverableUser ?? null;
+        }
+        try {
+          await abandonStaleRpgChoiceCard({
+            sessionId,
+            choiceSourceMessageId: sourceMessageId,
+            message: staleUserMessage,
+          });
+        } catch (abandonmentError) {
+          setRetryLabel("重試封存失效選項");
+          setSafeError({
+            code: rpgErrorCode(abandonmentError),
+            message: "失效選項尚未安全封存；系統已停止，不會重試舊分支。請再按一次重試。",
+          });
+          return;
+        }
+        retryActionRef.current = () => { void recoverRpgChoices(); };
+        setRetryAvailable(true);
+        setRetryLabel("重新建立三選一");
+      }
       setSafeError({ code: rpgErrorCode(error), message: rpgErrorMessage(error) });
     } finally {
       operationLockRef.current = false;
@@ -1276,16 +1434,33 @@ export function useConversationRpgController({
         return;
       }
 
+      // A visibly stale card is not safe to replace until the original card
+      // has a durable terminal marker.  Otherwise the replacement can render
+      // beside an older A/B/C card that is still clickable after reload.
+      if (recoveryTarget.reason === "stale_choice_card") {
+        if (!recoveryTarget.choiceCardMessageId) {
+          throw new Error("RPG_STALE_CHOICE_RECOVERY_SOURCE_MISSING");
+        }
+        await abandonStaleRpgChoiceCard({
+          sessionId,
+          choiceSourceMessageId: recoveryTarget.choiceCardMessageId,
+          message: null,
+        });
+      }
+
       // The conversation artifact and Canon can commit atomically before a
       // tab closes or the ClosedAgentOS approval batch reaches its own state
       // store. Finish that replay-safe settlement before exposing a new turn;
       // this callback can only replay the already-journaled Canon operation.
-      await settleApprovedRpgTurnClosedAgent({
-        repository,
-        projectId,
-        sessionId,
-        artifactId: recoveryTarget.sourceArtifactId,
-      });
+      if (recoveryTarget.sourceArtifactId) {
+        const { settleApprovedRpgTurnClosedAgent } = await import("@/lib/novel-ai/web/rpg-approval-settlement");
+        await settleApprovedRpgTurnClosedAgent({
+          repository,
+          projectId,
+          sessionId,
+          artifactId: recoveryTarget.sourceArtifactId,
+        });
+      }
 
       const orphanChoicePlaceholders = sessionMessages.filter((message) => (
         message.role === "assistant"
@@ -1305,7 +1480,9 @@ export function useConversationRpgController({
         )));
       }
 
-      setProgress("上一回合 Canon 已保留；正在安全地重新建立下一組三選一，不會重複寫入正文或數值。");
+      setProgress(recoveryTarget.reason === "stale_choice_card"
+        ? "舊選擇卡已封存；正在依目前人物、世界與章節版本重新建立三選一。"
+        : "上一回合 Canon 已保留；正在安全地重新建立下一組三選一，不會重複寫入正文或數值。");
       await createRpgChoicesMessage({
         sessionId,
         parentMessageId: recoveryTarget.parentMessageId,
@@ -1323,8 +1500,8 @@ export function useConversationRpgController({
       setSafeError({
         code: "RPG_NEXT_CHOICES_RECOVERY_FAILED",
         message: controller.signal.aborted
-          ? "已停止建立下一組三選一；上一回合 Canon 仍完整保留，可再次重試。"
-          : "上一回合已核准並完整保留，只有下一組三選一尚未完成；請重新建立，不會重複寫入 Canon。",
+          ? "已停止建立下一組三選一；既有故事與封存記錄仍完整保留，可再次重試。"
+          : "既有故事與失效選項的封存記錄均已保留，只有新的三選一尚未完成；請重新建立，不會重複寫入 Canon。",
       });
     } finally {
       operationLockRef.current = false;
@@ -1341,6 +1518,7 @@ export function useConversationRpgController({
     createRpgChoicesMessage,
     executeRpgChoice,
     chooseRpgOption,
+    abandonStaleRpgChoiceCard,
     recoverRpgChoices,
     requestRpgChoiceFallback,
     rpgChoicePlanning,
@@ -1351,16 +1529,23 @@ export function useConversationRpg({
   message,
   messages,
   artifactsByMessage,
+  invocations,
 }: {
   message: ConversationMessage;
   messages: ConversationMessage[];
   artifactsByMessage: Map<string, ConversationArtifact[]>;
+  invocations: ConversationToolInvocation[];
 }) {
   return useMemo(() => {
     const parsed = parseRpgChoices(message.content);
-    if (!parsed) return { parsed: null, consumed: false };
+    if (!parsed) return { parsed: null, consumed: false, abandoned: false, closed: false };
     const artifacts = [...artifactsByMessage.values()].flat();
-    const consumed = inspectRpgChoiceTurn(messages, artifacts, message.id).consumed;
-    return { parsed, consumed };
-  }, [artifactsByMessage, message, messages]);
+    const state = inspectRpgChoiceTurn(messages, artifacts, message.id, invocations);
+    return {
+      parsed,
+      consumed: state.consumed,
+      abandoned: state.abandoned,
+      closed: state.closed,
+    };
+  }, [artifactsByMessage, invocations, message, messages]);
 }

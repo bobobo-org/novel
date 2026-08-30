@@ -273,10 +273,18 @@ const chooseRpgSource = rpgControllerSource.slice(
   rpgControllerSource.indexOf("async function chooseRpgOption"),
   rpgControllerSource.indexOf("async function recoverRpgChoices"),
 );
-assert.match(
-  chooseRpgSource,
-  /const hasDurableCandidate =[\s\S]{0,500}if \(!hasDurableCandidate && blockUnsupportedExecutionSource\(\)\) return;[\s\S]{0,500}executeRpgChoice\(/u,
+const chooseRpgDurableCandidateAt = chooseRpgSource.indexOf("const hasDurableCandidate =");
+const chooseRpgSourceGateAt = chooseRpgSource.indexOf(
+  "if (!hasDurableCandidate && blockUnsupportedExecutionSource()) return;",
+  chooseRpgDurableCandidateAt,
 );
+const chooseRpgUserSaveAt = chooseRpgSource.indexOf(
+  "await conversation.appendMessage({",
+  chooseRpgSourceGateAt,
+);
+const chooseRpgExecutionAt = chooseRpgSource.indexOf("await executeRpgChoice({", chooseRpgUserSaveAt);
+assert.ok(chooseRpgDurableCandidateAt >= 0 && chooseRpgSourceGateAt > chooseRpgDurableCandidateAt);
+assert.ok(chooseRpgUserSaveAt > chooseRpgSourceGateAt && chooseRpgExecutionAt > chooseRpgUserSaveAt);
 const externalRequestGateAt = conversationSource.indexOf("if (externalSelectedForRequest) {");
 const externalUserMessageAt = conversationSource.indexOf("let userMessage =", externalRequestGateAt);
 const externalRpgGateAt = conversationSource.indexOf(

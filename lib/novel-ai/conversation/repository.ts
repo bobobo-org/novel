@@ -31,6 +31,16 @@ import {
 import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
 import {
+  hasRpgChoiceStaleEvidenceIdentity,
+  isRpgChoiceStaleEvidenceInvocation,
+  RPG_CHOICE_STALE_EVIDENCE_MESSAGE,
+  RPG_CHOICE_STALE_EVIDENCE_STAGE,
+  RPG_CHOICE_STALE_EVIDENCE_TASK_TYPE,
+  RPG_CHOICE_STALE_EVIDENCE_TOOL_ID,
+  rpgChoiceCardContextRevisionDigest,
+  rpgChoiceStaleEvidenceId,
+} from "./rpg-choice-stale-evidence";
+import {
   CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
   parseClosedAgentFailureEvidence,
 } from "../closed-agent-os/safe-runtime-diagnostics";
@@ -587,7 +597,165 @@ export class ConversationRepositoryService {
   }
 
   async saveToolInvocation(input: SaveConversationToolInvocationInput) {
+    if (hasRpgChoiceStaleEvidenceIdentity(input)) {
+      throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_RESERVED");
+    }
+    return this.persistToolInvocation(input, false);
+  }
+
+  async saveRpgChoiceStaleEvidence(input: {
+    projectId: string;
+    sessionId: string;
+    choiceCardMessageId: string;
+  }) {
     await this.requireSession(input.projectId, input.sessionId);
+    const choiceCard = await this.repository.get<ConversationMessage>(
+      "conversationMessages",
+      input.choiceCardMessageId,
+    );
+    const contextRevisionDigest = choiceCard
+      ? rpgChoiceCardContextRevisionDigest(choiceCard.content)
+      : null;
+    if (
+      !choiceCard
+      || choiceCard.projectId !== input.projectId
+      || choiceCard.sessionId !== input.sessionId
+      || choiceCard.role !== "assistant"
+      || choiceCard.status !== "completed"
+      || !contextRevisionDigest
+    ) {
+      throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_CARD_INVALID");
+    }
+
+    const [messages, artifacts] = await Promise.all([
+      this.listMessages(input.projectId, input.sessionId),
+      this.listArtifacts(input.projectId, input.sessionId),
+    ]);
+    const attemptIds = new Set(messages
+      .filter((message) => (
+        message.role === "user"
+        && message.sourceMessageId === choiceCard.id
+      ))
+      .map((message) => message.id));
+    const responseIds = new Set(messages
+      .filter((message) => (
+        message.role === "assistant"
+        && Boolean(message.parentMessageId)
+        && attemptIds.has(message.parentMessageId!)
+      ))
+      .map((message) => message.id));
+    const settled = artifacts.some((artifact) => (
+      artifact.artifactType === "rpg"
+      && ["candidate", "approved"].includes(artifact.status)
+      && responseIds.has(artifact.sourceMessageId)
+    ));
+    if (settled) {
+      throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_ALREADY_SETTLED");
+    }
+
+    // A copied project remaps every record identity, including this immutable
+    // evidence marker.  Its imported id therefore cannot equal a fresh digest
+    // of the remapped session/card ids.  Prefer one already-linked marker only
+    // after validating the complete evidence contract against the copied card;
+    // otherwise recovery would create a second marker for the same card.
+    const linkedInvocations = (await Promise.all(choiceCard.toolInvocationIds.map((id) => (
+      this.repository.get<ConversationToolInvocation>("conversationToolInvocations", id)
+    )))).filter((invocation): invocation is ConversationToolInvocation => Boolean(invocation));
+    const linkedStaleIdentities = linkedInvocations.filter(hasRpgChoiceStaleEvidenceIdentity);
+    if (linkedStaleIdentities.length > 0) {
+      if (
+        linkedStaleIdentities.length !== 1
+        || !isRpgChoiceStaleEvidenceInvocation(linkedStaleIdentities[0]!, choiceCard)
+      ) {
+        throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_MISMATCH");
+      }
+      return linkedStaleIdentities[0]!;
+    }
+
+    const invocationId = await rpgChoiceStaleEvidenceId({
+      sessionId: input.sessionId,
+      choiceCardMessageId: choiceCard.id,
+      contextRevisionDigest,
+    });
+    const existing = await this.repository.get<ConversationToolInvocation>(
+      "conversationToolInvocations",
+      invocationId,
+    );
+    if (existing) {
+      if (
+        !isRpgChoiceStaleEvidenceInvocation(existing)
+        || existing.projectId !== input.projectId
+        || existing.sessionId !== input.sessionId
+        || existing.messageId !== choiceCard.id
+        || existing.inputDigest !== choiceCard.contentDigest
+        || existing.contextDigest !== contextRevisionDigest
+      ) {
+        throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_MISMATCH");
+      }
+      // Persisting an invocation and its message backlink spans two repository
+      // writes.  If the tab closes between them, the deterministic marker is
+      // already valid but the card is not yet closed.  Repair that exact
+      // crash state idempotently instead of trapping every later retry in a
+      // permanent mismatch loop.
+      const linkedChoiceCard = await this.linkMessageReference(
+        input.projectId,
+        input.sessionId,
+        choiceCard.id,
+        "toolInvocationIds",
+        existing.id,
+      );
+      if (!isRpgChoiceStaleEvidenceInvocation(existing, linkedChoiceCard)) {
+        throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_MISMATCH");
+      }
+      return existing;
+    }
+
+    const saved = await this.persistToolInvocation({
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      messageId: choiceCard.id,
+      invocationId,
+      taskId: invocationId,
+      toolId: RPG_CHOICE_STALE_EVIDENCE_TOOL_ID,
+      taskType: RPG_CHOICE_STALE_EVIDENCE_TASK_TYPE,
+      inputDigest: choiceCard.contentDigest,
+      contextDigest: contextRevisionDigest,
+      status: "failed",
+      actualExecutor: null,
+      modelId: null,
+      modelDigest: null,
+      executionReceipt: null,
+      externalRequest: false,
+      dataLeftDevice: false,
+      canonicalMutationCount: 0,
+      safeProgress: {
+        stage: RPG_CHOICE_STALE_EVIDENCE_STAGE,
+        percent: 100,
+        message: RPG_CHOICE_STALE_EVIDENCE_MESSAGE,
+      },
+      safeErrorCode: "RPG_CHAT_CHOICES_STALE",
+    }, true);
+    const linkedChoiceCard = await this.repository.get<ConversationMessage>(
+      "conversationMessages",
+      choiceCard.id,
+    );
+    if (!linkedChoiceCard || !isRpgChoiceStaleEvidenceInvocation(saved, linkedChoiceCard)) {
+      throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_MISMATCH");
+    }
+    return saved;
+  }
+
+  private async persistToolInvocation(
+    input: SaveConversationToolInvocationInput,
+    allowRpgChoiceStaleEvidence: boolean,
+  ) {
+    await this.requireSession(input.projectId, input.sessionId);
+    if (
+      hasRpgChoiceStaleEvidenceIdentity(input)
+      && !allowRpgChoiceStaleEvidence
+    ) {
+      throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_RESERVED");
+    }
     // A running invocation may not know its composed context yet. Persist the
     // input digest as a non-secret provisional value and replace it atomically
     // with the receipt's verified context digest on completion.
@@ -705,6 +873,9 @@ export class ConversationRepositoryService {
     const invocation = await this.repository.get<ConversationToolInvocation>("conversationToolInvocations", input.invocationId);
     if (!invocation || invocation.projectId !== input.projectId || invocation.sessionId !== input.sessionId) {
       throw new RepositoryOperationError("CONVERSATION_TOOL_SCOPE_MISMATCH");
+    }
+    if (hasRpgChoiceStaleEvidenceIdentity(invocation)) {
+      throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_IMMUTABLE");
     }
     assertToolStatusTransition(invocation.status, input.status);
     const mutationCount = input.canonicalMutationCount ?? invocation.canonicalMutationCount;

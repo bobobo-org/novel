@@ -8,7 +8,7 @@ const [
   chatPage,
   playMode,
   studio,
-  conversationWorkspace,
+  conversationView,
 ] = await Promise.all([
   readFile("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", "utf8"),
   readFile("lib/novel-ai/web/rpg-chat-turn.ts", "utf8"),
@@ -16,24 +16,25 @@ const [
   readFile("app/studio/project/[projectId]/chat/page.tsx", "utf8"),
   readFile("lib/novel-ai/domain/play-mode.ts", "utf8"),
   readFile("app/studio/page.tsx", "utf8"),
-  readFile("app/studio/project/[projectId]/chat/conversation-workspace.tsx", "utf8"),
+  readFile("app/studio/project/[projectId]/chat/components/conversation-workspace-view.tsx", "utf8"),
 ]);
 
 // The production RPG entry is Conversation. Every round asks the verified
 // closed AI for A/B/C first, waits at most 180 seconds, and lets the reader
 // explicitly switch to the deterministic continuity fallback without
 // cancelling the whole conversation operation.
-assert.match(chatController, /plan = await planRpgChatChoices\(\{/u);
+assert.match(chatController, /import\("@\/lib\/novel-ai\/web\/rpg-chat-turn"\)/u);
+assert.match(chatController, /plan = await runtime\.planRpgChatChoices\(\{/u);
 assert.match(chatController, /fallbackReason: "USER_REQUESTED_RULE_FALLBACK"/u);
 assert.match(chatController, /requestRpgChoiceFallback/u);
-assert.match(conversationWorkspace, /不等了，改用後備選項/u);
+assert.match(conversationView, /不等了，改用後備選項/u);
 assert.doesNotMatch(chatController, /RPG_CHOICE_RULE_PLAN_IMMEDIATE/u);
 assert.match(chatController, /serializeRpgChoices\(envelope\)/u);
-assert.match(chatController, /generateRpgChatTurnCandidate\(/u);
+assert.match(chatController, /rpgRuntime\.generateRpgChatTurnCandidate\(/u);
 assert.match(chatController, /故事與數值均未寫入/u);
 
 const snapshotAt = chatController.indexOf("const snapshot = await loadSnapshot");
-const aiPlanAt = chatController.indexOf("plan = await planRpgChatChoices", snapshotAt);
+const aiPlanAt = chatController.indexOf("plan = await runtime.planRpgChatChoices", snapshotAt);
 const completedMessageAt = chatController.indexOf("serializeRpgChoices(envelope)", aiPlanAt);
 assert(snapshotAt >= 0, "the active chat controller must load the canonical RPG snapshot");
 assert(aiPlanAt > snapshotAt, "the active chat controller must ask closed AI for choices after loading the snapshot");

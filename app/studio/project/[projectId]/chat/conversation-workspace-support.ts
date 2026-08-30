@@ -13,6 +13,7 @@ import type {
 import type { ConversationPlan } from "@/lib/novel-ai/conversation/planner";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
 import type { NovelRepository } from "@/lib/novel-ai/repository";
+import { isRpgChoiceStaleEvidenceInvocation } from "@/lib/novel-ai/conversation/rpg-choice-stale-evidence";
 import { artifactStory, parseRpgChoices } from "./components/conversation-presentation";
 import type { ArtifactView } from "./components/conversation-types";
 
@@ -23,19 +24,29 @@ export type ExistingUserRequest = {
   userMessageId: string;
 };
 
-export function latestRpgChoicesFrom(messages: ConversationMessage[]) {
+export function latestRpgChoicesFrom(
+  messages: ConversationMessage[],
+  invocations: ConversationToolInvocation[] = [],
+) {
   for (const message of [...messages].reverse()) {
     const parsed = parseRpgChoices(message.content);
-    if (parsed) return parsed.envelope ? { message, envelope: parsed.envelope } : null;
+    if (parsed) {
+      const abandoned = invocations.some((invocation) => (
+        invocation.messageId === message.id
+        && isRpgChoiceStaleEvidenceInvocation(invocation, message)
+      ));
+      return parsed.envelope ? { message, envelope: parsed.envelope, abandoned } : null;
+    }
     if (message.role === "assistant" && message.candidateIds.length) break;
   }
   return null;
 }
 
 export type RpgChoiceRecoveryTarget = {
-  sourceArtifactId: string;
+  sourceArtifactId: string | null;
   parentMessageId: string;
-  reason: "missing" | "failed_or_interrupted";
+  reason: "missing" | "failed_or_interrupted" | "stale_choice_card";
+  choiceCardMessageId?: string;
 };
 
 export type RpgChoiceRecoverySnapshot = {
@@ -73,6 +84,53 @@ export function findRpgChoiceRecoveryTarget(
       latestApproved = { artifact, messageIndex };
     }
   }
+  const choiceCardSearchStart = latestApproved ? latestApproved.messageIndex + 1 : 0;
+  for (let index = messages.length - 1; index >= choiceCardSearchStart; index -= 1) {
+    const message = messages[index];
+    if (
+      message.role !== "assistant"
+      || message.status !== "completed"
+      || !message.parentMessageId
+    ) continue;
+    const envelope = parseRpgChoices(message.content)?.envelope;
+    if (!envelope) continue;
+    const abandoned = invocations.some((invocation) => (
+      invocation.messageId === message.id
+      && isRpgChoiceStaleEvidenceInvocation(invocation, message)
+    ));
+    const visiblyStale = Boolean(snapshot.chapter && snapshot.storyState && (
+      envelope.chapterId !== snapshot.chapter.id
+      || envelope.chapterRevision !== snapshot.chapter.revision
+      || envelope.storyStateRevision !== snapshot.storyState.revision
+    ));
+    if (!abandoned && !visiblyStale) break;
+    const attemptIdsForCard = new Set(messages
+      .filter((candidate) => (
+        candidate.role === "user"
+        && candidate.sourceMessageId === message.id
+      ))
+      .map((candidate) => candidate.id));
+    const responseIdsForCard = new Set(messages
+      .filter((candidate) => (
+        candidate.role === "assistant"
+        && Boolean(candidate.parentMessageId)
+        && attemptIdsForCard.has(candidate.parentMessageId!)
+      ))
+      .map((candidate) => candidate.id));
+    const laterCandidateExistsForCard = artifacts.some((artifact) => {
+      if (artifact.artifactType !== "rpg") return false;
+      if (!["candidate", "approved"].includes(artifact.status)) return false;
+      return responseIdsForCard.has(artifact.sourceMessageId);
+    });
+    if (laterCandidateExistsForCard) return null;
+    return {
+      sourceArtifactId: latestApproved?.artifact.id ?? null,
+      parentMessageId: message.parentMessageId,
+      reason: "stale_choice_card",
+      choiceCardMessageId: message.id,
+    };
+  }
+
   if (!latestApproved) return null;
 
   const laterCandidateExists = artifacts.some((artifact) => {

@@ -8,7 +8,18 @@ import {
   rpgLogicalTurnFallbackReviewTaskId,
   rpgLogicalTurnGenerationTaskId,
 } from "../lib/novel-ai/conversation/rpg-logical-turn.ts";
-import { findRpgChoiceRecoveryTarget } from "../app/studio/project/[projectId]/chat/conversation-workspace-support.ts";
+import { ConversationRepositoryService } from "../lib/novel-ai/conversation/repository.ts";
+import { makeRecord } from "../lib/novel-ai/domain/index.ts";
+import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
+import {
+  buildImportIdMap,
+  remapImportedRecord,
+  validateImportRecords,
+} from "../lib/novel-ai/repository/import-remap.ts";
+import {
+  findRpgChoiceRecoveryTarget,
+  latestRpgChoicesFrom,
+} from "../app/studio/project/[projectId]/chat/conversation-workspace-support.ts";
 import { serializeRpgChoices } from "../app/studio/project/[projectId]/chat/components/conversation-presentation.ts";
 import {
   inspectRpgChoiceTurn,
@@ -17,6 +28,13 @@ import {
   rpgUserMessageMatchesChoice,
   useConversationRpgController,
 } from "../app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts";
+import {
+  RPG_CHOICE_STALE_EVIDENCE_MESSAGE,
+  RPG_CHOICE_STALE_EVIDENCE_STAGE,
+  RPG_CHOICE_STALE_EVIDENCE_TASK_TYPE,
+  RPG_CHOICE_STALE_EVIDENCE_TOOL_ID,
+  rpgChoiceStaleEvidenceId,
+} from "../lib/novel-ai/conversation/rpg-choice-stale-evidence.ts";
 
 const projectId = "project-rpg-recovery";
 const sessionId = "session-rpg-recovery";
@@ -213,6 +231,35 @@ const choicesContent = serializeRpgChoices({
 });
 
 const choiceCardId = "choice-card-crash-matrix";
+const staleEvidenceId = "choice-card-crash-matrix-stale-evidence";
+const initialChoiceAnchor = message("initial-choice-anchor", { role: "user" });
+const choiceCardMessage = message(choiceCardId, {
+  content: choicesContent,
+  contentDigest: "d".repeat(64),
+  parentMessageId: initialChoiceAnchor.id,
+  toolInvocationIds: [staleEvidenceId],
+});
+const staleChoiceEvidence = invocation(staleEvidenceId, choiceCardId, {
+  taskId: staleEvidenceId,
+  toolId: RPG_CHOICE_STALE_EVIDENCE_TOOL_ID,
+  taskType: RPG_CHOICE_STALE_EVIDENCE_TASK_TYPE,
+  inputDigest: choiceCardMessage.contentDigest,
+  contextDigest: choiceContextRevisionDigest,
+  status: "failed",
+  actualExecutor: null,
+  modelId: null,
+  modelDigest: null,
+  executionReceipt: null,
+  externalRequest: false,
+  dataLeftDevice: false,
+  canonicalMutationCount: 0,
+  safeProgress: {
+    stage: RPG_CHOICE_STALE_EVIDENCE_STAGE,
+    percent: 100,
+    message: RPG_CHOICE_STALE_EVIDENCE_MESSAGE,
+  },
+  safeErrorCode: "RPG_CHAT_CHOICES_STALE",
+});
 const selectedChoice = executableChoice("A", 0);
 const persistedChoice = message("choice-user-crash-matrix", {
   role: "user",
@@ -224,6 +271,325 @@ assert.equal(crashState.consumed, false, "a persisted user choice without an ass
 assert.equal(crashState.recoverableUser?.id, persistedChoice.id);
 assert.equal(crashState.attempts.length, 1, "user-save recovery must reuse exactly one choice record");
 assert.equal(rpgUserMessageMatchesChoice(persistedChoice, selectedChoice), true);
+const staleCancelledChoice = {
+  ...persistedChoice,
+  id: "choice-user-stale-cancelled",
+  status: "cancelled",
+};
+const staleCancelledState = inspectRpgChoiceTurn([staleCancelledChoice], [], choiceCardId);
+assert.equal(staleCancelledState.attempts.length, 1, "a compensated stale click remains auditable");
+assert.equal(
+  staleCancelledState.recoverableUser,
+  null,
+  "a stale pending click that was cancelled must not block a new valid choice",
+);
+const completedChoiceWithFailedAssistant = {
+  ...persistedChoice,
+  id: "choice-user-completed-before-stale-context",
+  status: "completed",
+};
+const failedAssistantAfterCompletedChoice = message("choice-assistant-failed-before-stale-context", {
+  parentMessageId: completedChoiceWithFailedAssistant.id,
+  status: "failed",
+});
+const staleCompletedState = inspectRpgChoiceTurn(
+  [choiceCardMessage, completedChoiceWithFailedAssistant, failedAssistantAfterCompletedChoice],
+  [],
+  choiceCardId,
+  [staleChoiceEvidence],
+);
+assert.equal(staleCompletedState.attempts.length, 1, "a completed stale attempt remains auditable");
+assert.equal(staleCompletedState.consumed, false, "stale evidence must not masquerade as a settled candidate");
+assert.equal(staleCompletedState.abandoned, true, "durable stale evidence closes the obsolete choice card");
+assert.equal(staleCompletedState.closed, true, "an abandoned card is closed without being consumed");
+assert.equal(
+  staleCompletedState.recoverableUser,
+  null,
+  "a completed choice abandoned after context drift must never replay its stale envelope",
+);
+assert.deepEqual(
+  findRpgChoiceRecoveryTarget(
+    [initialChoiceAnchor, choiceCardMessage, completedChoiceWithFailedAssistant, failedAssistantAfterCompletedChoice],
+    [],
+    openSnapshot,
+    [staleChoiceEvidence],
+  ),
+  {
+    sourceArtifactId: null,
+    parentMessageId: initialChoiceAnchor.id,
+    reason: "stale_choice_card",
+    choiceCardMessageId: choiceCardMessage.id,
+  },
+  "an initial stale choice card must rebuild from its original anchor without requiring an approved artifact",
+);
+const unrelatedChoiceUser = message("unrelated-choice-user", {
+  role: "user",
+  sourceMessageId: "another-choice-card",
+});
+const unrelatedChoiceResponse = message("unrelated-choice-response", {
+  parentMessageId: unrelatedChoiceUser.id,
+});
+assert.deepEqual(
+  findRpgChoiceRecoveryTarget(
+    [
+      initialChoiceAnchor,
+      choiceCardMessage,
+      completedChoiceWithFailedAssistant,
+      failedAssistantAfterCompletedChoice,
+      unrelatedChoiceUser,
+      unrelatedChoiceResponse,
+    ],
+    [artifact("unrelated-choice-artifact", unrelatedChoiceResponse.id, "candidate")],
+    openSnapshot,
+    [staleChoiceEvidence],
+  )?.choiceCardMessageId,
+  choiceCardMessage.id,
+  "an unrelated branch candidate must not suppress recovery of this stale choice card",
+);
+
+const markerRepository = new MemoryNovelRepository();
+await markerRepository.put("projects", {
+  ...makeRecord(projectId, "user"),
+  id: projectId,
+});
+const markerConversation = new ConversationRepositoryService(markerRepository);
+await markerConversation.createSession({
+  projectId,
+  sessionId,
+  title: "RPG stale marker repository regression",
+});
+const markerAnchor = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-stale-choice-anchor",
+  role: "user",
+  content: "開始故事",
+  status: "completed",
+});
+const markerChoiceCard = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-stale-choice-card",
+  role: "assistant",
+  content: choicesContent,
+  status: "completed",
+  parentMessageId: markerAnchor.id,
+});
+const markerCompletedUser = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-stale-choice-user",
+  role: "user",
+  content: rpgChoiceUserContent(selectedChoice),
+  status: "completed",
+  sourceMessageId: markerChoiceCard.id,
+});
+const completedUserBeforeMarker = await markerRepository.get(
+  "conversationMessages",
+  markerCompletedUser.id,
+);
+const expectedMarkerId = await rpgChoiceStaleEvidenceId({
+  sessionId,
+  choiceCardMessageId: markerChoiceCard.id,
+  contextRevisionDigest: choiceContextRevisionDigest,
+});
+const savedMarker = await markerConversation.saveRpgChoiceStaleEvidence({
+  projectId,
+  sessionId,
+  choiceCardMessageId: markerChoiceCard.id,
+});
+const replayedMarker = await markerConversation.saveRpgChoiceStaleEvidence({
+  projectId,
+  sessionId,
+  choiceCardMessageId: markerChoiceCard.id,
+});
+assert.equal(savedMarker.id, expectedMarkerId, "the stale marker id must be deterministic from card identity");
+assert.deepEqual(replayedMarker, savedMarker, "replaying stale-marker persistence must be idempotent");
+assert.deepEqual(
+  await markerRepository.get("conversationMessages", markerCompletedUser.id),
+  completedUserBeforeMarker,
+  "persisting stale evidence must not rewrite or cancel an already completed user choice",
+);
+const crashChoiceCard = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-stale-choice-card-crash-gap",
+  role: "assistant",
+  content: choicesContent,
+  status: "completed",
+  parentMessageId: markerAnchor.id,
+});
+const crashMarkerId = await rpgChoiceStaleEvidenceId({
+  sessionId,
+  choiceCardMessageId: crashChoiceCard.id,
+  contextRevisionDigest: choiceContextRevisionDigest,
+});
+await markerRepository.put("conversationToolInvocations", {
+  ...savedMarker,
+  ...makeRecord(projectId, "system"),
+  id: crashMarkerId,
+  taskId: crashMarkerId,
+  messageId: crashChoiceCard.id,
+  inputDigest: crashChoiceCard.contentDigest,
+  contextDigest: choiceContextRevisionDigest,
+});
+assert.equal(
+  (await markerRepository.get("conversationMessages", crashChoiceCard.id))
+    .toolInvocationIds.includes(crashMarkerId),
+  false,
+  "fault injection must begin between marker persistence and message backlink persistence",
+);
+const repairedCrashMarker = await markerConversation.saveRpgChoiceStaleEvidence({
+  projectId,
+  sessionId,
+  choiceCardMessageId: crashChoiceCard.id,
+});
+assert.equal(repairedCrashMarker.id, crashMarkerId);
+assert.equal(
+  (await markerRepository.get("conversationMessages", crashChoiceCard.id))
+    .toolInvocationIds.includes(crashMarkerId),
+  true,
+  "replay must repair the exact valid marker backlink after a tab-crash gap",
+);
+await assert.rejects(
+  markerConversation.saveToolInvocation({
+    projectId,
+    sessionId,
+    messageId: markerChoiceCard.id,
+    invocationId: "forged-generic-stale-marker",
+    taskId: "forged-generic-stale-marker",
+    toolId: RPG_CHOICE_STALE_EVIDENCE_TOOL_ID,
+    taskType: RPG_CHOICE_STALE_EVIDENCE_TASK_TYPE,
+    inputDigest: markerChoiceCard.contentDigest,
+    contextDigest: choiceContextRevisionDigest,
+    status: "failed",
+  }),
+  (error) => error?.code === "CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_RESERVED",
+  "generic tool persistence must not forge the reserved stale-evidence identity",
+);
+await assert.rejects(
+  markerConversation.updateToolInvocationStatus({
+    projectId,
+    sessionId,
+    invocationId: savedMarker.id,
+    expectedRevision: savedMarker.revision,
+    status: "failed",
+  }),
+  (error) => error?.code === "CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_IMMUTABLE",
+  "durable stale evidence must be immutable even under a same-status update",
+);
+const markerMessages = await markerConversation.listMessages(projectId, sessionId);
+const markerInvocations = await markerConversation.listToolInvocations(projectId, sessionId);
+const selectedStaleCard = latestRpgChoicesFrom(markerMessages, markerInvocations);
+assert.equal(selectedStaleCard?.message.id, crashChoiceCard.id);
+assert.equal(selectedStaleCard?.abandoned, true, "the latest-choice selector must expose the durable closed marker");
+assert.equal(
+  inspectRpgChoiceTurn(markerMessages, [], markerChoiceCard.id, markerInvocations).closed,
+  true,
+  "a repository-persisted stale marker must close the choice card without settling it",
+);
+const markerProject = await markerRepository.get("projects", projectId);
+const markerPayload = {
+  projects: [markerProject],
+  conversationSessions: await markerRepository.list("conversationSessions"),
+  conversationMessages: markerMessages,
+  conversationToolInvocations: markerInvocations,
+};
+validateImportRecords(markerPayload);
+const copiedProjectId = "project-rpg-recovery-copy";
+const markerIdMap = buildImportIdMap(markerPayload, projectId, copiedProjectId);
+const copiedMarkerPayload = Object.fromEntries(Object.entries(markerPayload).map(([store, records]) => [
+  store,
+  records.map((record) => remapImportedRecord(record, copiedProjectId, markerIdMap, true)),
+]));
+validateImportRecords(copiedMarkerPayload);
+const copiedMarker = copiedMarkerPayload.conversationToolInvocations[0];
+assert.equal(copiedMarker.id, copiedMarker.taskId, "copy import must preserve stale-marker id/task identity");
+const copiedMarkerRepository = new MemoryNovelRepository();
+for (const [store, records] of Object.entries(copiedMarkerPayload)) {
+  for (const record of records) await copiedMarkerRepository.put(store, record);
+}
+const copiedMarkerConversation = new ConversationRepositoryService(copiedMarkerRepository);
+const copiedSessionId = markerIdMap.get(sessionId);
+const copiedChoiceCardId = markerIdMap.get(markerChoiceCard.id);
+assert.ok(copiedSessionId && copiedChoiceCardId);
+const copiedCardMarkersBeforeReplay = (
+  await copiedMarkerConversation.listToolInvocations(copiedProjectId, copiedSessionId)
+).filter((invocation) => invocation.messageId === copiedChoiceCardId);
+assert.equal(copiedCardMarkersBeforeReplay.length, 1);
+const replayedCopiedMarker = await copiedMarkerConversation.saveRpgChoiceStaleEvidence({
+  projectId: copiedProjectId,
+  sessionId: copiedSessionId,
+  choiceCardMessageId: copiedChoiceCardId,
+});
+const copiedCardMarkersAfterReplay = (
+  await copiedMarkerConversation.listToolInvocations(copiedProjectId, copiedSessionId)
+).filter((invocation) => invocation.messageId === copiedChoiceCardId);
+assert.equal(
+  replayedCopiedMarker.id,
+  copiedCardMarkersBeforeReplay[0].id,
+  "copy recovery must reuse the validated remapped stale marker",
+);
+assert.equal(
+  copiedCardMarkersAfterReplay.length,
+  1,
+  "copy recovery must not create a second stale marker for the same card",
+);
+const forgedMarkerPayload = structuredClone(markerPayload);
+forgedMarkerPayload.conversationToolInvocations[0].safeProgress.message = "forged stale evidence";
+assert.throws(
+  () => validateImportRecords(forgedMarkerPayload),
+  /BACKUP_CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_INVALID/u,
+  "backup import must reject a forged stale-marker shape",
+);
+
+const settledChoiceCard = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-settled-choice-card",
+  role: "assistant",
+  content: choicesContent,
+  status: "completed",
+  parentMessageId: markerAnchor.id,
+});
+const settledChoiceUser = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-settled-choice-user",
+  role: "user",
+  content: rpgChoiceUserContent(selectedChoice),
+  status: "completed",
+  sourceMessageId: settledChoiceCard.id,
+});
+const settledChoiceResponse = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-settled-choice-response",
+  role: "assistant",
+  content: "已完成的候選正文",
+  status: "completed",
+  parentMessageId: settledChoiceUser.id,
+});
+await markerConversation.saveArtifact({
+  projectId,
+  sessionId,
+  sourceMessageId: settledChoiceResponse.id,
+  artifactId: "repository-settled-choice-artifact",
+  artifactType: "rpg",
+  targetStore: "chapters",
+  targetRecordId: "chapter-1",
+  sourceRevision: 2,
+  candidateContent: "已完成的候選正文",
+});
+await assert.rejects(
+  markerConversation.saveRpgChoiceStaleEvidence({
+    projectId,
+    sessionId,
+    choiceCardMessageId: settledChoiceCard.id,
+  }),
+  (error) => error?.code === "CONVERSATION_RPG_CHOICE_ALREADY_SETTLED",
+  "a settled RPG choice must refuse stale-abandonment evidence",
+);
 assert.equal(
   rpgUserMessageMatchesChoice({ ...persistedChoice, content: "A" }, selectedChoice),
   true,
@@ -502,11 +868,17 @@ assert(recoveryStart >= 0 && recoveryEnd > recoveryStart, "the recovery controll
 assert.match(recoveryBody, /createRpgChoicesMessage\(\{/u);
 assert.doesNotMatch(recoveryBody, /approveRpgChatTurn/u, "choice recovery must never replay Canon approval");
 const settlementIndex = recoveryBody.indexOf("await settleApprovedRpgTurnClosedAgent({");
+const staleMarkerIndex = recoveryBody.indexOf("await abandonStaleRpgChoiceCard({");
 const createNextChoicesIndex = recoveryBody.indexOf("await createRpgChoicesMessage({");
 assert.ok(settlementIndex >= 0, "durable approval recovery must finish ClosedAgentOS settlement");
 assert.ok(
   settlementIndex < createNextChoicesIndex,
   "ClosedAgentOS settlement must finish before rebuilding the next A/B/C card",
+);
+assert.ok(staleMarkerIndex >= 0, "stale recovery must persist a durable terminal marker");
+assert.ok(
+  staleMarkerIndex < createNextChoicesIndex,
+  "stale recovery must close the old card before rebuilding the next A/B/C card",
 );
 assert.match(approvalController, /rpgCanonCommitted = true;[\s\S]*retryActionRef\.current = \(\) => \{ void recoverRpgChoices\(\); \};/u);
 assert.match(approvalController, /let rpgChoicesCompleted = false/u);
@@ -532,6 +904,16 @@ assert.match(
 );
 assert.match(workspace, /onRpgGenerationStarted:\s*collapseSourceControlsAfterRpgStart/u);
 assert.match(workspace, /inspectRpgChoiceTurn\(/u, "typed A/B/C must share the artifact-only consumed boundary");
+assert.match(
+  workspace,
+  /safeCode === "RPG_CHAT_CHOICES_STALE" && requestRpgChoices[\s\S]{0,500}await abandonStaleRpgChoiceCard\(\{/u,
+  "typed A/B/C must durably abandon a stale envelope instead of retrying it forever",
+);
+assert.match(
+  workspace,
+  /await abandonStaleRpgChoiceCard\(\{[\s\S]{0,900}retryActionRef\.current = \(\) => \{ void recoverRpgChoices\(\); \};/u,
+  "typed stale A/B/C must retry through choice recovery, never through the old send request",
+);
 assert.match(timeline, /inspectRpgChoiceTurn\(/u, "dashboard placement must share the recoverable choice boundary");
 assert.match(rpgController, /readRpgChoiceTurnState\([\s\S]*?true/u);
 assert.match(rpgController, /logicalTurnId:\s*userMessage\.id/u);
@@ -691,6 +1073,17 @@ console.log(JSON.stringify({
     "same-source-choice-plan-invocation-suppresses-recovery",
     "other-tool-and-other-chapter-invocations-do-not-block",
     "save-invocation-failure-settles-placeholder",
+    "stale-choice-marker-deterministic-and-idempotent",
+    "stale-choice-marker-generic-save-is-reserved",
+    "stale-choice-marker-is-immutable",
+    "stale-choice-marker-preserves-completed-user",
+    "stale-choice-marker-repairs-crash-gap-backlink",
+    "settled-choice-refuses-stale-marker",
+    "stale-choice-selector-closes-card",
+    "stale-choice-marker-copy-import-replay-remains-singleton",
+    "forged-stale-choice-marker-import-is-rejected",
+    "unrelated-candidate-does-not-block-stale-card",
+    "typed-stale-choice-routes-through-durable-abandonment",
     "choice-user-save-before-assistant-resumes-one-logical-turn",
     "assistant-placeholder-before-invocation-resumes",
     "stale-running-invocation-converges-before-retry",

@@ -35,7 +35,6 @@ import {
   getStudioClosedAgentOS,
   rejectStudioClosedAgentCandidate,
 } from "@/lib/novel-ai/web/closed-agent-os-service";
-import { approveRpgChatTurn, loadRpgChatSnapshot } from "@/lib/novel-ai/web/rpg-chat-turn";
 import { settleApprovedRpgTurnClosedAgent } from "@/lib/novel-ai/web/rpg-approval-settlement";
 import {
   artifactStory,
@@ -530,7 +529,8 @@ export function useConversationApprovalController({
       } else if (freshArtifact.artifactType === "rpg") {
         const candidate = parseRpgCandidate(freshArtifact);
         if (!candidate) throw new Error("RPG_CHAT_CANDIDATE_INVALID");
-        const snapshot = await loadRpgChatSnapshot(
+        const rpgRuntime = await import("@/lib/novel-ai/web/rpg-chat-turn");
+        const snapshot = await rpgRuntime.loadRpgChatSnapshot(
           repository,
           projectId,
           undefined,
@@ -542,7 +542,7 @@ export function useConversationApprovalController({
         if (!currentSession || !currentMessage || !currentArtifact) {
           throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
         }
-        await approveRpgChatTurn({
+        await rpgRuntime.approveRpgChatTurn({
           repository,
           snapshot,
           candidate,

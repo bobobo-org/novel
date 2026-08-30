@@ -1,4 +1,14 @@
-import { RPG_FORMULA_V3, type DomainRecord, type RpgTurnReceipt } from "../domain";
+import {
+  RPG_FORMULA_V3,
+  type ConversationMessage,
+  type ConversationToolInvocation,
+  type DomainRecord,
+  type RpgTurnReceipt,
+} from "../domain";
+import {
+  hasRpgChoiceStaleEvidenceIdentity,
+  isRpgChoiceStaleEvidenceInvocation,
+} from "../conversation/rpg-choice-stale-evidence";
 import { CHARACTER_AGENT_STORES, CONVERSATION_STORES, DRAMA_STORES, LEGACY_REQUIRED_RESTORE_STORES, NOVEL_STORES, P24A_REQUIRED_RESTORE_STORES, P24B_RC5_REQUIRED_RESTORE_STORES, P24B_RC6_REQUIRED_RESTORE_STORES, REQUIRED_RESTORE_STORES, RPG_V3_STORES, type NovelStoreName } from "./contracts";
 
 const FORBIDDEN_CONVERSATION_KEYS = new Set([
@@ -349,6 +359,16 @@ export function validateImportRecords(payload: Record<string, unknown[]>) {
     if (invocation.safeProgress?.percent !== null && invocation.safeProgress?.percent !== undefined && (!Number.isFinite(invocation.safeProgress.percent) || invocation.safeProgress.percent < 0 || invocation.safeProgress.percent > 100)) throw new Error("BACKUP_CONVERSATION_PROGRESS_INVALID");
     if (invocation.safeErrorCode && !/^[A-Z0-9_.:-]{1,96}$/u.test(invocation.safeErrorCode)) throw new Error("BACKUP_CONVERSATION_SAFE_ERROR_CODE_INVALID");
     if (!messageMap.get(invocation.messageId ?? "")?.toolInvocationIds?.includes(invocation.id)) throw new Error("BACKUP_CONVERSATION_TOOL_BACK_REFERENCE_INVALID");
+    if (hasRpgChoiceStaleEvidenceIdentity(invocation as ConversationToolInvocation)) {
+      const markerMessage = messageMap.get(invocation.messageId ?? "") as ConversationMessage | undefined;
+      if (
+        !markerMessage
+        || !isRpgChoiceStaleEvidenceInvocation(
+          invocation as ConversationToolInvocation,
+          markerMessage,
+        )
+      ) throw new Error("BACKUP_CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_INVALID");
+    }
   }
   for (const attachment of attachments) {
     const legacyRightsConfirmationAbsent =

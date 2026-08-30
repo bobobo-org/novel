@@ -30,6 +30,7 @@ import { closedRegenerationProofStatus } from "./conversation-regeneration-proof
 import {
   selectClosedAgentFailureEvidenceInvocation,
 } from "@/lib/novel-ai/closed-agent-os/safe-runtime-diagnostics";
+import { isRpgChoiceStaleEvidenceInvocation } from "@/lib/novel-ai/conversation/rpg-choice-stale-evidence";
 import styles from "../conversation.module.css";
 import StoryCharacterReference from "./story-character-reference";
 
@@ -74,13 +75,22 @@ export const MessageRow = memo(function MessageRow({
   characters: Character[];
   relationships: CharacterRelationship[];
 }) {
-  const rpg = useConversationRpg({ message, messages: allMessages, artifactsByMessage });
+  const rpg = useConversationRpg({
+    message,
+    messages: allMessages,
+    artifactsByMessage,
+    invocations: allInvocations,
+  });
   const rpgChoices = rpg.parsed;
   const rpgChoicesConsumed = rpg.consumed;
+  const rpgChoicesAbandoned = rpg.abandoned;
   const messageArtifacts = artifactsByMessage.get(message.id) ?? [];
   const hasRpgStory = messageArtifacts.some((artifact) => artifact.artifactType === "rpg");
   const storyLayout = hasRpgStory && message.content.trim().length >= 800 ? "spread" : "page";
   const messageInvocations = allInvocations.filter((item) => item.messageId === message.id);
+  const visibleMessageInvocations = messageInvocations.filter((item) => (
+    !isRpgChoiceStaleEvidenceInvocation(item, message)
+  ));
   const invocation = invocationsByMessage.get(message.id);
   const persistedFailure = selectClosedAgentFailureEvidenceInvocation(
     messageInvocations,
@@ -151,6 +161,7 @@ export const MessageRow = memo(function MessageRow({
           messageId={message.id}
           busy={busy}
           consumed={rpgChoicesConsumed}
+          abandoned={rpgChoicesAbandoned}
           dashboard={playDashboardPlacement === "choices" ? playDashboard : null}
           onChoose={(key) => {
             if (rpgChoices.envelope) actions.chooseRpgOption(rpgChoices.envelope, message.id, key);
@@ -173,7 +184,7 @@ export const MessageRow = memo(function MessageRow({
           relationships={relationships}
         />
       ) : null}
-      {message.role === "assistant" ? <ConversationExecutionTrace invocations={messageInvocations} /> : null}
+      {message.role === "assistant" ? <ConversationExecutionTrace invocations={visibleMessageInvocations} /> : null}
       {message.attachmentIds.map((attachmentId) => {
         const attachment = attachmentsById.get(attachmentId);
         return attachment ? <AttachmentCard key={attachment.id} attachment={attachment} /> : null;
