@@ -1649,7 +1649,7 @@ async function testBoundedTimeoutsAndRollbackBudget() {
     "alias job must reserve at least five minutes beyond bounded operations",
   );
   assert.match(aliasJob, /timeout-minutes:\s*45/u);
-  assert.match(aliasJob, /timeout --signal=TERM --kill-after=30s 600s bash -c/u);
+  assert.match(aliasJob, /timeout --signal=TERM --kill-after=30s 900s bash -c/u);
   const rollbackGuardJob = jobSection("alias_cutover_rollback_guard");
   assert.match(rollbackGuardJob, /needs\.alias_cutover\.result == 'failure'/u);
   assert.match(rollbackGuardJob, /needs\.alias_cutover\.result == 'cancelled'/u);

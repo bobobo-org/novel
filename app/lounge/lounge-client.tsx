@@ -1,40 +1,85 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   listPublicLoungePosts,
   PublicLoungeClientError,
 } from "@/lib/novel-ai/public-lounge/client";
-import type { PublicLoungeListPage } from "@/lib/novel-ai/public-lounge/types";
+import {
+  listPublicLoungeShelves,
+  publicLoungeShelfDisplayName,
+  publicLoungeTopicDisplayNames,
+} from "@/lib/novel-ai/public-lounge/taxonomy";
+import type { PublicLoungeQualityAssurance } from "@/lib/novel-ai/public-lounge/types";
 import styles from "./lounge.module.css";
 
 function formatCount(value: number) {
   return new Intl.NumberFormat("zh-TW").format(value);
 }
 
-export default function LoungeClient({
-  initialPage,
-  connectionError,
-}: {
-  initialPage: PublicLoungeListPage;
-  connectionError: string | null;
-}) {
+const INITIAL_SHELVES = listPublicLoungeShelves();
+
+function qualityAssuranceLabel(value: PublicLoungeQualityAssurance) {
+  return value === "private_ai_hub_verified"
+    ? "Private AI Hub 已簽章驗證"
+    : "作者裝置閉端 AI 評分，平台未簽章驗證";
+}
+
+function publicReadErrorCopy(code: string) {
+  if (code === "PUBLIC_LOUNGE_RATE_LIMITED") {
+    return {
+      title: "讀取次數暫時過多",
+      body: "公開書庫正在保護讀取額度，請稍候再試。畫面不會用快取或本機資料冒充最新公開內容。",
+    };
+  }
+  return {
+    title: "目前無法讀取公開書庫",
+    body: "沒有以作者本機資料或示範數字建立替代內容。請稍後重試；服務恢復後才會顯示正式公開作品。",
+  };
+}
+
+export default function LoungeClient() {
   const [queryInput, setQueryInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
-  const [category, setCategory] = useState("全部分類");
+  const [shelfId, setShelfId] = useState("all");
   const [completedOnly, setCompletedOnly] = useState(true);
-  const [items, setItems] = useState(initialPage.items);
-  const [categories, setCategories] = useState(initialPage.categories);
-  const [nextCursor, setNextCursor] = useState(initialPage.nextCursor);
-  const [totalCount, setTotalCount] = useState(initialPage.totalCount);
-  const [error, setError] = useState(connectionError);
-  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState<Awaited<ReturnType<typeof listPublicLoungePosts>>["items"]>([]);
+  const [shelves, setShelves] = useState(INITIAL_SHELVES);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const requestSequence = useRef(0);
+
+  useEffect(() => {
+    const sequence = requestSequence.current + 1;
+    requestSequence.current = sequence;
+    void listPublicLoungePosts({ completedOnly: true, limit: 24 })
+      .then((page) => {
+        if (requestSequence.current !== sequence) return;
+        setItems(page.items);
+        setShelves(page.shelves);
+        setNextCursor(page.nextCursor);
+        setTotalCount(page.totalCount);
+      })
+      .catch((cause: unknown) => {
+        if (requestSequence.current !== sequence) return;
+        setError(cause instanceof PublicLoungeClientError
+          ? cause.code
+          : "PUBLIC_LOUNGE_NOT_CONNECTED");
+      })
+      .finally(() => {
+        if (requestSequence.current === sequence) setLoading(false);
+      });
+    return () => {
+      if (requestSequence.current === sequence) requestSequence.current += 1;
+    };
+  }, []);
 
   const runQuery = async (options: {
     query: string;
-    category: string;
+    shelfId: string;
     completedOnly: boolean;
     cursor?: string;
     append?: boolean;
@@ -46,7 +91,7 @@ export default function LoungeClient({
     try {
       const page = await listPublicLoungePosts({
         search: options.query,
-        category: options.category === "全部分類" ? undefined : options.category,
+        shelfId: options.shelfId === "all" ? undefined : options.shelfId,
         completedOnly: options.completedOnly,
         cursor: options.cursor,
         limit: 24,
@@ -55,11 +100,17 @@ export default function LoungeClient({
       setItems((current) => options.append
         ? [...new Map([...current, ...page.items].map((item) => [item.publicId, item])).values()]
         : page.items);
-      setCategories(page.categories);
+      setShelves(page.shelves);
       setNextCursor(page.nextCursor);
       setTotalCount(page.totalCount);
     } catch (cause) {
       if (requestSequence.current !== sequence) return;
+      // A failed query must not leave results from a different search or shelf
+      // visible beneath the error notice. That would look like a successful,
+      // current response even though the API failed closed.
+      setItems([]);
+      setNextCursor(null);
+      setTotalCount(0);
       setError(cause instanceof PublicLoungeClientError
         ? cause.code
         : "PUBLIC_LOUNGE_NOT_CONNECTED");
@@ -72,18 +123,24 @@ export default function LoungeClient({
     event.preventDefault();
     const nextQuery = queryInput.trim();
     setActiveQuery(nextQuery);
-    void runQuery({ query: nextQuery, category, completedOnly });
+    void runQuery({ query: nextQuery, shelfId, completedOnly });
   };
 
-  const selectCategory = (nextCategory: string) => {
-    setCategory(nextCategory);
-    void runQuery({ query: activeQuery, category: nextCategory, completedOnly });
+  const selectShelf = (nextShelfId: string) => {
+    setShelfId(nextShelfId);
+    void runQuery({ query: activeQuery, shelfId: nextShelfId, completedOnly });
   };
 
   const toggleCompleted = (nextCompletedOnly: boolean) => {
     setCompletedOnly(nextCompletedOnly);
-    void runQuery({ query: activeQuery, category, completedOnly: nextCompletedOnly });
+    void runQuery({ query: activeQuery, shelfId, completedOnly: nextCompletedOnly });
   };
+
+  const retryCurrentQuery = () => {
+    void runQuery({ query: activeQuery, shelfId, completedOnly });
+  };
+
+  const errorCopy = error ? publicReadErrorCopy(error) : null;
 
   return (
     <section className={styles.library} aria-labelledby="lounge-library-title">
@@ -93,7 +150,7 @@ export default function LoungeClient({
           <input
             id="lounge-search"
             onChange={(event) => setQueryInput(event.target.value)}
-            placeholder="輸入書名、作者署名、分類或大綱關鍵字"
+            placeholder="輸入書名、作者署名、題材或大綱關鍵字"
             type="search"
             value={queryInput}
           />
@@ -111,16 +168,16 @@ export default function LoungeClient({
         </label>
       </form>
 
-      <div className={styles.categoryRail} aria-label="小說分類">
-        {["全部分類", ...categories].map((item) => (
+      <div className={styles.categoryRail} aria-label="八大小說書架">
+        {[{ shelfId: "all", name: "全部書架" }, ...shelves].map((item) => (
           <button
-            aria-pressed={category === item}
-            className={category === item ? styles.categoryActive : undefined}
-            key={item}
-            onClick={() => selectCategory(item)}
+            aria-pressed={shelfId === item.shelfId}
+            className={shelfId === item.shelfId ? styles.categoryActive : undefined}
+            key={item.shelfId}
+            onClick={() => selectShelf(item.shelfId)}
             type="button"
           >
-            {item}
+            {item.name}
           </button>
         ))}
       </div>
@@ -133,20 +190,28 @@ export default function LoungeClient({
         <span>已顯示 {items.length} / {totalCount} 部作品</span>
       </div>
 
-      {error ? (
+      {loading && items.length === 0 && !error ? (
+        <div className={styles.loadingState} role="status" aria-live="polite">
+          <strong>正在讀取正式公開書庫</strong>
+          <span>資料會經由公開 API 與讀取額度檢查，不會從作者本機資料補畫面。</span>
+        </div>
+      ) : null}
+
+      {error && errorCopy ? (
         <div className={styles.connectionNotice} role="status">
-          <strong>公開書庫後端尚未連線</strong>
-          <p>
-            目前沒有以本機資料假裝公開內容。部署端完成私有 Storage bucket 設定後，作品才會在此顯示。
-          </p>
+          <strong>{errorCopy.title}</strong>
+          <p>{errorCopy.body}</p>
           <code>{error}</code>
+          <button className={styles.noticeAction} disabled={loading} onClick={retryCurrentQuery} type="button">
+            {loading ? "重新讀取中…" : "重新讀取"}
+          </button>
         </div>
       ) : null}
 
       {!error && !loading && items.length === 0 ? (
         <div className={styles.emptyState}>
-          <strong>{totalCount === 0 && !activeQuery && category === "全部分類" ? "尚無作者公開作品" : "找不到符合條件的作品"}</strong>
-          <span>你可以更換分類或搜尋詞，再看看其他已完稿小說。</span>
+          <strong>{totalCount === 0 && !activeQuery && shelfId === "all" ? "尚無作者公開作品" : "找不到符合條件的作品"}</strong>
+          <span>你可以更換書架或搜尋詞，再看看其他已完稿小說。</span>
         </div>
       ) : null}
 
@@ -156,10 +221,12 @@ export default function LoungeClient({
             <div className={styles.bookScore}>
               <strong>{item.quality.totalScore}</strong>
               <span>品質總分</span>
+              <small>{qualityAssuranceLabel(item.qualityAssurance)}</small>
             </div>
             <div className={styles.bookBody}>
               <div className={styles.badges}>
-                <span>{item.category}</span>
+                <span>書架：{publicLoungeShelfDisplayName(item.shelfId)}</span>
+                {publicLoungeTopicDisplayNames(item.topicIds).map((name, index) => <span key={`${name}-${index}`}>{name}</span>)}
                 <span className={styles.completeBadge}>已完本</span>
               </div>
               <h3>
@@ -174,7 +241,9 @@ export default function LoungeClient({
                 <div><dt>全書章數</dt><dd>{formatCount(item.chapterCount)} 章</dd></div>
                 <div><dt>全書字數</dt><dd>{formatCount(item.wordCount)} 字</dd></div>
                 <div><dt>公開正文</dt><dd>{formatCount(item.publicChapterCount)} 章</dd></div>
+                <div><dt>完稿日期</dt><dd>{item.completedAt.slice(0, 10)}</dd></div>
                 <div><dt>發布日期</dt><dd>{item.publishedAt.slice(0, 10)}</dd></div>
+                <div><dt>目前公開版本</dt><dd>第 {item.versionNumber} 版</dd></div>
               </dl>
               <Link className={styles.readLink} href={`/lounge/${encodeURIComponent(item.publicId)}`}>
                 閱讀作品與評分 <span aria-hidden="true">→</span>
@@ -190,7 +259,7 @@ export default function LoungeClient({
             disabled={loading}
             onClick={() => void runQuery({
               query: activeQuery,
-              category,
+              shelfId,
               completedOnly,
               cursor: nextCursor,
               append: true,

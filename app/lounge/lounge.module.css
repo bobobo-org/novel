@@ -263,7 +263,8 @@
 }
 
 .connectionNotice,
-.emptyState {
+.emptyState,
+.loadingState {
   display: grid;
   gap: 0.65rem;
   padding: 2rem;
@@ -274,10 +275,19 @@
 }
 
 .connectionNotice p,
-.emptyState span {
+.emptyState span,
+.loadingState span {
   margin: 0;
   color: var(--lounge-muted);
   line-height: 1.65;
+}
+
+.loadingState {
+  border-color: rgba(98, 221, 210, 0.28);
+}
+
+.loadingState strong {
+  color: var(--lounge-cyan);
 }
 
 .connectionNotice code {
@@ -287,6 +297,24 @@
   color: #ffd783;
   background: rgba(0, 0, 0, 0.25);
   border-radius: 0.35rem;
+}
+
+.noticeAction {
+  width: fit-content;
+  min-height: 2.75rem;
+  margin: 0.35rem auto 0;
+  padding: 0.6rem 1rem;
+  color: #07111e;
+  font-weight: 800;
+  background: var(--lounge-cyan);
+  border: 0;
+  border-radius: 0.65rem;
+  cursor: pointer;
+}
+
+.noticeAction:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .bookGrid {
@@ -339,6 +367,16 @@
   font-weight: 800;
   letter-spacing: 0.08em;
   writing-mode: vertical-rl;
+}
+
+.bookScore small {
+  max-width: 5.4rem;
+  margin-top: 0.75rem;
+  padding: 0 0.25rem;
+  font-size: 0.56rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .bookBody {
@@ -598,10 +636,235 @@
   line-height: 2.05;
 }
 
+.interactionPanel {
+  margin-top: 4.5rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  background: rgba(13, 28, 41, 0.82);
+  border: 1px solid rgba(98, 221, 210, 0.24);
+  border-radius: 1rem;
+}
+
+.interactionHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(18rem, 1.3fr);
+  gap: 2rem;
+  align-items: end;
+}
+
+.interactionHeader h2 {
+  margin: 0;
+  font-family: Georgia, "Noto Serif TC", serif;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+}
+
+.interactionBoundary {
+  margin: 0;
+  color: #aebdc6;
+  font-size: 0.86rem;
+  line-height: 1.75;
+}
+
+.interactionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.4rem;
+}
+
+.interactionActions button {
+  min-height: 2.75rem;
+  padding: 0.65rem 0.95rem;
+  border-radius: 0.65rem;
+  font-weight: 700;
+}
+
+.localBookmarkButton {
+  color: #07111e;
+  background: var(--lounge-cyan);
+  border: 1px solid var(--lounge-cyan);
+  cursor: pointer;
+}
+
+.localBookmarkButton[aria-pressed="true"] {
+  background: var(--lounge-gold);
+  border-color: var(--lounge-gold);
+}
+
+.lockedInteractionButton {
+  color: #7f929f;
+  background: rgba(8, 21, 34, 0.7);
+  border: 1px solid #294256;
+  cursor: not-allowed;
+}
+
+.serverInteractionButton,
+.secondaryInteractionButton,
+.interactionLogin button,
+.interactionIdentity button,
+.commentComposer button,
+.reportComposer button,
+.commentCard button,
+.loadMoreComments {
+  color: #e8ffff;
+  background: rgba(19, 62, 72, 0.92);
+  border: 1px solid rgba(98, 221, 210, 0.55);
+  border-radius: 0.65rem;
+  cursor: pointer;
+}
+
+.serverInteractionButton[aria-pressed="true"] {
+  color: #07111e;
+  background: var(--lounge-gold);
+  border-color: var(--lounge-gold);
+}
+
+.secondaryInteractionButton {
+  color: #d7e3e8;
+  background: rgba(8, 21, 34, 0.76);
+  border-color: #3b596e;
+}
+
+.interactionLogin,
+.commentComposer,
+.reportComposer,
+.commentList {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(98, 221, 210, 0.16);
+}
+
+.interactionLogin > label,
+.commentComposer label,
+.reportComposer label {
+  display: grid;
+  gap: 0.45rem;
+  color: #b9cbd3;
+  font-size: 0.84rem;
+}
+
+.interactionLogin > div,
+.interactionIdentity,
+.reportComposer > div,
+.commentCard footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.interactionLogin > div {
+  margin-top: 0.55rem;
+}
+
+.interactionLogin input,
+.commentComposer input,
+.commentComposer textarea,
+.reportComposer select,
+.reportComposer textarea {
+  width: 100%;
+  min-height: 2.7rem;
+  padding: 0.65rem 0.75rem;
+  color: #edfafa;
+  background: rgba(6, 17, 28, 0.92);
+  border: 1px solid #35556a;
+  border-radius: 0.55rem;
+}
+
+.interactionLogin input {
+  flex: 1 1 16rem;
+}
+
+.interactionLogin button,
+.interactionIdentity button,
+.commentComposer button,
+.reportComposer button,
+.commentCard button,
+.loadMoreComments {
+  min-height: 2.7rem;
+  padding: 0.58rem 0.85rem;
+  font-weight: 700;
+}
+
+.interactionIdentity {
+  justify-content: space-between;
+  margin-top: 1.1rem;
+  color: #b9cbd3;
+  font-size: 0.82rem;
+}
+
+.commentComposer h3,
+.reportComposer h3,
+.commentList h3 {
+  margin: 0 0 1rem;
+}
+
+.commentComposerGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.commentComposer > label,
+.reportComposer > label {
+  margin-bottom: 0.8rem;
+}
+
+.commentCard {
+  padding: 1rem 0;
+  border-top: 1px solid rgba(174, 189, 198, 0.14);
+}
+
+.commentCard header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+  align-items: baseline;
+  color: #9db1bc;
+  font-size: 0.76rem;
+}
+
+.commentCard header strong {
+  color: #e5f4f4;
+  font-size: 0.92rem;
+}
+
+.commentCard > p {
+  margin: 0.7rem 0;
+  color: #d2dee2;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.interactionPending {
+  margin-top: 1.2rem;
+  color: #aebdc6;
+}
+
+.serverInteractionButton:disabled,
+.secondaryInteractionButton:disabled,
+.interactionLogin button:disabled,
+.interactionIdentity button:disabled,
+.commentComposer button:disabled,
+.reportComposer button:disabled,
+.commentCard button:disabled,
+.loadMoreComments:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.interactionStatus {
+  margin: 1rem 0 0;
+  color: #7f99a8;
+  font-size: 0.78rem;
+}
+
 @media (max-width: 820px) {
   .hero,
   .bookGrid,
-  .detailHeader {
+  .detailHeader,
+  .interactionHeader {
     grid-template-columns: 1fr;
   }
 
@@ -644,5 +907,18 @@
   .detailMetadata,
   .scoreGrid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .interactionActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .interactionActions button {
+    width: 100%;
+  }
+
+  .commentComposerGrid {
+    grid-template-columns: 1fr;
   }
 }

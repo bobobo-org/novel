@@ -1,8 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PublicLoungeError } from "@/lib/novel-ai/public-lounge/contract";
-import { getPublicLoungeServerService } from "@/lib/novel-ai/public-lounge/runtime.server";
-import type { PublicLoungeListPage } from "@/lib/novel-ai/public-lounge/types";
 import LoungeClient from "./lounge-client";
 import styles from "./lounge.module.css";
 
@@ -13,22 +10,7 @@ export const metadata: Metadata = {
   description: "閱讀作者明確選擇公開、已完稿且品質評分達標的正式小說作品。",
 };
 
-export default async function PublicLoungePage() {
-  let connectionError: string | null = null;
-  let initialPage: PublicLoungeListPage = {
-    items: [],
-    nextCursor: null,
-    totalCount: 0,
-    categories: [],
-  };
-  try {
-    initialPage = await getPublicLoungeServerService().list({ completedOnly: true, limit: 24 });
-  } catch (error) {
-    connectionError = error instanceof PublicLoungeError
-      ? error.code
-      : "PUBLIC_LOUNGE_NOT_CONNECTED";
-  }
-
+export default function PublicLoungePage() {
   return (
     <main className={styles.pageShell}>
       <header className={styles.topbar}>
@@ -56,11 +38,12 @@ export default async function PublicLoungePage() {
         <aside className={styles.heroRule}>
           <strong>公開邊界</strong>
           <span>作者自行填寫署名，本系統目前不驗證真實身分。</span>
+          <span>只顯示經 Private AI Hub 伺服器簽章、且通過全文與硬門檻驗證的品質評分。</span>
           <span>私人 Canon、提示詞、模型紀錄與備份永不公開。</span>
         </aside>
       </section>
 
-      <LoungeClient initialPage={initialPage} connectionError={connectionError} />
+      <LoungeClient />
     </main>
   );
 }

@@ -1,8 +1,13 @@
+import "server-only";
+import { createHmac } from "node:crypto";
+import { isIP } from "node:net";
 import {
   PUBLIC_LOUNGE_MAX_REQUEST_BYTES,
   PublicLoungeError,
 } from "./contract";
-import type { PublicLoungeServiceApi } from "./types";
+import { PublicLoungeInteractionError } from "./interactions";
+import type { PublicLoungeOwnerLifecycleGateway } from "./interactions.server";
+import type { PublicLoungePost, PublicLoungeServiceApi } from "./types";
 
 const SAFE_NO_STORE_HEADERS = {
   "Cache-Control": "no-store",
@@ -13,6 +18,11 @@ const SAFE_NO_STORE_HEADERS = {
 type RateLimitKind = "read" | "mutation";
 type RateLimitEntry = { count: number; resetAt: number };
 
+/**
+ * Best-effort per-process burst shedding only. It is not a distributed quota.
+ * Every route additionally reserves an atomic durable object-storage slot
+ * inside PublicLoungeService. This map only sheds same-process bursts.
+ */
 export class PublicLoungeRateLimiter {
   private readonly entries = new Map<string, RateLimitEntry>();
   private readonly windowMs: number;
@@ -58,23 +68,39 @@ export class PublicLoungeRateLimiter {
   }
 }
 
-function lightweightFingerprint(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
+export function createPublicLoungeTrustedIpIdentity(options: {
+  secret: string;
+  headerName?: "x-vercel-forwarded-for";
+}) {
+  const encoded = options.secret.trim();
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(encoded)) {
+    throw new PublicLoungeError("PUBLIC_LOUNGE_NOT_CONNECTED", 503, true);
   }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  const secret = Buffer.from(encoded, "base64url");
+  if (secret.length !== 32 || secret.toString("base64url") !== encoded) {
+    throw new PublicLoungeError("PUBLIC_LOUNGE_NOT_CONNECTED", 503, true);
+  }
+  const headerName = options.headerName ?? "x-vercel-forwarded-for";
+  return (request: Request) => {
+    const raw = request.headers.get(headerName)?.split(",")[0]?.trim() ?? "";
+    if (!raw || isIP(raw) === 0) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_NOT_CONNECTED", 503, true);
+    }
+    // UA and language are intentionally excluded: changing either must not
+    // mint a fresh quota.  The server-only HMAC also keeps raw IPs out of DB.
+    return createHmac("sha256", secret)
+      .update(`public-lounge-rate-v1\0${raw.toLowerCase()}`, "utf8")
+      .digest("hex");
+  };
 }
 
 function requestClientId(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  const userAgent = request.headers.get("user-agent")?.slice(0, 180) ?? "unknown";
-  const language = request.headers.get("accept-language")?.slice(0, 80) ?? "unknown";
-  return lightweightFingerprint(`${forwarded}\n${userAgent}\n${language}`);
+  return createPublicLoungeTrustedIpIdentity({
+    secret: process.env.PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY?.trim() ?? "",
+  })(request);
 }
 
-function assertSameOrigin(request: Request) {
+export function assertPublicLoungeSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   const expected = new URL(request.url).origin;
   const fetchSite = request.headers.get("sec-fetch-site");
@@ -83,7 +109,7 @@ function assertSameOrigin(request: Request) {
   }
 }
 
-async function readBoundedJson(request: Request) {
+export async function readPublicLoungeBoundedJson(request: Request) {
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     throw new PublicLoungeError("PUBLIC_LOUNGE_PAYLOAD_INVALID", 415);
   }
@@ -122,14 +148,14 @@ async function readBoundedJson(request: Request) {
 }
 
 function managementToken(request: Request) {
-  const authorization = request.headers.get("authorization") ?? "";
-  const match = /^Bearer ([A-Za-z0-9_-]{43})$/u.exec(authorization);
+  const raw = request.headers.get("x-public-lounge-management-token")?.trim() ?? "";
+  const match = /^([A-Za-z0-9_-]{43})$/u.exec(raw);
   if (!match) throw new PublicLoungeError("PUBLIC_LOUNGE_MANAGEMENT_TOKEN_REQUIRED", 401);
   return match[1];
 }
 
-function errorResponse(error: unknown) {
-  const safeError = error instanceof PublicLoungeError
+export function publicLoungeErrorResponse(error: unknown) {
+  const safeError = error instanceof PublicLoungeError || error instanceof PublicLoungeInteractionError
     ? error
     : new PublicLoungeError("PUBLIC_LOUNGE_NOT_CONNECTED", 503, true);
   const headers: Record<string, string> = { ...SAFE_NO_STORE_HEADERS };
@@ -152,96 +178,176 @@ function privateJson(value: unknown, status = 200) {
   return Response.json(value, { status, headers: SAFE_NO_STORE_HEADERS });
 }
 
+function publishIdempotencyKey(request: Request) {
+  const value = request.headers.get("idempotency-key")?.trim() ?? "";
+  if (!/^[A-Za-z0-9_-]{32,128}$/u.test(value)) {
+    throw new PublicLoungeError("PUBLIC_LOUNGE_IDEMPOTENCY_KEY_REQUIRED", 400);
+  }
+  return value;
+}
+
 export function createPublicLoungeHttpHandlers(
   serviceProvider: () => PublicLoungeServiceApi,
   limiter = new PublicLoungeRateLimiter(),
+  identifyRequest: (request: Request) => string = requestClientId,
+  ownerGatewayProvider?: () => PublicLoungeOwnerLifecycleGateway,
 ) {
   const reserve = (request: Request, kind: RateLimitKind) => (
-    limiter.reserve(requestClientId(request), kind)
+    limiter.reserve(identifyRequest(request), kind)
   );
+  const ownerGateway = () => {
+    if (!ownerGatewayProvider) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_NOT_CONNECTED", 503, true);
+    }
+    return ownerGatewayProvider();
+  };
 
   return {
     async health(request: Request) {
       try {
         reserve(request, "read");
-        return publicJson({ status: "ready", ...await serviceProvider().health() });
+        const service = serviceProvider();
+        await service.reserveRequest(identifyRequest(request), "read");
+        return publicJson({ status: "ready", ...await service.health() });
       } catch (error) {
-        return errorResponse(error);
+        return publicLoungeErrorResponse(error);
       }
     },
 
     async list(request: Request) {
       try {
         reserve(request, "read");
+        const service = serviceProvider();
+        await service.reserveRequest(identifyRequest(request), "read");
         const url = new URL(request.url);
         const rawLimit = url.searchParams.get("limit");
         if (rawLimit !== null && !/^[1-9]\d*$/u.test(rawLimit)) {
           throw new PublicLoungeError("PUBLIC_LOUNGE_CURSOR_INVALID", 400);
         }
-        const page = await serviceProvider().list({
+        const page = await service.list({
           search: url.searchParams.get("q") ?? undefined,
-          category: url.searchParams.get("category") ?? undefined,
+          shelfId: url.searchParams.get("shelf") ?? undefined,
           completedOnly: url.searchParams.get("completed") !== "false",
           cursor: url.searchParams.get("cursor") ?? undefined,
           limit: rawLimit === null ? undefined : Number(rawLimit),
         });
         return publicJson({ connected: true, count: page.items.length, ...page });
       } catch (error) {
-        return errorResponse(error);
+        return publicLoungeErrorResponse(error);
       }
     },
 
     async get(request: Request, publicId: string) {
       try {
         reserve(request, "read");
-        return publicJson({ connected: true, post: await serviceProvider().get(publicId) });
+        const service = serviceProvider();
+        await service.reserveRequest(identifyRequest(request), "read");
+        return publicJson({ connected: true, post: await service.get(publicId) });
       } catch (error) {
-        return errorResponse(error);
+        return publicLoungeErrorResponse(error);
       }
     },
 
     async publish(request: Request) {
       try {
-        assertSameOrigin(request);
+        assertPublicLoungeSameOrigin(request);
         reserve(request, "mutation");
-        const result = await serviceProvider().publish(await readBoundedJson(request));
+        const owner = ownerGateway();
+        const actor = await owner.authenticate(request);
+        const service = serviceProvider();
+        await service.reserveRequest(identifyRequest(request), "publish");
+        const result = await service.publish(
+          await readPublicLoungeBoundedJson(request),
+          publishIdempotencyKey(request),
+          actor.id,
+          (post) => owner.bind(actor.id, post),
+        );
         return privateJson(result, 201);
       } catch (error) {
-        return errorResponse(error);
+        return publicLoungeErrorResponse(error);
       }
     },
 
     async eligibility(request: Request) {
       try {
-        assertSameOrigin(request);
+        assertPublicLoungeSameOrigin(request);
         reserve(request, "mutation");
-        const proof = await serviceProvider().issueEligibility(await readBoundedJson(request));
+        const owner = ownerGateway();
+        const actor = await owner.authenticate(request);
+        const service = serviceProvider();
+        await service.reserveRequest(identifyRequest(request), "eligibility");
+        const proof = await service.issueEligibility(
+          await readPublicLoungeBoundedJson(request),
+          actor.id,
+        );
         return privateJson({ proof }, 201);
       } catch (error) {
-        return errorResponse(error);
+        return publicLoungeErrorResponse(error);
       }
     },
 
     async overwrite(request: Request, publicId: string) {
       try {
-        assertSameOrigin(request);
+        assertPublicLoungeSameOrigin(request);
         reserve(request, "mutation");
+        const owner = ownerGateway();
+        const actor = await owner.authenticate(request);
+        const service = serviceProvider();
+        await service.reserveRequest(identifyRequest(request), "management");
         const token = managementToken(request);
-        const post = await serviceProvider().overwrite(publicId, token, await readBoundedJson(request));
+        const previous = await service.get(publicId);
+        await owner.assertOwner(actor.id, publicId);
+        const post = await service.overwrite(
+          publicId,
+          token,
+          await readPublicLoungeBoundedJson(request),
+          actor.id,
+        );
+        try {
+          await owner.sync(actor.id, previous.versionId, post);
+        } catch (syncError) {
+          try {
+            await owner.deactivate(actor.id, publicId, previous.versionId, previous.versionNumber);
+          } catch {
+            // Authoritative Storage version checks on every interaction keep
+            // this failed synchronization from becoming publicly usable.
+          }
+          throw syncError;
+        }
         return privateJson({ post });
       } catch (error) {
-        return errorResponse(error);
+        return publicLoungeErrorResponse(error);
       }
     },
 
     async retract(request: Request, publicId: string) {
       try {
-        assertSameOrigin(request);
+        assertPublicLoungeSameOrigin(request);
         reserve(request, "mutation");
-        await serviceProvider().retract(publicId, managementToken(request));
+        const owner = ownerGateway();
+        const actor = await owner.authenticate(request);
+        const service = serviceProvider();
+        await service.reserveRequest(identifyRequest(request), "management");
+        const token = managementToken(request);
+        let previous: PublicLoungePost | null = null;
+        try {
+          previous = await service.get(publicId);
+          await owner.assertOwner(actor.id, publicId);
+        } catch (error) {
+          if (!(error instanceof PublicLoungeError && error.code === "PUBLIC_LOUNGE_NOT_FOUND")) {
+            throw error;
+          }
+        }
+        await service.retract(publicId, token);
+        await owner.deactivate(
+          actor.id,
+          publicId,
+          previous?.versionId ?? null,
+          previous?.versionNumber ?? null,
+        );
         return new Response(null, { status: 204, headers: SAFE_NO_STORE_HEADERS });
       } catch (error) {
-        return errorResponse(error);
+        return publicLoungeErrorResponse(error);
       }
     },
   };

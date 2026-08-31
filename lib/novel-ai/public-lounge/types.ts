@@ -1,12 +1,38 @@
-export const PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION = "public-lounge-publication-request-v1" as const;
-export const PUBLIC_LOUNGE_POST_SCHEMA_VERSION = "public-lounge-post-v1" as const;
-export const PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION = "public-lounge-index-entry-v1" as const;
-export const PUBLIC_LOUNGE_STORED_POST_SCHEMA_VERSION = "public-lounge-stored-post-v1" as const;
-export const PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION = "public-lounge-eligibility-request-v1" as const;
-export const PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION = "public-lounge-eligibility-proof-v1" as const;
-export const PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION = "public-lounge-stored-eligibility-v1" as const;
-export const PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION = "public-lounge-server-review-attestation-v1" as const;
+import type { PublicLoungeShelf, PublicLoungeTopicIds } from "./taxonomy";
+import type { AuthorDeviceReviewDeclaration } from "./author-device-review";
+
+export const PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION = "public-lounge-publication-request-v2" as const;
+export const PUBLIC_LOUNGE_POST_SCHEMA_VERSION = "public-lounge-post-v3" as const;
+export const PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION = "public-lounge-index-entry-v3" as const;
+export const PUBLIC_LOUNGE_STORED_POST_SCHEMA_VERSION = "public-lounge-stored-post-v3" as const;
+export const PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION = "public-lounge-eligibility-request-v3" as const;
+export const PUBLIC_LOUNGE_PRIOR_POST_SCHEMA_VERSION = "public-lounge-post-v2" as const;
+export const PUBLIC_LOUNGE_PRIOR_INDEX_ENTRY_SCHEMA_VERSION = "public-lounge-index-entry-v2" as const;
+export const PUBLIC_LOUNGE_PRIOR_STORED_POST_SCHEMA_VERSION = "public-lounge-stored-post-v2" as const;
+export const PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION = "public-lounge-post-v1" as const;
+export const PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION = "public-lounge-index-entry-v1" as const;
+export const PUBLIC_LOUNGE_LEGACY_STORED_POST_SCHEMA_VERSION = "public-lounge-stored-post-v1" as const;
+export const PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION = "public-lounge-eligibility-proof-v3" as const;
+export const PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION = "public-lounge-stored-eligibility-v4" as const;
+export const PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION = "public-lounge-server-review-attestation-v4" as const;
+export const PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION = "public-lounge-multi-judge-summary-v1" as const;
+export const PUBLIC_LOUNGE_PUBLISHED_VERSION_SCHEMA_VERSION = "public-lounge-published-version-v1" as const;
 export const PUBLIC_LOUNGE_QUALITY_THRESHOLD = 80;
+export const PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS = 140;
+
+export const PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES = [
+  "literary-editor",
+  "continuity-editor",
+  "genre-reader",
+] as const;
+export type PublicLoungePrimaryJudgeRole = typeof PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES[number];
+export type PublicLoungeJudgeRole = PublicLoungePrimaryJudgeRole | "score-arbitrator";
+
+export const PUBLIC_LOUNGE_QUALITY_ASSURANCES = [
+  "private_ai_hub_verified",
+  "author_device_closed_ai_unverified",
+] as const;
+export type PublicLoungeQualityAssurance = typeof PUBLIC_LOUNGE_QUALITY_ASSURANCES[number];
 
 export type PublicLoungeQualityDimensionKey =
   | "plot_coherence"
@@ -42,7 +68,10 @@ export type PublicLoungePublicationInput = {
   schemaVersion: typeof PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION;
   title: string;
   authorByline: string;
-  category: string;
+  storyLibrarySchemaVersion: string;
+  shelfId: string;
+  primaryTopicId: string;
+  topicIds: PublicLoungeTopicIds;
   completionStatus: "completed";
   chapterCount: number;
   wordCount: number;
@@ -57,23 +86,68 @@ export type PublicLoungePublicationInput = {
   workCompleted: true;
 };
 
-export type PublicLoungeEligibilityRequest = {
+type PublicLoungeEligibilityRequestBase = {
   schemaVersion: typeof PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION;
   completionFingerprint: string;
   title: string;
   authorByline: string;
-  category: string;
+  storyLibrarySchemaVersion: string;
+  shelfId: string;
+  primaryTopicId: string;
+  topicIds: PublicLoungeTopicIds;
   completionStatus: "completed";
   chapterCount: number;
   wordCount: number;
   completedAt: string;
   fullSynopsis: string;
   publicChapters: PublicLoungeOfficialChapterInput[];
-  serverAttestation: PublicLoungeServerReviewAttestation;
   explicitConsent: true;
   authorRightsDeclaration: true;
   workCompleted: true;
+};
+
+export type PublicLoungeServerEligibilityRequest = PublicLoungeEligibilityRequestBase & {
+  serverAttestation: PublicLoungeServerReviewAttestation;
   trustedServerReviewConsent: true;
+  authorDeviceReview?: never;
+  authorDeviceReviewConsent?: never;
+};
+
+export type PublicLoungeAuthorDeviceEligibilityRequest = PublicLoungeEligibilityRequestBase & {
+  authorDeviceReview: AuthorDeviceReviewDeclaration;
+  authorDeviceReviewConsent: true;
+  serverAttestation?: never;
+  trustedServerReviewConsent?: never;
+};
+
+export type PublicLoungeEligibilityRequest =
+  | PublicLoungeServerEligibilityRequest
+  | PublicLoungeAuthorDeviceEligibilityRequest;
+
+export type PublicLoungeAttestedJudgeSummary = {
+  judgeRole: PublicLoungeJudgeRole;
+  totalScore: number;
+  dimensionScores: Record<PublicLoungeQualityDimensionKey, number>;
+  fullCoverage: true;
+};
+
+export type PublicLoungeMultiJudgeSummary = {
+  schemaVersion: typeof PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION;
+  primaryJudgeRoles: readonly [
+    "literary-editor",
+    "continuity-editor",
+    "genre-reader",
+  ];
+  primaryJudgeCount: 3;
+  judges: readonly PublicLoungeAttestedJudgeSummary[];
+  aggregationMethod: "per-dimension-median";
+  primaryScoreSpread: number;
+  selectedJudgeRoles: readonly [PublicLoungeJudgeRole, PublicLoungeJudgeRole, PublicLoungeJudgeRole];
+  arbitrationRequired: boolean;
+  arbitrationPerformed: boolean;
+  fullCoverageJudgeRoles: readonly PublicLoungeJudgeRole[];
+  reviewedChapterCount: number;
+  reviewedChunkCount: number;
 };
 
 export type PublicLoungeServerReviewAttestation = {
@@ -89,6 +163,11 @@ export type PublicLoungeServerReviewAttestation = {
   qualityBreakdown: Record<PublicLoungeQualityDimensionKey, number>;
   workCompleted: true;
   fullCoverage: true;
+  hardGatePassed: true;
+  compliancePassed: true;
+  criticalDimensionsPassed: true;
+  hiddenDraftResidueDetected: false;
+  multiJudgeSummary: PublicLoungeMultiJudgeSummary;
   backendId: "private-ai-hub";
   modelId: string;
   modelDigest: string;
@@ -100,8 +179,9 @@ export type PublicLoungeEligibilityProof = {
   schemaVersion: typeof PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION;
   eligibilityTicket: string;
   expiresAt: string;
-  backendId: "private-ai-hub";
+  backendId: "private-ai-hub" | "browser-ai" | "local-ollama";
   modelId: string;
+  qualityAssurance: PublicLoungeQualityAssurance;
   completionFingerprint: string;
   qualityScore: number;
   qualityBreakdown: Record<PublicLoungeQualityDimensionKey, number>;
@@ -115,47 +195,60 @@ export type PublicLoungeQualityBreakdownItem = {
   weightedPoints: number;
 };
 
-export type PublicLoungePost = {
+export type PublicLoungePublicTaxonomy = {
+  storyLibrarySchemaVersion: string | null;
+  shelfId: string | null;
+  primaryTopicId: string | null;
+  topicIds: PublicLoungeTopicIds | readonly [];
+};
+
+export type PublicLoungePost = PublicLoungePublicTaxonomy & {
   schemaVersion: typeof PUBLIC_LOUNGE_POST_SCHEMA_VERSION;
   publicId: string;
   title: string;
   authorByline: string;
   authorBylineStatus: "self_entered_unverified";
-  category: string;
   completionStatus: "completed";
   chapterCount: number;
   wordCount: number;
   completedAt: string;
   publishedAt: string;
+  versionId: string;
+  versionNumber: number;
+  versionPublishedAt: string;
   quality: {
     totalScore: number;
     threshold: typeof PUBLIC_LOUNGE_QUALITY_THRESHOLD;
     breakdown: PublicLoungeQualityBreakdownItem[];
   };
+  qualityAssurance: PublicLoungeQualityAssurance;
   fullSynopsis: string;
   publicChapters: PublicLoungeOfficialChapterInput[];
 };
 
-export type PublicLoungePostSummary = {
+export type PublicLoungePostSummary = PublicLoungePublicTaxonomy & {
   schemaVersion: typeof PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION;
   publicId: string;
   title: string;
   authorByline: string;
   authorBylineStatus: "self_entered_unverified";
-  category: string;
   completionStatus: "completed";
   chapterCount: number;
   wordCount: number;
   completedAt: string;
   publishedAt: string;
+  versionId: string;
+  versionNumber: number;
+  versionPublishedAt: string;
   quality: PublicLoungePost["quality"];
+  qualityAssurance: PublicLoungeQualityAssurance;
   synopsisExcerpt: string;
   publicChapterCount: number;
 };
 
 export type PublicLoungeListQuery = {
   search?: string;
-  category?: string;
+  shelfId?: string;
   completedOnly?: boolean;
   cursor?: string;
   limit?: number;
@@ -165,7 +258,7 @@ export type PublicLoungeListPage = {
   items: PublicLoungePostSummary[];
   nextCursor: string | null;
   totalCount: number;
-  categories: string[];
+  shelves: readonly PublicLoungeShelf[];
 };
 
 export type PublicLoungePublishResult = {
@@ -173,18 +266,27 @@ export type PublicLoungePublishResult = {
   managementToken: string;
 };
 
+export type PublicLoungeAbuseRateScope = "read" | "eligibility" | "publish" | "management";
+
 export interface PublicLoungeServiceApi {
   health(): Promise<{
     connected: true;
     storage: "supabase-private-storage";
     bucket: "novel-public-lounge-v1";
     trustedEligibilityVerifierConnected: boolean;
+    authorDeviceEligibilityAccepted: false;
     trustedAttestationProducer: "not-available-in-this-release";
   }>;
   list(query?: PublicLoungeListQuery): Promise<PublicLoungeListPage>;
   get(publicId: string): Promise<PublicLoungePost>;
-  issueEligibility(input: unknown): Promise<PublicLoungeEligibilityProof>;
-  publish(input: unknown): Promise<PublicLoungePublishResult>;
-  overwrite(publicId: string, managementToken: string, input: unknown): Promise<PublicLoungePost>;
+  reserveRequest(requestIdentity: string, scope: PublicLoungeAbuseRateScope): Promise<void>;
+  issueEligibility(input: unknown, actorId: string): Promise<PublicLoungeEligibilityProof>;
+  publish(
+    input: unknown,
+    idempotencyKey: string,
+    actorId: string,
+    beforeVisible: (post: PublicLoungePost) => Promise<void>,
+  ): Promise<PublicLoungePublishResult>;
+  overwrite(publicId: string, managementToken: string, input: unknown, actorId: string): Promise<PublicLoungePost>;
   retract(publicId: string, managementToken: string): Promise<void>;
 }

@@ -890,7 +890,7 @@ assert.match(aliasJob, /node scripts\/run-main-push-auto-deploy-workflow-contrac
 assert.match(aliasJob, /PRODUCTION_AUTHORITY_RECEIPT_SCHEMA="p24b-production-deployment-authority-recheck-v1"/u);
 assert.match(aliasJob, /\.pageCount >= 1 and \.paginationComplete == true/u);
 assert.match(aliasJob, /timeout-minutes:\s*45/u);
-assert.match(aliasJob, /timeout --signal=TERM --kill-after=30s 600s bash -c/u);
+assert.match(aliasJob, /timeout --signal=TERM --kill-after=30s 900s bash -c/u);
 assert.match(aliasRollbackGuardJob, /needs:\s*\[alias_cutover\]/u);
 assert.match(aliasRollbackGuardJob, /needs\.alias_cutover\.result == 'failure'/u);
 assert.match(aliasRollbackGuardJob, /needs\.alias_cutover\.result == 'cancelled'/u);

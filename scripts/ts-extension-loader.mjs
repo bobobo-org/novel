@@ -5,6 +5,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = process.cwd();
 
 export async function resolve(specifier, context, defaultResolve) {
+  // Next.js treats `server-only` as a build-time boundary package. Focused
+  // Node contract tests do not install that virtual package, so resolve its
+  // side-effect-only import to an empty module without changing production.
+  if (specifier === "server-only") {
+    return { url: "data:text/javascript,export%20{}", shortCircuit: true };
+  }
   if (specifier.startsWith("@/")) {
     const absolute = path.join(root, specifier.slice(2));
     const resolved = resolveTsFile(absolute);

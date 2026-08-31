@@ -2,18 +2,126 @@ import assert from "node:assert/strict";
 import {
   PUBLIC_LOUNGE_MAX_REQUEST_BYTES,
   PublicLoungeError,
+  validatePublicLoungeEligibilityRequest,
 } from "../lib/novel-ai/public-lounge/contract.ts";
 import {
   createPublicLoungeHttpHandlers,
   PublicLoungeRateLimiter,
 } from "../lib/novel-ai/public-lounge/http.ts";
+import {
+  listPublicLoungeShelves,
+  normalizePublicLoungeTopicIds,
+} from "../lib/novel-ai/public-lounge/taxonomy.ts";
+import {
+  PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES,
+  PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
+} from "../lib/novel-ai/public-lounge/types.ts";
 
 const ORIGIN = "https://novel.example";
 const PUBLIC_ID = "novel_abcdefghijklmnop";
 const TOKEN = "A".repeat(43);
+const ACCESS_TOKEN = "access." + "B".repeat(64);
+const IDEMPOTENCY_KEY = "I".repeat(32);
+process.env.PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY = Buffer.alloc(32, 17).toString("base64url");
+
+function eligibilityBreakdown(score = 86) {
+  return Object.fromEntries([
+    "plot_coherence",
+    "character_arcs",
+    "world_canon_consistency",
+    "pacing",
+    "prose_dialogue",
+    "foreshadowing_payoff",
+    "ending",
+  ].map((key) => [key, score]));
+}
+
+function apiEligibilityRequest(attestationSchemaVersion) {
+  const taxonomy = normalizePublicLoungeTopicIds(["classic-topic-002"]);
+  return {
+    schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
+    completionFingerprint: "c".repeat(64),
+    title: "霧港歸航",
+    authorByline: "林舟",
+    ...taxonomy,
+    completionStatus: "completed",
+    chapterCount: 1,
+    wordCount: 8_000,
+    completedAt: "2026-08-29T02:50:00.000Z",
+    fullSynopsis: "船醫追查失蹤航線，最後必須決定要保住故鄉，還是揭開它賴以生存的謊言。",
+    publicChapters: [{
+      chapterNumber: 1,
+      title: "霧中燈塔",
+      body: "潮聲越過防波堤時，沈遙看見熄滅十年的燈塔重新亮起。",
+      official: true,
+    }],
+    explicitConsent: true,
+    authorRightsDeclaration: true,
+    workCompleted: true,
+    trustedServerReviewConsent: true,
+    serverAttestation: {
+      schemaVersion: attestationSchemaVersion,
+      issuer: "private-ai-hub",
+      keyId: "private-ai-hub-test",
+      nonce: "api-cutover-nonce-000001",
+      issuedAt: "2026-08-29T02:55:00.000Z",
+      expiresAt: "2026-08-29T03:10:00.000Z",
+      completionFingerprint: "c".repeat(64),
+      publicationDigest: "a".repeat(64),
+      qualityScore: 86,
+      qualityBreakdown: eligibilityBreakdown(),
+      workCompleted: true,
+      fullCoverage: true,
+      hardGatePassed: true,
+      compliancePassed: true,
+      criticalDimensionsPassed: true,
+      hiddenDraftResidueDetected: false,
+      multiJudgeSummary: {
+        schemaVersion: PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
+        primaryJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+        primaryJudgeCount: 3,
+        judges: PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES.map((judgeRole) => ({
+          judgeRole,
+          totalScore: 86,
+          dimensionScores: eligibilityBreakdown(),
+          fullCoverage: true,
+        })),
+        aggregationMethod: "per-dimension-median",
+        primaryScoreSpread: 0,
+        selectedJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+        arbitrationRequired: false,
+        arbitrationPerformed: false,
+        fullCoverageJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+        reviewedChapterCount: 1,
+        reviewedChunkCount: 1,
+      },
+      backendId: "private-ai-hub",
+      modelId: "closed-reviewer-v3",
+      modelDigest: "d".repeat(64),
+      rawContentStored: false,
+      signature: "A".repeat(86),
+    },
+  };
+}
 
 function request(path, options = {}) {
   const headers = new Headers(options.headers);
+  if ((options.method ?? "GET") !== "GET" && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${ACCESS_TOKEN}`);
+  }
+  if (!options.omitTrustedIp && !headers.has("x-vercel-forwarded-for")) {
+    headers.set("x-vercel-forwarded-for", "203.0.113.10");
+  }
+  if (
+    path === "/api/lounge"
+    && (options.method ?? "GET") === "POST"
+    && options.omitIdempotencyKey !== true
+  ) {
+    headers.set("Idempotency-Key", IDEMPOTENCY_KEY);
+  }
   if (options.origin !== undefined) headers.set("Origin", options.origin);
   if (options.sameOriginFetch) headers.set("Sec-Fetch-Site", "same-origin");
   if (options.json !== undefined) {
@@ -29,19 +137,47 @@ function request(path, options = {}) {
 
 function fakePost() {
   return {
+    schemaVersion: "public-lounge-post-v2",
     publicId: PUBLIC_ID,
     title: "霧港歸航",
     authorByline: "林舟",
     authorBylineStatus: "self_entered_unverified",
-    category: "奇幻",
+    ...normalizePublicLoungeTopicIds(["classic-topic-002", "classic-topic-005"]),
     completionStatus: "completed",
     chapterCount: 12,
     wordCount: 86_420,
     completedAt: "2026-08-28T08:30:00.000Z",
     publishedAt: "2026-08-29T03:00:00.000Z",
+    versionId: "version_abcdefghijklmnop",
+    versionNumber: 1,
     quality: { totalScore: 86, threshold: 80, breakdown: [] },
+    qualityAssurance: "private_ai_hub_verified",
     fullSynopsis: "全書大綱",
     publicChapters: [],
+  };
+}
+
+function fakeOwnerGateway(overrides = {}) {
+  const calls = [];
+  return {
+    calls,
+    authenticate: async (incoming) => {
+      calls.push(["authenticate", incoming.headers.get("authorization")]);
+      return { id: "11111111-1111-4111-8111-111111111111" };
+    },
+    bind: async (ownerId, post) => {
+      calls.push(["bind", ownerId, post.publicId, post.versionId]);
+    },
+    assertOwner: async (ownerId, publicId) => {
+      calls.push(["assertOwner", ownerId, publicId]);
+    },
+    sync: async (ownerId, expectedVersionId, post) => {
+      calls.push(["sync", ownerId, expectedVersionId, post.versionId]);
+    },
+    deactivate: async (ownerId, publicId, expectedVersionId, expectedVersionNumber) => {
+      calls.push(["deactivate", ownerId, publicId, expectedVersionId, expectedVersionNumber]);
+    },
+    ...overrides,
   };
 }
 
@@ -54,6 +190,7 @@ function fakeService(overrides = {}) {
       storage: "supabase-private-storage",
       bucket: "novel-public-lounge-v1",
       trustedEligibilityVerifierConnected: true,
+      authorDeviceEligibilityAccepted: false,
       trustedAttestationProducer: "not-available-in-this-release",
     }),
     list: async (query) => {
@@ -62,23 +199,28 @@ function fakeService(overrides = {}) {
         items: [fakePost()],
         nextCursor: "next-page",
         totalCount: 250,
-        categories: ["奇幻", "推理"],
+        shelves: listPublicLoungeShelves(),
       };
     },
     get: async (publicId) => {
       calls.push(["get", publicId]);
       return fakePost();
     },
-    publish: async (input) => {
-      calls.push(["publish", input]);
-      return { post: fakePost(), managementToken: TOKEN };
+    reserveRequest: async (requestIdentity, scope) => {
+      calls.push(["reserveRequest", requestIdentity, scope]);
     },
-    issueEligibility: async (input) => {
-      calls.push(["issueEligibility", input]);
+    publish: async (input, idempotencyKey, actorId, beforeVisible) => {
+      calls.push(["publish", input, idempotencyKey, actorId]);
+      const post = fakePost();
+      await beforeVisible(post);
+      return { post, managementToken: TOKEN };
+    },
+    issueEligibility: async (input, actorId) => {
+      calls.push(["issueEligibility", input, actorId]);
       return { eligibilityTicket: TOKEN };
     },
-    overwrite: async (publicId, token, input) => {
-      calls.push(["overwrite", publicId, token, input]);
+    overwrite: async (publicId, token, input, actorId) => {
+      calls.push(["overwrite", publicId, token, input, actorId]);
       return fakePost();
     },
     retract: async (publicId, token) => {
@@ -89,9 +231,12 @@ function fakeService(overrides = {}) {
 }
 
 const service = fakeService();
+const ownerGateway = fakeOwnerGateway();
 const handlers = createPublicLoungeHttpHandlers(
   () => service,
   new PublicLoungeRateLimiter({ mutationLimit: 20 }),
+  undefined,
+  () => ownerGateway,
 );
 
 {
@@ -104,12 +249,27 @@ const handlers = createPublicLoungeHttpHandlers(
     storage: "supabase-private-storage",
     bucket: "novel-public-lounge-v1",
     trustedEligibilityVerifierConnected: true,
+    authorDeviceEligibilityAccepted: false,
     trustedAttestationProducer: "not-available-in-this-release",
   });
 }
 
 {
-  const response = await handlers.list(request("/api/lounge?q=霧&category=奇幻&cursor=opaque&limit=24"));
+  const response = await handlers.eligibility(request("/api/lounge/eligibility", {
+    method: "POST",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+    json: { requestKind: "trusted-private-ai-hub-review" },
+  }));
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(service.calls.at(-1), ["issueEligibility", {
+    requestKind: "trusted-private-ai-hub-review",
+  }, "11111111-1111-4111-8111-111111111111"]);
+}
+
+{
+  const response = await handlers.list(request("/api/lounge?q=霧&shelf=group-5&cursor=opaque&limit=24"));
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(response.headers.get("cache-control").includes("s-maxage"), false);
@@ -118,10 +278,12 @@ const handlers = createPublicLoungeHttpHandlers(
   assert.equal(body.count, 1);
   assert.equal(body.totalCount, 250);
   assert.equal(body.nextCursor, "next-page");
-  assert.deepEqual(body.categories, ["奇幻", "推理"]);
+  assert.deepEqual(body.shelves.map((shelf) => shelf.shelfId), [
+    "group-1", "group-2", "group-3", "group-4", "group-5", "group-6", "group-7", "group-8",
+  ]);
   assert.deepEqual(service.calls.at(-1), ["list", {
     search: "霧",
-    category: "奇幻",
+    shelfId: "group-5",
     completedOnly: true,
     cursor: "opaque",
     limit: 24,
@@ -133,7 +295,9 @@ const handlers = createPublicLoungeHttpHandlers(
   const response = await handlers.list(request("/api/lounge?limit=24x"));
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error.code, "PUBLIC_LOUNGE_CURSOR_INVALID");
-  assert.equal(service.calls.length, before);
+  assert.equal(service.calls.length, before + 1);
+  assert.equal(service.calls.at(-1)[0], "reserveRequest");
+  assert.equal(service.calls.at(-1)[2], "read");
 }
 
 {
@@ -146,7 +310,46 @@ const handlers = createPublicLoungeHttpHandlers(
   assert.equal(response.status, 201);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal((await response.json()).proof.eligibilityTicket, TOKEN);
-  assert.deepEqual(service.calls.at(-1), ["issueEligibility", { signedAttestation: true }]);
+  assert.deepEqual(service.calls.at(-1), [
+    "issueEligibility",
+    { signedAttestation: true },
+    "11111111-1111-4111-8111-111111111111",
+  ]);
+}
+
+{
+  const cutoverService = fakeService({
+    issueEligibility: async (input) => {
+      validatePublicLoungeEligibilityRequest(input);
+      return {
+        schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION,
+        eligibilityTicket: TOKEN,
+      };
+    },
+  });
+  const cutoverHandlers = createPublicLoungeHttpHandlers(
+    () => cutoverService,
+    new PublicLoungeRateLimiter({ mutationLimit: 20 }),
+    undefined,
+    () => fakeOwnerGateway(),
+  );
+  const rejected = await cutoverHandlers.eligibility(request("/api/lounge/eligibility", {
+    method: "POST",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+    json: apiEligibilityRequest("public-lounge-server-review-attestation-v2"),
+  }));
+  assert.equal(rejected.status, 403);
+  assert.equal((await rejected.json()).error.code, "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+
+  const current = await cutoverHandlers.eligibility(request("/api/lounge/eligibility", {
+    method: "POST",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+    json: apiEligibilityRequest(PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION),
+  }));
+  assert.equal(current.status, 201);
+  assert.equal((await current.json()).proof.schemaVersion, PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION);
 }
 
 {
@@ -165,6 +368,30 @@ for (const origin of [undefined, "https://attacker.example"]) {
   }));
   assert.equal(response.status, 403);
   assert.equal((await response.json()).error.code, "PUBLIC_LOUNGE_ORIGIN_INVALID");
+}
+
+{
+  const compensationService = fakeService();
+  const failingOwner = fakeOwnerGateway({
+    bind: async () => {
+      throw new Error("owner database unavailable");
+    },
+  });
+  const compensationHandlers = createPublicLoungeHttpHandlers(
+    () => compensationService,
+    new PublicLoungeRateLimiter({ mutationLimit: 20 }),
+    undefined,
+    () => failingOwner,
+  );
+  const response = await compensationHandlers.publish(request("/api/lounge", {
+    method: "POST",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+    json: { visible: true },
+  }));
+  assert.equal(response.status, 503);
+  assert.equal(compensationService.calls.at(-1)[0], "publish");
+  assert.equal(compensationService.calls.some(([kind]) => kind === "retract"), false);
 }
 
 {
@@ -188,7 +415,34 @@ for (const origin of [undefined, "https://attacker.example"]) {
   assert.equal(response.headers.get("cache-control"), "no-store");
   const body = await response.json();
   assert.equal(body.managementToken, TOKEN);
-  assert.deepEqual(service.calls.at(-1), ["publish", { visible: true }]);
+  assert.deepEqual(service.calls.at(-1), [
+    "publish",
+    { visible: true },
+    IDEMPOTENCY_KEY,
+    "11111111-1111-4111-8111-111111111111",
+  ]);
+  assert.deepEqual(ownerGateway.calls.at(-1), [
+    "bind",
+    "11111111-1111-4111-8111-111111111111",
+    PUBLIC_ID,
+    "version_abcdefghijklmnop",
+  ]);
+}
+
+{
+  const before = service.calls.length;
+  const response = await handlers.publish(request("/api/lounge", {
+    method: "POST",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+    omitIdempotencyKey: true,
+    json: { visible: true },
+  }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error.code, "PUBLIC_LOUNGE_IDEMPOTENCY_KEY_REQUIRED");
+  assert.equal(service.calls.length, before + 1);
+  assert.equal(service.calls.at(-1)[0], "reserveRequest");
+  assert.equal(service.calls.at(-1)[2], "publish");
 }
 
 {
@@ -235,11 +489,23 @@ for (const origin of [undefined, "https://attacker.example"]) {
     method: "PUT",
     origin: ORIGIN,
     sameOriginFetch: true,
-    headers: { Authorization: `Bearer ${TOKEN}` },
+    headers: { "X-Public-Lounge-Management-Token": TOKEN },
     json: { title: "修訂" },
   }), PUBLIC_ID);
   assert.equal(response.status, 200);
-  assert.deepEqual(service.calls.at(-1), ["overwrite", PUBLIC_ID, TOKEN, { title: "修訂" }]);
+  assert.deepEqual(service.calls.at(-1), [
+    "overwrite",
+    PUBLIC_ID,
+    TOKEN,
+    { title: "修訂" },
+    "11111111-1111-4111-8111-111111111111",
+  ]);
+  assert.deepEqual(ownerGateway.calls.at(-1), [
+    "sync",
+    "11111111-1111-4111-8111-111111111111",
+    "version_abcdefghijklmnop",
+    "version_abcdefghijklmnop",
+  ]);
 }
 
 {
@@ -247,26 +513,120 @@ for (const origin of [undefined, "https://attacker.example"]) {
     method: "DELETE",
     origin: ORIGIN,
     sameOriginFetch: true,
-    headers: { Authorization: `Bearer ${TOKEN}` },
+    headers: { "X-Public-Lounge-Management-Token": TOKEN },
   }), PUBLIC_ID);
   assert.equal(response.status, 204);
   assert.deepEqual(service.calls.at(-1), ["retract", PUBLIC_ID, TOKEN]);
+  assert.deepEqual(ownerGateway.calls.at(-1), [
+    "deactivate",
+    "11111111-1111-4111-8111-111111111111",
+    PUBLIC_ID,
+    "version_abcdefghijklmnop",
+    1,
+  ]);
+}
+
+{
+  const before = service.calls.length;
+  const response = await handlers.retract(request("/api/lounge/not-a-public-id", {
+    method: "DELETE",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+  }), "not-a-public-id");
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).error.code, "PUBLIC_LOUNGE_MANAGEMENT_TOKEN_REQUIRED");
+  assert.equal(service.calls.length, before + 1);
+  assert.equal(service.calls.at(-1)[0], "reserveRequest");
+  assert.equal(service.calls.at(-1)[2], "management");
+}
+
+{
+  const busyService = fakeService({
+    overwrite: async () => {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_MUTATION_BUSY", 409, true);
+    },
+  });
+  const response = await createPublicLoungeHttpHandlers(
+    () => busyService,
+    new PublicLoungeRateLimiter({ mutationLimit: 20 }),
+    undefined,
+    () => fakeOwnerGateway(),
+  ).overwrite(request(`/api/lounge/${PUBLIC_ID}`, {
+    method: "PUT",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+    headers: { "X-Public-Lounge-Management-Token": TOKEN },
+    json: { title: "並行修訂" },
+  }), PUBLIC_ID);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: { code: "PUBLIC_LOUNGE_MUTATION_BUSY", retryable: true },
+  });
+}
+
+{
+  const durableLimitedService = fakeService({
+    retract: async () => {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_MUTATION_RATE_LIMITED", 429, true);
+    },
+  });
+  const response = await createPublicLoungeHttpHandlers(
+    () => durableLimitedService,
+    new PublicLoungeRateLimiter({ mutationLimit: 20 }),
+    undefined,
+    () => fakeOwnerGateway(),
+  ).retract(request(`/api/lounge/${PUBLIC_ID}`, {
+    method: "DELETE",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+    headers: { "X-Public-Lounge-Management-Token": TOKEN },
+  }), PUBLIC_ID);
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("retry-after"), "60");
+  assert.equal((await response.json()).error.code, "PUBLIC_LOUNGE_MUTATION_RATE_LIMITED");
 }
 
 {
   const strictLimiter = new PublicLoungeRateLimiter({ mutationLimit: 1, windowMs: 60_000 });
-  const limitedHandlers = createPublicLoungeHttpHandlers(() => fakeService(), strictLimiter);
+  const limitedHandlers = createPublicLoungeHttpHandlers(
+    () => fakeService(),
+    strictLimiter,
+    undefined,
+    () => fakeOwnerGateway(),
+  );
   const publishRequest = () => request("/api/lounge", {
     method: "POST",
     origin: ORIGIN,
     sameOriginFetch: true,
-    headers: { "x-forwarded-for": "203.0.113.10" },
+    headers: {
+      "x-vercel-forwarded-for": "203.0.113.10",
+      "user-agent": "first-browser/1.0",
+      "accept-language": "zh-TW",
+    },
     json: { visible: true },
   });
   assert.equal((await limitedHandlers.publish(publishRequest())).status, 201);
-  const limited = await limitedHandlers.publish(publishRequest());
+  const limited = await limitedHandlers.publish(request("/api/lounge", {
+    method: "POST",
+    origin: ORIGIN,
+    sameOriginFetch: true,
+    headers: {
+      "x-vercel-forwarded-for": "203.0.113.10",
+      "user-agent": "different-browser/9.0",
+      "accept-language": "en-US",
+    },
+    json: { visible: true },
+  }));
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get("retry-after"), "60");
+}
+
+{
+  const response = await createPublicLoungeHttpHandlers(() => fakeService()).health(
+    request("/api/lounge/health", { omitTrustedIp: true }),
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, "PUBLIC_LOUNGE_NOT_CONNECTED");
 }
 
 {

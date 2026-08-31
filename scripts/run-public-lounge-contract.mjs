@@ -1,40 +1,81 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  generateKeyPairSync,
+  sign,
+} from "node:crypto";
 import {
   buildPublicLoungePost,
   PublicLoungeError,
   publicLoungeEligibilityBinding,
   publicLoungePostToSummary,
+  sanitizeStoredPublicLoungeIndexEntry,
+  sanitizeStoredPublicLoungePost,
   validatePublicLoungePublicationInput,
 } from "../lib/novel-ai/public-lounge/contract.ts";
 import {
   createPublicLoungePublicationFromWholeNovelReview,
+  loadPublicLoungeWorkPublicationReference,
   publishPublicLoungePost,
   PublicLoungeClientError,
+  removePublicLoungeWorkPublicationReference,
   resolvePublicLoungeManagementRecovery,
+  savePublicLoungeWorkPublicationReference,
 } from "../lib/novel-ai/public-lounge/client.ts";
 import {
   createEd25519PublicLoungeEligibilityReviewer,
   publicLoungeServerReviewAttestationPayload,
 } from "../lib/novel-ai/public-lounge/eligibility-signature.ts";
 import { PublicLoungeService } from "../lib/novel-ai/public-lounge/service.ts";
+import { stableStringify } from "../lib/novel-ai/closed-ai-cache/index.ts";
+import { buildAuthorDeviceReviewDeclaration } from "../lib/novel-ai/public-lounge/author-device-review.ts";
 import {
+  PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION,
   PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS,
+  PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES,
   PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIOR_INDEX_ENTRY_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIOR_POST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIOR_STORED_POST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PUBLISHED_VERSION_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_STORED_POST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION,
 } from "../lib/novel-ai/public-lounge/types.ts";
+import { normalizePublicLoungeTopicIds } from "../lib/novel-ai/public-lounge/taxonomy.ts";
+import {
+  isPublicLoungeImmutableStorageObjectPath,
+  isPublicLoungeStorageObjectPath,
+  publicLoungeVersionPath,
+} from "../lib/novel-ai/public-lounge/storage.ts";
 
 const NOW = "2026-08-29T03:00:00.000Z";
 const COMPLETION_FINGERPRINT = "c".repeat(64);
 const MODEL_DIGEST = "d".repeat(64);
 const KEY_ID = "private-ai-hub-production-2026-08";
+const TEST_ACTOR_ID = "11111111-1111-4111-8111-111111111111";
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
 const tests = [];
 let attestationCounter = 0;
+let idempotencyCounter = 0;
+const DEFAULT_TAXONOMY = normalizePublicLoungeTopicIds(["classic-topic-002"]);
 
 function test(name, run) { tests.push({ name, run }); }
 function hash(value) { return createHash("sha256").update(value, "utf8").digest("hex"); }
+function nextIdempotencyKey() {
+  idempotencyCounter += 1;
+  return `idem-${String(idempotencyCounter).padStart(27, "0")}`;
+}
+function publish(service, input, idempotencyKey = nextIdempotencyKey()) {
+  return service.publish(input, idempotencyKey, TEST_ACTOR_ID, async () => undefined);
+}
 function qualityBreakdown(score = 86) {
   return Object.fromEntries([
     "plot_coherence", "character_arcs", "world_canon_consistency", "pacing",
@@ -42,12 +83,45 @@ function qualityBreakdown(score = 86) {
   ].map((key) => [key, score]));
 }
 
+function attestedJudge(judgeRole, dimensionScores, fullCoverage = true) {
+  const totalScore = Math.round([
+    ["plot_coherence", 20],
+    ["character_arcs", 15],
+    ["world_canon_consistency", 15],
+    ["pacing", 15],
+    ["prose_dialogue", 15],
+    ["foreshadowing_payoff", 10],
+    ["ending", 10],
+  ].reduce((sum, [key, weight]) => sum + dimensionScores[key] * weight, 0)) / 100;
+  return { judgeRole, totalScore, dimensionScores, fullCoverage };
+}
+
+function multiJudgeSummary(dimensionScores, chapterCount) {
+  const judges = PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES.map((judgeRole) => (
+    attestedJudge(judgeRole, { ...dimensionScores })
+  ));
+  return {
+    schemaVersion: PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
+    primaryJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+    primaryJudgeCount: 3,
+    judges,
+    aggregationMethod: "per-dimension-median",
+    primaryScoreSpread: 0,
+    selectedJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+    arbitrationRequired: false,
+    arbitrationPerformed: false,
+    fullCoverageJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+    reviewedChapterCount: chapterCount,
+    reviewedChunkCount: Math.max(chapterCount, chapterCount * 2),
+  };
+}
+
 function validPublication(overrides = {}) {
   return {
     schemaVersion: PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
     title: "《霧港歸航》",
     authorByline: "林舟",
-    category: "奇幻",
+    ...DEFAULT_TAXONOMY,
     completionStatus: "completed",
     chapterCount: 12,
     wordCount: 86_420,
@@ -67,18 +141,21 @@ function validPublication(overrides = {}) {
   };
 }
 
-function unsignedPublicationFromRequest(request, score = 86) {
+function unsignedPublicationFromRequest(request, score = 86, breakdown = qualityBreakdown(score)) {
   return {
     schemaVersion: PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
     title: request.title,
     authorByline: request.authorByline,
-    category: request.category,
+    storyLibrarySchemaVersion: request.storyLibrarySchemaVersion,
+    shelfId: request.shelfId,
+    primaryTopicId: request.primaryTopicId,
+    topicIds: request.topicIds,
     completionStatus: "completed",
     chapterCount: request.chapterCount,
     wordCount: request.wordCount,
     completedAt: request.completedAt,
     qualityScore: score,
-    qualityBreakdown: qualityBreakdown(score),
+    qualityBreakdown: breakdown,
     fullSynopsis: request.fullSynopsis,
     publicChapters: request.publicChapters,
     explicitConsent: true,
@@ -95,7 +172,10 @@ function signedEligibilityRequest(overrides = {}, attestationOverrides = {}) {
     completionFingerprint: COMPLETION_FINGERPRINT,
     title: base.title,
     authorByline: base.authorByline,
-    category: base.category,
+    storyLibrarySchemaVersion: base.storyLibrarySchemaVersion,
+    shelfId: base.shelfId,
+    primaryTopicId: base.primaryTopicId,
+    topicIds: base.topicIds,
     completionStatus: "completed",
     chapterCount: base.chapterCount,
     wordCount: base.wordCount,
@@ -108,6 +188,7 @@ function signedEligibilityRequest(overrides = {}, attestationOverrides = {}) {
     trustedServerReviewConsent: true,
   };
   const score = attestationOverrides.qualityScore ?? 86;
+  const breakdown = attestationOverrides.qualityBreakdown ?? qualityBreakdown(score);
   const attestation = {
     schemaVersion: PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
     issuer: "private-ai-hub",
@@ -117,13 +198,19 @@ function signedEligibilityRequest(overrides = {}, attestationOverrides = {}) {
     expiresAt: "2026-08-29T03:10:00.000Z",
     completionFingerprint: COMPLETION_FINGERPRINT,
     publicationDigest: hash(publicLoungeEligibilityBinding(
-      unsignedPublicationFromRequest(request, score),
+      unsignedPublicationFromRequest(request, score, breakdown),
       COMPLETION_FINGERPRINT,
     )),
     qualityScore: score,
-    qualityBreakdown: qualityBreakdown(score),
+    qualityBreakdown: breakdown,
     workCompleted: true,
     fullCoverage: true,
+    hardGatePassed: true,
+    compliancePassed: true,
+    criticalDimensionsPassed: true,
+    hiddenDraftResidueDetected: false,
+    multiJudgeSummary: attestationOverrides.multiJudgeSummary
+      ?? multiJudgeSummary(breakdown, base.chapterCount),
     backendId: "private-ai-hub",
     modelId: "closed-reviewer-v1",
     modelDigest: MODEL_DIGEST,
@@ -150,15 +237,27 @@ class MemoryLoungeGateway {
   constructor(status = { exists: true, public: false, provisioned: true }) {
     this.status = status;
     this.objects = new Map();
+    this.catalog = new Map();
+    this.catalogCalls = [];
+    this.rateBuckets = new Map();
     this.listOffsets = [];
     this.activeReads = 0;
     this.maxActiveReads = 0;
     this.readDelayMs = 0;
+    this.readPaths = [];
   }
   async bucketStatus() { return this.status; }
+  async controlPlaneStatus() {
+    return {
+      migrationVersion: "public_lounge_control_plane_028",
+      catalogReady: true,
+      rateReady: true,
+    };
+  }
   async readJson(path) {
-    const isIndex = path.includes("/index/");
-    if (isIndex) {
+    this.readPaths.push(path);
+    const isAuthoritativeHead = path.includes("/posts/");
+    if (isAuthoritativeHead) {
       this.activeReads += 1;
       this.maxActiveReads = Math.max(this.maxActiveReads, this.activeReads);
       if (this.readDelayMs) await new Promise((resolve) => setTimeout(resolve, this.readDelayMs));
@@ -167,7 +266,7 @@ class MemoryLoungeGateway {
       const value = this.objects.get(path);
       return value === undefined ? null : structuredClone(value);
     } finally {
-      if (isIndex) this.activeReads -= 1;
+      if (isAuthoritativeHead) this.activeReads -= 1;
     }
   }
   async writeJson(path, value, options) {
@@ -184,6 +283,87 @@ class MemoryLoungeGateway {
       .sort()
       .slice(options.offset, options.offset + options.limit)
       .map((name) => ({ name }));
+  }
+  async listCatalogCandidates({ after, limit }) {
+    this.catalogCalls.push({ after: structuredClone(after), limit });
+    const rows = [...this.catalog.values()]
+      .filter((candidate) => candidate.active)
+      .filter((candidate) => !after
+        || candidate.publishedAt < after.publishedAt
+        || (candidate.publishedAt === after.publishedAt && candidate.publicId < after.publicId))
+      .sort((left, right) => right.publishedAt.localeCompare(left.publishedAt)
+        || right.publicId.localeCompare(left.publicId));
+    return {
+      items: rows.slice(0, limit).map(({ publicId, publishedAt }) => ({ publicId, publishedAt })),
+      hasMore: rows.length > limit,
+    };
+  }
+  async upsertCatalogAnchor({ publicId, publishedAt }) {
+    const existing = this.catalog.get(publicId);
+    if (existing && existing.publishedAt !== publishedAt) throw new Error("CATALOG_ANCHOR_CONFLICT");
+    this.catalog.set(publicId, { publicId, publishedAt, active: true });
+  }
+  async deactivateCatalogAnchor(publicId) {
+    const existing = this.catalog.get(publicId);
+    if (existing) this.catalog.set(publicId, { ...existing, active: false });
+  }
+  async reserveRate({ identityHash, scope, now }) {
+    const nowMs = Date.parse(now);
+    for (const [key] of [...this.rateBuckets.entries()]
+      .filter(([, value]) => value.expiresAt <= nowMs)
+      .sort((left, right) => left[1].expiresAt - right[1].expiresAt)
+      .slice(0, 64)) {
+      this.rateBuckets.delete(key);
+    }
+    const quotaLimit = scope === "read" ? 30 : 6;
+    const windowStart = Math.floor(nowMs / 60_000) * 60_000;
+    const key = `${scope}:${identityHash}:${windowStart}`;
+    const current = this.rateBuckets.get(key);
+    const count = Math.min((current?.count ?? 0) + 1, quotaLimit + 1);
+    const expiresAt = windowStart + 60_000;
+    this.rateBuckets.set(key, { count, expiresAt });
+    return {
+      allowed: count <= quotaLimit,
+      limit: quotaLimit,
+      remaining: Math.max(0, quotaLimit - count),
+      retryAfterSeconds: Math.max(1, Math.ceil((expiresAt - nowMs) / 1_000)),
+    };
+  }
+}
+
+class BarrierMutationClaimGateway extends MemoryLoungeGateway {
+  constructor() {
+    super();
+    this.claimArrivals = 0;
+    this.claimBarrier = new Promise((resolve) => { this.releaseClaimBarrier = resolve; });
+    this.firstClaimArrived = new Promise((resolve) => { this.resolveFirstClaimArrived = resolve; });
+  }
+  async writeJson(path, value, options) {
+    if (path.includes("/mutations/claims/") && !this.objects.has(path)) {
+      this.claimArrivals += 1;
+      if (this.claimArrivals === 1) {
+        this.resolveFirstClaimArrived();
+        await this.claimBarrier;
+      }
+      else if (this.claimArrivals === 2) this.releaseClaimBarrier();
+    }
+    return super.writeJson(path, value, options);
+  }
+}
+
+class BarrierEligibilityConsumptionGateway extends MemoryLoungeGateway {
+  constructor() {
+    super();
+    this.arrivals = 0;
+    this.barrier = new Promise((resolve) => { this.releaseBarrier = resolve; });
+  }
+  async writeJson(path, value, options) {
+    if (path.includes("/eligibility/consumed/") && !this.objects.has(path)) {
+      this.arrivals += 1;
+      if (this.arrivals === 1) await this.barrier;
+      else if (this.arrivals === 2) this.releaseBarrier();
+    }
+    return super.writeJson(path, value, options);
   }
 }
 
@@ -208,6 +388,7 @@ function serviceFixture(
 ) {
   let tokenCounter = 0;
   let publicIdCounter = 0;
+  const sealKey = Buffer.from(hash("public-lounge-contract-seal-key"), "hex");
   const service = new PublicLoungeService({
     gateway,
     tokenCodec: {
@@ -217,6 +398,24 @@ function serviceFixture(
         return { token, hash: hash(token) };
       },
       matches: (candidate, expected) => hash(candidate) === expected,
+      seal(token, context) {
+        const iv = Buffer.alloc(12, 7);
+        const cipher = createCipheriv("aes-256-gcm", sealKey, iv);
+        cipher.setAAD(Buffer.from(context, "utf8"));
+        const encrypted = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
+        return [iv, cipher.getAuthTag(), encrypted].map((part) => part.toString("base64url")).join(".");
+      },
+      unseal(sealed, context) {
+        try {
+          const [iv, tag, encrypted] = sealed.split(".").map((part) => Buffer.from(part, "base64url"));
+          const decipher = createDecipheriv("aes-256-gcm", sealKey, iv);
+          decipher.setAAD(Buffer.from(context, "utf8"));
+          decipher.setAuthTag(tag);
+          return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+        } catch {
+          return null;
+        }
+      },
     },
     createPublicId() {
       publicIdCounter += 1;
@@ -226,6 +425,12 @@ function serviceFixture(
     digest: hash,
     eligibilityReviewer,
   });
+  const issueEligibility = service.issueEligibility.bind(service);
+  service.issueEligibility = (input, actorId = TEST_ACTOR_ID) => issueEligibility(input, actorId);
+  const overwrite = service.overwrite.bind(service);
+  service.overwrite = (publicId, managementToken, input, actorId = TEST_ACTOR_ID) => (
+    overwrite(publicId, managementToken, input, actorId)
+  );
   return { gateway, service };
 }
 
@@ -239,19 +444,103 @@ async function authorizedPublication(fixture, overrides = {}) {
   });
 }
 
+let authorDeviceNonceCounter = 0;
+async function authorDeviceEligibilityRequest(overrides = {}) {
+  authorDeviceNonceCounter += 1;
+  const base = validPublication(overrides);
+  const declaration = await buildAuthorDeviceReviewDeclaration({
+    issuedAt: NOW,
+    nonce: `author-device-${String(authorDeviceNonceCounter).padStart(16, "0")}`,
+    completionFingerprint: COMPLETION_FINGERPRINT,
+    backendId: "browser-ai",
+    modelId: "closed-ai/multi-judge-median",
+    modelDigest: MODEL_DIGEST,
+    fullCoverage: true,
+    hardGatePassed: true,
+    compliancePassed: true,
+    criticalDimensionsPassed: true,
+    qualityScore: 86,
+    dimensionScores: qualityBreakdown(86),
+  });
+  return {
+    schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
+    completionFingerprint: COMPLETION_FINGERPRINT,
+    title: base.title,
+    authorByline: base.authorByline,
+    storyLibrarySchemaVersion: base.storyLibrarySchemaVersion,
+    shelfId: base.shelfId,
+    primaryTopicId: base.primaryTopicId,
+    topicIds: base.topicIds,
+    completionStatus: "completed",
+    chapterCount: base.chapterCount,
+    wordCount: base.wordCount,
+    completedAt: base.completedAt,
+    fullSynopsis: base.fullSynopsis,
+    publicChapters: base.publicChapters,
+    authorDeviceReview: declaration,
+    explicitConsent: true,
+    authorRightsDeclaration: true,
+    workCompleted: true,
+    authorDeviceReviewConsent: true,
+  };
+}
+
 function seedSummary(gateway, index, overrides = {}) {
   const publicId = overrides.publicId ?? `novel_${String(index).padStart(16, "0")}`;
   const publication = validPublication({
     title: overrides.title ?? `公開小說 ${index}`,
-    category: overrides.category ?? "奇幻",
+    ...(overrides.topicIds ? normalizePublicLoungeTopicIds(overrides.topicIds) : DEFAULT_TAXONOMY),
   });
   const post = buildPublicLoungePost(publication, {
     publicId,
     publishedAt: overrides.publishedAt ?? new Date(Date.UTC(2026, 7, 29, 3, 0, index)).toISOString(),
+    versionId: `version_seed_${String(index).padStart(16, "0")}`,
+    versionNumber: 1,
+    versionPublishedAt: overrides.publishedAt ?? new Date(Date.UTC(2026, 7, 29, 3, 0, index)).toISOString(),
+    qualityAssurance: overrides.qualityAssurance ?? "private_ai_hub_verified",
   });
   const summary = publicLoungePostToSummary(post);
+  gateway.catalog.set(publicId, { publicId, publishedAt: post.publishedAt, active: true });
   gateway.objects.set(`public-lounge-v1/index/${publicId}.json`, summary);
+  gateway.objects.set(`public-lounge-v1/versions/${publicId}/${post.versionId}.json`, {
+    schemaVersion: PUBLIC_LOUNGE_PUBLISHED_VERSION_SCHEMA_VERSION,
+    publicId,
+    versionId: post.versionId,
+    versionNumber: post.versionNumber,
+    versionPublishedAt: post.versionPublishedAt,
+    publicPost: post,
+  });
+  gateway.objects.set(`public-lounge-v1/posts/${publicId}.json`, {
+    schemaVersion: PUBLIC_LOUNGE_STORED_POST_SCHEMA_VERSION,
+    state: "active",
+    publicId,
+    currentVersionId: post.versionId,
+    currentVersionNumber: post.versionNumber,
+    mutationSequence: 1,
+    publicSummary: summary,
+    publicContentGate: {
+      schemaVersion: "public-lounge-public-content-gate-binding-v1",
+      passed: true,
+      contentDigest: hash(stableStringify({
+        chapterCount: post.chapterCount,
+        wordCount: post.wordCount,
+        publicChapters: post.publicChapters,
+        fullSynopsis: post.fullSynopsis,
+      })),
+    },
+    managementTokenHash: hash(`seed-management-${publicId}`),
+    updatedAt: post.versionPublishedAt,
+  });
   return summary;
+}
+
+function withoutTaxonomy(value) {
+  const copy = structuredClone(value);
+  delete copy.storyLibrarySchemaVersion;
+  delete copy.shelfId;
+  delete copy.primaryTopicId;
+  delete copy.topicIds;
+  return copy;
 }
 
 test("contract accepts an explicit completed rights-cleared integer 80+ publication", () => {
@@ -263,12 +552,64 @@ test("contract accepts an explicit completed rights-cleared integer 80+ publicat
   assert.equal(parsed.fullSynopsis, "第一行\n第二行");
 });
 
+test("v2 taxonomy is canonical, shelf is primary-topic derived, and legacy v1 never guesses", () => {
+  expectCode(() => validatePublicLoungePublicationInput(validPublication({
+    shelfId: "group-1",
+  })), "PUBLIC_LOUNGE_PAYLOAD_INVALID");
+  expectCode(() => validatePublicLoungePublicationInput(validPublication({
+    topicIds: ["classic-topic-002", "classic-topic-002"],
+  })), "PUBLIC_LOUNGE_PAYLOAD_INVALID");
+
+  const v2Post = buildPublicLoungePost(validPublication(), {
+    publicId: "novel_legacytest0001",
+    publishedAt: NOW,
+    versionId: "version_legacytest0001",
+    versionNumber: 1,
+    versionPublishedAt: NOW,
+    qualityAssurance: "private_ai_hub_verified",
+  });
+  const legacyPostCommon = withoutTaxonomy(v2Post);
+  const mappedPost = sanitizeStoredPublicLoungePost({
+    ...legacyPostCommon,
+    schemaVersion: PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION,
+    category: "都市奇幻",
+  });
+  assert.equal(mappedPost.primaryTopicId, "classic-topic-002");
+  assert.equal(mappedPost.shelfId, "group-5");
+
+  const unknownPost = sanitizeStoredPublicLoungePost({
+    ...legacyPostCommon,
+    schemaVersion: PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION,
+    category: "無法精確對應的舊分類",
+  });
+  assert.equal(unknownPost.primaryTopicId, null);
+  assert.equal(unknownPost.shelfId, null);
+  assert.deepEqual(unknownPost.topicIds, []);
+  assert.equal(Object.hasOwn(unknownPost, "legacyCategory"), false);
+
+  const v2Summary = publicLoungePostToSummary(v2Post);
+  const legacySummaryCommon = withoutTaxonomy(v2Summary);
+  const unknownSummary = sanitizeStoredPublicLoungeIndexEntry({
+    ...legacySummaryCommon,
+    schemaVersion: PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION,
+    category: "無法精確對應的舊分類",
+  });
+  assert.deepEqual(unknownSummary.topicIds, []);
+  assert.equal(Object.hasOwn(unknownSummary, "legacyCategory"), false);
+});
+
 test("contract rejects consent rights completion threshold weighted mismatch and private fields", () => {
   expectCode(() => validatePublicLoungePublicationInput(validPublication({ explicitConsent: false })), "PUBLIC_LOUNGE_CONSENT_REQUIRED");
   expectCode(() => validatePublicLoungePublicationInput(validPublication({ authorRightsDeclaration: false })), "PUBLIC_LOUNGE_RIGHTS_DECLARATION_REQUIRED");
   expectCode(() => validatePublicLoungePublicationInput(validPublication({ workCompleted: false })), "PUBLIC_LOUNGE_WORK_NOT_COMPLETED");
   expectCode(() => validatePublicLoungePublicationInput(validPublication({ qualityScore: 79 })), "PUBLIC_LOUNGE_SCORE_NOT_QUALIFIED");
   expectCode(() => validatePublicLoungePublicationInput(validPublication({ qualityScore: 87 })), "PUBLIC_LOUNGE_PAYLOAD_INVALID");
+  assert.equal(validatePublicLoungePublicationInput(validPublication({
+    fullSynopsis: "摘".repeat(PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS),
+  })).fullSynopsis.length, PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS);
+  expectCode(() => validatePublicLoungePublicationInput(validPublication({
+    fullSynopsis: "摘".repeat(PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS + 1),
+  })), "PUBLIC_LOUNGE_PAYLOAD_INVALID");
   for (const key of ["projectId", "privateCanon", "systemPrompt", "modelTrace", "backup"]) {
     expectCode(() => validatePublicLoungePublicationInput({ ...validPublication(), [key]: "secret" }), "PUBLIC_LOUNGE_FORBIDDEN_FIELD");
   }
@@ -276,7 +617,7 @@ test("contract rejects consent rights completion threshold weighted mismatch and
 
 test("forged caller-reported 100 score without stored eligibility is rejected", async () => {
   const fixture = serviceFixture();
-  await expectAsyncCode(() => fixture.service.publish(validPublication({
+  await expectAsyncCode(() => publish(fixture.service, validPublication({
     qualityScore: 100,
     qualityBreakdown: qualityBreakdown(100),
     eligibilityTicket: "F".repeat(43),
@@ -285,35 +626,745 @@ test("forged caller-reported 100 score without stored eligibility is rejected", 
 
 test("trusted Ed25519 attestation issues one bound ticket and legal publish succeeds", async () => {
   const fixture = serviceFixture();
-  const result = await fixture.service.publish(await authorizedPublication(fixture));
+  const proof = await fixture.service.issueEligibility(signedEligibilityRequest());
+  assert.equal(proof.schemaVersion, PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION);
+  const storedEligibility = [...fixture.gateway.objects.entries()]
+    .find(([path]) => path.includes("/eligibility/issued/"))?.[1];
+  assert.equal(storedEligibility?.schemaVersion, PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION);
+  const result = await publish(fixture.service, validPublication({
+    qualityScore: proof.qualityScore,
+    qualityBreakdown: proof.qualityBreakdown,
+    eligibilityTicket: proof.eligibilityTicket,
+  }));
   assert.equal(result.post.quality.totalScore, 86);
+  assert.equal(result.post.qualityAssurance, "private_ai_hub_verified");
   assert.equal(result.post.authorBylineStatus, "self_entered_unverified");
   assert.equal((await fixture.service.list()).items.length, 1);
   assert.equal((await fixture.service.get(result.post.publicId)).title, "《霧港歸航》");
   const serialized = JSON.stringify([...fixture.gateway.objects.values()]);
+  const storedPost = [...fixture.gateway.objects.entries()]
+    .find(([path]) => path.includes("/versions/"))?.[1].publicPost;
+  const storedIndex = [...fixture.gateway.objects.entries()]
+    .find(([path]) => path.includes("/index/"))?.[1];
+  for (const stored of [storedPost, storedIndex]) {
+    assert.equal(stored.storyLibrarySchemaVersion, "story-library-v1");
+    assert.equal(stored.shelfId, "group-5");
+    assert.equal(stored.primaryTopicId, "classic-topic-002");
+    assert.deepEqual(stored.topicIds, ["classic-topic-002"]);
+    assert.equal(Object.hasOwn(stored, "category"), false);
+  }
   assert.equal(serialized.includes(result.managementToken), false);
   assert.equal(/projectId|privateCanon|systemPrompt|modelTrace|backup/u.test(serialized), false);
+});
+
+test("real server service completes signed eligibility publish read overwrite and retract without browser fixtures", async () => {
+  const fixture = serviceFixture();
+  const initial = await authorizedPublication(fixture);
+  const published = await publish(fixture.service, initial);
+  assert.equal((await fixture.service.list({ limit: 24 })).items[0].publicId, published.post.publicId);
+  assert.equal((await fixture.service.get(published.post.publicId)).versionNumber, 1);
+  const revision = await authorizedPublication(fixture, {
+    title: "《霧港歸航・作者修訂版》",
+    fullSynopsis: "作者重新撰寫的公開摘要。",
+  });
+  const overwritten = await fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    revision,
+  );
+  assert.equal(overwritten.versionNumber, 2);
+  assert.equal((await fixture.service.get(published.post.publicId)).title, "《霧港歸航・作者修訂版》");
+  await fixture.service.retract(published.post.publicId, published.managementToken);
+  await expectAsyncCode(() => fixture.service.get(published.post.publicId), "PUBLIC_LOUNGE_NOT_FOUND");
+  assert.equal((await fixture.service.list({ limit: 24 })).items.length, 0);
+});
+
+test("publish and overwrite expose only the current immutable PublishedVersion while retaining history", async () => {
+  const fixture = serviceFixture();
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  assert.equal(published.post.versionNumber, 1);
+  assert.equal(published.post.versionPublishedAt, NOW);
+  assert.match(published.post.versionId, /^version_[a-z0-9_-]{12,96}$/u);
+  const pointerPath = `public-lounge-v1/posts/${published.post.publicId}.json`;
+  const pointerV1 = structuredClone(fixture.gateway.objects.get(pointerPath));
+  assert.equal(pointerV1.currentVersionId, published.post.versionId);
+  assert.equal(pointerV1.currentVersionNumber, 1);
+  assert.equal(pointerV1.mutationSequence, 1);
+  assert.equal(Object.hasOwn(pointerV1, "publicPost"), false);
+  const version1Path = publicLoungeVersionPath(published.post.publicId, published.post.versionId);
+  const version1Snapshot = structuredClone(fixture.gateway.objects.get(version1Path));
+  assert.equal(version1Snapshot.publicPost.title, "《霧港歸航》");
+
+  const revision = await authorizedPublication(fixture, { title: "《霧港歸航・第二版》" });
+  const version2 = await fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    revision,
+  );
+  assert.equal(version2.versionNumber, 2);
+  assert.notEqual(version2.versionId, published.post.versionId);
+  assert.deepEqual(fixture.gateway.objects.get(version1Path), version1Snapshot);
+  assert.equal((await fixture.service.get(published.post.publicId)).versionId, version2.versionId);
+  const summary = (await fixture.service.list()).items[0];
+  assert.equal(summary.versionId, version2.versionId);
+  assert.equal(summary.versionNumber, 2);
+  assert.equal(summary.versionPublishedAt, NOW);
+  const versionPaths = [...fixture.gateway.objects.keys()].filter((path) => path.includes("/versions/"));
+  assert.equal(versionPaths.length, 2);
+  assert.equal(fixture.gateway.objects.get(pointerPath).currentVersionId, version2.versionId);
+  const overwriteClaim = fixture.gateway.objects.get(
+    `public-lounge-v1/mutations/claims/${published.post.publicId}/2.json`,
+  );
+  assert.equal(overwriteClaim.targetPointer.currentVersionId, version2.versionId);
+  assert.equal(Object.hasOwn(overwriteClaim, "targetVersion"), false);
+  assert.equal(JSON.stringify(overwriteClaim).includes(version2.publicChapters[0].body), false);
+
+  await fixture.service.retract(published.post.publicId, published.managementToken);
+  await expectAsyncCode(() => fixture.service.get(published.post.publicId), "PUBLIC_LOUNGE_NOT_FOUND");
+  assert.equal((await fixture.service.list()).items.length, 0);
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/versions/")).length, 2);
+  const stableAnchor = fixture.gateway.objects.get(pointerPath);
+  assert.equal(stableAnchor.state, "retracted");
+  assert.equal(stableAnchor.mutationSequence, 3);
+  const retractClaim = fixture.gateway.objects.get(
+    `public-lounge-v1/mutations/claims/${published.post.publicId}/3.json`,
+  );
+  assert.equal(retractClaim.targetTombstone.state, "retracted");
+});
+
+test("one immutable claim wins concurrent overwrites without pointer index divergence", async () => {
+  const gateway = new BarrierMutationClaimGateway();
+  const fixture = serviceFixture(gateway);
+  const peer = serviceFixture(gateway);
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  const firstRevision = await authorizedPublication(fixture, { title: "第一個並行修訂" });
+  const secondRevision = await authorizedPublication(peer, { title: "第二個並行修訂" });
+
+  const settled = await Promise.allSettled([
+    fixture.service.overwrite(
+      published.post.publicId,
+      published.managementToken,
+      firstRevision,
+    ),
+    peer.service.overwrite(
+      published.post.publicId,
+      published.managementToken,
+      secondRevision,
+    ),
+  ]);
+  const fulfilled = settled.filter((result) => result.status === "fulfilled");
+  const rejected = settled.filter((result) => result.status === "rejected");
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].reason?.code, "PUBLIC_LOUNGE_MUTATION_BUSY");
+  assert.equal(rejected[0].reason?.status, 409);
+  const version2 = fulfilled[0].value;
+
+  const pointerPath = `public-lounge-v1/posts/${published.post.publicId}.json`;
+  const indexPath = `public-lounge-v1/index/${published.post.publicId}.json`;
+  assert.equal(version2.versionNumber, 2);
+  assert.equal((await fixture.service.get(published.post.publicId)).versionId, version2.versionId);
+  assert.equal((await fixture.service.list()).items[0].versionId, version2.versionId);
+  assert.equal(gateway.objects.get(pointerPath).currentVersionId, version2.versionId);
+  assert.equal(gateway.objects.get(indexPath).versionId, published.post.versionId);
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/mutations/claims/")).length, 1);
+  assert.equal([...gateway.rateBuckets.keys()].filter((key) => key.startsWith("work_mutation:")).length, 1);
+  assert.equal(
+    [...gateway.objects.keys()].filter((path) => path.includes(`/versions/${published.post.publicId}/`)).length,
+    3,
+  );
+
+  // Claims are never deleted, so the next request advances without a stale lock.
+  const version3 = await peer.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    await authorizedPublication(peer, { title: "第三個後續修訂" }),
+  );
+  assert.equal(version3.versionNumber, 3);
+  assert.equal((await peer.service.get(published.post.publicId)).versionId, version3.versionId);
+  assert.equal((await peer.service.list()).items[0].versionId, version3.versionId);
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/mutations/claims/")).length, 2);
+  assert.equal(
+    [...gateway.objects.keys()].filter((path) => path.includes(`/versions/${published.post.publicId}/`)).length,
+    4,
+  );
+});
+
+test("an out-of-order checkpoint can regress without hiding a later committed claim", async () => {
+  class ReorderedCheckpointGateway extends MemoryLoungeGateway {
+    constructor() {
+      super();
+      this.firstCheckpointArrived = new Promise((resolve) => { this.resolveFirstCheckpoint = resolve; });
+      this.releaseFirstCheckpoint = new Promise((resolve) => { this.resolveRelease = resolve; });
+      this.delayed = false;
+    }
+    release() { this.resolveRelease(); }
+    async writeJson(path, value, options) {
+      if (
+        !this.delayed
+        && options.upsert
+        && path.includes("/posts/")
+        && value?.state === "active"
+        && value?.mutationSequence === 2
+      ) {
+        this.delayed = true;
+        this.resolveFirstCheckpoint();
+        await this.releaseFirstCheckpoint;
+      }
+      return super.writeJson(path, value, options);
+    }
+  }
+
+  const gateway = new ReorderedCheckpointGateway();
+  const fixture = serviceFixture(gateway);
+  const peer = serviceFixture(gateway);
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  const first = fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    await authorizedPublication(fixture, { title: "先提交但晚寫 checkpoint" }),
+  );
+  await gateway.firstCheckpointArrived;
+  const second = await peer.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    await authorizedPublication(peer, { title: "後提交但先寫 checkpoint" }),
+  );
+  gateway.release();
+  await first;
+
+  const regressed = gateway.objects.get(`public-lounge-v1/posts/${published.post.publicId}.json`);
+  assert.equal(regressed.mutationSequence, 2);
+  assert.equal(second.versionNumber, 3);
+  assert.equal((await fixture.service.get(published.post.publicId)).versionId, second.versionId);
+  assert.equal((await fixture.service.list()).items[0].versionId, second.versionId);
+});
+
+test("retract wins an overwrite race atomically and the stale body cannot resurrect the work", async () => {
+  const gateway = new BarrierMutationClaimGateway();
+  const fixture = serviceFixture(gateway);
+  const peer = serviceFixture(gateway);
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  const staleRevision = await authorizedPublication(peer, { title: "不得復活的修訂" });
+
+  const staleOverwrite = peer.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    staleRevision,
+  );
+  await gateway.firstClaimArrived;
+  const retracting = fixture.service.retract(published.post.publicId, published.managementToken);
+  await expectAsyncCode(
+    () => staleOverwrite,
+    "PUBLIC_LOUNGE_MUTATION_BUSY",
+  );
+  await retracting;
+
+  const pointerPath = `public-lounge-v1/posts/${published.post.publicId}.json`;
+  assert.equal(gateway.objects.get(pointerPath).state, "retracted");
+  assert.equal(gateway.objects.has(`public-lounge-v1/index/${published.post.publicId}.json`), false);
+  const claim = gateway.objects.get(`public-lounge-v1/mutations/claims/${published.post.publicId}/2.json`);
+  assert.equal(claim.operation, "retract");
+  assert.equal(
+    [...gateway.objects.keys()].filter((path) => path.includes(`/versions/${published.post.publicId}/`)).length,
+    2,
+  );
+  await expectAsyncCode(() => fixture.service.get(published.post.publicId), "PUBLIC_LOUNGE_NOT_FOUND");
+  await expectAsyncCode(
+    () => peer.service.overwrite(
+      published.post.publicId,
+      published.managementToken,
+      staleRevision,
+    ),
+    "PUBLIC_LOUNGE_NOT_FOUND",
+  );
+});
+
+test("durable per-work mutation slots cap sequential serverless abuse without relying on process memory", async () => {
+  const gateway = new MemoryLoungeGateway();
+  const fixture = serviceFixture(gateway);
+  const peer = serviceFixture(gateway);
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const actor = attempt % 2 === 0 ? fixture : peer;
+    await actor.service.overwrite(
+      published.post.publicId,
+      published.managementToken,
+      await authorizedPublication(actor, { title: `耐久限流修訂 ${attempt + 1}` }),
+    );
+  }
+  await expectAsyncCode(
+    async () => peer.service.overwrite(
+      published.post.publicId,
+      published.managementToken,
+      await authorizedPublication(peer, { title: "第七次應被限流" }),
+    ),
+    "PUBLIC_LOUNGE_MUTATION_RATE_LIMITED",
+  );
+  assert.equal(
+    [...gateway.rateBuckets.keys()].filter((key) => key.startsWith("work_mutation:")).length,
+    1,
+  );
+  assert.equal(
+    [...gateway.objects.keys()].filter((path) => path.includes("/mutations/claims/")).length,
+    6,
+  );
+  assert.equal((await fixture.service.get(published.post.publicId)).versionNumber, 7);
+});
+
+test("durable request slots are shared by serverless instances for every public route scope", async () => {
+  for (const scope of ["read", "eligibility", "publish", "management"]) {
+    const gateway = new MemoryLoungeGateway();
+    const first = serviceFixture(gateway);
+    const second = serviceFixture(gateway);
+    const limit = scope === "read" ? 30 : 6;
+    const identity = hash("203.0.113.77");
+    for (let attempt = 0; attempt < limit; attempt += 1) {
+      await (attempt % 2 === 0 ? first : second).service.reserveRequest(
+        identity,
+        scope,
+      );
+    }
+    await expectAsyncCode(
+      () => second.service.reserveRequest(identity, scope),
+      "PUBLIC_LOUNGE_RATE_LIMITED",
+    );
+    assert.equal(
+      [...gateway.rateBuckets.keys()].filter((key) => key.startsWith(`${scope}:`)).length,
+      1,
+    );
+  }
+});
+
+test("expired database quota buckets are removed by bounded TTL cleanup", async () => {
+  const gateway = new MemoryLoungeGateway();
+  for (let index = 0; index < 80; index += 1) {
+    gateway.rateBuckets.set(`expired:${index}`, {
+      count: 1,
+      expiresAt: Date.parse("2026-08-29T02:59:00.000Z"),
+    });
+  }
+  gateway.rateBuckets.set("future", {
+    count: 1,
+    expiresAt: Date.parse("2026-08-29T03:02:00.000Z"),
+  });
+  await gateway.reserveRate({
+    identityHash: hash("ttl-cleanup-client"),
+    scope: "read",
+    now: NOW,
+  });
+  assert.equal([...gateway.rateBuckets.keys()].filter((key) => key.startsWith("expired:")).length, 16);
+  assert.equal(gateway.rateBuckets.has("future"), true);
+});
+
+test("invalid management tokens do not amplify reads across immutable history", async () => {
+  const gateway = new MemoryLoungeGateway();
+  const fixture = serviceFixture(gateway);
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  await fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    await authorizedPublication(fixture, { title: "歷史修訂一" }),
+  );
+  await fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    await authorizedPublication(fixture, { title: "歷史修訂二" }),
+  );
+
+  gateway.readPaths = [];
+  await expectAsyncCode(
+    () => fixture.service.overwrite(published.post.publicId, "invalid-token", {}),
+    "PUBLIC_LOUNGE_MANAGEMENT_TOKEN_INVALID",
+  );
+  assert.deepEqual(gateway.readPaths, [`public-lounge-v1/posts/${published.post.publicId}.json`]);
+});
+
+test("catalog list replays compact claims without downloading immutable chapter bodies", async () => {
+  const gateway = new MemoryLoungeGateway();
+  const fixture = serviceFixture(gateway);
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  const updated = await fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    await authorizedPublication(fixture, { title: "清單摘要修訂" }),
+  );
+
+  gateway.readPaths = [];
+  const page = await fixture.service.list();
+  assert.equal(page.items[0].versionId, updated.versionId);
+  assert.equal(gateway.readPaths.some((path) => path.includes("/versions/")), false);
+  assert.equal(gateway.readPaths.some((path) => path.includes("/mutations/claims/")), true);
+});
+
+test("public reads hide weak legacy reviews and strong records without a bound hard gate", async () => {
+  const gateway = new MemoryLoungeGateway();
+  const fixture = serviceFixture(gateway);
+  const weak = seedSummary(gateway, 801, {
+    qualityAssurance: "author_device_closed_ai_unverified",
+  });
+  const unbound = seedSummary(gateway, 802);
+  const unboundPath = `public-lounge-v1/posts/${unbound.publicId}.json`;
+  delete gateway.objects.get(unboundPath).publicContentGate;
+  const strong = seedSummary(gateway, 803);
+
+  const page = await fixture.service.list();
+  assert.deepEqual(page.items.map((item) => item.publicId), [strong.publicId]);
+  await expectAsyncCode(() => fixture.service.get(weak.publicId), "PUBLIC_LOUNGE_NOT_FOUND");
+  await expectAsyncCode(() => fixture.service.get(unbound.publicId), "PUBLIC_LOUNGE_NOT_FOUND");
+  assert.equal((await fixture.service.get(strong.publicId)).publicId, strong.publicId);
+});
+
+test("first overwrite of a legacy v2 post preserves its old public body as immutable version 1", async () => {
+  const fixture = serviceFixture();
+  const publicId = "novel_legacyversion001";
+  const managementToken = "legacy-management-token";
+  const currentPost = buildPublicLoungePost(validPublication({ title: "舊版正文" }), {
+    publicId,
+    publishedAt: NOW,
+    versionId: "version_temporarylegacy001",
+    versionNumber: 1,
+    versionPublishedAt: NOW,
+    qualityAssurance: "private_ai_hub_verified",
+  });
+  const priorPost = structuredClone(currentPost);
+  priorPost.schemaVersion = PUBLIC_LOUNGE_PRIOR_POST_SCHEMA_VERSION;
+  delete priorPost.versionId;
+  delete priorPost.versionNumber;
+  delete priorPost.versionPublishedAt;
+  const priorIndex = structuredClone(publicLoungePostToSummary(currentPost));
+  priorIndex.schemaVersion = PUBLIC_LOUNGE_PRIOR_INDEX_ENTRY_SCHEMA_VERSION;
+  delete priorIndex.versionId;
+  delete priorIndex.versionNumber;
+  delete priorIndex.versionPublishedAt;
+  fixture.gateway.objects.set(`public-lounge-v1/posts/${publicId}.json`, {
+    schemaVersion: PUBLIC_LOUNGE_PRIOR_STORED_POST_SCHEMA_VERSION,
+    state: "active",
+    publicPost: priorPost,
+    managementTokenHash: hash(managementToken),
+    updatedAt: NOW,
+  });
+  fixture.gateway.objects.set(`public-lounge-v1/index/${publicId}.json`, priorIndex);
+
+  const revision = await authorizedPublication(fixture, { title: "新版正文" });
+  const updated = await fixture.service.overwrite(publicId, managementToken, revision);
+  assert.equal(updated.versionNumber, 2);
+  const versions = [...fixture.gateway.objects.entries()]
+    .filter(([path]) => path.includes(`/versions/${publicId}/`))
+    .map(([, value]) => value)
+    .sort((left, right) => left.versionNumber - right.versionNumber);
+  assert.equal(versions.length, 2);
+  assert.equal(versions[0].versionNumber, 1);
+  assert.equal(versions[0].publicPost.title, "舊版正文");
+  assert.equal(versions[1].versionNumber, 2);
+  assert.equal(versions[1].publicPost.title, "新版正文");
+});
+
+test("storage path allowlist accepts immutable versions and rejects traversal or malformed ids", () => {
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/versions/novel_0000000000000001/version_0000000000000001.json",
+  ), true);
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/versions/novel_0000000000000001/../posts/novel_0000000000000001.json",
+  ), false);
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/versions/novel_short/version_0000000000000001.json",
+  ), false);
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/mutations/claims/novel_0000000000000001/2.json",
+  ), true);
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/mutations/rate/novel_0000000000000001/29827260-5.json",
+  ), true);
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/mutations/rate/novel_0000000000000001/29827260-6.json",
+  ), false);
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/mutations/claims/../novel_0000000000000001/2.json",
+  ), false);
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/mutations/claims/novel_0000000000000001/0.json",
+  ), false);
+  assert.equal(isPublicLoungeStorageObjectPath(
+    "public-lounge-v1/mutations/claims/novel_0000000000000001/10001.json",
+  ), false);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    "public-lounge-v1/versions/novel_0000000000000001/version_0000000000000001.json",
+  ), true);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    "public-lounge-v1/mutations/claims/novel_0000000000000001/2.json",
+  ), true);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    "public-lounge-v1/mutations/rate/novel_0000000000000001/29827260-5.json",
+  ), true);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    `public-lounge-v1/publish/idempotency/${"a".repeat(64)}.json`,
+  ), true);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    `public-lounge-v1/publish/idempotency/${"a".repeat(63)}g.json`,
+  ), false);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    `public-lounge-v1/mutations/abuse/publish/${"b".repeat(64)}/29827260-5.json`,
+  ), true);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    `public-lounge-v1/mutations/abuse/read/${"b".repeat(64)}/29827260-5.json`,
+  ), true);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    `public-lounge-v1/mutations/abuse/read/${"b".repeat(64)}/29827260-30.json`,
+  ), false);
+  assert.equal(isPublicLoungeImmutableStorageObjectPath(
+    "public-lounge-v1/posts/novel_0000000000000001.json",
+  ), false);
+});
+
+test("a caller-recomputed 100-point author-device digest cannot mint public eligibility", async () => {
+  const fixture = serviceFixture();
+  const request = await authorDeviceEligibilityRequest();
+  request.authorDeviceReview = await buildAuthorDeviceReviewDeclaration({
+    issuedAt: NOW,
+    nonce: "attacker-recomputed-000001",
+    completionFingerprint: COMPLETION_FINGERPRINT,
+    backendId: "browser-ai",
+    modelId: "caller-controlled-model",
+    modelDigest: MODEL_DIGEST,
+    fullCoverage: true,
+    hardGatePassed: true,
+    compliancePassed: true,
+    criticalDimensionsPassed: true,
+    qualityScore: 100,
+    dimensionScores: qualityBreakdown(100),
+  });
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(request),
+    "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED",
+  );
+  assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/eligibility/issued/")), false);
+  assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/author-device/")), false);
+});
+
+test("eligibility request is an exact exclusive union and every device-shaped payload fails closed", async () => {
+  const fixture = serviceFixture();
+  const authorRequest = await authorDeviceEligibilityRequest();
+  const serverRequest = signedEligibilityRequest();
+  await expectAsyncCode(() => fixture.service.issueEligibility({
+    ...authorRequest,
+    serverAttestation: serverRequest.serverAttestation,
+    trustedServerReviewConsent: true,
+  }), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+  const neither = structuredClone(authorRequest);
+  delete neither.authorDeviceReview;
+  delete neither.authorDeviceReviewConsent;
+  await expectAsyncCode(() => fixture.service.issueEligibility(neither), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+  const privateField = structuredClone(authorRequest);
+  privateField.authorDeviceReview.projectId = "must-not-leave-device";
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(privateField),
+    "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED",
+  );
+  const forgedScore = structuredClone(authorRequest);
+  forgedScore.authorDeviceReview.qualityScore = 100;
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(forgedScore),
+    "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED",
+  );
+});
+
+test("fresh author-device nonces remain local-only and are never consumed as public trust", async () => {
+  const fixture = serviceFixture();
+  const request = await authorDeviceEligibilityRequest();
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(request),
+    "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED",
+  );
+  const freshRequest = await authorDeviceEligibilityRequest();
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(freshRequest),
+    "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED",
+  );
+  assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/author-device/")), false);
+});
+
+test("device review never qualifies publicly while trusted review enforces the content hard gate", async () => {
+  const authorFixture = serviceFixture();
+  const authorRequest = await authorDeviceEligibilityRequest();
+  authorRequest.publicChapters[0].body = "NEXT TURN：請選擇 A/B/C";
+  await expectAsyncCode(
+    () => authorFixture.service.issueEligibility(authorRequest),
+    "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED",
+  );
+  const serverFixture = serviceFixture();
+  await expectAsyncCode(
+    () => serverFixture.service.issueEligibility(signedEligibilityRequest({
+      publicChapters: [
+        { chapterNumber: 1, title: "候選草稿", body: "NEXT TURN：請選擇 A/B/C", official: true },
+      ],
+    })),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+});
+
+test("all legacy v2 tickets fail closed, including unexpired strong-labelled tickets", async () => {
+  for (const legacy of [
+    {
+      tokenCharacter: "W",
+      backendId: "browser-ai",
+      modelId: "legacy-device-review",
+      qualityAssurance: "author_device_closed_ai_unverified",
+    },
+    {
+      tokenCharacter: "S",
+      backendId: "private-ai-hub",
+      modelId: "legacy-strong-private-review",
+      qualityAssurance: "private_ai_hub_verified",
+    },
+  ]) {
+    const fixture = serviceFixture();
+    const eligibilityTicket = legacy.tokenCharacter.repeat(43);
+    const publication = validPublication({ eligibilityTicket });
+    const validated = validatePublicLoungePublicationInput(publication);
+    const { eligibilityTicket: ignoredTicket, ...boundPublication } = validated;
+    void ignoredTicket;
+    const ticketHash = hash(eligibilityTicket);
+    fixture.gateway.objects.set(`public-lounge-v1/eligibility/issued/${ticketHash}.json`, {
+      schemaVersion: "public-lounge-stored-eligibility-v2",
+      state: "issued",
+      ticketHash,
+      completionFingerprint: COMPLETION_FINGERPRINT,
+      publicationDigest: hash(publicLoungeEligibilityBinding(boundPublication, COMPLETION_FINGERPRINT)),
+      backendId: legacy.backendId,
+      modelId: legacy.modelId,
+      modelDigest: MODEL_DIGEST,
+      qualityScore: 86,
+      qualityBreakdown: qualityBreakdown(86),
+      qualityAssurance: legacy.qualityAssurance,
+      issuedAt: NOW,
+      expiresAt: "2026-08-29T03:15:00.000Z",
+    });
+    await expectAsyncCode(
+      () => publish(fixture.service, publication),
+      "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+    );
+    assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/eligibility/consumed/")), false);
+    assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/posts/")), false);
+  }
 });
 
 test("ticket replay and public-field tampering are rejected", async () => {
   const replayFixture = serviceFixture();
   const publication = await authorizedPublication(replayFixture);
-  await replayFixture.service.publish(publication);
-  await expectAsyncCode(() => replayFixture.service.publish(publication), "PUBLIC_LOUNGE_ELIGIBILITY_REPLAYED");
+  await publish(replayFixture.service, publication);
+  await expectAsyncCode(() => publish(replayFixture.service, publication), "PUBLIC_LOUNGE_ELIGIBILITY_REPLAYED");
   const tamperFixture = serviceFixture();
   const bound = await authorizedPublication(tamperFixture);
-  await expectAsyncCode(() => tamperFixture.service.publish({ ...bound, title: "竄改後標題" }), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+  await expectAsyncCode(() => publish(tamperFixture.service, { ...bound, title: "竄改後標題" }), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
 });
 
-test("attestation tampering and attestation replay are rejected", async () => {
+test("attestation tampering is rejected while an issuance retry returns a fresh bound ticket", async () => {
   const tamperFixture = serviceFixture();
   const request = signedEligibilityRequest();
   request.title = "簽章後竄改";
   await expectAsyncCode(() => tamperFixture.service.issueEligibility(request), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
   const replayFixture = serviceFixture();
   const replayRequest = signedEligibilityRequest();
-  await replayFixture.service.issueEligibility(replayRequest);
-  await expectAsyncCode(() => replayFixture.service.issueEligibility(replayRequest), "PUBLIC_LOUNGE_ELIGIBILITY_REPLAYED");
+  const first = await replayFixture.service.issueEligibility(replayRequest);
+  const retry = await replayFixture.service.issueEligibility(replayRequest);
+  assert.notEqual(retry.eligibilityTicket, first.eligibilityTicket);
+  assert.equal(
+    [...replayFixture.gateway.objects.keys()].some((path) => path.includes("/eligibility/consumed/")),
+    false,
+  );
+});
+
+test("signed server attestation hard gates are bound and critical scores are recomputed", async () => {
+  for (const overrides of [
+    { hardGatePassed: false },
+    { compliancePassed: false },
+    { criticalDimensionsPassed: false },
+    { hiddenDraftResidueDetected: true },
+  ]) {
+    const fixture = serviceFixture();
+    await expectAsyncCode(
+      () => fixture.service.issueEligibility(signedEligibilityRequest({}, overrides)),
+      "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+    );
+  }
+
+  const criticalBreakdown = qualityBreakdown(100);
+  criticalBreakdown.plot_coherence = 59;
+  const criticalFixture = serviceFixture();
+  await expectAsyncCode(
+    () => criticalFixture.service.issueEligibility(signedEligibilityRequest({}, {
+      qualityScore: 92,
+      qualityBreakdown: criticalBreakdown,
+      hardGatePassed: true,
+      compliancePassed: true,
+      criticalDimensionsPassed: true,
+      hiddenDraftResidueDetected: false,
+    })),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+
+  const singleJudge = multiJudgeSummary(qualityBreakdown(), 12);
+  singleJudge.primaryJudgeCount = 1;
+  singleJudge.judges = singleJudge.judges.slice(0, 1);
+  singleJudge.selectedJudgeRoles = ["literary-editor"];
+  singleJudge.fullCoverageJudgeRoles = ["literary-editor"];
+  await expectAsyncCode(
+    () => serviceFixture().service.issueEligibility(signedEligibilityRequest({}, {
+      multiJudgeSummary: singleJudge,
+    })),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+
+  await expectAsyncCode(
+    () => serviceFixture().service.issueEligibility(signedEligibilityRequest({}, {
+      qualityScore: 90,
+      qualityBreakdown: qualityBreakdown(90),
+      multiJudgeSummary: multiJudgeSummary(qualityBreakdown(86), 12),
+    })),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+
+  await expectAsyncCode(
+    () => serviceFixture().service.issueEligibility(signedEligibilityRequest({}, {
+      multiJudgeSummary: multiJudgeSummary(qualityBreakdown(86), 11),
+    })),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+
+  const arbitratedSummary = {
+    schemaVersion: PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
+    primaryJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+    primaryJudgeCount: 3,
+    judges: [
+      attestedJudge("literary-editor", qualityBreakdown(70)),
+      attestedJudge("continuity-editor", qualityBreakdown(86)),
+      attestedJudge("genre-reader", qualityBreakdown(94)),
+      attestedJudge("score-arbitrator", qualityBreakdown(88)),
+    ],
+    aggregationMethod: "per-dimension-median",
+    primaryScoreSpread: 24,
+    selectedJudgeRoles: ["score-arbitrator", "continuity-editor", "genre-reader"],
+    arbitrationRequired: true,
+    arbitrationPerformed: true,
+    fullCoverageJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES, "score-arbitrator"],
+    reviewedChapterCount: 12,
+    reviewedChunkCount: 24,
+  };
+  const arbitrationProof = await serviceFixture().service.issueEligibility(signedEligibilityRequest({}, {
+    qualityScore: 88,
+    qualityBreakdown: qualityBreakdown(88),
+    multiJudgeSummary: arbitratedSummary,
+  }));
+  assert.equal(arbitrationProof.qualityScore, 88);
+
+  const legacyAttestationFixture = serviceFixture();
+  const legacyAttestation = signedEligibilityRequest();
+  legacyAttestation.serverAttestation.schemaVersion = "public-lounge-server-review-attestation-v2";
+  await expectAsyncCode(
+    () => legacyAttestationFixture.service.issueEligibility(legacyAttestation),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
 });
 
 test("missing trusted verifier is reported honestly and cannot issue eligibility", async () => {
@@ -338,37 +1389,78 @@ test("publish returns token after commit without a fallible post-commit read", a
     }
   }
   const fixture = serviceFixture(new RejectPostReadsGateway());
-  const result = await fixture.service.publish(await authorizedPublication(fixture));
+  const result = await publish(fixture.service, await authorizedPublication(fixture));
   assert.match(result.managementToken, /^[A-Za-z0-9_-]{43}$/u);
 });
 
-test("publish rolls back post and index when index commit fails", async () => {
-  class RejectIndexWriteGateway extends MemoryLoungeGateway {
-    async writeJson(path, value, options) {
-      if (path.includes("/index/")) throw new Error("INDEX_WRITE_FAILED");
-      return super.writeJson(path, value, options);
+test("publish response loss is resumable without a duplicate public work or token", async () => {
+  class RejectCatalogAnchorGateway extends MemoryLoungeGateway {
+    constructor() {
+      super();
+      this.failNextAnchor = true;
+    }
+    async upsertCatalogAnchor(candidate) {
+      if (this.failNextAnchor) {
+        this.failNextAnchor = false;
+        throw new Error("CATALOG_ANCHOR_WRITE_FAILED");
+      }
+      return super.upsertCatalogAnchor(candidate);
     }
   }
-  const fixture = serviceFixture(new RejectIndexWriteGateway());
+  const fixture = serviceFixture(new RejectCatalogAnchorGateway());
   const publication = await authorizedPublication(fixture);
-  await expectAsyncCode(() => fixture.service.publish(publication), "PUBLIC_LOUNGE_NOT_CONNECTED");
-  assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/posts/")), false);
-  assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/index/")), false);
+  const idempotencyKey = nextIdempotencyKey();
+  await expectAsyncCode(
+    () => publish(fixture.service, publication, idempotencyKey),
+    "PUBLIC_LOUNGE_NOT_CONNECTED",
+  );
+  assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/posts/")), true);
+  assert.equal(fixture.gateway.catalog.size, 0);
+  const recovered = await publish(fixture.service, publication, idempotencyKey);
+  assert.equal((await fixture.service.list()).items.length, 1);
+  assert.equal((await fixture.service.get(recovered.post.publicId)).publicId, recovered.post.publicId);
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/posts/")).length, 1);
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/publish/idempotency/")).length, 1);
+  assert.equal(fixture.gateway.catalog.size, 1);
 });
 
-test("management token gates overwrite and retract retry removes ghost index", async () => {
-  class FailFirstIndexDeleteGateway extends MemoryLoungeGateway {
-    constructor() { super(); this.failed = false; }
-    async deleteJson(paths) {
-      if (!this.failed && paths.some((path) => path.includes("/index/"))) {
-        this.failed = true;
-        throw new Error("INDEX_DELETE_FAILED");
-      }
-      return super.deleteJson(paths);
-    }
-  }
-  const fixture = serviceFixture(new FailFirstIndexDeleteGateway());
-  const published = await fixture.service.publish(await authorizedPublication(fixture));
+test("concurrent serverless publish claims cannot spend one eligibility twice", async () => {
+  const gateway = new BarrierEligibilityConsumptionGateway();
+  const first = serviceFixture(gateway);
+  const second = serviceFixture(gateway);
+  const publication = await authorizedPublication(first);
+  const settled = await Promise.allSettled([
+    publish(first.service, publication, "A".repeat(32)),
+    publish(second.service, publication, "B".repeat(32)),
+  ]);
+  const fulfilled = settled.filter((result) => result.status === "fulfilled");
+  const rejected = settled.filter((result) => result.status === "rejected");
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].reason?.code, "PUBLIC_LOUNGE_ELIGIBILITY_REPLAYED");
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/posts/")).length, 1);
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/index/")).length, 1);
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/eligibility/consumed/")).length, 1);
+});
+
+test("the same publish idempotency key recovers the same public id and management token", async () => {
+  const gateway = new MemoryLoungeGateway();
+  const first = serviceFixture(gateway);
+  const second = serviceFixture(gateway);
+  const publication = await authorizedPublication(first);
+  const idempotencyKey = "R".repeat(32);
+  const initial = await publish(first.service, publication, idempotencyKey);
+  const replay = await publish(second.service, publication, idempotencyKey);
+  assert.equal(replay.post.publicId, initial.post.publicId);
+  assert.equal(replay.post.versionId, initial.post.versionId);
+  assert.equal(replay.managementToken, initial.managementToken);
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/posts/")).length, 1);
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/publish/idempotency/")).length, 1);
+});
+
+test("management token gates mutations and retract removes its catalog anchor", async () => {
+  const fixture = serviceFixture();
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
   await expectAsyncCode(
     () => fixture.service.overwrite(published.post.publicId, "B".repeat(43), validPublication()),
     "PUBLIC_LOUNGE_MANAGEMENT_TOKEN_INVALID",
@@ -376,12 +1468,103 @@ test("management token gates overwrite and retract retry removes ghost index", a
   const revision = await authorizedPublication(fixture, { title: "霧港歸航・修訂版" });
   const overwritten = await fixture.service.overwrite(published.post.publicId, published.managementToken, revision);
   assert.equal(overwritten.title, "霧港歸航・修訂版");
-  await expectAsyncCode(
-    () => fixture.service.retract(published.post.publicId, published.managementToken),
-    "PUBLIC_LOUNGE_NOT_CONNECTED",
-  );
+  await fixture.service.retract(published.post.publicId, published.managementToken);
   await fixture.service.retract(published.post.publicId, published.managementToken);
   assert.equal((await fixture.service.list()).items.length, 0);
+  assert.equal(
+    fixture.gateway.objects.has(`public-lounge-v1/index/${published.post.publicId}.json`),
+    false,
+  );
+  assert.equal(fixture.gateway.catalog.get(published.post.publicId)?.active, false);
+  assert.equal(
+    [...fixture.gateway.objects.keys()].filter((path) => path.includes("/mutations/claims/")).length,
+    2,
+  );
+});
+
+test("an ambiguous claim response is accepted only when the immutable receipt exactly matches", async () => {
+  class CommitThenRejectClaimGateway extends MemoryLoungeGateway {
+    constructor() {
+      super();
+      this.armed = false;
+    }
+    arm() { this.armed = true; }
+    async writeJson(path, value, options) {
+      if (this.armed && path.includes("/mutations/claims/") && value?.operation === "overwrite") {
+        this.armed = false;
+        await super.writeJson(path, value, options);
+        throw new Error("CLAIM_WRITE_RESPONSE_LOST_AFTER_COMMIT");
+      }
+      return super.writeJson(path, value, options);
+    }
+  }
+  const gateway = new CommitThenRejectClaimGateway();
+  const fixture = serviceFixture(gateway);
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  const postPath = [...gateway.objects.keys()].find((path) => path.includes("/posts/"));
+  const indexPath = [...gateway.objects.keys()].find((path) => path.includes("/index/"));
+  const oldPost = structuredClone(gateway.objects.get(postPath));
+  const oldIndex = structuredClone(gateway.objects.get(indexPath));
+  const newTitle = "霧港歸航・已提交修訂";
+  const revision = await authorizedPublication(fixture, { title: newTitle });
+  gateway.arm();
+
+  const updated = await fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    revision,
+  );
+
+  assert.notDeepEqual(gateway.objects.get(postPath), oldPost);
+  assert.equal(gateway.objects.get(postPath).currentVersionId, updated.versionId);
+  assert.deepEqual(gateway.objects.get(indexPath), oldIndex);
+  assert.equal((await fixture.service.get(published.post.publicId)).versionId, updated.versionId);
+  assert.equal((await fixture.service.list()).items[0].title, newTitle);
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/mutations/claims/")).length, 1);
+});
+
+test("a failed claim create leaves its immutable version orphaned but cannot expose or corrupt the work", async () => {
+  class RejectFirstClaimGateway extends MemoryLoungeGateway {
+    constructor() {
+      super();
+      this.rejectNextClaim = false;
+    }
+    arm() { this.rejectNextClaim = true; }
+    async writeJson(path, value, options) {
+      if (this.rejectNextClaim && path.includes("/mutations/claims/")) {
+        this.rejectNextClaim = false;
+        throw new Error("CLAIM_CREATE_FAILED_BEFORE_COMMIT");
+      }
+      return super.writeJson(path, value, options);
+    }
+  }
+  const gateway = new RejectFirstClaimGateway();
+  const fixture = serviceFixture(gateway);
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  const newTitle = "霧港歸航・不可曝光修訂";
+  const revision = await authorizedPublication(fixture, { title: newTitle });
+  gateway.arm();
+
+  await expectAsyncCode(
+    () => fixture.service.overwrite(published.post.publicId, published.managementToken, revision),
+    "PUBLIC_LOUNGE_NOT_CONNECTED",
+  );
+
+  assert.equal((await fixture.service.get(published.post.publicId)).title, published.post.title);
+  assert.equal((await fixture.service.list()).items[0].title, published.post.title);
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/mutations/claims/")).length, 0);
+  assert.equal(
+    [...gateway.objects.keys()].filter((path) => path.includes(`/versions/${published.post.publicId}/`)).length,
+    2,
+  );
+  const recovered = await fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    await authorizedPublication(fixture, { title: "霧港歸航・安全重試" }),
+  );
+  assert.equal(recovered.versionNumber, 2);
+  assert.equal((await fixture.service.list()).items[0].title, "霧港歸航・安全重試");
+  assert.equal([...gateway.objects.keys()].filter((path) => path.includes("/mutations/claims/")).length, 1);
 });
 
 test("250 works are cursor-pageable searchable and read with concurrency at most 8", async () => {
@@ -390,7 +1573,7 @@ test("250 works are cursor-pageable searchable and read with concurrency at most
   for (let index = 1; index <= 250; index += 1) {
     seedSummary(gateway, index, {
       title: index === 249 ? "唯一深海搜尋命中" : undefined,
-      category: index === 250 ? "末頁分類" : undefined,
+      topicIds: index === 250 ? ["classic-topic-001"] : undefined,
       publishedAt: "2026-08-29T03:00:00.000Z",
     });
   }
@@ -405,13 +1588,16 @@ test("250 works are cursor-pageable searchable and read with concurrency at most
   assert.equal(found.length, 250);
   assert.equal(new Set(found).size, 250);
   assert.deepEqual(found, [...found].sort().reverse());
-  assert.deepEqual([...new Set(gateway.listOffsets)], [0, 200]);
+  assert.equal(gateway.listOffsets.length, 0, "catalog pagination must never list Storage objects");
+  assert.ok(gateway.catalogCalls.every((call) => call.limit <= 48));
   assert.ok(gateway.maxActiveReads > 1 && gateway.maxActiveReads <= 8);
   const searched = await fixture.service.list({ search: "唯一深海搜尋命中" });
   assert.equal(searched.totalCount, 1);
-  const categoryPage = await fixture.service.list({ category: "末頁分類" });
-  assert.equal(categoryPage.totalCount, 1);
-  assert.ok(categoryPage.categories.includes("末頁分類"));
+  const shelfPage = await fixture.service.list({ shelfId: "group-7" });
+  assert.equal(shelfPage.totalCount, 1);
+  assert.deepEqual(shelfPage.shelves.map((shelf) => shelf.shelfId), [
+    "group-1", "group-2", "group-3", "group-4", "group-5", "group-6", "group-7", "group-8",
+  ]);
 });
 
 test("cursor is query-bound and malformed cursor or invalid limit fails safely", async () => {
@@ -427,21 +1613,58 @@ test("cursor is query-bound and malformed cursor or invalid limit fails safely",
   await expectAsyncCode(() => fixture.service.list({ limit: 49 }), "PUBLIC_LOUNGE_CURSOR_INVALID");
 });
 
-test("corruption and catalogs above explicit ceiling fail instead of silently truncating", async () => {
-  const corruptFixture = serviceFixture();
-  for (let index = 1; index <= 201; index += 1) seedSummary(corruptFixture.gateway, index);
-  corruptFixture.gateway.objects.set("public-lounge-v1/index/novel_0000000000000201.json", { malformed: true });
-  await expectAsyncCode(() => corruptFixture.service.list(), "PUBLIC_LOUNGE_NOT_CONNECTED");
-  const largeFixture = serviceFixture();
-  for (let index = 1; index <= 5_001; index += 1) {
-    largeFixture.gateway.objects.set(`public-lounge-v1/index/novel_${String(index).padStart(16, "0")}.json`, { unread: true });
+test("limit one reads one DB candidate and a 5001st anchor never blacks out the catalog", async () => {
+  const gateway = new MemoryLoungeGateway();
+  const publishedAt = "2026-08-29T03:00:00.000Z";
+  for (let index = 1; index <= 5_000; index += 1) {
+    const publicId = `novel_${String(index).padStart(16, "0")}`;
+    gateway.catalog.set(publicId, { publicId, publishedAt, active: true });
   }
-  await expectAsyncCode(() => largeFixture.service.list(), "PUBLIC_LOUNGE_CATALOG_LIMIT");
+  const expected = seedSummary(gateway, 5_001, { publishedAt });
+  const fixture = serviceFixture(gateway);
+  const page = await fixture.service.list({ limit: 1 });
+  assert.deepEqual(page.items.map((item) => item.publicId), [expected.publicId]);
+  assert.equal(page.nextCursor !== null, true);
+  assert.deepEqual(gateway.catalogCalls.map((call) => call.limit), [1]);
+  assert.equal(gateway.listOffsets.length, 0);
+  assert.deepEqual(
+    gateway.readPaths.filter((path) => path.includes("/posts/")),
+    [`public-lounge-v1/posts/${expected.publicId}.json`],
+  );
+});
+
+test("missing retracted and stale catalog anchors are never exposed", async () => {
+  const gateway = new MemoryLoungeGateway();
+  const missing = seedSummary(gateway, 601);
+  gateway.objects.delete(`public-lounge-v1/posts/${missing.publicId}.json`);
+
+  const retracted = seedSummary(gateway, 602);
+  gateway.objects.set(`public-lounge-v1/posts/${retracted.publicId}.json`, {
+    schemaVersion: PUBLIC_LOUNGE_STORED_POST_SCHEMA_VERSION,
+    state: "retracted",
+    publicId: retracted.publicId,
+    mutationSequence: 2,
+    managementTokenHash: hash(`seed-management-${retracted.publicId}`),
+    updatedAt: retracted.publishedAt,
+  });
+
+  const stale = seedSummary(gateway, 603);
+  gateway.catalog.set(stale.publicId, {
+    publicId: stale.publicId,
+    publishedAt: "2026-08-29T02:00:00.000Z",
+    active: true,
+  });
+
+  const page = await serviceFixture(gateway).service.list({ limit: 10 });
+  assert.deepEqual(page.items, []);
+  assert.equal(gateway.catalog.get(missing.publicId)?.active, false);
+  assert.equal(gateway.catalog.get(retracted.publicId)?.active, false);
+  assert.equal(gateway.catalog.get(stale.publicId)?.active, true);
 });
 
 test("client preflights device storage and recovers failed credential persistence", async () => {
   const fixture = serviceFixture();
-  const published = await fixture.service.publish(await authorizedPublication(fixture));
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
   const previousFetch = globalThis.fetch;
   try {
     let calls = 0;
@@ -464,6 +1687,7 @@ test("client preflights device storage and recovers failed credential persistenc
       () => publishPublicLoungePost(validPublication(), {
         completionFingerprint: COMPLETION_FINGERPRINT,
         storage: new MemoryDeviceStorage({ failOnSetCall: 4 }),
+        accessToken: "access." + "B".repeat(64),
       }),
       (error) => error.code === "PUBLIC_LOUNGE_AUTHOR_DEVICE_STORAGE_WRITE_ROLLED_BACK",
     );
@@ -475,7 +1699,11 @@ test("client preflights device storage and recovers failed credential persistenc
     const storage = new MemoryDeviceStorage({ failOnSetCall: 4 });
     let recovery;
     await assert.rejects(
-      () => publishPublicLoungePost(validPublication(), { completionFingerprint: COMPLETION_FINGERPRINT, storage }),
+      () => publishPublicLoungePost(validPublication(), {
+        completionFingerprint: COMPLETION_FINGERPRINT,
+        storage,
+        accessToken: "access." + "B".repeat(64),
+      }),
       (error) => {
         recovery = error.recovery;
         return error.code === "PUBLIC_LOUNGE_MANAGEMENT_RECOVERY_REQUIRED"
@@ -489,6 +1717,22 @@ test("client preflights device storage and recovers failed credential persistenc
   }
 });
 
+test("device-only stable work reference survives a changed completion fingerprint", () => {
+  const storage = new MemoryDeviceStorage();
+  const projectId = "private-project-id-never-sent";
+  const post = {
+    publicId: "novel_stablework000001",
+    publishedAt: NOW,
+    title: "舊稿已公開",
+  };
+  savePublicLoungeWorkPublicationReference(projectId, post, storage);
+  const loadedAfterEdit = loadPublicLoungeWorkPublicationReference(projectId, storage);
+  assert.deepEqual(loadedAfterEdit, post);
+  assert.equal([...storage.values.keys()].some((key) => key.includes(projectId)), true);
+  removePublicLoungeWorkPublicationReference(projectId, storage);
+  assert.equal(loadPublicLoungeWorkPublicationReference(projectId, storage), null);
+});
+
 test("missing public or unprovisioned bucket never creates a local substitute", async () => {
   for (const status of [
     { exists: false, public: false, provisioned: false },
@@ -496,9 +1740,20 @@ test("missing public or unprovisioned bucket never creates a local substitute", 
     { exists: true, public: false, provisioned: false },
   ]) {
     const fixture = serviceFixture(new MemoryLoungeGateway(status));
-    await expectAsyncCode(() => fixture.service.publish(validPublication()), "PUBLIC_LOUNGE_NOT_CONNECTED");
+    await expectAsyncCode(() => publish(fixture.service, validPublication()), "PUBLIC_LOUNGE_NOT_CONNECTED");
     assert.equal(fixture.gateway.objects.size, 0);
   }
+});
+
+test("missing production control-plane migration fails the gateway closed", async () => {
+  class MissingControlPlaneGateway extends MemoryLoungeGateway {
+    async controlPlaneStatus() {
+      throw new Error("RPC_NOT_FOUND");
+    }
+  }
+  const fixture = serviceFixture(new MissingControlPlaneGateway());
+  await expectAsyncCode(() => fixture.service.health(), "PUBLIC_LOUNGE_NOT_CONNECTED");
+  await expectAsyncCode(() => fixture.service.list({ limit: 1 }), "PUBLIC_LOUNGE_NOT_CONNECTED");
 });
 
 test("whole-novel adapter uses trusted proof quality and only public allowlist", () => {
@@ -511,11 +1766,12 @@ test("whole-novel adapter uses trusted proof quality and only public allowlist",
     },
   };
   const proof = {
-    schemaVersion: "public-lounge-eligibility-proof-v1",
+    schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION,
     eligibilityTicket: "E".repeat(43),
     expiresAt: "2026-08-29T03:10:00.000Z",
     backendId: "private-ai-hub",
     modelId: "closed-reviewer-v1",
+    qualityAssurance: "private_ai_hub_verified",
     completionFingerprint: COMPLETION_FINGERPRINT,
     qualityScore: 86,
     qualityBreakdown: qualityBreakdown(),
@@ -523,6 +1779,7 @@ test("whole-novel adapter uses trusted proof quality and only public allowlist",
   const publication = createPublicLoungePublicationFromWholeNovelReview({
     review,
     authorByline: "林舟",
+    topicIds: ["classic-topic-002", "classic-topic-005"],
     selectedOfficialChapters: [{ chapterNumber: 1, title: "霧中燈塔", body: "公開正文" }],
     explicitConsent: true,
     authorRightsDeclaration: true,
@@ -530,6 +1787,35 @@ test("whole-novel adapter uses trusted proof quality and only public allowlist",
   });
   assert.equal(JSON.stringify(publication).includes("must-never-leave-device"), false);
   assert.equal(publication.qualityScore, proof.qualityScore);
+  assert.throws(
+    () => createPublicLoungePublicationFromWholeNovelReview({
+      review,
+      authorByline: "林舟",
+      topicIds: ["classic-topic-002"],
+      selectedOfficialChapters: [{ chapterNumber: 1, title: "霧中燈塔", body: "公開正文" }],
+      explicitConsent: true,
+      authorRightsDeclaration: true,
+      eligibilityProof: {
+        ...proof,
+        backendId: "browser-ai",
+        qualityAssurance: "author_device_closed_ai_unverified",
+      },
+    }),
+    (error) => error instanceof PublicLoungeClientError && error.code === "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+  assert.throws(
+    () => createPublicLoungePublicationFromWholeNovelReview({
+      review,
+      authorByline: "林舟",
+      topicIds: ["classic-topic-002"],
+      fullSynopsis: "摘".repeat(PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS + 1),
+      selectedOfficialChapters: [{ chapterNumber: 1, title: "霧中燈塔", body: "公開正文" }],
+      explicitConsent: true,
+      authorRightsDeclaration: true,
+      eligibilityProof: proof,
+    }),
+    (error) => error instanceof PublicLoungeClientError && error.code === "PUBLIC_LOUNGE_PAYLOAD_INVALID",
+  );
 });
 
 for (const { name, run } of tests) {

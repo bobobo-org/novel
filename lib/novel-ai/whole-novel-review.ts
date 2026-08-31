@@ -4,14 +4,24 @@ import type {
 } from "./closed-agent-os";
 import type { Chapter, NovelProject } from "./domain";
 import type { AuthorToolSnapshot } from "./author-tools";
+import { PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS } from "./public-lounge/types";
 
-export const WHOLE_NOVEL_REVIEW_SCHEMA_VERSION = "whole-novel-review-v1" as const;
+export const WHOLE_NOVEL_REVIEW_SCHEMA_VERSION = "whole-novel-review-v2" as const;
 export const WHOLE_NOVEL_MODEL_REVIEW_SCHEMA_VERSION = "whole-novel-model-review-v1" as const;
-export const WHOLE_NOVEL_CHUNK_ANALYSIS_SCHEMA_VERSION = "whole-novel-chunk-analysis-v1" as const;
+export const WHOLE_NOVEL_CHUNK_ANALYSIS_SCHEMA_VERSION = "whole-novel-chunk-analysis-v2" as const;
 export const WHOLE_NOVEL_COMPLETION_DECLARATION_SCHEMA_VERSION = "whole-novel-completion-declaration-v1" as const;
 export const WHOLE_NOVEL_LOUNGE_ELIGIBILITY_SCHEMA_VERSION = "whole-novel-lounge-eligibility-v1" as const;
 export const WHOLE_NOVEL_LOUNGE_THRESHOLD = 80;
 export type WholeNovelReviewBackendId = ClosedAIBackendId;
+
+export const WHOLE_NOVEL_PRIMARY_JUDGE_ROLES = [
+  "literary-editor",
+  "continuity-editor",
+  "genre-reader",
+] as const;
+export type WholeNovelPrimaryJudgeRole = typeof WHOLE_NOVEL_PRIMARY_JUDGE_ROLES[number];
+export type WholeNovelReviewJudgeRole = WholeNovelPrimaryJudgeRole | "score-arbitrator";
+export const WHOLE_NOVEL_CRITICAL_DIMENSION_THRESHOLD = 60;
 
 export type WholeNovelReviewDimensionKey =
   | "plot_coherence"
@@ -111,6 +121,7 @@ export type WholeNovelReviewChunk = {
 
 export type WholeNovelChunkAnalysis = {
   schemaVersion: typeof WHOLE_NOVEL_CHUNK_ANALYSIS_SCHEMA_VERSION;
+  judgeRole: WholeNovelPrimaryJudgeRole;
   chunkId: string;
   chapterId: string;
   chunkIndex: number;
@@ -131,8 +142,18 @@ export type WholeNovelDimensionAnalysis = {
   recommendations: string[];
 };
 
+export type WholeNovelReviewCompliance = {
+  publicSafetyPassed: boolean;
+  completenessPassed: boolean;
+  privacyCopyrightPassed: boolean;
+  hiddenDraftResidueDetected: boolean;
+  matureContentDetected: boolean;
+  reasons: string[];
+};
+
 export type WholeNovelModelReview = {
   schemaVersion: typeof WHOLE_NOVEL_MODEL_REVIEW_SCHEMA_VERSION;
+  judgeRole: WholeNovelReviewJudgeRole | "aggregate";
   outline: Array<{
     chapterId: string;
     title: string;
@@ -141,13 +162,15 @@ export type WholeNovelModelReview = {
     endingState: string;
   }>;
   dimensions: Record<WholeNovelReviewDimensionKey, WholeNovelDimensionAnalysis>;
+  compliance: WholeNovelReviewCompliance;
   editorialVerdict: string;
   priorityRevisions: string[];
 };
 
 export type WholeNovelReviewExecutionProvenance = {
-  stage: "chunk-analysis" | "whole-book-synthesis";
+  stage: "chunk-analysis" | "whole-book-synthesis" | "whole-book-arbitration";
   chunkId: string | null;
+  judgeRole: WholeNovelReviewJudgeRole | null;
   candidateId: string;
   taskId: string;
   receiptTaskId: string;
@@ -162,6 +185,26 @@ export type WholeNovelReviewExecutionProvenance = {
   externalRequest: false;
   dataLeftDevice: false;
   canonicalMutationCount: 0;
+};
+
+export type WholeNovelJudgeSummary = {
+  judgeRole: WholeNovelReviewJudgeRole;
+  candidateId: string;
+  modelId: string;
+  modelDigest: string;
+  totalScore: number;
+  dimensionScores: Record<WholeNovelReviewDimensionKey, number>;
+  compliance: WholeNovelReviewCompliance;
+  editorialVerdict: string;
+  priorityRevisions: string[];
+  selectedForAggregation: boolean;
+};
+
+export type WholeNovelReviewAggregation = {
+  modelReview: WholeNovelModelReview;
+  primaryScoreSpread: number;
+  arbitrationRequired: boolean;
+  selectedJudgeRoles: WholeNovelReviewJudgeRole[];
 };
 
 export type WholeNovelReviewContract = {
@@ -224,6 +267,12 @@ export type WholeNovelReviewContract = {
     threshold: typeof WHOLE_NOVEL_LOUNGE_THRESHOLD;
     eligible: boolean;
     score: number;
+    hardGatePassed: boolean;
+    compliancePassed: boolean;
+    criticalDimensionsPassed: boolean;
+    criticalDimensionThreshold: typeof WHOLE_NOVEL_CRITICAL_DIMENSION_THRESHOLD;
+    matureContentDetected: boolean;
+    blockingReasons: string[];
     reviewId: string;
     completionFingerprint: string;
     requiresCurrentMatchingCompletionFingerprint: true;
@@ -233,6 +282,15 @@ export type WholeNovelReviewContract = {
     deterministicFallbackUsed: false;
     backendId: WholeNovelReviewBackendId;
     executions: WholeNovelReviewExecutionProvenance[];
+    judges: WholeNovelJudgeSummary[];
+    aggregation: {
+      method: "per-dimension-median";
+      primaryJudgeCount: 3;
+      primaryScoreSpread: number;
+      arbitrationRequired: boolean;
+      arbitrationPerformed: boolean;
+      selectedJudgeRoles: WholeNovelReviewJudgeRole[];
+    };
   };
   privacy: {
     localPrivateReview: true;
@@ -251,7 +309,19 @@ export type WholeNovelReviewContract = {
 };
 
 const DIMENSION_KEYS = WHOLE_NOVEL_REVIEW_RUBRIC.map((item) => item.key);
-const REVIEW_STORAGE_PREFIX = "novel:whole-novel-review:v1:";
+const CRITICAL_DIMENSION_KEYS = [
+  "plot_coherence",
+  "character_arcs",
+  "world_canon_consistency",
+  "prose_dialogue",
+] as const satisfies ReadonlyArray<WholeNovelReviewDimensionKey>;
+const JUDGE_ROLE_LABELS: Record<WholeNovelReviewJudgeRole, string> = {
+  "literary-editor": "文學編輯：優先檢查情節、角色弧線、文字與整體編輯完成度",
+  "continuity-editor": "連續性編輯：優先檢查因果、時間線、世界規則、人物知識與伏筆狀態",
+  "genre-reader": "類型讀者：優先檢查類型承諾、節奏、閱讀期待、高潮回收與結局滿足度",
+  "score-arbitrator": "分數仲裁者：獨立重讀相同完整覆蓋包，針對三位評審的總分分歧作第四次裁決",
+};
+const REVIEW_STORAGE_PREFIX = "novel:whole-novel-review:v2:";
 const DECLARATION_STORAGE_PREFIX = "novel:whole-novel-completion:v1:";
 
 function substantiveChapters(chapters: Chapter[]) {
@@ -285,22 +355,44 @@ function digestHex(bytes: ArrayBuffer) {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+type WholeNovelCompletionFingerprintSnapshot = Pick<AuthorToolSnapshot, "project" | "chapters">
+  & Partial<Omit<AuthorToolSnapshot, "project" | "chapters">>;
+
+function compareFingerprintText(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function stableFingerprintValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableFingerprintValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => compareFingerprintText(left, right))
+    .map(([key, nested]) => [key, stableFingerprintValue(nested)]));
+}
+
+function stableFingerprintCollection(values: readonly unknown[] | undefined) {
+  return [...(values ?? [])]
+    .map(stableFingerprintValue)
+    .sort((left, right) => compareFingerprintText(JSON.stringify(left) ?? "", JSON.stringify(right) ?? ""));
+}
+
 export async function buildWholeNovelCompletionFingerprint(
-  snapshot: Pick<AuthorToolSnapshot, "project" | "chapters">,
+  snapshot: WholeNovelCompletionFingerprintSnapshot,
 ) {
   const chapters = substantiveChapters(snapshot.chapters);
-  const payload = JSON.stringify({
+  const payload = JSON.stringify(stableFingerprintValue({
     projectId: snapshot.project.id,
-    projectRevision: snapshot.project.revision,
-    chapters: chapters.map((chapter) => ({
-      id: chapter.id,
-      order: chapter.order,
-      revision: chapter.revision,
-      status: chapter.status,
-      title: chapter.title,
-      content: chapter.content,
-    })),
-  });
+    project: snapshot.project,
+    chapters,
+    storyBible: snapshot.storyBible ?? null,
+    storyState: snapshot.storyState ?? null,
+    characters: stableFingerprintCollection(snapshot.characters),
+    relationships: stableFingerprintCollection(snapshot.relationships),
+    worldRules: stableFingerprintCollection(snapshot.worldRules),
+    timeline: stableFingerprintCollection(snapshot.timeline),
+    worlds: stableFingerprintCollection(snapshot.worlds),
+    offstageCharacterNames: [...(snapshot.offstageCharacterNames ?? [])].sort(compareFingerprintText),
+  }));
   return digestHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload)));
 }
 
@@ -360,12 +452,14 @@ export function planWholeNovelReviewChunks(input: {
 export function buildWholeNovelChunkReviewObjective(
   projectTitle: string,
   chunk: WholeNovelReviewChunk,
+  judgeRole: WholeNovelPrimaryJudgeRole,
 ) {
   return [
-    `你正在進行《${projectTitle}》的全書完稿審查第 ${chunk.chapterOrder} 章、片段 ${chunk.chunkIndex}/${chunk.chunkCount}。`,
+    `你正在以「${JUDGE_ROLE_LABELS[judgeRole]}」身分，獨立閱讀《${projectTitle}》第 ${chunk.chapterOrder} 章、片段 ${chunk.chunkIndex}/${chunk.chunkCount}。`,
+    `judgeRole 必須原樣輸出為 ${judgeRole}；不得參照或模仿其他評審的摘要、判斷或分數。`,
     "只分析補充脈絡中與 chunkId 完全相符的正文片段，不得把其他最近章節當成這個片段，也不得增加原文沒有的情節。",
     "只輸出一個合法 JSON 物件，不要 Markdown、前言或結語。schemaVersion、chunkId、chapterId、chunkIndex 必須原樣回填。",
-    `固定識別：schemaVersion=${WHOLE_NOVEL_CHUNK_ANALYSIS_SCHEMA_VERSION}；chunkId=${chunk.id}；chapterId=${chunk.chapterId}；chunkIndex=${chunk.chunkIndex}。`,
+    `固定識別：schemaVersion=${WHOLE_NOVEL_CHUNK_ANALYSIS_SCHEMA_VERSION}；judgeRole=${judgeRole}；chunkId=${chunk.id}；chapterId=${chunk.chapterId}；chunkIndex=${chunk.chunkIndex}。`,
     "必要欄位：summary 字串；events、characterChanges、canonSignals、pacingAndProse、foreshadowingAndPayoff 為字串陣列；endingState 字串。",
     "每個陣列最多 4 項，每項最多 80 個中文字；summary 與 endingState 各最多 180 字。短證據只能定位或短引，不可大段複製正文。",
     "這只是閉端 AI 審查中間包，不是 Canon，不得評總分，也不得宣稱已完成全書審查。",
@@ -444,10 +538,12 @@ function boundedStrings(
 export function parseWholeNovelChunkAnalysis(
   content: string,
   chunk: WholeNovelReviewChunk,
+  expectedJudgeRole: WholeNovelPrimaryJudgeRole,
 ): WholeNovelChunkAnalysis {
   const value = objectValue(parseJSONObject(content));
   if (
     value.schemaVersion !== WHOLE_NOVEL_CHUNK_ANALYSIS_SCHEMA_VERSION
+    || value.judgeRole !== expectedJudgeRole
     || value.chunkId !== chunk.id
     || value.chapterId !== chunk.chapterId
     || value.chunkIndex !== chunk.chunkIndex
@@ -458,6 +554,7 @@ export function parseWholeNovelChunkAnalysis(
   }
   return {
     schemaVersion: WHOLE_NOVEL_CHUNK_ANALYSIS_SCHEMA_VERSION,
+    judgeRole: expectedJudgeRole,
     chunkId: chunk.id,
     chapterId: chunk.chapterId,
     chunkIndex: chunk.chunkIndex,
@@ -475,16 +572,46 @@ export function buildWholeNovelSynthesisObjective(input: {
   projectTitle: string;
   completionFingerprint: string;
   chapterIds: string[];
+  judgeRole?: WholeNovelReviewJudgeRole;
+  primaryReviews?: WholeNovelModelReview[];
 }) {
+  const judgeRole = input.judgeRole ?? "literary-editor";
+  if (judgeRole === "score-arbitrator" && (
+    input.primaryReviews?.length !== 3
+    || WHOLE_NOVEL_PRIMARY_JUDGE_ROLES.some((role) => (
+      input.primaryReviews?.filter((review) => review.judgeRole === role).length !== 1
+    ))
+  )) {
+    throw Object.assign(new Error("WHOLE_NOVEL_JUDGE_SET_INVALID"), {
+      code: "WHOLE_NOVEL_JUDGE_SET_INVALID",
+    });
+  }
+  const primaryScorecards = judgeRole === "score-arbitrator"
+    ? (input.primaryReviews ?? []).map((review) => ({
+      judgeRole: review.judgeRole,
+      totalScore: wholeNovelModelReviewTotalScore(review),
+      dimensions: Object.fromEntries(DIMENSION_KEYS.map((key) => [key, review.dimensions[key].score])),
+      compliance: review.compliance,
+    }))
+    : [];
   return [
-    `你是《${input.projectTitle}》的全書完稿總編審。補充脈絡含每一段正文由真實閉端模型產生的完整覆蓋分析包。`,
+    `你是《${input.projectTitle}》的閉端 AI 全書評審。你的固定角色是：${JUDGE_ROLE_LABELS[judgeRole]}。`,
+    judgeRole === "score-arbitrator"
+      ? "補充脈絡含三位初審各自獨立完整閱讀全部正文後形成的三組覆蓋包；必須重新判斷分歧，不得直接採用任一初審的結論。"
+      : `補充脈絡只含 ${judgeRole} 自己逐段獨立閱讀全部正文後形成的完整覆蓋包，不含其他評審摘要或分數。`,
     `完稿版本指紋：${input.completionFingerprint}。`,
     `章節 ID（順序與大綱必須完全一致，不可增刪）：${JSON.stringify(input.chapterIds)}。`,
+    `judgeRole 必須原樣輸出為 ${judgeRole}。`,
+    ...(judgeRole === "score-arbitrator" ? [
+      `三位初審的精簡分數卡如下；只用來定位分歧，仍須依完整覆蓋包獨立仲裁：${JSON.stringify(primaryScorecards)}`,
+    ] : []),
     "只輸出一個合法 JSON 物件，不要 Markdown、前言、結語或思考過程。不得用固定規則、篇幅統計或欄位填字取代小說判斷。",
     `schemaVersion 必須是 ${WHOLE_NOVEL_MODEL_REVIEW_SCHEMA_VERSION}。`,
     "outline 必須逐章包含 chapterId、title、summary、keyTurn、endingState；每章恰好一項且依指定順序。",
     "dimensions 必須恰好包含 plot_coherence、character_arcs、world_canon_consistency、pacing、prose_dialogue、foreshadowing_payoff、ending。",
     "每個維度包含 score（0–100 整數）、evidence、strengths、issues、recommendations 五欄；後四欄為最多 6 項短字串陣列。證據須指向章節或短語，不得長段複製原文。",
+    "compliance 必須包含 publicSafetyPassed、completenessPassed、privacyCopyrightPassed、hiddenDraftResidueDetected、matureContentDetected 五個布林值，以及 reasons 字串陣列（最多 10 項）。",
+    "completenessPassed 只有在所有指定章節與覆蓋片均可辨識時才可為 true；hiddenDraftResidueDetected 要標示是否混入未完成草稿、提示詞、系統欄位或非小說殘片；matureContentDetected 只負責偵測，不可取代安全判斷。",
     "另輸出 editorialVerdict 字串與 priorityRevisions 字串陣列（最多 10 項）。資料不足時明確寫入問題欄，不得猜成 Canon。",
     "分數只代表此完稿版本的編輯審查；系統會依公開權重另行計算加權總分。不得宣稱已發布、已取得沙龍資格或已修改 Canon。",
   ].join("\n");
@@ -495,19 +622,33 @@ export function buildWholeNovelSynthesisContext(input: {
   completionFingerprint: string;
   chunks: WholeNovelReviewChunk[];
   packets: WholeNovelChunkAnalysis[];
+  judgeRole: WholeNovelReviewJudgeRole;
 }) {
+  const expectedRoles: WholeNovelPrimaryJudgeRole[] = input.judgeRole === "score-arbitrator"
+    ? [...WHOLE_NOVEL_PRIMARY_JUDGE_ROLES]
+    : [input.judgeRole];
+  const expectedPacketCount = input.chunks.length * expectedRoles.length;
+  const packetByIdentity = new Map(input.packets.map((packet) => [
+    `${packet.judgeRole}:${packet.chunkId}`,
+    packet,
+  ]));
   if (
-    input.chunks.length !== input.packets.length
-    || input.chunks.some((chunk, index) => input.packets[index]?.chunkId !== chunk.id)
+    input.packets.length !== expectedPacketCount
+    || packetByIdentity.size !== expectedPacketCount
+    || expectedRoles.some((role) => input.chunks.some((chunk) => (
+      !packetByIdentity.has(`${role}:${chunk.id}`)
+    )))
   ) {
     throw Object.assign(new Error("WHOLE_NOVEL_COVERAGE_INCOMPLETE"), {
       code: "WHOLE_NOVEL_COVERAGE_INCOMPLETE",
     });
   }
   return JSON.stringify({
-    schemaVersion: "whole-novel-synthesis-input-v1",
+    schemaVersion: "whole-novel-synthesis-input-v2",
     project: input.project,
     completionFingerprint: input.completionFingerprint,
+    judgeRole: input.judgeRole,
+    independentlyCoveredBy: expectedRoles,
     coverage: input.chunks.map((chunk) => ({
       chunkId: chunk.id,
       chapterId: chunk.chapterId,
@@ -519,7 +660,9 @@ export function buildWholeNovelSynthesisContext(input: {
       endOffset: chunk.endOffset,
       inputCharacters: chunk.inputCharacters,
     })),
-    packets: input.packets,
+    packets: expectedRoles.flatMap((role) => input.chunks.map((chunk) => (
+      packetByIdentity.get(`${role}:${chunk.id}`)!
+    ))),
   });
 }
 
@@ -537,12 +680,41 @@ function dimensionAnalysis(value: unknown): WholeNovelDimensionAnalysis {
   };
 }
 
+function complianceAnalysis(value: unknown): WholeNovelReviewCompliance {
+  const record = objectValue(value);
+  const booleanKeys = [
+    "publicSafetyPassed",
+    "completenessPassed",
+    "privacyCopyrightPassed",
+    "hiddenDraftResidueDetected",
+    "matureContentDetected",
+  ] as const;
+  if (booleanKeys.some((key) => typeof record[key] !== "boolean")) {
+    throw Object.assign(new Error("WHOLE_NOVEL_COMPLIANCE_INVALID"), {
+      code: "WHOLE_NOVEL_COMPLIANCE_INVALID",
+    });
+  }
+  return {
+    publicSafetyPassed: record.publicSafetyPassed as boolean,
+    completenessPassed: record.completenessPassed as boolean,
+    privacyCopyrightPassed: record.privacyCopyrightPassed as boolean,
+    hiddenDraftResidueDetected: record.hiddenDraftResidueDetected as boolean,
+    matureContentDetected: record.matureContentDetected as boolean,
+    reasons: boundedStrings(record.reasons, 10, 240),
+  };
+}
+
 export function parseWholeNovelModelReview(
   content: string,
   orderedChapters: Array<Pick<Chapter, "id" | "title">>,
+  expectedJudgeRole: WholeNovelReviewJudgeRole = "literary-editor",
 ): WholeNovelModelReview {
   const value = objectValue(parseJSONObject(content));
-  if (value.schemaVersion !== WHOLE_NOVEL_MODEL_REVIEW_SCHEMA_VERSION || !Array.isArray(value.outline)) {
+  if (
+    value.schemaVersion !== WHOLE_NOVEL_MODEL_REVIEW_SCHEMA_VERSION
+    || value.judgeRole !== expectedJudgeRole
+    || !Array.isArray(value.outline)
+  ) {
     throw Object.assign(new Error("WHOLE_NOVEL_MODEL_SCHEMA_INVALID"), {
       code: "WHOLE_NOVEL_MODEL_SCHEMA_INVALID",
     });
@@ -581,10 +753,154 @@ export function parseWholeNovelModelReview(
   ])) as Record<WholeNovelReviewDimensionKey, WholeNovelDimensionAnalysis>;
   return {
     schemaVersion: WHOLE_NOVEL_MODEL_REVIEW_SCHEMA_VERSION,
+    judgeRole: expectedJudgeRole,
     outline,
     dimensions,
+    compliance: complianceAnalysis(value.compliance),
     editorialVerdict: boundedString(value.editorialVerdict, 1_600),
     priorityRevisions: boundedStrings(value.priorityRevisions, 10, 320),
+  };
+}
+
+export function wholeNovelModelReviewTotalScore(review: WholeNovelModelReview) {
+  return Math.round(WHOLE_NOVEL_REVIEW_RUBRIC.reduce((total, rubric) => (
+    total + review.dimensions[rubric.key].score * rubric.weight
+  ), 0)) / 100;
+}
+
+export function wholeNovelReviewScoreSpread(reviews: WholeNovelModelReview[]) {
+  if (!reviews.length) throw new Error("WHOLE_NOVEL_JUDGES_REQUIRED");
+  const scores = reviews.map(wholeNovelModelReviewTotalScore);
+  return Math.round((Math.max(...scores) - Math.min(...scores)) * 100) / 100;
+}
+
+function medianScore(values: number[]) {
+  const ordered = [...values].sort((left, right) => left - right);
+  return ordered[Math.floor(ordered.length / 2)]!;
+}
+
+function aggregateCompliance(reviews: WholeNovelModelReview[]): WholeNovelReviewCompliance {
+  return {
+    publicSafetyPassed: reviews.every((review) => review.compliance.publicSafetyPassed),
+    completenessPassed: reviews.every((review) => review.compliance.completenessPassed),
+    privacyCopyrightPassed: reviews.every((review) => review.compliance.privacyCopyrightPassed),
+    hiddenDraftResidueDetected: reviews.some((review) => review.compliance.hiddenDraftResidueDetected),
+    matureContentDetected: reviews.some((review) => review.compliance.matureContentDetected),
+    reasons: [...new Set(reviews.flatMap((review) => review.compliance.reasons.map(
+      (reason) => `${review.judgeRole}: ${reason}`,
+    )))].slice(0, 30),
+  };
+}
+
+function mergeUniqueReviewStrings(values: string[], maximumItems: number) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim().replace(/\s+/gu, " ");
+    const identity = normalized.toLocaleLowerCase("zh-TW");
+    if (!normalized || seen.has(identity)) continue;
+    seen.add(identity);
+    merged.push(normalized);
+    if (merged.length >= maximumItems) break;
+  }
+  return merged;
+}
+
+function judgeRoleName(role: WholeNovelReviewJudgeRole | "aggregate") {
+  if (role === "aggregate") return "綜合評審";
+  return JUDGE_ROLE_LABELS[role].split("：")[0] ?? role;
+}
+
+export function aggregateWholeNovelModelReviews(
+  judgeReviews: WholeNovelModelReview[],
+): WholeNovelReviewAggregation {
+  const primaryReviews = WHOLE_NOVEL_PRIMARY_JUDGE_ROLES.map((role) => (
+    judgeReviews.find((review) => review.judgeRole === role)
+  ));
+  const arbitrators = judgeReviews.filter((review) => review.judgeRole === "score-arbitrator");
+  if (
+    judgeReviews.some((review) => review.judgeRole === "aggregate")
+    || primaryReviews.some((review) => !review)
+    || new Set(judgeReviews.map((review) => review.judgeRole)).size !== judgeReviews.length
+    || arbitrators.length > 1
+  ) {
+    throw Object.assign(new Error("WHOLE_NOVEL_JUDGE_SET_INVALID"), {
+      code: "WHOLE_NOVEL_JUDGE_SET_INVALID",
+    });
+  }
+  const primaries = primaryReviews as WholeNovelModelReview[];
+  const primaryScoreSpread = wholeNovelReviewScoreSpread(primaries);
+  const arbitrationRequired = primaryScoreSpread > 10;
+  if (arbitrationRequired !== (arbitrators.length === 1) || judgeReviews.length !== (arbitrationRequired ? 4 : 3)) {
+    throw Object.assign(new Error("WHOLE_NOVEL_ARBITRATION_REQUIRED"), {
+      code: "WHOLE_NOVEL_ARBITRATION_REQUIRED",
+    });
+  }
+  const arbitrator = arbitrators[0] ?? null;
+  const selected = arbitrator
+    ? [
+      arbitrator,
+      ...primaries
+        .map((review, index) => ({
+          review,
+          index,
+          distance: Math.abs(
+            wholeNovelModelReviewTotalScore(review) - wholeNovelModelReviewTotalScore(arbitrator),
+          ),
+        }))
+        .sort((left, right) => left.distance - right.distance || left.index - right.index)
+        .slice(0, 2)
+        .map((item) => item.review),
+    ]
+    : primaries;
+  const dimensions = Object.fromEntries(DIMENSION_KEYS.map((key) => {
+    const score = medianScore(selected.map((review) => review.dimensions[key].score));
+    const source = selected
+      .map((review, index) => ({ review, index, distance: Math.abs(review.dimensions[key].score - score) }))
+      .sort((left, right) => left.distance - right.distance || left.index - right.index)[0]!.review;
+    return [key, {
+      ...source.dimensions[key],
+      score,
+      evidence: mergeUniqueReviewStrings(
+        selected.flatMap((review) => review.dimensions[key].evidence),
+        18,
+      ),
+      strengths: mergeUniqueReviewStrings(
+        selected.flatMap((review) => review.dimensions[key].strengths),
+        18,
+      ),
+      issues: mergeUniqueReviewStrings(
+        selected.flatMap((review) => review.dimensions[key].issues),
+        18,
+      ),
+      recommendations: mergeUniqueReviewStrings(
+        selected.flatMap((review) => review.dimensions[key].recommendations),
+        18,
+      ),
+    }];
+  })) as Record<WholeNovelReviewDimensionKey, WholeNovelDimensionAnalysis>;
+  const editorialSource = arbitrator ?? primaries[0]!;
+  const editorialVerdict = mergeUniqueReviewStrings(
+    selected.map((review) => `${judgeRoleName(review.judgeRole)}：${review.editorialVerdict}`),
+    selected.length,
+  ).join("\n");
+  const priorityRevisions = mergeUniqueReviewStrings(
+    selected.flatMap((review) => review.priorityRevisions),
+    30,
+  );
+  return {
+    modelReview: {
+      schemaVersion: WHOLE_NOVEL_MODEL_REVIEW_SCHEMA_VERSION,
+      judgeRole: "aggregate",
+      outline: editorialSource.outline,
+      dimensions,
+      compliance: aggregateCompliance(judgeReviews),
+      editorialVerdict,
+      priorityRevisions,
+    },
+    primaryScoreSpread,
+    arbitrationRequired,
+    selectedJudgeRoles: selected.map((review) => review.judgeRole as WholeNovelReviewJudgeRole),
   };
 }
 
@@ -593,11 +909,21 @@ export function verifiedWholeNovelReviewExecution(input: {
   expectedBackend: WholeNovelReviewBackendId;
   stage: WholeNovelReviewExecutionProvenance["stage"];
   chunkId?: string;
+  judgeRole?: WholeNovelReviewJudgeRole;
 }): WholeNovelReviewExecutionProvenance | null {
   const candidate = input.result.candidate;
   const receipt = candidate.executionReceipt ?? candidate.cacheOrigin?.originExecutionReceipt ?? null;
+  const judgeRole = input.judgeRole ?? null;
   if (
-    candidate.backendId !== input.expectedBackend
+    (input.stage === "chunk-analysis" && (
+      !input.chunkId
+      || !WHOLE_NOVEL_PRIMARY_JUDGE_ROLES.includes(judgeRole as WholeNovelPrimaryJudgeRole)
+    ))
+    || (input.stage === "whole-book-synthesis" && !WHOLE_NOVEL_PRIMARY_JUDGE_ROLES.includes(
+      judgeRole as WholeNovelPrimaryJudgeRole,
+    ))
+    || (input.stage === "whole-book-arbitration" && judgeRole !== "score-arbitrator")
+    || candidate.backendId !== input.expectedBackend
     || candidate.actualExecutor !== input.expectedBackend
     || candidate.candidateOnly !== true
     || candidate.canonicalMutationCount !== 0
@@ -618,6 +944,7 @@ export function verifiedWholeNovelReviewExecution(input: {
   return {
     stage: input.stage,
     chunkId: input.chunkId ?? null,
+    judgeRole,
     candidateId: candidate.id,
     taskId: candidate.taskId,
     receiptTaskId: receipt.taskId,
@@ -644,6 +971,7 @@ export function createWholeNovelReviewContract(input: {
   chunks: WholeNovelReviewChunk[];
   packets: WholeNovelChunkAnalysis[];
   modelReview: WholeNovelModelReview;
+  judgeReviews?: WholeNovelModelReview[];
   executions: WholeNovelReviewExecutionProvenance[];
   backendId: WholeNovelReviewBackendId;
   publicMetadata?: {
@@ -653,8 +981,12 @@ export function createWholeNovelReviewContract(input: {
   };
 }): WholeNovelReviewContract {
   const chapters = substantiveChapters(input.snapshot.chapters);
+  const judgeReviews = input.judgeReviews ?? [];
+  const aggregation = aggregateWholeNovelModelReviews(judgeReviews);
+  const modelReview = aggregation.modelReview;
   const chunkExecutions = input.executions.filter((execution) => execution.stage === "chunk-analysis");
   const synthesisExecutions = input.executions.filter((execution) => execution.stage === "whole-book-synthesis");
+  const arbitrationExecutions = input.executions.filter((execution) => execution.stage === "whole-book-arbitration");
   const chunksCoverEveryCharacter = chapters.every((chapter) => {
     const chapterChunks = input.chunks.filter((chunk) => chunk.chapterId === chapter.id);
     return chapterChunks.length > 0
@@ -667,21 +999,41 @@ export function createWholeNovelReviewContract(input: {
       ))
       && chapterChunks.map((chunk) => chunk.text).join("") === chapter.content;
   });
+  const expectedRoleChunkIdentities = WHOLE_NOVEL_PRIMARY_JUDGE_ROLES.flatMap((role) => (
+    input.chunks.map((chunk) => `${role}:${chunk.id}`)
+  ));
+  const packetIdentities = input.packets.map((packet) => `${packet.judgeRole}:${packet.chunkId}`);
+  const executionIdentities = chunkExecutions.map((execution) => (
+    `${execution.judgeRole}:${execution.chunkId}`
+  ));
   if (
     input.declaration.projectId !== input.snapshot.project.id
     || input.declaration.completionFingerprint !== input.currentCompletionFingerprint
-    || input.chunks.length !== input.packets.length
-    || input.chunks.some((chunk, index) => input.packets[index]?.chunkId !== chunk.id)
-    || input.modelReview.outline.length !== chapters.length
-    || input.modelReview.outline.some((item, index) => (
+    || input.packets.length !== expectedRoleChunkIdentities.length
+    || new Set(packetIdentities).size !== expectedRoleChunkIdentities.length
+    || expectedRoleChunkIdentities.some((identity) => !packetIdentities.includes(identity))
+    || modelReview.outline.length !== chapters.length
+    || modelReview.outline.some((item, index) => (
       item.chapterId !== chapters[index]?.id || item.title !== chapters[index]?.title
     ))
-    || input.executions.length !== input.chunks.length + 1
+    || JSON.stringify(input.modelReview) !== JSON.stringify(modelReview)
+    || input.executions.length !== expectedRoleChunkIdentities.length + judgeReviews.length
     || input.executions.some((execution) => execution.backendId !== input.backendId)
-    || chunkExecutions.length !== input.chunks.length
-    || input.chunks.some((chunk) => !chunkExecutions.some((execution) => execution.chunkId === chunk.id))
-    || synthesisExecutions.length !== 1
-    || synthesisExecutions[0]?.chunkId !== null
+    || chunkExecutions.length !== expectedRoleChunkIdentities.length
+    || new Set(executionIdentities).size !== expectedRoleChunkIdentities.length
+    || expectedRoleChunkIdentities.some((identity) => !executionIdentities.includes(identity))
+    || synthesisExecutions.length !== 3
+    || WHOLE_NOVEL_PRIMARY_JUDGE_ROLES.some((role) => (
+      synthesisExecutions.filter((execution) => execution.judgeRole === role).length !== 1
+    ))
+    || synthesisExecutions.some((execution) => execution.chunkId !== null)
+    || arbitrationExecutions.length !== (aggregation.arbitrationRequired ? 1 : 0)
+    || arbitrationExecutions.some((execution) => (
+      execution.chunkId !== null || execution.judgeRole !== "score-arbitrator"
+    ))
+    || judgeReviews.some((review) => !input.executions.some((execution) => (
+      execution.judgeRole === review.judgeRole
+    )))
     || new Set(input.executions.map((execution) => execution.candidateId)).size !== input.executions.length
     || !chunksCoverEveryCharacter
   ) {
@@ -690,7 +1042,7 @@ export function createWholeNovelReviewContract(input: {
     });
   }
   const dimensions = Object.fromEntries(WHOLE_NOVEL_REVIEW_RUBRIC.map((rubric) => {
-    const analysis = input.modelReview.dimensions[rubric.key];
+    const analysis = modelReview.dimensions[rubric.key];
     return [rubric.key, {
       ...analysis,
       label: rubric.label,
@@ -698,11 +1050,27 @@ export function createWholeNovelReviewContract(input: {
       weightedPoints: Math.round(analysis.score * rubric.weight) / 100,
     }];
   })) as WholeNovelReviewContract["dimensions"];
-  const totalScore = Math.round(
-    WHOLE_NOVEL_REVIEW_RUBRIC.reduce((total, rubric) => (
-      total + input.modelReview.dimensions[rubric.key].score * rubric.weight
-    ), 0),
-  ) / 100;
+  const totalScore = wholeNovelModelReviewTotalScore(modelReview);
+  const compliancePassed = modelReview.compliance.publicSafetyPassed
+    && modelReview.compliance.completenessPassed
+    && modelReview.compliance.privacyCopyrightPassed
+    && !modelReview.compliance.hiddenDraftResidueDetected;
+  const criticalDimensionsPassed = CRITICAL_DIMENSION_KEYS.every((key) => (
+    modelReview.dimensions[key].score >= WHOLE_NOVEL_CRITICAL_DIMENSION_THRESHOLD
+  ));
+  const blockingReasons: string[] = [];
+  if (totalScore < WHOLE_NOVEL_LOUNGE_THRESHOLD) blockingReasons.push("quality_threshold_not_met");
+  if (!modelReview.compliance.publicSafetyPassed) blockingReasons.push("public_safety_failed");
+  if (!modelReview.compliance.completenessPassed) blockingReasons.push("completeness_failed");
+  if (!modelReview.compliance.privacyCopyrightPassed) blockingReasons.push("privacy_copyright_failed");
+  if (modelReview.compliance.hiddenDraftResidueDetected) blockingReasons.push("hidden_draft_residue_detected");
+  for (const key of CRITICAL_DIMENSION_KEYS) {
+    if (modelReview.dimensions[key].score < WHOLE_NOVEL_CRITICAL_DIMENSION_THRESHOLD) {
+      blockingReasons.push(`critical_dimension_below_${WHOLE_NOVEL_CRITICAL_DIMENSION_THRESHOLD}:${key}`);
+    }
+  }
+  const hardGatePassed = compliancePassed && criticalDimensionsPassed;
+  const eligibleForPublicLounge = totalScore >= WHOLE_NOVEL_LOUNGE_THRESHOLD && hardGatePassed;
   const reviewId = input.reviewId.trim();
   if (!reviewId) throw new Error("WHOLE_NOVEL_REVIEW_ID_REQUIRED");
   const updatedAt = [input.snapshot.project.updatedAt, ...chapters.map((chapter) => chapter.updatedAt)]
@@ -713,8 +1081,8 @@ export function createWholeNovelReviewContract(input: {
   const category = input.publicMetadata?.category?.trim().slice(0, 120)
     || input.snapshot.project.genreId
     || input.snapshot.project.genrePackId;
-  const synopsis = input.publicMetadata?.synopsis?.trim().slice(0, 1_200)
-    || input.snapshot.project.coreIdea.value?.trim()
+  const synopsis = input.publicMetadata?.synopsis?.trim().slice(0, PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS)
+    || input.snapshot.project.coreIdea.value?.trim().slice(0, PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS)
     || null;
   const publicMetadata: WholeNovelReviewContract["publicMetadata"] = {
     title: input.snapshot.project.title,
@@ -763,18 +1131,24 @@ export function createWholeNovelReviewContract(input: {
         chunkIds: input.chunks.filter((chunk) => chunk.chapterId === chapter.id).map((chunk) => chunk.id),
       })),
     },
-    outline: input.modelReview.outline,
+    outline: modelReview.outline,
     rubric: WHOLE_NOVEL_REVIEW_RUBRIC.map((rubric) => ({ ...rubric })),
     dimensions,
     totalScore,
-    eligibleForPublicLounge: totalScore >= WHOLE_NOVEL_LOUNGE_THRESHOLD,
-    editorialVerdict: input.modelReview.editorialVerdict,
-    priorityRevisions: input.modelReview.priorityRevisions,
+    eligibleForPublicLounge,
+    editorialVerdict: modelReview.editorialVerdict,
+    priorityRevisions: modelReview.priorityRevisions,
     loungeEligibility: {
       schemaVersion: WHOLE_NOVEL_LOUNGE_ELIGIBILITY_SCHEMA_VERSION,
       threshold: WHOLE_NOVEL_LOUNGE_THRESHOLD,
-      eligible: totalScore >= WHOLE_NOVEL_LOUNGE_THRESHOLD,
+      eligible: eligibleForPublicLounge,
       score: totalScore,
+      hardGatePassed,
+      compliancePassed,
+      criticalDimensionsPassed,
+      criticalDimensionThreshold: WHOLE_NOVEL_CRITICAL_DIMENSION_THRESHOLD,
+      matureContentDetected: modelReview.compliance.matureContentDetected,
+      blockingReasons,
       reviewId,
       completionFingerprint: input.currentCompletionFingerprint,
       requiresCurrentMatchingCompletionFingerprint: true,
@@ -784,6 +1158,34 @@ export function createWholeNovelReviewContract(input: {
       deterministicFallbackUsed: false,
       backendId: input.backendId,
       executions: input.executions,
+      judges: judgeReviews.map((judgeReview) => {
+        const execution = input.executions.find((item) => item.judgeRole === judgeReview.judgeRole)!;
+        return {
+          judgeRole: judgeReview.judgeRole as WholeNovelReviewJudgeRole,
+          candidateId: execution.candidateId,
+          modelId: execution.modelId,
+          modelDigest: execution.modelDigest,
+          totalScore: wholeNovelModelReviewTotalScore(judgeReview),
+          dimensionScores: Object.fromEntries(DIMENSION_KEYS.map((key) => [
+            key,
+            judgeReview.dimensions[key].score,
+          ])) as Record<WholeNovelReviewDimensionKey, number>,
+          compliance: judgeReview.compliance,
+          editorialVerdict: judgeReview.editorialVerdict,
+          priorityRevisions: judgeReview.priorityRevisions,
+          selectedForAggregation: aggregation.selectedJudgeRoles.includes(
+            judgeReview.judgeRole as WholeNovelReviewJudgeRole,
+          ),
+        };
+      }),
+      aggregation: {
+        method: "per-dimension-median",
+        primaryJudgeCount: 3,
+        primaryScoreSpread: aggregation.primaryScoreSpread,
+        arbitrationRequired: aggregation.arbitrationRequired,
+        arbitrationPerformed: arbitrationExecutions.length === 1,
+        selectedJudgeRoles: aggregation.selectedJudgeRoles,
+      },
     },
     privacy: {
       localPrivateReview: true,
@@ -849,6 +1251,42 @@ export function removeWholeNovelReview(projectId: string, storage: KeyValueStora
   storage.removeItem(wholeNovelReviewStorageKey(projectId));
 }
 
+function storedWholeNovelReviewGatesAreConsistent(
+  value: Partial<WholeNovelReviewContract>,
+) {
+  const dimensions = value.dimensions;
+  const loungeEligibility = value.loungeEligibility;
+  const judges = value.provenance?.judges;
+  if (!dimensions || !loungeEligibility || !Array.isArray(judges) || judges.length < 3) return false;
+  const scores = WHOLE_NOVEL_REVIEW_RUBRIC.map((rubric) => dimensions[rubric.key]?.score);
+  if (scores.some((score) => !Number.isInteger(score) || (score ?? -1) < 0 || (score ?? 101) > 100)) {
+    return false;
+  }
+  const computedTotalScore = Math.round(WHOLE_NOVEL_REVIEW_RUBRIC.reduce((total, rubric) => (
+    total + dimensions[rubric.key].score * rubric.weight
+  ), 0)) / 100;
+  const compliancePassed = judges.every((judge) => (
+    judge.compliance?.publicSafetyPassed === true
+    && judge.compliance?.completenessPassed === true
+    && judge.compliance?.privacyCopyrightPassed === true
+    && judge.compliance?.hiddenDraftResidueDetected === false
+  ));
+  const criticalDimensionsPassed = CRITICAL_DIMENSION_KEYS.every((key) => (
+    dimensions[key].score >= WHOLE_NOVEL_CRITICAL_DIMENSION_THRESHOLD
+  ));
+  const hardGatePassed = compliancePassed && criticalDimensionsPassed;
+  const eligible = computedTotalScore >= WHOLE_NOVEL_LOUNGE_THRESHOLD && hardGatePassed;
+  return value.totalScore === computedTotalScore
+    && value.eligibleForPublicLounge === eligible
+    && loungeEligibility.score === computedTotalScore
+    && loungeEligibility.threshold === WHOLE_NOVEL_LOUNGE_THRESHOLD
+    && loungeEligibility.criticalDimensionThreshold === WHOLE_NOVEL_CRITICAL_DIMENSION_THRESHOLD
+    && loungeEligibility.compliancePassed === compliancePassed
+    && loungeEligibility.criticalDimensionsPassed === criticalDimensionsPassed
+    && loungeEligibility.hardGatePassed === hardGatePassed
+    && loungeEligibility.eligible === eligible;
+}
+
 export function loadWholeNovelReview(
   projectId: string,
   storage: KeyValueStorage,
@@ -860,6 +1298,21 @@ export function loadWholeNovelReview(
       && typeof value.totalScore === "number"
       && value.provenance?.mode === "verified-closed-ai"
       && value.provenance?.deterministicFallbackUsed === false
+      && Array.isArray(value.provenance?.judges)
+      && value.provenance.judges.length >= 3
+      && value.provenance?.aggregation?.method === "per-dimension-median"
+      && typeof value.loungeEligibility?.hardGatePassed === "boolean"
+      && typeof value.loungeEligibility?.compliancePassed === "boolean"
+      && typeof value.loungeEligibility?.criticalDimensionsPassed === "boolean"
+      && Array.isArray(value.loungeEligibility?.blockingReasons)
+      && storedWholeNovelReviewGatesAreConsistent(value)
+      && value.eligibleForPublicLounge === value.loungeEligibility?.eligible
+      && (!value.eligibleForPublicLounge || (
+        value.totalScore >= WHOLE_NOVEL_LOUNGE_THRESHOLD
+        && value.loungeEligibility.hardGatePassed
+        && value.loungeEligibility.compliancePassed
+        && value.loungeEligibility.criticalDimensionsPassed
+      ))
       && value.publication?.autoPublished === false
       ? value as WholeNovelReviewContract
       : null;

@@ -1,5 +1,11 @@
 import "server-only";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { createSupabasePublicLoungeStorageGateway } from "../storage/supabase/public-lounge-storage-gateway";
 import { PublicLoungeService, type PublicLoungeTokenCodec } from "./service";
 import type { PublicLoungeStorageGateway } from "./storage";
@@ -7,6 +13,19 @@ import { createEd25519PublicLoungeEligibilityReviewer } from "./eligibility-sign
 
 function sha256(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function idempotencyEncryptionKey() {
+  const encoded = process.env.PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY?.trim() ?? "";
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(encoded)) {
+    throw Object.assign(new Error("PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_NOT_CONFIGURED"), {
+      code: "PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_NOT_CONFIGURED",
+      status: 503,
+    });
+  }
+  const key = Buffer.from(encoded, "base64url");
+  if (key.length !== 32) throw new Error("PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY_INVALID");
+  return key;
 }
 
 const tokenCodec: PublicLoungeTokenCodec = {
@@ -19,6 +38,29 @@ const tokenCodec: PublicLoungeTokenCodec = {
     const actual = Buffer.from(sha256(token), "hex");
     const expected = Buffer.from(expectedHash, "hex");
     return actual.length === expected.length && timingSafeEqual(actual, expected);
+  },
+  seal(token, context) {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", idempotencyEncryptionKey(), iv);
+    cipher.setAAD(Buffer.from(context, "utf8"));
+    const encrypted = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
+    return [iv, cipher.getAuthTag(), encrypted]
+      .map((part) => part.toString("base64url"))
+      .join(".");
+  },
+  unseal(sealedToken, context) {
+    try {
+      const parts = sealedToken.split(".");
+      if (parts.length !== 3) return null;
+      const [iv, tag, encrypted] = parts.map((part) => Buffer.from(part, "base64url"));
+      if (iv.length !== 12 || tag.length !== 16 || encrypted.length === 0) return null;
+      const decipher = createDecipheriv("aes-256-gcm", idempotencyEncryptionKey(), iv);
+      decipher.setAAD(Buffer.from(context, "utf8"));
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+    } catch {
+      return null;
+    }
   },
 };
 
@@ -36,16 +78,24 @@ function storageGateway(): PublicLoungeStorageGateway {
     };
     return {
       bucketStatus: unavailable,
+      controlPlaneStatus: unavailable,
       readJson: unavailable,
       writeJson: unavailable,
       deleteJson: unavailable,
-      list: unavailable,
+      listCatalogCandidates: unavailable,
+      upsertCatalogAnchor: unavailable,
+      deactivateCatalogAnchor: unavailable,
+      reserveRate: unavailable,
     };
   }
 }
 
 export function getPublicLoungeServerService() {
   if (!service) {
+    // A healthy storage bucket is not enough to make publish safely resumable.
+    // Fail the whole capability closed when the server-only recovery key is
+    // absent instead of advertising a ready endpoint that loses credentials.
+    idempotencyEncryptionKey();
     service = new PublicLoungeService({
       gateway: storageGateway(),
       tokenCodec,

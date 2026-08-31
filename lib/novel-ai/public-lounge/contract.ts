@@ -1,18 +1,36 @@
 import {
   PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIOR_INDEX_ENTRY_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIOR_POST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_POST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS,
+  PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES,
   PUBLIC_LOUNGE_QUALITY_RUBRIC,
   PUBLIC_LOUNGE_QUALITY_THRESHOLD,
+  PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
   type PublicLoungeOfficialChapterInput,
   type PublicLoungeEligibilityRequest,
   type PublicLoungePost,
   type PublicLoungePostSummary,
   type PublicLoungePublicationInput,
   type PublicLoungeQualityDimensionKey,
+  type PublicLoungeQualityAssurance,
+  type PublicLoungeAttestedJudgeSummary,
+  type PublicLoungeJudgeRole,
+  type PublicLoungeMultiJudgeSummary,
   type PublicLoungeServerReviewAttestation,
 } from "./types";
+import {
+  migrateLegacyPublicLoungeCategory,
+  normalizePublicLoungeTopicIds,
+  PublicLoungeTaxonomyError,
+} from "./taxonomy";
+import type { AuthorDeviceReviewDeclaration } from "./author-device-review";
 
 export const PUBLIC_LOUNGE_MAX_REQUEST_BYTES = 2_500_000;
 export const PUBLIC_LOUNGE_MAX_PUBLIC_CHAPTERS = 300;
@@ -32,11 +50,15 @@ export type PublicLoungeErrorCode =
   | "PUBLIC_LOUNGE_ELIGIBILITY_EXPIRED"
   | "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED"
   | "PUBLIC_LOUNGE_TRUSTED_REVIEW_CONSENT_REQUIRED"
+  | "PUBLIC_LOUNGE_AUTH_REQUIRED"
   | "PUBLIC_LOUNGE_CURSOR_INVALID"
-  | "PUBLIC_LOUNGE_CATALOG_LIMIT"
   | "PUBLIC_LOUNGE_NOT_FOUND"
   | "PUBLIC_LOUNGE_MANAGEMENT_TOKEN_REQUIRED"
   | "PUBLIC_LOUNGE_MANAGEMENT_TOKEN_INVALID"
+  | "PUBLIC_LOUNGE_MUTATION_BUSY"
+  | "PUBLIC_LOUNGE_MUTATION_RATE_LIMITED"
+  | "PUBLIC_LOUNGE_IDEMPOTENCY_KEY_REQUIRED"
+  | "PUBLIC_LOUNGE_IDEMPOTENCY_CONFLICT"
   | "PUBLIC_LOUNGE_ORIGIN_INVALID"
   | "PUBLIC_LOUNGE_RATE_LIMITED";
 
@@ -58,7 +80,10 @@ const PUBLICATION_KEYS = new Set([
   "schemaVersion",
   "title",
   "authorByline",
-  "category",
+  "storyLibrarySchemaVersion",
+  "shelfId",
+  "primaryTopicId",
+  "topicIds",
   "completionStatus",
   "chapterCount",
   "wordCount",
@@ -72,23 +97,34 @@ const PUBLICATION_KEYS = new Set([
   "authorRightsDeclaration",
   "workCompleted",
 ]);
-const ELIGIBILITY_REQUEST_KEYS = new Set([
+const ELIGIBILITY_REQUEST_BASE_KEYS = [
   "schemaVersion",
   "completionFingerprint",
   "title",
   "authorByline",
-  "category",
+  "storyLibrarySchemaVersion",
+  "shelfId",
+  "primaryTopicId",
+  "topicIds",
   "completionStatus",
   "chapterCount",
   "wordCount",
   "completedAt",
   "fullSynopsis",
   "publicChapters",
-  "serverAttestation",
   "explicitConsent",
   "authorRightsDeclaration",
   "workCompleted",
+] as const;
+const SERVER_ELIGIBILITY_REQUEST_KEYS = new Set([
+  ...ELIGIBILITY_REQUEST_BASE_KEYS,
+  "serverAttestation",
   "trustedServerReviewConsent",
+]);
+const AUTHOR_DEVICE_ELIGIBILITY_REQUEST_KEYS = new Set([
+  ...ELIGIBILITY_REQUEST_BASE_KEYS,
+  "authorDeviceReview",
+  "authorDeviceReviewConsent",
 ]);
 const CHAPTER_KEYS = new Set(["chapterNumber", "title", "body", "official"]);
 const ATTESTATION_KEYS = new Set([
@@ -104,14 +140,40 @@ const ATTESTATION_KEYS = new Set([
   "qualityBreakdown",
   "workCompleted",
   "fullCoverage",
+  "hardGatePassed",
+  "compliancePassed",
+  "criticalDimensionsPassed",
+  "hiddenDraftResidueDetected",
+  "multiJudgeSummary",
   "backendId",
   "modelId",
   "modelDigest",
   "rawContentStored",
   "signature",
 ]);
+const MULTI_JUDGE_SUMMARY_KEYS = new Set([
+  "schemaVersion",
+  "primaryJudgeRoles",
+  "primaryJudgeCount",
+  "judges",
+  "aggregationMethod",
+  "primaryScoreSpread",
+  "selectedJudgeRoles",
+  "arbitrationRequired",
+  "arbitrationPerformed",
+  "fullCoverageJudgeRoles",
+  "reviewedChapterCount",
+  "reviewedChunkCount",
+]);
+const ATTESTED_JUDGE_KEYS = new Set([
+  "judgeRole",
+  "totalScore",
+  "dimensionScores",
+  "fullCoverage",
+]);
 const QUALITY_KEYS = new Set<string>(PUBLIC_LOUNGE_QUALITY_RUBRIC.map((item) => item.key));
 const PUBLIC_ID_PATTERN = /^novel_[a-z0-9_-]{12,80}$/u;
+const PUBLIC_VERSION_ID_PATTERN = /^version_[a-z0-9_-]{12,96}$/u;
 const ELIGIBILITY_TICKET_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const FORBIDDEN_KEY_PATTERN = /(?:project[_-]?id|private|canon|prompt|trace|backup|completionfingerprint|reviewid|provenance|rawnovel|model)/iu;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
@@ -161,6 +223,44 @@ function positiveInteger(value: unknown, max: number) {
     fail("PUBLIC_LOUNGE_PAYLOAD_INVALID");
   }
   return Number(value);
+}
+
+function parseV2Taxonomy(raw: Record<string, unknown>) {
+  try {
+    const selection = normalizePublicLoungeTopicIds(raw.topicIds);
+    if (
+      raw.storyLibrarySchemaVersion !== selection.storyLibrarySchemaVersion
+      || raw.shelfId !== selection.shelfId
+      || raw.primaryTopicId !== selection.primaryTopicId
+    ) {
+      fail("PUBLIC_LOUNGE_PAYLOAD_INVALID");
+    }
+    return selection;
+  } catch (error) {
+    if (error instanceof PublicLoungeError) throw error;
+    if (error instanceof PublicLoungeTaxonomyError) fail("PUBLIC_LOUNGE_PAYLOAD_INVALID");
+    throw error;
+  }
+}
+
+function storedTaxonomy(raw: Record<string, unknown>, schemaVersion: unknown) {
+  if (
+    schemaVersion === PUBLIC_LOUNGE_POST_SCHEMA_VERSION
+    || schemaVersion === PUBLIC_LOUNGE_PRIOR_POST_SCHEMA_VERSION
+    || schemaVersion === PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION
+    || schemaVersion === PUBLIC_LOUNGE_PRIOR_INDEX_ENTRY_SCHEMA_VERSION
+  ) {
+    return { ...parseV2Taxonomy(raw) };
+  }
+  const legacyCategory = cleanText(raw.category, { field: "inline", min: 1, max: 48 });
+  const migration = migrateLegacyPublicLoungeCategory(legacyCategory);
+  if (migration.status === "migrated") return { ...migration.selection };
+  return {
+    storyLibrarySchemaVersion: null,
+    shelfId: null,
+    primaryTopicId: null,
+    topicIds: [] as const,
+  };
 }
 
 export function isCanonicalIsoTime(value: unknown): value is string {
@@ -216,6 +316,152 @@ function weightedQualityScore(breakdown: Record<PublicLoungeQualityDimensionKey,
   return Math.round(weighted / 100);
 }
 
+function invalidEligibility(): never {
+  fail("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+}
+
+function eligibilityRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) invalidEligibility();
+  return value as Record<string, unknown>;
+}
+
+function exactJudgeRoles(value: unknown, expected: readonly PublicLoungeJudgeRole[]) {
+  return Array.isArray(value)
+    && value.length === expected.length
+    && value.every((role, index) => role === expected[index]);
+}
+
+function parseAttestedJudge(value: unknown): PublicLoungeAttestedJudgeSummary {
+  const raw = eligibilityRecord(value);
+  if (
+    Object.keys(raw).length !== ATTESTED_JUDGE_KEYS.size
+    || Object.keys(raw).some((key) => !ATTESTED_JUDGE_KEYS.has(key))
+    || ![...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES, "score-arbitrator"].includes(
+      raw.judgeRole as PublicLoungeJudgeRole,
+    )
+    || raw.fullCoverage !== true
+    || typeof raw.totalScore !== "number"
+    || !Number.isFinite(raw.totalScore)
+    || raw.totalScore < 0
+    || raw.totalScore > 100
+    || Math.abs(Math.round(raw.totalScore * 100) - raw.totalScore * 100) > 1e-8
+  ) invalidEligibility();
+  const dimensions = eligibilityRecord(raw.dimensionScores);
+  if (
+    Object.keys(dimensions).length !== PUBLIC_LOUNGE_QUALITY_RUBRIC.length
+    || Object.keys(dimensions).some((key) => !QUALITY_KEYS.has(key))
+  ) invalidEligibility();
+  const dimensionScores = Object.fromEntries(PUBLIC_LOUNGE_QUALITY_RUBRIC.map((rubric) => {
+    const score = dimensions[rubric.key];
+    if (!Number.isInteger(score) || Number(score) < 0 || Number(score) > 100) invalidEligibility();
+    return [rubric.key, Number(score)];
+  })) as Record<PublicLoungeQualityDimensionKey, number>;
+  const expectedTotal = Math.round(PUBLIC_LOUNGE_QUALITY_RUBRIC.reduce(
+    (sum, rubric) => sum + dimensionScores[rubric.key] * rubric.weight,
+    0,
+  )) / 100;
+  if (raw.totalScore !== expectedTotal) invalidEligibility();
+  return {
+    judgeRole: raw.judgeRole as PublicLoungeJudgeRole,
+    totalScore: raw.totalScore,
+    dimensionScores,
+    fullCoverage: true,
+  };
+}
+
+export function validatePublicLoungeMultiJudgeSummary(
+  value: unknown,
+  aggregateBreakdown: Record<PublicLoungeQualityDimensionKey, number>,
+): PublicLoungeMultiJudgeSummary {
+  const raw = eligibilityRecord(value);
+  if (
+    Object.keys(raw).length !== MULTI_JUDGE_SUMMARY_KEYS.size
+    || Object.keys(raw).some((key) => !MULTI_JUDGE_SUMMARY_KEYS.has(key))
+    || raw.schemaVersion !== PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION
+    || raw.primaryJudgeCount !== PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES.length
+    || raw.aggregationMethod !== "per-dimension-median"
+    || !exactJudgeRoles(raw.primaryJudgeRoles, PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES)
+    || typeof raw.arbitrationRequired !== "boolean"
+    || typeof raw.arbitrationPerformed !== "boolean"
+    || !Number.isInteger(raw.reviewedChapterCount)
+    || Number(raw.reviewedChapterCount) < 1
+    || Number(raw.reviewedChapterCount) > 100_000
+    || !Number.isInteger(raw.reviewedChunkCount)
+    || Number(raw.reviewedChunkCount) < Number(raw.reviewedChapterCount)
+    || Number(raw.reviewedChunkCount) > 1_000_000
+    || !Array.isArray(raw.judges)
+  ) invalidEligibility();
+  const judges = raw.judges.map(parseAttestedJudge);
+  const primaryJudges = PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES.map((role) => (
+    judges.find((judge) => judge.judgeRole === role)
+  ));
+  const arbitrators = judges.filter((judge) => judge.judgeRole === "score-arbitrator");
+  if (
+    primaryJudges.some((judge) => !judge)
+    || new Set(judges.map((judge) => judge.judgeRole)).size !== judges.length
+    || arbitrators.length > 1
+  ) invalidEligibility();
+  const primaries = primaryJudges as PublicLoungeAttestedJudgeSummary[];
+  const primaryScoreSpread = Math.round((
+    Math.max(...primaries.map((judge) => judge.totalScore))
+    - Math.min(...primaries.map((judge) => judge.totalScore))
+  ) * 100) / 100;
+  const arbitrationRequired = primaryScoreSpread > 10;
+  const expectedJudgeRoles: PublicLoungeJudgeRole[] = arbitrationRequired
+    ? [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES, "score-arbitrator"]
+    : [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES];
+  if (
+    typeof raw.primaryScoreSpread !== "number"
+    || raw.primaryScoreSpread !== primaryScoreSpread
+    || raw.arbitrationRequired !== arbitrationRequired
+    || raw.arbitrationPerformed !== arbitrationRequired
+    || judges.length !== expectedJudgeRoles.length
+    || !exactJudgeRoles(judges.map((judge) => judge.judgeRole), expectedJudgeRoles)
+    || !exactJudgeRoles(raw.fullCoverageJudgeRoles, expectedJudgeRoles)
+  ) invalidEligibility();
+  const arbitrator = arbitrators[0] ?? null;
+  const selectedJudges = arbitrator
+    ? [
+      arbitrator,
+      ...primaries
+        .map((judge, index) => ({
+          judge,
+          index,
+          distance: Math.abs(judge.totalScore - arbitrator.totalScore),
+        }))
+        .sort((left, right) => left.distance - right.distance || left.index - right.index)
+        .slice(0, 2)
+        .map((item) => item.judge),
+    ]
+    : primaries;
+  const selectedJudgeRoles = selectedJudges.map((judge) => judge.judgeRole) as [
+    PublicLoungeJudgeRole,
+    PublicLoungeJudgeRole,
+    PublicLoungeJudgeRole,
+  ];
+  if (!exactJudgeRoles(raw.selectedJudgeRoles, selectedJudgeRoles)) invalidEligibility();
+  for (const rubric of PUBLIC_LOUNGE_QUALITY_RUBRIC) {
+    const scores = selectedJudges
+      .map((judge) => judge.dimensionScores[rubric.key])
+      .sort((left, right) => left - right);
+    if (aggregateBreakdown[rubric.key] !== scores[1]) invalidEligibility();
+  }
+  return {
+    schemaVersion: PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
+    primaryJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+    primaryJudgeCount: 3,
+    judges,
+    aggregationMethod: "per-dimension-median",
+    primaryScoreSpread,
+    selectedJudgeRoles,
+    arbitrationRequired,
+    arbitrationPerformed: arbitrationRequired,
+    fullCoverageJudgeRoles: expectedJudgeRoles,
+    reviewedChapterCount: Number(raw.reviewedChapterCount),
+    reviewedChunkCount: Number(raw.reviewedChunkCount),
+  };
+}
+
 export function validatePublicLoungeQuality(value: {
   qualityScore: unknown;
   qualityBreakdown: unknown;
@@ -256,18 +502,23 @@ export function validatePublicLoungePublicationInput(value: unknown): PublicLoun
   const chapterCount = positiveInteger(raw.chapterCount, 100_000);
   const wordCount = positiveInteger(raw.wordCount, 2_000_000_000);
   if (!isCanonicalIsoTime(raw.completedAt)) fail("PUBLIC_LOUNGE_PAYLOAD_INVALID");
+  const taxonomy = parseV2Taxonomy(raw);
   return {
     schemaVersion: PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
     title: cleanText(raw.title, { field: "inline", min: 1, max: 120 }),
     authorByline: cleanText(raw.authorByline, { field: "inline", min: 1, max: 80 }),
-    category: cleanText(raw.category, { field: "inline", min: 1, max: 48 }),
+    ...taxonomy,
     completionStatus: "completed",
     chapterCount,
     wordCount,
     completedAt: raw.completedAt,
     qualityScore,
     qualityBreakdown,
-    fullSynopsis: cleanText(raw.fullSynopsis, { field: "prose", min: 1, max: 50_000 }),
+    fullSynopsis: cleanText(raw.fullSynopsis, {
+      field: "prose",
+      min: 1,
+      max: PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS,
+    }),
     publicChapters: parsePublicChapters(raw.publicChapters, chapterCount),
     eligibilityTicket: raw.eligibilityTicket,
     explicitConsent: true,
@@ -283,13 +534,21 @@ function parseServerAttestation(value: unknown): PublicLoungeServerReviewAttesta
     qualityScore: raw.qualityScore,
     qualityBreakdown: raw.qualityBreakdown,
   });
+  const multiJudgeSummary = validatePublicLoungeMultiJudgeSummary(
+    raw.multiJudgeSummary,
+    quality.qualityBreakdown,
+  );
   if (
     Object.keys(raw).length !== ATTESTATION_KEYS.size
-    || raw.schemaVersion !== "public-lounge-server-review-attestation-v1"
+    || raw.schemaVersion !== PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION
     || raw.issuer !== "private-ai-hub"
     || raw.backendId !== "private-ai-hub"
     || raw.workCompleted !== true
     || raw.fullCoverage !== true
+    || raw.hardGatePassed !== true
+    || raw.compliancePassed !== true
+    || raw.criticalDimensionsPassed !== true
+    || raw.hiddenDraftResidueDetected !== false
     || raw.rawContentStored !== false
     || typeof raw.keyId !== "string"
     || !/^[A-Za-z0-9._-]{1,120}$/u.test(raw.keyId)
@@ -314,7 +573,7 @@ function parseServerAttestation(value: unknown): PublicLoungeServerReviewAttesta
     fail("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
   }
   return {
-    schemaVersion: "public-lounge-server-review-attestation-v1",
+    schemaVersion: PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
     issuer: "private-ai-hub",
     keyId: raw.keyId,
     nonce: raw.nonce,
@@ -326,6 +585,11 @@ function parseServerAttestation(value: unknown): PublicLoungeServerReviewAttesta
     qualityBreakdown: quality.qualityBreakdown,
     workCompleted: true,
     fullCoverage: true,
+    hardGatePassed: true,
+    compliancePassed: true,
+    criticalDimensionsPassed: true,
+    hiddenDraftResidueDetected: false,
+    multiJudgeSummary,
     backendId: "private-ai-hub",
     modelId: raw.modelId.trim(),
     modelDigest: raw.modelDigest,
@@ -336,16 +600,21 @@ function parseServerAttestation(value: unknown): PublicLoungeServerReviewAttesta
 
 export function validatePublicLoungeEligibilityRequest(value: unknown): PublicLoungeEligibilityRequest {
   const raw = record(value);
-  assertAllowedKeys(raw, ELIGIBILITY_REQUEST_KEYS);
-  if (Object.keys(raw).length !== ELIGIBILITY_REQUEST_KEYS.size
+  const hasServerAttestation = Object.prototype.hasOwnProperty.call(raw, "serverAttestation");
+  const hasAuthorDeviceReview = Object.prototype.hasOwnProperty.call(raw, "authorDeviceReview");
+  if (hasServerAttestation === hasAuthorDeviceReview) {
+    fail("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+  }
+  const allowedKeys = hasServerAttestation
+    ? SERVER_ELIGIBILITY_REQUEST_KEYS
+    : AUTHOR_DEVICE_ELIGIBILITY_REQUEST_KEYS;
+  assertAllowedKeys(raw, allowedKeys);
+  if (Object.keys(raw).length !== allowedKeys.size
     || raw.schemaVersion !== PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION) {
     fail("PUBLIC_LOUNGE_PAYLOAD_INVALID", 400);
   }
   if (raw.explicitConsent !== true) fail("PUBLIC_LOUNGE_CONSENT_REQUIRED");
   if (raw.authorRightsDeclaration !== true) fail("PUBLIC_LOUNGE_RIGHTS_DECLARATION_REQUIRED");
-  if (raw.trustedServerReviewConsent !== true) {
-    fail("PUBLIC_LOUNGE_TRUSTED_REVIEW_CONSENT_REQUIRED");
-  }
   if (raw.workCompleted !== true || raw.completionStatus !== "completed") {
     fail("PUBLIC_LOUNGE_WORK_NOT_COMPLETED");
   }
@@ -356,28 +625,50 @@ export function validatePublicLoungeEligibilityRequest(value: unknown): PublicLo
   const wordCount = positiveInteger(raw.wordCount, 2_000_000_000);
   if (!isCanonicalIsoTime(raw.completedAt)) fail("PUBLIC_LOUNGE_PAYLOAD_INVALID");
   const publicChapters = parsePublicChapters(raw.publicChapters, chapterCount);
-  const serverAttestation = parseServerAttestation(raw.serverAttestation);
-  if (serverAttestation.completionFingerprint !== raw.completionFingerprint) {
-    fail("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
-  }
-  return {
+  const taxonomy = parseV2Taxonomy(raw);
+  const common = {
     schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
     completionFingerprint: raw.completionFingerprint,
     title: cleanText(raw.title, { field: "inline", min: 1, max: 120 }),
     authorByline: cleanText(raw.authorByline, { field: "inline", min: 1, max: 80 }),
-    category: cleanText(raw.category, { field: "inline", min: 1, max: 48 }),
+    ...taxonomy,
     completionStatus: "completed",
     chapterCount,
     wordCount,
     completedAt: raw.completedAt,
-    fullSynopsis: cleanText(raw.fullSynopsis, { field: "prose", min: 1, max: 50_000 }),
+    fullSynopsis: cleanText(raw.fullSynopsis, {
+      field: "prose",
+      min: 1,
+      max: PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS,
+    }),
     publicChapters,
-    serverAttestation,
     explicitConsent: true,
     authorRightsDeclaration: true,
     workCompleted: true,
-    trustedServerReviewConsent: true,
-  };
+  } as const;
+  if (hasServerAttestation) {
+    if (raw.trustedServerReviewConsent !== true) {
+      fail("PUBLIC_LOUNGE_TRUSTED_REVIEW_CONSENT_REQUIRED");
+    }
+    const serverAttestation = parseServerAttestation(raw.serverAttestation);
+    if (serverAttestation.completionFingerprint !== raw.completionFingerprint) {
+      fail("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+    }
+    return {
+      ...common,
+      serverAttestation,
+      trustedServerReviewConsent: true,
+    };
+  }
+  if (raw.authorDeviceReviewConsent !== true) {
+    fail("PUBLIC_LOUNGE_CONSENT_REQUIRED");
+  }
+  const authorDeviceReview = record(raw.authorDeviceReview);
+  return {
+    ...common,
+    authorDeviceReview: authorDeviceReview as AuthorDeviceReviewDeclaration,
+    authorDeviceReviewConsent: true,
+  } as PublicLoungeEligibilityRequest;
 }
 
 export function publicLoungeEligibilityBinding(
@@ -394,22 +685,39 @@ export function publicLoungeEligibilityBinding(
 export function buildPublicLoungePost(input: PublicLoungePublicationInput, metadata: {
   publicId: string;
   publishedAt: string;
+  versionId: string;
+  versionNumber: number;
+  versionPublishedAt: string;
+  qualityAssurance: PublicLoungeQualityAssurance;
 }): PublicLoungePost {
-  if (!PUBLIC_ID_PATTERN.test(metadata.publicId) || !isCanonicalIsoTime(metadata.publishedAt)) {
+  if (
+    !PUBLIC_ID_PATTERN.test(metadata.publicId)
+    || !isCanonicalIsoTime(metadata.publishedAt)
+    || !PUBLIC_VERSION_ID_PATTERN.test(metadata.versionId)
+    || !Number.isInteger(metadata.versionNumber)
+    || metadata.versionNumber < 1
+    || !isCanonicalIsoTime(metadata.versionPublishedAt)
+    || (metadata.qualityAssurance !== "private_ai_hub_verified"
+      && metadata.qualityAssurance !== "author_device_closed_ai_unverified")
+  ) {
     fail("PUBLIC_LOUNGE_PAYLOAD_INVALID", 500);
   }
+  const taxonomy = normalizePublicLoungeTopicIds(input.topicIds);
   return {
     schemaVersion: PUBLIC_LOUNGE_POST_SCHEMA_VERSION,
     publicId: metadata.publicId,
     title: input.title,
     authorByline: input.authorByline,
     authorBylineStatus: "self_entered_unverified",
-    category: input.category,
+    ...taxonomy,
     completionStatus: "completed",
     chapterCount: input.chapterCount,
     wordCount: input.wordCount,
     completedAt: input.completedAt,
     publishedAt: metadata.publishedAt,
+    versionId: metadata.versionId,
+    versionNumber: metadata.versionNumber,
+    versionPublishedAt: metadata.versionPublishedAt,
     quality: {
       totalScore: input.qualityScore,
       threshold: PUBLIC_LOUNGE_QUALITY_THRESHOLD,
@@ -421,30 +729,39 @@ export function buildPublicLoungePost(input: PublicLoungePublicationInput, metad
         weightedPoints: Math.round(input.qualityBreakdown[rubric.key] * rubric.weight) / 100,
       })),
     },
+    qualityAssurance: metadata.qualityAssurance,
     fullSynopsis: input.fullSynopsis,
     publicChapters: input.publicChapters.map((chapter) => ({ ...chapter })),
   };
 }
 
 export function publicLoungePostToSummary(post: PublicLoungePost): PublicLoungePostSummary {
+  if (post.topicIds.length < 1) {
+    fail("PUBLIC_LOUNGE_PAYLOAD_INVALID", 500);
+  }
+  const taxonomy = normalizePublicLoungeTopicIds(post.topicIds);
   return {
     schemaVersion: PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION,
     publicId: post.publicId,
     title: post.title,
     authorByline: post.authorByline,
     authorBylineStatus: post.authorBylineStatus,
-    category: post.category,
+    ...taxonomy,
     completionStatus: "completed",
     chapterCount: post.chapterCount,
     wordCount: post.wordCount,
     completedAt: post.completedAt,
     publishedAt: post.publishedAt,
+    versionId: post.versionId,
+    versionNumber: post.versionNumber,
+    versionPublishedAt: post.versionPublishedAt,
     quality: {
       totalScore: post.quality.totalScore,
       threshold: PUBLIC_LOUNGE_QUALITY_THRESHOLD,
       breakdown: post.quality.breakdown.map((item) => ({ ...item })),
     },
-    synopsisExcerpt: post.fullSynopsis.slice(0, 220),
+    qualityAssurance: post.qualityAssurance,
+    synopsisExcerpt: post.fullSynopsis.slice(0, PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS),
     publicChapterCount: post.publicChapters.length,
   };
 }
@@ -452,7 +769,9 @@ export function publicLoungePostToSummary(post: PublicLoungePost): PublicLoungeP
 export function sanitizeStoredPublicLoungeIndexEntry(value: unknown): PublicLoungePostSummary {
   const raw = record(value);
   if (
-    raw.schemaVersion !== PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION
+    (raw.schemaVersion !== PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION
+      && raw.schemaVersion !== PUBLIC_LOUNGE_PRIOR_INDEX_ENTRY_SCHEMA_VERSION
+      && raw.schemaVersion !== PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION)
     || raw.authorBylineStatus !== "self_entered_unverified"
     || raw.completionStatus !== "completed"
     || typeof raw.publicId !== "string"
@@ -499,66 +818,113 @@ export function sanitizeStoredPublicLoungeIndexEntry(value: unknown): PublicLoun
     0,
   ) / 100);
   if (computedTotal !== quality.totalScore) fail("PUBLIC_LOUNGE_PAYLOAD_INVALID", 502);
+  const taxonomy = storedTaxonomy(raw, raw.schemaVersion);
+  const qualityAssurance = raw.qualityAssurance === undefined
+    && raw.schemaVersion === PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION
+    ? "private_ai_hub_verified"
+    : raw.qualityAssurance;
+  if (
+    qualityAssurance !== "private_ai_hub_verified"
+    && qualityAssurance !== "author_device_closed_ai_unverified"
+  ) {
+    fail("PUBLIC_LOUNGE_PAYLOAD_INVALID", 502);
+  }
+  const isVersioned = raw.schemaVersion === PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION;
+  const versionId = isVersioned
+    ? raw.versionId
+    : `version_legacy_${String(raw.publicId).slice("novel_".length)}`;
+  const versionNumber = isVersioned ? raw.versionNumber : 1;
+  const versionPublishedAt = isVersioned ? raw.versionPublishedAt : raw.publishedAt;
+  if (
+    typeof versionId !== "string"
+    || !PUBLIC_VERSION_ID_PATTERN.test(versionId)
+    || !Number.isInteger(versionNumber)
+    || Number(versionNumber) < 1
+    || !isCanonicalIsoTime(versionPublishedAt)
+  ) {
+    fail("PUBLIC_LOUNGE_PAYLOAD_INVALID", 502);
+  }
   return {
     schemaVersion: PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION,
     publicId: raw.publicId,
     title: cleanText(raw.title, { field: "inline", min: 1, max: 120 }),
     authorByline: cleanText(raw.authorByline, { field: "inline", min: 1, max: 80 }),
     authorBylineStatus: "self_entered_unverified",
-    category: cleanText(raw.category, { field: "inline", min: 1, max: 48 }),
+    ...taxonomy,
     completionStatus: "completed",
     chapterCount: positiveInteger(raw.chapterCount, 100_000),
     wordCount: positiveInteger(raw.wordCount, 2_000_000_000),
     completedAt: raw.completedAt,
     publishedAt: raw.publishedAt,
+    versionId,
+    versionNumber: Number(versionNumber),
+    versionPublishedAt,
     quality: {
       totalScore: Number(quality.totalScore),
       threshold: PUBLIC_LOUNGE_QUALITY_THRESHOLD,
       breakdown,
     },
-    synopsisExcerpt: cleanText(raw.synopsisExcerpt, { field: "prose", min: 1, max: 220 }),
+    qualityAssurance,
+    synopsisExcerpt: cleanText(raw.synopsisExcerpt, {
+      field: "prose",
+      min: 1,
+      max: PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS,
+    }),
     publicChapterCount: positiveInteger(raw.publicChapterCount, PUBLIC_LOUNGE_MAX_PUBLIC_CHAPTERS),
   };
 }
 
 export function sanitizeStoredPublicLoungePost(value: unknown): PublicLoungePost {
   const raw = record(value);
-  const quality = record(raw.quality);
-  if (!Array.isArray(quality.breakdown)) fail("PUBLIC_LOUNGE_PAYLOAD_INVALID", 502);
-  const scores = Object.fromEntries(quality.breakdown.map((candidate) => {
-    const item = record(candidate);
-    return [String(item.key), item.score];
-  }));
-  const publication = validatePublicLoungePublicationInput({
-    schemaVersion: PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
-    title: raw.title,
-    authorByline: raw.authorByline,
-    category: raw.category,
-    completionStatus: raw.completionStatus,
-    chapterCount: raw.chapterCount,
-    wordCount: raw.wordCount,
-    completedAt: raw.completedAt,
-    qualityScore: quality.totalScore,
-    qualityBreakdown: scores,
-    fullSynopsis: raw.fullSynopsis,
-    publicChapters: raw.publicChapters,
-    eligibilityTicket: "A".repeat(43),
-    explicitConsent: true,
-    authorRightsDeclaration: true,
-    workCompleted: true,
-  });
   if (
-    raw.schemaVersion !== PUBLIC_LOUNGE_POST_SCHEMA_VERSION
+    (raw.schemaVersion !== PUBLIC_LOUNGE_POST_SCHEMA_VERSION
+      && raw.schemaVersion !== PUBLIC_LOUNGE_PRIOR_POST_SCHEMA_VERSION
+      && raw.schemaVersion !== PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION)
     || raw.authorBylineStatus !== "self_entered_unverified"
     || typeof raw.publicId !== "string"
     || typeof raw.publishedAt !== "string"
   ) {
     fail("PUBLIC_LOUNGE_PAYLOAD_INVALID", 502);
   }
-  return buildPublicLoungePost(publication, {
-    publicId: raw.publicId,
-    publishedAt: raw.publishedAt,
+  const fullSynopsis = cleanText(raw.fullSynopsis, {
+    field: "prose",
+    min: 1,
+    max: PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS,
   });
+  const rawChapters = Array.isArray(raw.publicChapters) ? raw.publicChapters : [];
+  const summary = sanitizeStoredPublicLoungeIndexEntry({
+    ...raw,
+    schemaVersion: raw.schemaVersion === PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION
+      ? PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION
+      : raw.schemaVersion === PUBLIC_LOUNGE_PRIOR_POST_SCHEMA_VERSION
+        ? PUBLIC_LOUNGE_PRIOR_INDEX_ENTRY_SCHEMA_VERSION
+        : PUBLIC_LOUNGE_INDEX_ENTRY_SCHEMA_VERSION,
+    synopsisExcerpt: fullSynopsis.slice(0, PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS),
+    publicChapterCount: rawChapters.length,
+  });
+  return {
+    schemaVersion: PUBLIC_LOUNGE_POST_SCHEMA_VERSION,
+    storyLibrarySchemaVersion: summary.storyLibrarySchemaVersion,
+    shelfId: summary.shelfId,
+    primaryTopicId: summary.primaryTopicId,
+    topicIds: summary.topicIds,
+    publicId: summary.publicId,
+    title: summary.title,
+    authorByline: summary.authorByline,
+    authorBylineStatus: summary.authorBylineStatus,
+    completionStatus: summary.completionStatus,
+    chapterCount: summary.chapterCount,
+    wordCount: summary.wordCount,
+    completedAt: summary.completedAt,
+    publishedAt: summary.publishedAt,
+    versionId: summary.versionId,
+    versionNumber: summary.versionNumber,
+    versionPublishedAt: summary.versionPublishedAt,
+    quality: summary.quality,
+    qualityAssurance: summary.qualityAssurance,
+    fullSynopsis,
+    publicChapters: parsePublicChapters(raw.publicChapters, summary.chapterCount),
+  };
 }
 
 export function assertPublicLoungeId(value: string) {

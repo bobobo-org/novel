@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClosedAIProgressEvent, ClosedAgentExecutionResult } from "@/lib/novel-ai/closed-agent-os";
 import type { AuthorToolSnapshot } from "@/lib/novel-ai/author-tools";
+import { PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS } from "@/lib/novel-ai/public-lounge/types";
 import {
   WHOLE_NOVEL_LOUNGE_THRESHOLD,
+  WHOLE_NOVEL_PRIMARY_JUDGE_ROLES,
   WHOLE_NOVEL_REVIEW_RUBRIC,
+  aggregateWholeNovelModelReviews,
   buildWholeNovelChunkContext,
   buildWholeNovelChunkReviewObjective,
   buildWholeNovelCompletionFingerprint,
@@ -25,11 +28,14 @@ import {
   saveWholeNovelCompletionDeclaration,
   saveWholeNovelReview,
   verifiedWholeNovelReviewExecution,
+  wholeNovelReviewScoreSpread,
   type WholeNovelChunkAnalysis,
   type WholeNovelCompletionDeclaration,
   type WholeNovelReviewContract,
   type WholeNovelReviewBackendId,
   type WholeNovelReviewExecutionProvenance,
+  type WholeNovelModelReview,
+  type WholeNovelReviewJudgeRole,
 } from "@/lib/novel-ai/whole-novel-review";
 import {
   executeStudioClosedAgent,
@@ -39,6 +45,13 @@ import PublicLoungePublicationPanel from "./public-lounge-publication-panel";
 import styles from "./author-tools.module.css";
 
 type ReviewBackend = WholeNovelReviewBackendId;
+
+const JUDGE_LABELS: Record<WholeNovelReviewJudgeRole, string> = {
+  "literary-editor": "文學編輯",
+  "continuity-editor": "連續性編輯",
+  "genre-reader": "類型讀者",
+  "score-arbitrator": "分數仲裁者",
+};
 
 const BACKEND_CAPACITY: Record<ReviewBackend, {
   maximumChunkCharacters: number;
@@ -248,141 +261,180 @@ export default function WholeNovelReviewPanel({
     setRunning(true);
     setReview(null);
     setProgress([]);
-    setStatus("正在逐段交給真實閉端模型閱讀；所有片段覆蓋成功前，不會顯示總分。 ");
+    setStatus("三位評審正在各自逐段閱讀全部正文；三組獨立覆蓋都成功前，不會顯示總分。 ");
     const packets: WholeNovelChunkAnalysis[] = [];
     const executions: WholeNovelReviewExecutionProvenance[] = [];
     try {
-      for (const [index, chunk] of chunks.entries()) {
-        setStage(`完整覆蓋 ${index + 1}/${chunks.length}：${chunk.chapterTitle}（片段 ${chunk.chunkIndex}/${chunk.chunkCount}）`);
-        let result: ClosedAgentExecutionResult | null = null;
+      for (const [judgeIndex, judgeRole] of WHOLE_NOVEL_PRIMARY_JUDGE_ROLES.entries()) {
+        for (const [chunkIndex, chunk] of chunks.entries()) {
+          setStage(
+            `評審 ${judgeIndex + 1}/3 ${JUDGE_LABELS[judgeRole]}：獨立覆蓋 ${chunkIndex + 1}/${chunks.length}，${chunk.chapterTitle}（片段 ${chunk.chunkIndex}/${chunk.chunkCount}）`,
+          );
+          let result: ClosedAgentExecutionResult | null = null;
+          try {
+            result = await executeStudioClosedAgent({
+              projectId,
+              taskType: "story.chapterReview",
+              objective: buildWholeNovelChunkReviewObjective(snapshot.project.title, chunk, judgeRole),
+              context: [{
+                id: `whole-novel-source:${judgeRole}:${chunk.id}`,
+                kind: "author-note",
+                text: buildWholeNovelChunkContext(chunk),
+                visibility: "both",
+              }],
+              preferredBackend: backend === "browser-ai" ? undefined : backend,
+              qualityMode: "balanced",
+              browserComputePolicy: backend === "browser-ai" ? "browser-first" : "manual",
+              sourceChapterId: chunk.chapterId,
+              sourceRevision: chunk.chapterRevision,
+              storyBibleRevision: snapshot.storyBible?.revision ?? "current",
+              knowledgeScopeRevision: maximumRevision(snapshot),
+              promptProfileVersion: `whole-novel-chunk-review-${judgeRole}-v2`,
+              contextTokenBudget: capacity.chunkContextTokenBudget,
+              generationOptions: {
+                temperature: 0.2,
+                topP: 0.85,
+                maxTokens: 1_200,
+                repetitionPenalty: 1.08,
+              },
+              signal: controller.signal,
+              onProgress: (event) => setProgress((items) => [...items, event].slice(-12)),
+            });
+            const proof = verifiedWholeNovelReviewExecution({
+              result,
+              expectedBackend: backend,
+              stage: "chunk-analysis",
+              chunkId: chunk.id,
+              judgeRole,
+            });
+            if (!proof) {
+              throw Object.assign(new Error("WHOLE_NOVEL_MODEL_PROOF_INVALID"), {
+                code: "WHOLE_NOVEL_MODEL_PROOF_INVALID",
+              });
+            }
+            packets.push(parseWholeNovelChunkAnalysis(
+              result.candidate.content,
+              chunk,
+              judgeRole,
+            ));
+            executions.push(proof);
+          } finally {
+            await rejectCandidate(result);
+          }
+        }
+      }
+
+      const modelReviews: WholeNovelModelReview[] = [];
+      const runSynthesisJudge = async (
+        judgeRole: WholeNovelReviewJudgeRole,
+        executionStage: "whole-book-synthesis" | "whole-book-arbitration",
+      ) => {
+        const primaryIndex = WHOLE_NOVEL_PRIMARY_JUDGE_ROLES.indexOf(
+          judgeRole as (typeof WHOLE_NOVEL_PRIMARY_JUDGE_ROLES)[number],
+        );
+        setStage(judgeRole === "score-arbitrator"
+          ? "三位評審總分差距超過 10 分，正在執行第四次閉端 AI 仲裁……"
+          : `閉端 AI 評審 ${primaryIndex + 1}/3：${JUDGE_LABELS[judgeRole]}正在獨立審查……`);
+        const synthesisPackets = judgeRole === "score-arbitrator"
+          ? packets
+          : packets.filter((packet) => packet.judgeRole === judgeRole);
+        const synthesisContext = buildWholeNovelSynthesisContext({
+          project: snapshot.project,
+          completionFingerprint: fingerprint,
+          chunks,
+          packets: synthesisPackets,
+          judgeRole,
+        });
+        if (synthesisContext.length > capacity.maximumSynthesisCharacters) {
+          throw Object.assign(new Error("WHOLE_NOVEL_SYNTHESIS_CAPACITY"), {
+            code: "WHOLE_NOVEL_SYNTHESIS_CAPACITY",
+          });
+        }
+        let synthesis: ClosedAgentExecutionResult | null = null;
         try {
-          result = await executeStudioClosedAgent({
+          synthesis = await executeStudioClosedAgent({
             projectId,
-            taskType: "story.chapterReview",
-            objective: buildWholeNovelChunkReviewObjective(snapshot.project.title, chunk),
+            taskType: "story.plotAnalysis",
+            objective: buildWholeNovelSynthesisObjective({
+              projectTitle: snapshot.project.title,
+              completionFingerprint: fingerprint,
+              chapterIds: orderedChapters.map((chapter) => chapter.id),
+              judgeRole,
+              primaryReviews: judgeRole === "score-arbitrator" ? modelReviews : undefined,
+            }),
             context: [{
-              id: `whole-novel-source:${chunk.id}`,
-              kind: "author-note",
-              text: buildWholeNovelChunkContext(chunk),
+              id: `whole-novel-synthesis:${fingerprint}:${judgeRole}`,
+              kind: "evaluator-note",
+              text: synthesisContext,
               visibility: "both",
             }],
             preferredBackend: backend === "browser-ai" ? undefined : backend,
             qualityMode: "balanced",
             browserComputePolicy: backend === "browser-ai" ? "browser-first" : "manual",
-            sourceChapterId: chunk.chapterId,
-            sourceRevision: chunk.chapterRevision,
             storyBibleRevision: snapshot.storyBible?.revision ?? "current",
             knowledgeScopeRevision: maximumRevision(snapshot),
-            promptProfileVersion: "whole-novel-chunk-review-v1",
-            contextTokenBudget: capacity.chunkContextTokenBudget,
+            promptProfileVersion: `whole-novel-synthesis-${judgeRole}-v2`,
+            contextTokenBudget: capacity.synthesisContextTokenBudget,
             generationOptions: {
-              temperature: 0.2,
-              topP: 0.85,
-              maxTokens: 1_200,
+              temperature: judgeRole === "score-arbitrator" ? 0.15 : 0.25,
+              topP: 0.88,
+              maxTokens: 4_000,
               repetitionPenalty: 1.08,
             },
             signal: controller.signal,
             onProgress: (event) => setProgress((items) => [...items, event].slice(-12)),
           });
           const proof = verifiedWholeNovelReviewExecution({
-            result,
+            result: synthesis,
             expectedBackend: backend,
-            stage: "chunk-analysis",
-            chunkId: chunk.id,
+            stage: executionStage,
+            judgeRole,
           });
           if (!proof) {
             throw Object.assign(new Error("WHOLE_NOVEL_MODEL_PROOF_INVALID"), {
               code: "WHOLE_NOVEL_MODEL_PROOF_INVALID",
             });
           }
-          packets.push(parseWholeNovelChunkAnalysis(result.candidate.content, chunk));
+          modelReviews.push(parseWholeNovelModelReview(
+            synthesis.candidate.content,
+            orderedChapters,
+            judgeRole,
+          ));
           executions.push(proof);
         } finally {
-          await rejectCandidate(result);
+          await rejectCandidate(synthesis);
         }
-      }
+      };
 
-      const synthesisContext = buildWholeNovelSynthesisContext({
-        project: snapshot.project,
-        completionFingerprint: fingerprint,
+      for (const judgeRole of WHOLE_NOVEL_PRIMARY_JUDGE_ROLES) {
+        await runSynthesisJudge(judgeRole, "whole-book-synthesis");
+      }
+      if (wholeNovelReviewScoreSpread(modelReviews) > 10) {
+        await runSynthesisJudge("score-arbitrator", "whole-book-arbitration");
+      }
+      const aggregation = aggregateWholeNovelModelReviews(modelReviews);
+      const nextReview = createWholeNovelReviewContract({
+        reviewId: `whole-novel-review:${crypto.randomUUID()}`,
+        snapshot,
+        declaration,
+        currentCompletionFingerprint: fingerprint,
         chunks,
         packets,
+        modelReview: aggregation.modelReview,
+        judgeReviews: modelReviews,
+        executions,
+        backendId: backend,
+        publicMetadata: {
+          authorDisplayName,
+          category: publicCategory,
+          synopsis: publicSynopsis,
+        },
       });
-      if (synthesisContext.length > capacity.maximumSynthesisCharacters) {
-        throw Object.assign(new Error("WHOLE_NOVEL_SYNTHESIS_CAPACITY"), {
-          code: "WHOLE_NOVEL_SYNTHESIS_CAPACITY",
-        });
-      }
-
-      setStage("正在彙整全書大綱、七項評鑑與加權分數……");
-      let synthesis: ClosedAgentExecutionResult | null = null;
-      try {
-        synthesis = await executeStudioClosedAgent({
-          projectId,
-          taskType: "story.plotAnalysis",
-          objective: buildWholeNovelSynthesisObjective({
-            projectTitle: snapshot.project.title,
-            completionFingerprint: fingerprint,
-            chapterIds: orderedChapters.map((chapter) => chapter.id),
-          }),
-          context: [{
-            id: `whole-novel-synthesis:${fingerprint}`,
-            kind: "evaluator-note",
-            text: synthesisContext,
-            visibility: "both",
-          }],
-          preferredBackend: backend === "browser-ai" ? undefined : backend,
-          qualityMode: "balanced",
-          browserComputePolicy: backend === "browser-ai" ? "browser-first" : "manual",
-          storyBibleRevision: snapshot.storyBible?.revision ?? "current",
-          knowledgeScopeRevision: maximumRevision(snapshot),
-          promptProfileVersion: "whole-novel-synthesis-review-v1",
-          contextTokenBudget: capacity.synthesisContextTokenBudget,
-          generationOptions: {
-            temperature: 0.25,
-            topP: 0.88,
-            maxTokens: 4_000,
-            repetitionPenalty: 1.08,
-          },
-          signal: controller.signal,
-          onProgress: (event) => setProgress((items) => [...items, event].slice(-12)),
-        });
-        const proof = verifiedWholeNovelReviewExecution({
-          result: synthesis,
-          expectedBackend: backend,
-          stage: "whole-book-synthesis",
-        });
-        if (!proof) {
-          throw Object.assign(new Error("WHOLE_NOVEL_MODEL_PROOF_INVALID"), {
-            code: "WHOLE_NOVEL_MODEL_PROOF_INVALID",
-          });
-        }
-        const modelReview = parseWholeNovelModelReview(synthesis.candidate.content, orderedChapters);
-        executions.push(proof);
-        const nextReview = createWholeNovelReviewContract({
-          reviewId: `whole-novel-review:${crypto.randomUUID()}`,
-          snapshot,
-          declaration,
-          currentCompletionFingerprint: fingerprint,
-          chunks,
-          packets,
-          modelReview,
-          executions,
-          backendId: backend,
-          publicMetadata: {
-            authorDisplayName,
-            category: publicCategory,
-            synopsis: publicSynopsis,
-          },
-        });
-        saveWholeNovelReview(nextReview, window.localStorage);
-        setReview(nextReview);
-        setStatus(nextReview.eligibleForPublicLounge
-          ? `全書審查完成：${nextReview.totalScore} 分，達到 ${WHOLE_NOVEL_LOUNGE_THRESHOLD} 分小說交誼廳品質門檻；仍未公開，必須由作者另行 opt-in。`
-          : `全書審查完成：${nextReview.totalScore} 分，尚未達到 ${WHOLE_NOVEL_LOUNGE_THRESHOLD} 分小說交誼廳品質門檻；作品仍未公開。`);
-      } finally {
-        await rejectCandidate(synthesis);
-      }
+      saveWholeNovelReview(nextReview, window.localStorage);
+      setReview(nextReview);
+      setStatus(nextReview.eligibleForPublicLounge
+        ? `全書審查完成：${nextReview.totalScore} 分，三評審中位數與硬閘均通過；仍未公開，必須由作者另行 opt-in。`
+        : `全書審查完成：${nextReview.totalScore} 分，但品質或安全硬閘未通過（${nextReview.loungeEligibility.blockingReasons.join("、") || `未達 ${WHOLE_NOVEL_LOUNGE_THRESHOLD} 分`}）；作品仍未公開。`);
     } catch (cause) {
       setStatus(reviewErrorMessage(cause));
     } finally {
@@ -408,9 +460,9 @@ export default function WholeNovelReviewPanel({
     <section className={styles.completionReview} aria-labelledby="whole-novel-review-title">
       <header>
         <div>
-          <small>TRUE CLOSED AI · FULL COVERAGE · NO AUTO-PUBLISH</small>
+          <small>TRUE CLOSED AI · 3 JUDGES · MEDIAN · HARD GATES · NO AUTO-PUBLISH</small>
           <h2 id="whole-novel-review-title">全書完稿審查</h2>
-          <p>先由作者標記固定完稿版本，再逐段覆蓋全部正文並彙整全書。品質分不等於人氣；固定規則只負責 Gate、加權與驗證，從不冒充閉端 AI 閱讀。</p>
+          <p>先由作者標記固定完稿版本，再逐段覆蓋全部正文，交由文學編輯、連續性編輯與類型讀者三個閉端 AI 角色獨立審查。各維度取中位數；總分差距超過 10 分才增加第四位仲裁者。</p>
         </div>
         <strong>{reviewCurrent && review ? `${review.totalScore} / 100` : "尚未評分"}</strong>
       </header>
@@ -458,7 +510,12 @@ export default function WholeNovelReviewPanel({
             </label>
             <label>
               公開簡介
-              <textarea value={publicSynopsis} maxLength={1_200} disabled={running} onChange={(event) => setPublicSynopsis(event.target.value)} />
+              <textarea
+                value={publicSynopsis}
+                maxLength={PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS}
+                disabled={running}
+                onChange={(event) => setPublicSynopsis(event.target.value)}
+              />
             </label>
           </div>
           <label>
@@ -508,7 +565,15 @@ export default function WholeNovelReviewPanel({
             <div>
               <small>{reviewCurrent ? "目前完稿版本" : "舊版本 · 已失效"}</small>
               <h3>{review.eligibleForPublicLounge ? "達到小說交誼廳品質門檻" : "尚未達到小說交誼廳品質門檻"}</h3>
-              <p>品質分 {review.totalScore}／100；門檻 {review.loungeEligibility.threshold}。作品目前狀態：未公開，仍需作者 opt-in。</p>
+              <p>
+                品質分 {review.totalScore}／100；門檻 {review.loungeEligibility.threshold}；
+                compliance {review.loungeEligibility.compliancePassed ? "通過" : "未通過"}；
+                關鍵維度 60 分硬閘 {review.loungeEligibility.criticalDimensionsPassed ? "通過" : "未通過"}。
+                作品目前狀態：未公開，仍需作者 opt-in。
+              </p>
+              {!review.loungeEligibility.eligible ? (
+                <p><b>阻擋原因：</b>{review.loungeEligibility.blockingReasons.join("；") || "品質門檻未通過"}</p>
+              ) : null}
             </div>
             <button type="button" disabled={!reviewCurrent} onClick={downloadReview}>匯出審查 JSON</button>
           </header>
@@ -528,8 +593,9 @@ export default function WholeNovelReviewPanel({
 
           <PublicLoungePublicationPanel
             key={review.reviewId}
+            projectId={projectId}
             review={review}
-            reviewCurrent={reviewCurrent}
+            reviewCurrent={reviewCurrent && review.eligibleForPublicLounge}
             chapters={orderedChapters.map((chapter) => ({
               id: chapter.id,
               title: chapter.title,
@@ -583,6 +649,23 @@ export default function WholeNovelReviewPanel({
               {review.provenance.executions.length} 份 verified receipt；後端 {review.provenance.backendId}；
               deterministic fallback：未使用；Canon 寫入：0；資料離開裝置：否。
             </p>
+            <p>
+              聚合：逐維中位數；三評審總分 spread {review.provenance.aggregation.primaryScoreSpread}；
+              仲裁 {review.provenance.aggregation.arbitrationPerformed ? "已執行" : "未觸發"}；
+              採計 {review.provenance.aggregation.selectedJudgeRoles.map((role) => JUDGE_LABELS[role]).join("、")}。
+            </p>
+            <ul>
+              {review.provenance.judges.map((judge) => (
+                <li key={judge.candidateId}>
+                  {JUDGE_LABELS[judge.judgeRole]}：{judge.totalScore} 分；
+                  compliance {judge.compliance.publicSafetyPassed
+                    && judge.compliance.completenessPassed
+                    && judge.compliance.privacyCopyrightPassed
+                    && !judge.compliance.hiddenDraftResidueDetected ? "通過" : "未通過"}；
+                  {judge.selectedForAggregation ? "已採計" : "未採計"}。
+                </li>
+              ))}
+            </ul>
             <p>內容指紋：{review.completion.completionFingerprint}</p>
             <p>模型：{[...new Set(review.provenance.executions.map((item) => `${item.modelId} (${item.modelDigest})`))].join("；")}</p>
           </details>
