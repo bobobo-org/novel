@@ -21,6 +21,11 @@ const STATIC_PATTERNS = [
 const CREDENTIAL_NAME = /(?:TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE|SESSION|SERVICE_ROLE|PRIVATE)/iu;
 const CONNECTION_CREDENTIAL_NAME = /(?:^|_)(?:URL|URI|DSN)$/iu;
 const PUBLIC_CREDENTIAL_NAME = /^(?:NEXT_PUBLIC_)?SUPABASE_(?:ANON|PUBLISHABLE)_KEY$/iu;
+// Vercel CLI 56 writes this fixed non-secret sentinel when `vercel pull`
+// encounters a Sensitive Environment Variable whose value is intentionally
+// unreadable. It may be copied into prebuilt function metadata, but it is not
+// credential material and must not be treated as the redacted value itself.
+const VERCEL_SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
 const NEVER_ALLOWLIST_KINDS = new Set([
   "private-key",
   "openai-key",
@@ -102,6 +107,7 @@ function parseEnvironmentFile(source) {
     let value = match[2].trim();
     if ((value.startsWith('"') && value.endsWith('"'))
       || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    if (value === VERCEL_SENSITIVE_PLACEHOLDER) continue;
     if (value.length >= minimumCredentialLength(match[1]) && isConfiguredCredential(match[1], value)) {
       values.push({ name: match[1], value });
     }
@@ -113,11 +119,13 @@ export function collectCredentialValues({ env = process.env, envFiles = [] } = {
   const candidates = [];
   const allowlistedFingerprints = new Set();
   for (const [name, value] of Object.entries(env)) {
-    if (isApprovedPublicCredential(name, String(value || ""))) {
-      allowlistedFingerprints.add(safeFingerprint(String(value)));
-    } else if (isConfiguredCredential(name, String(value || ""))
-      && String(value || "").length >= minimumCredentialLength(name)) {
-      candidates.push({ name, value: String(value) });
+    const candidateValue = String(value || "");
+    if (candidateValue === VERCEL_SENSITIVE_PLACEHOLDER) continue;
+    if (isApprovedPublicCredential(name, candidateValue)) {
+      allowlistedFingerprints.add(safeFingerprint(candidateValue));
+    } else if (isConfiguredCredential(name, candidateValue)
+      && candidateValue.length >= minimumCredentialLength(name)) {
+      candidates.push({ name, value: candidateValue });
     }
   }
   for (const envFile of envFiles) {
@@ -128,6 +136,7 @@ export function collectCredentialValues({ env = process.env, envFiles = [] } = {
       if (!match) continue;
       let value = match[2].trim();
       if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+      if (value === VERCEL_SENSITIVE_PLACEHOLDER) continue;
       if (isApprovedPublicCredential(match[1], value)) {
         allowlistedFingerprints.add(safeFingerprint(value));
       }

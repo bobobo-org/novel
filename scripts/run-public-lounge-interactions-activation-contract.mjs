@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import {
+  collectCredentialValues,
+  scanCredentialBytes,
+} from "./scan-sealed-production-artifact.mjs";
 import {
   PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_RECEIPT_SCHEMA,
   PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION,
@@ -568,6 +572,27 @@ async function runWorkflowContract() {
     "node scripts/prepare-public-lounge-runtime-production.mjs --self-test");
   assert.match(packageJson.scripts["test:public-lounge"],
     /test:public-lounge:activation-workflow/u);
+  const scannerFixture = await mkdtemp(join(tmpdir(), "public-lounge-sensitive-placeholder-"));
+  try {
+    const envFile = join(scannerFixture, ".env.production.local");
+    const actualSecretFixture = "configured-value-with-words-2026-private";
+    await writeFile(envFile, [
+      'PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY="[SENSITIVE]"',
+      `INTERNAL_AUTH_CREDENTIAL="${actualSecretFixture}"`,
+      "",
+    ].join("\n"));
+    const material = collectCredentialValues({
+      env: { PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY: "[SENSITIVE]" },
+      envFiles: [envFile],
+    });
+    assert.equal(material.credentialValues.length, 1);
+    assert.equal(scanCredentialBytes(
+      Buffer.from(`[SENSITIVE]\n${actualSecretFixture}`, "utf8"),
+      { ...material, sourcePath: "server/function-config.json" },
+    ).filter(({ kind }) => kind === "configured-credential").length, 1);
+  } finally {
+    await rm(scannerFixture, { recursive: true, force: true });
+  }
   console.log(JSON.stringify({
     status: "public_lounge_interactions_fail_closed_workflow_contract_passed",
     migration027ApplyCheck: true,
