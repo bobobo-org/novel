@@ -456,7 +456,7 @@ function verifyAliasCutover(workflow) {
       < publicGate.indexOf("MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844"),
     "post-cutover browser proof must run WebKit before the Chromium traffic sweep",
   );
-  assert.match(publicGate, /timeout --signal=TERM --kill-after=30s 600s bash -c/u);
+  assert.match(publicGate, /timeout --signal=TERM --kill-after=30s 900s bash -c/u);
   assert.match(alias, /post-cutover-mobile-browser\.log/u);
   assert.match(alias, /Write Last Known Good only after public verification passes/u);
   assert.match(alias, /Publish dynamic Last Known Good identity/u);
