@@ -133,10 +133,8 @@ export async function acceptedChoiceConversationApprovalPayloadFingerprint(
   if (!input.conversationApproval) {
     throw new RepositoryOperationError("RPG_CONVERSATION_APPROVAL_MISSING");
   }
-  const {
-    closedAgentApprovalBinding: _approvalPrecondition,
-    ...conversationApproval
-  } = input.conversationApproval;
+  const conversationApproval = { ...input.conversationApproval };
+  delete conversationApproval.closedAgentApprovalBinding;
   return sha256Hex(stableStringify({
     operationType: "accept_choice_with_conversation_approval",
     projectId: input.projectId,

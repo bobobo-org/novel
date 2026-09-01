@@ -52,8 +52,8 @@ export function acceptChoicePayloadFingerprint(input: AcceptChoiceTransactionInp
   // Keep the historical fingerprint byte-for-byte when this optional RC6
   // boundary is absent, so previously accepted choices remain replayable.
   if (input.conversationApproval) {
-    const { closedAgentApprovalBinding: _approvalPrecondition, ...conversationApproval } =
-      input.conversationApproval;
+    const conversationApproval = { ...input.conversationApproval };
+    delete conversationApproval.closedAgentApprovalBinding;
     payload.conversationApproval = conversationApproval;
   }
   // Preserve the exact historical replay fingerprint when the optional RPG

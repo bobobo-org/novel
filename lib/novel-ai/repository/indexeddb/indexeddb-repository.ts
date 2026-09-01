@@ -38,7 +38,7 @@ import {
   type ConversationArtifactApprovalInput,
 } from "../../conversation/approval-transaction";
 import { assertConversationRecordSafe } from "../../conversation/record-security";
-import { sha256Hex, stableStringify } from "../../closed-ai-cache";
+import { stableStringify } from "../../closed-ai-cache";
 import {
   asIndexedDbRepositoryError,
   INDEXEDDB_DATABASE_VERSION,
