@@ -135,7 +135,7 @@ export function MessageComposer({
     busy,
     draft,
     attachmentCount: localAttachments.length,
-    blocked: externalBlocked || closedAiStarting,
+    blocked: externalBlocked,
     onSend: submitRequest,
   });
   const selectedModel = BROWSER_WEBLLM_MODELS.find(

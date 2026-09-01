@@ -166,6 +166,8 @@ export default function ConversationWorkspace({
     cancelClosedAiSetup,
     resolveRegenerationBackend,
   } = useClosedAiBootstrap(projectId);
+  const closedAiStartupStateRef = useRef(closedAiStartupState);
+  closedAiStartupStateRef.current = closedAiStartupState;
   const closedAiRegenerationReady = Boolean(
     !closedAiSetupBusy
     && isClosedAiTaskRoutable(closedAiSetup),
@@ -180,6 +182,7 @@ export default function ConversationWorkspace({
     onAccepted?: () => void,
     existingUserRequest?: ExistingUserRequest,
     requestedTaskType?: PlatformTaskType | null,
+    retryAfterClosedAiStartup?: boolean,
   ) => Promise<void>>(async () => undefined);
   const operationLocked = useCallback(() => operationLockRef.current, []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -1014,6 +1017,7 @@ export default function ConversationWorkspace({
     onAccepted?: () => void,
     existingUserRequest?: ExistingUserRequest,
     requestedTaskType?: PlatformTaskType | null,
+    retryAfterClosedAiStartup = false,
   ) {
     const content = (contentOverride ?? draft).trim();
     const sessionId = existingUserRequest?.sessionId ?? activeSession?.id ?? "";
@@ -1024,6 +1028,7 @@ export default function ConversationWorkspace({
     }
     if (!sessionId || busy || operationLockRef.current || (!content && !requestLocalAttachments.length)) return;
     operationLockRef.current = true;
+    if (retryAfterClosedAiStartup) initialPromptUsed.current = true;
     let requestRpgChoices = latestRpgChoices;
     if (existingUserRequest) {
       try {
@@ -1041,7 +1046,15 @@ export default function ConversationWorkspace({
     }
     const requestHadAttachments = requestLocalAttachments.length > 0;
     let learningResumeEnabled = false;
-    retryActionRef.current = () => { void sendRequest(content, undefined, existingUserRequest, requestedTaskType); };
+    retryActionRef.current = () => {
+      void initialPromptSenderRef.current(
+        content,
+        onAccepted,
+        existingUserRequest,
+        requestedTaskType,
+        retryAfterClosedAiStartup,
+      );
+    };
     setRetryAvailable(true);
     setRetryLabel("重試");
     const liveStoryState = project
@@ -1172,6 +1185,24 @@ export default function ConversationWorkspace({
         message: "Attachment rights confirmation is required.",
       });
       setProgress("Attachment rights must be confirmed before attachment processing starts.");
+      operationLockRef.current = false;
+      return;
+    }
+    const closedAiRuntimeRequired = plan.executionKind === "closed_agent"
+      || plan.executionKind === "rpg"
+      || plan.executionKind === "attachment";
+    if (
+      !externalSelectedForRequest
+      && closedAiStartupStateRef.current === "starting"
+      && closedAiRuntimeRequired
+    ) {
+      if (!existingUserRequest) setDraft(content);
+      setSafeError({
+        code: "CONVERSATION_CLOSED_AI_STARTING",
+        message: "閉端 AI 正在連線並驗證可生成狀態；本次生成尚未送出。請等候狀態變成已連線後再送出。",
+      });
+      setProgress("閉端 AI 尚在啟動；沒有建立候選、沒有修改 Canon，也沒有改用規則後備。");
+      if (retryAfterClosedAiStartup) initialPromptUsed.current = false;
       operationLockRef.current = false;
       return;
     }
@@ -1583,19 +1614,37 @@ export default function ConversationWorkspace({
 
   useEffect(() => {
     if (initialPromptUsed.current || !initialPrompt || loading || busy || !activeSession) return;
-    const timer = window.setTimeout(() => {
-      if (initialPromptUsed.current || operationLockRef.current) return;
-      initialPromptUsed.current = true;
+    let cancelled = false;
+    let timer: number | null = null;
+    const schedule = (delay: number) => {
+      timer = window.setTimeout(attempt, delay);
+    };
+    const attempt = () => {
+      if (cancelled || initialPromptUsed.current) return;
+      if (operationLockRef.current) {
+        schedule(50);
+        return;
+      }
       void initialPromptSenderRef.current(initialPrompt, () => {
         const url = new URL(window.location.href);
         url.searchParams.delete("prompt");
         url.searchParams.delete("task");
         if (url.searchParams.get("mode") === "play") url.searchParams.delete("mode");
         window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-      }, undefined, initialTaskType);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [activeSession, busy, initialPrompt, initialTaskType, loading]);
+      }, undefined, initialTaskType, true).finally(() => {
+        if (
+          !cancelled
+          && !initialPromptUsed.current
+          && closedAiStartupStateRef.current !== "starting"
+        ) schedule(50);
+      });
+    };
+    schedule(0);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [activeSession, busy, closedAiStartupState, initialPrompt, initialTaskType, loading]);
 
   async function regenerateMessage(message: ConversationMessage) {
     if (message.role !== "assistant") return;
