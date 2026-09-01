@@ -391,6 +391,91 @@ async function waitUntilIdle(targetPage) {
   });
 }
 
+async function chooseExplicitRpgChoiceFallback(
+  targetPage,
+  previousChoiceMessageId = null,
+  projectId = null,
+) {
+  let clickHandle;
+  try {
+    clickHandle = await targetPage.waitForFunction((previousMessageId) => {
+      const visible = (element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return rect.width > 0
+          && rect.height > 0
+          && style.display !== "none"
+          && style.visibility !== "hidden";
+      };
+      const button = [...document.querySelectorAll("button")].find((element) => (
+        element.textContent?.trim() === "不等了，改用後備選項"
+        && visible(element)
+      ));
+      if (!(button instanceof HTMLButtonElement)) return null;
+      const composer = document.querySelector('[data-testid="conversation-message-composer"]');
+      const choiceMessageIds = [...document.querySelectorAll('article[data-rpg-choices="true"]')]
+        .map((element) => element.getAttribute("data-message-id"));
+      const composerState = composer ? {
+        startupState: composer.getAttribute("data-closed-ai-startup-state"),
+        taskRoutable: composer.getAttribute("data-closed-ai-task-routable"),
+        rulesFallbackReady: composer.getAttribute("data-closed-ai-rules-fallback-ready"),
+        externalFallback: composer.getAttribute("data-closed-ai-external-fallback"),
+      } : null;
+      const noUnexpectedChoice = previousMessageId
+        ? !choiceMessageIds.some((messageId) => messageId && messageId !== previousMessageId)
+        : choiceMessageIds.length === 0;
+      if (
+        button.disabled
+        || !noUnexpectedChoice
+        || composerState?.startupState !== "action_required"
+        || composerState.taskRoutable !== "false"
+        || composerState.rulesFallbackReady !== "false"
+        || composerState.externalFallback !== "false"
+      ) {
+        return {
+          clicked: false,
+          buttonDisabled: button.disabled,
+          noUnexpectedChoice,
+          composerState,
+          choiceMessageIds,
+        };
+      }
+      button.click();
+      return {
+        clicked: true,
+        buttonDisabled: false,
+        noUnexpectedChoice: true,
+        composerState,
+        choiceMessageIds,
+      };
+    }, previousChoiceMessageId, { timeout: 90_000, polling: 25 });
+  } catch (error) {
+    throw new Error(`RPG_EXPLICIT_FALLBACK_CONTROL_UNAVAILABLE ${JSON.stringify(
+      projectId ? await readRpgRecoveryDiagnostics(targetPage, projectId) : {},
+    )}`, { cause: error });
+  }
+  const clickResult = await clickHandle.jsonValue();
+  await clickHandle.dispose();
+  assert.equal(clickResult.clicked, true, JSON.stringify(clickResult));
+  assert.equal(clickResult.buttonDisabled, false);
+  assert.equal(clickResult.noUnexpectedChoice, true);
+  assert.deepEqual(clickResult.composerState, {
+    startupState: "action_required",
+    taskRoutable: "false",
+    rulesFallbackReady: "false",
+    externalFallback: "false",
+  });
+  if (previousChoiceMessageId) {
+    assert.equal(
+      clickResult.choiceMessageIds.some((messageId) => messageId && messageId !== previousChoiceMessageId),
+      false,
+      "staged preview must not create a replacement A/B/C before explicit fallback",
+    );
+  } else {
+    assert.equal(clickResult.choiceMessageIds.length, 0, "staged preview must not create A/B/C before explicit fallback");
+  }
+}
+
 async function readDurableRpgSelections(targetPage, projectId, key) {
   return targetPage.evaluate(async ({ projectId: scopedProjectId, key: scopedKey }) => {
     const database = await new Promise((resolve, reject) => {
@@ -450,6 +535,24 @@ async function readDurableRpgChoiceCardState(targetPage, projectId, messageId) {
       && invocation.toolId === "conversation:evidence:rpg-choice-stale"
       && invocation.taskType === "rpg.choice.stale-abandonment.v1"
     ));
+    const choicePlanInvocations = invocations.filter((invocation) => (
+      invocation.projectId === scopedProjectId
+      && invocation.messageId === scopedMessageId
+      && invocation.toolId === "closed-agent-os:rpg-choice-plan"
+      && invocation.taskType === "chapter.abcChoices"
+    ));
+    let fallbackReason = null;
+    const prefix = "[[NOVEL_RPG_CHOICES_V1]]\n";
+    if (typeof message?.content === "string" && message.content.startsWith(prefix)) {
+      try {
+        const envelope = JSON.parse(message.content.slice(prefix.length));
+        fallbackReason = typeof envelope?.plan?.executionReceipt?.fallbackReason === "string"
+          ? envelope.plan.executionReceipt.fallbackReason
+          : null;
+      } catch {
+        fallbackReason = null;
+      }
+    }
     return {
       message: message ? {
         id: message.id,
@@ -471,8 +574,80 @@ async function readDurableRpgChoiceCardState(targetPage, projectId, messageId) {
         safeProgress: marker.safeProgress,
         inputDigest: marker.inputDigest,
       })),
+      choicePlanInvocations: choicePlanInvocations.map((invocation) => ({
+        id: invocation.id,
+        status: invocation.status,
+        actualExecutor: invocation.actualExecutor,
+        externalRequest: invocation.externalRequest,
+        dataLeftDevice: invocation.dataLeftDevice,
+        canonicalMutationCount: invocation.canonicalMutationCount,
+      })),
+      fallbackReason,
     };
   }, { projectId, messageId });
+}
+
+function assertExplicitRpgChoiceFallback(state) {
+  assert.equal(state.choicePlanInvocations.length, 1, "one explicit fallback must persist one choice-plan invocation");
+  const [invocation] = state.choicePlanInvocations;
+  assert.equal(invocation.status, "completed");
+  assert.equal(invocation.actualExecutor, "deterministic-rule-fallback");
+  assert.equal(invocation.externalRequest, false);
+  assert.equal(invocation.dataLeftDevice, false);
+  assert.equal(invocation.canonicalMutationCount, 0);
+  assert.equal(state.fallbackReason, "USER_REQUESTED_RULE_FALLBACK");
+}
+
+async function readRpgRecoveryDiagnostics(targetPage, projectId) {
+  const durable = await targetPage.evaluate(async (scopedProjectId) => {
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("novel-intelligence-platform");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(
+      ["conversationMessages", "conversationToolInvocations"],
+      "readonly",
+    );
+    const readAll = (storeName) => new Promise((resolve, reject) => {
+      const request = transaction.objectStore(storeName).getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const [messages, invocations] = await Promise.all([
+      readAll("conversationMessages"),
+      readAll("conversationToolInvocations"),
+    ]);
+    database.close();
+    return {
+      messages: messages.filter((message) => message.projectId === scopedProjectId).map((message) => ({
+        id: message.id,
+        role: message.role,
+        status: message.status,
+        parentMessageId: message.parentMessageId,
+        sourceMessageId: message.sourceMessageId,
+        rpgChoices: typeof message.content === "string"
+          && message.content.startsWith("[[NOVEL_RPG_CHOICES_V1]]\n"),
+      })),
+      invocations: invocations.filter((invocation) => invocation.projectId === scopedProjectId).map((invocation) => ({
+        id: invocation.id,
+        messageId: invocation.messageId,
+        toolId: invocation.toolId,
+        status: invocation.status,
+        actualExecutor: invocation.actualExecutor,
+        safeErrorCode: invocation.safeErrorCode,
+        safeProgress: invocation.safeProgress,
+      })),
+    };
+  }, projectId);
+  return {
+    durable,
+    alerts: await targetPage.getByRole("alert").allTextContents(),
+    progress: await targetPage.locator('[role="status"]').allTextContents(),
+    fallbackControls: await targetPage.locator('button:visible')
+      .filter({ hasText: /^不等了，改用後備選項$/u })
+      .count(),
+  };
 }
 
 async function waitForDurableRpgChoiceStaleMarker(targetPage, projectId, messageId) {
@@ -639,7 +814,8 @@ try {
     createdProjectId = new URL(page.url()).pathname.split("/")[3] || "";
     assert.ok(createdProjectId);
     await page.getByText("開始目前玩法的第一回合。", { exact: true }).waitFor({ state: "visible", timeout: 60_000 });
-    await page.getByTestId("rpg-inline-choices").waitFor({ state: "visible", timeout: 180_000 });
+    await chooseExplicitRpgChoiceFallback(page, null, createdProjectId);
+    await page.getByTestId("rpg-inline-choices").waitFor({ state: "visible", timeout: 90_000 });
     for (const choice of ["A", "B", "C"]) {
       await page.getByTestId(`rpg-choice-${choice}`).waitFor({ state: "visible" });
     }
@@ -660,6 +836,7 @@ try {
     );
     assert.equal(originalCardState.message?.role, "assistant");
     assert.equal(originalCardState.message?.status, "completed", "the stale fixture must begin as a completed A/B/C card");
+    assertExplicitRpgChoiceFallback(originalCardState);
     for (const choice of ["A", "B", "C"]) {
       assert.equal(await originalChoiceCard.getByTestId(`rpg-choice-${choice}`).isEnabled(), true);
     }
@@ -797,16 +974,28 @@ try {
       const recovery = page.getByTestId("rpg-next-choice-recovery");
       await recovery.waitFor({ state: "visible", timeout: 60_000 });
       await recovery.getByRole("button", { name: "繼續下一輪／重新建立三選一" }).click();
-      await page.waitForFunction((oldMessageId) => (
-        [...document.querySelectorAll('article[data-rpg-choices="true"]')]
-          .some((element) => element.getAttribute("data-message-id") !== oldMessageId)
-      ), originalChoiceMessageId, { timeout: 180_000 });
+      await chooseExplicitRpgChoiceFallback(page, originalChoiceMessageId, createdProjectId);
+      try {
+        await page.waitForFunction((oldMessageId) => (
+          [...document.querySelectorAll('article[data-rpg-choices="true"]')]
+            .some((element) => element.getAttribute("data-message-id") !== oldMessageId)
+        ), originalChoiceMessageId, { timeout: 90_000 });
+      } catch (error) {
+        throw new Error(`RPG_EXPLICIT_FALLBACK_RECOVERY_TIMEOUT ${JSON.stringify(
+          await readRpgRecoveryDiagnostics(page, createdProjectId),
+        )}`, { cause: error });
+      }
       await waitUntilIdle(page);
 
       const rebuiltChoiceCard = page.locator('article[data-rpg-choices="true"]').last();
       const rebuiltChoiceMessageId = await rebuiltChoiceCard.getAttribute("data-message-id");
       assert.ok(rebuiltChoiceMessageId);
       assert.notEqual(rebuiltChoiceMessageId, originalChoiceMessageId, "recovery must create a new choice-card message");
+      assertExplicitRpgChoiceFallback(await readDurableRpgChoiceCardState(
+        page,
+        createdProjectId,
+        rebuiltChoiceMessageId,
+      ));
       for (const choice of ["A", "B", "C"]) {
         assert.equal(
           await rebuiltChoiceCard.getByTestId(`rpg-choice-${choice}`).isEnabled(),
