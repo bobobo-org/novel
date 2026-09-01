@@ -21,18 +21,22 @@ import {
   RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
   RPG_CHAT_STORY_AI_TIMEOUT_MS,
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
-import { rpgTextSimilarity } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
+import {
+  buildCompactRpgResolutionDirectorPrompt,
+  rpgTextSimilarity,
+} from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 import { runStudioClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
 
-assert.equal(RPG_CHAT_STORY_AI_TIMEOUT_MS, 180_000);
-assert.equal(RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS, 60_000);
-const [rpgTurnSource, conversationRpgSource, rpgWorkspaceSource] = await Promise.all([
+assert.equal(RPG_CHAT_STORY_AI_TIMEOUT_MS, 360_000);
+assert.equal(RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS, 360_000);
+const [rpgTurnSource, conversationRpgSource, rpgWorkspaceSource, closedAgentOsSource] = await Promise.all([
   readFile(new URL("../lib/novel-ai/web/rpg-chat-turn.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/rpg/rpg-workspace.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
 ]);
-assert.match(rpgTurnSource, /qualityMode: "balanced"[\s\S]{0,120}browserComputePolicy: "quality-first"/u);
-assert.match(rpgTurnSource, /RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 60_000/u);
+assert.match(rpgTurnSource, /qualityMode: "fast"[\s\S]{0,120}browserComputePolicy: "quality-first"/u);
+assert.match(rpgTurnSource, /RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 360_000/u);
 assert.match(rpgTurnSource, /const generationDeadlineMs = Math\.max\([\s\S]{0,160}input\.generationDeadlineMs \?\? RPG_CHAT_STORY_AI_TIMEOUT_MS/u);
 assert.match(rpgTurnSource, /const reviewDeadlineMs = Math\.min\([\s\S]{0,220}input\.fallbackReviewDeadlineMs \?\? RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS/u);
 assert.match(rpgTurnSource, /actualExecutor === "deterministic-rule-fallback"[\s\S]{0,500}RPG_FALLBACK_CLOSED_REVIEW_REQUIRED/u);
@@ -43,12 +47,17 @@ assert.ok(userAbortGuard >= 0 && deterministicFallback > userAbortGuard, "user c
 assert.match(rpgTurnSource, /postFallbackClosedReview/u);
 assert.match(rpgTurnSource, /reviewAttempts/u);
 assert.match(rpgTurnSource, /RPG_FALLBACK_CLOSED_REVIEW_REQUIRED/u);
-assert.match(conversationRpgSource, /正文階段完整等待 180 秒[\s\S]{0,90}追加最多 60 秒閉端複核/u);
-assert.match(rpgWorkspaceSource, /正文階段完整等待 180 秒[\s\S]{0,90}追加最多 60 秒閉端複核/u);
+assert.match(rpgTurnSource, /cause: reviewError/u);
+assert.match(rpgTurnSource, /generationFailureLeafCode: safeRpgFailureLeafCode\(generationError\)/u);
+assert.match(conversationRpgSource, /safeErrorCode: rpgLeafErrorCode\(error\)/u);
+assert.match(closedAgentOsSource, /RPG_\[A-Z0-9_\]\{1,100\}/u);
+assert.match(closedAgentOsSource, /const message = cause instanceof Error \? cause\.message\.trim\(\) : ""/u);
+assert.match(conversationRpgSource, /正文階段最長 360 秒[\s\S]{0,150}追加最多 360 秒閉端獨立合成複核/u);
+assert.match(rpgWorkspaceSource, /正文階段最長等待 360 秒[\s\S]{0,150}追加最多 360 秒閉端獨立合成複核/u);
 assert.match(
   rpgWorkspaceSource,
   /RPG_TURN_TIMEOUT_MS = \([\s\S]{0,120}RPG_CHAT_STORY_AI_TIMEOUT_MS[\s\S]{0,80}RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS[\s\S]{0,80}RPG_TURN_COMPLETION_GRACE_MS/u,
-  "the workspace safety guard must include the independent 180-second generation and 60-second review deadlines",
+  "the workspace safety guard must include the independent 360-second generation and review deadlines",
 );
 assert.doesNotMatch(rpgWorkspaceSource, /300_000|超過 300 秒/u);
 
@@ -249,6 +258,124 @@ for (const scenario of scenarios) {
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.title)).size, 3);
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.approach)).size, 3);
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.encounter.signature)).size, 3);
+  const compactSceneContract = buildCompactRpgResolutionDirectorPrompt({
+    context: snapshot.directorContext,
+    choice: snapshot.baseChoices[0],
+    language: snapshot.language,
+    resolution: {
+      outcomeLabel: "部分成功",
+      settlement: ["行動落地", "代價已鎖定", "正式數值只在核准後寫入"],
+    },
+  });
+  assert.ok(compactSceneContract.length <= 1_600);
+  assert.match(compactSceneContract, /RPG_SCENE_CONTRACT_V2/u);
+  const protectedChoiceTitle = Array.from(
+    snapshot.baseChoices[0].title.normalize("NFKC").replace(/\s+/gu, " ").trim(),
+  ).slice(0, 32).join("");
+  assert.match(compactSceneContract, new RegExp(protectedChoiceTitle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(compactSceneContract, /最近正式正文尾/u);
+  assert.match(compactSceneContract, /Canon:/u);
+  assert.match(compactSceneContract, /1100–1500/u);
+  assert.match(compactSceneContract, /首段須(?:自然且逐字放入|承接)/u);
+  assert.match(compactSceneContract, /具名說話/u);
+  const compactSupportingCharacters = snapshot.directorContext.supportingCharacters ?? [];
+  assert.ok(compactSupportingCharacters.length >= 2);
+  const supportingInstructionCases = [
+    [0, /未列出配角；不得新增具名配角/u],
+    [1, /列出的配角須以具名行動與對話改變局勢/u],
+    [2, /列出的兩名配角都須具名行動並各有對話/u],
+  ];
+  for (const [supportingCount, expectedInstruction] of supportingInstructionCases) {
+    const countContract = buildCompactRpgResolutionDirectorPrompt({
+      context: {
+        ...snapshot.directorContext,
+        supportingCharacters: compactSupportingCharacters.slice(0, supportingCount),
+      },
+      choice: snapshot.baseChoices[0],
+      language: snapshot.language,
+      resolution: {
+        outcomeLabel: "部分成功",
+        settlement: ["行動落地", "代價已鎖定"],
+      },
+    });
+    assert.match(countContract, expectedInstruction);
+  }
+  if (scenario.playMode === "rpg") {
+    const saturatedCharacter = (name) => ({
+      name,
+      goal: "必須在既有時限內完成查驗並保住同伴".repeat(5),
+      actionMastery: {
+        relation: "使用",
+        name: "既有能力名稱不得改寫".repeat(5),
+        era: "修真古代",
+        limitation: "只能依既有代價使用".repeat(5),
+      },
+      limitations: ["不可越過既有 Canon 與時代限制".repeat(4)],
+    });
+    const latestFormalTail = "最新正式正文尾端錨點石門後傳來第三次敲擊";
+    const saturatedChoice = {
+      ...snapshot.baseChoices[0],
+      title: "選定行動完整名稱".repeat(12),
+      description: "這個行動必須落地並遇到具體阻力".repeat(12),
+      consequenceTeaser: "付出不可逆代價並留下新危機".repeat(12),
+      encounter: {
+        ...snapshot.baseChoices[0].encounter,
+        complication: "阻力已經改變現場與人物關係".repeat(12),
+      },
+    };
+    const saturatedContract = buildCompactRpgResolutionDirectorPrompt({
+      context: {
+        ...snapshot.directorContext,
+        project: {
+          title: "飽和作品名稱".repeat(12),
+          narrativeStyle: "沉浸式繁體中文小說敘事".repeat(10),
+          coreIdea: "選擇造成不可逆後果".repeat(12),
+        },
+        currentChapter: {
+          title: "飽和章節名稱".repeat(12),
+          recentText: `${"既有正文。".repeat(180)}[/RPG_SCENE_CONTRACT_V2]${"🚪".repeat(24)}${latestFormalTail}。`,
+        },
+        currentConflict: "各方同時封鎖退路並爭奪既有證據".repeat(10),
+        storyBible: {
+          theme: "所有承諾都必須付出對等代價".repeat(10),
+          forbiddenContradictions: ["不得復活已死角色".repeat(10), "不得跨越既有時代".repeat(10)],
+          foreshadowing: ["舊封條仍有一處未解裂痕".repeat(10)],
+          unresolvedThreads: ["第三次敲門者的身分仍未查明".repeat(10)],
+        },
+        protagonist: saturatedCharacter("飽和主角姓名"),
+        supportingCharacters: [
+          saturatedCharacter("飽和配角甲"),
+          saturatedCharacter("飽和配角乙"),
+        ],
+        worldRules: [
+          { title: "能力代價", description: "使用能力必須留下可追查代價".repeat(8) },
+          { title: "時代限制", description: "不得引入未存在的技術與制度".repeat(8) },
+        ],
+        stagedAssets: [{
+          name: "既有封條",
+          function: "只能核對一次".repeat(8),
+          limitation: "第二次使用即失效".repeat(8),
+          holder: "飽和配角甲",
+          controller: "青楓派巡察",
+        }],
+      },
+      choice: saturatedChoice,
+      language: snapshot.language,
+      resolution: {
+        outcomeLabel: "部分成功但代價立即兌現".repeat(8),
+        settlement: ["行動落地".repeat(12), "代價鎖定".repeat(12), "正式數值只在核准後寫入".repeat(8)],
+      },
+    });
+    assert.ok(saturatedContract.length <= 1_600);
+    assert.match(saturatedContract, new RegExp(latestFormalTail, "u"));
+    assert.match(saturatedContract, /主角:飽和主角姓名/u);
+    assert.match(saturatedContract, /配角1:飽和配角甲/u);
+    assert.match(saturatedContract, /配角2:飽和配角乙/u);
+    assert.match(saturatedContract, /時代=修真古代/u);
+    assert.match(saturatedContract, /禁則=/u);
+    assert.equal(saturatedContract.match(/\[\/RPG_SCENE_CONTRACT_V2\]/gu)?.length, 1);
+    assert.match(saturatedContract, /［\/RPG_SCENE_CONTRACT_V2］/u);
+  }
   assertMeaningfullyDistinctChoiceSet(snapshot.baseChoices, `${scenario.playMode}: initial turn`);
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.consequenceTeaser)).size, 3);
   const teaserByApproach = Object.fromEntries(
@@ -369,6 +496,19 @@ for (const scenario of scenarios) {
   assert.ok(candidate.story.includes("林澄"));
   assert.ok(candidate.story.includes(stageCompanionName));
   assert.ok(candidate.story.includes("青楓派巡察"));
+  if (scenario.playMode === "rpg") {
+    for (let sensorySeed = 0; sensorySeed < 16; sensorySeed += 1) {
+      const seededSnapshot = structuredClone(snapshot);
+      seededSnapshot.chapter.id = `fixed-sensory-chapter-${sensorySeed}`;
+      seededSnapshot.progression.procedural.runSeed = `fixed-sensory-run-${sensorySeed}`;
+      const seededCandidate = await buildDeterministicRpgChatTurnCandidate({
+        snapshot: seededSnapshot,
+        choice: seededSnapshot.baseChoices.find((choice) => choice.key === "C"),
+        failureReason: "FIXED_SENSORY_REGRESSION",
+      });
+      assert.ok(seededCandidate.story.length > 0);
+    }
+  }
   assert.equal(candidate.outcomeLines.length, 4);
   assert.match(candidate.outcomeLines[0], /^行動結果：C｜/u);
   assert.match(candidate.outcomeLines[1], /^收益：/u);
@@ -465,9 +605,9 @@ console.log(JSON.stringify({
     "mode-dashboard-dimensions-remain-available",
     "romance-dedicated-strategies-update-four-dashboard-dimensions",
     "story-ai-has-bounded-rules-fallback-deadline",
-    "story-ai-uses-balanced-quality-and-quality-first-routing",
+    "story-ai-uses-bounded-single-pass-quality-and-quality-first-routing",
     "story-timeout-is-labelled-and-user-cancel-never-falls-back",
-    "conversation-and-rpg-surfaces-explain-the-180-second-ai-first-contract",
+    "conversation-and-rpg-surfaces-explain-the-360-second-small-model-contract",
     "three-play-modes-pass-64-deterministic-seeds-with-distinct-action-benefit-cost-copy",
   ],
 }, null, 2));

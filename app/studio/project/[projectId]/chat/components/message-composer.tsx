@@ -14,7 +14,10 @@ import {
   type NovelAIExecutionMode,
 } from "@/lib/novel-ai/providers/external/external-provider-contract";
 import { useConversationComposer } from "../hooks/use-conversation-composer";
-import type { ClosedAiSetupLifecycle } from "../hooks/use-closed-ai-bootstrap";
+import type {
+  ClosedAiSetupLifecycle,
+  ClosedAiStartupState,
+} from "../hooks/use-closed-ai-bootstrap";
 import {
   CHAPTER_CONTINUE_SETUP_REQUIRED_MESSAGE,
   isClosedAiTaskRoutable,
@@ -40,6 +43,7 @@ export function MessageComposer({
   closedAiSetupBusy,
   closedAiSetupError,
   closedAiSetupLifecycle,
+  closedAiStartupState,
   aiExecutionMode,
   hybridAiSource,
   externalProviderId,
@@ -80,6 +84,7 @@ export function MessageComposer({
   closedAiSetupBusy: boolean;
   closedAiSetupError: string | null;
   closedAiSetupLifecycle: ClosedAiSetupLifecycle;
+  closedAiStartupState: ClosedAiStartupState;
   aiExecutionMode: NovelAIExecutionMode;
   hybridAiSource: "closed" | "external";
   externalProviderId: ExternalAIProviderId;
@@ -116,19 +121,27 @@ export function MessageComposer({
     !externalRunConsent
     || localAttachments.length > 0
   );
+  const taskRoutable = isClosedAiTaskRoutable(closedAiSetup);
+  const effectiveClosedAiStartupState: ClosedAiStartupState =
+    closedAiStartupState === "ready" && !taskRoutable
+      ? "action_required"
+      : closedAiStartupState;
+  const closedAiStarting = !externalSelected
+    && effectiveClosedAiStartupState === "starting";
+  const rulesFallbackReady = !externalSelected
+    && effectiveClosedAiStartupState === "timeout_fallback";
   const composer = useConversationComposer({
     active,
     busy,
     draft,
     attachmentCount: localAttachments.length,
-    blocked: externalBlocked,
+    blocked: externalBlocked || closedAiStarting,
     onSend: submitRequest,
   });
   const selectedModel = BROWSER_WEBLLM_MODELS.find(
     (model) => model.modelId === closedAiSetup?.selectedModelId,
   );
-  const taskRoutable = isClosedAiTaskRoutable(closedAiSetup);
-  const showSetup = Boolean(!externalSelected && closedAiSetup && !taskRoutable);
+  const showSetup = !externalSelected && effectiveClosedAiStartupState !== "ready";
   const externalSourceStatus = !externalExecutionEnabled
     ? "公開執行未開放"
     : !externalProviderConfigured
@@ -139,6 +152,40 @@ export function MessageComposer({
   const downloadMegabytes = closedAiSetup
     ? (closedAiSetup.setup.estimatedDownloadBytes / 1_000_000).toFixed(1)
     : "0.0";
+  const activeClosedBackend = closedAiSetup?.runtime.plannedBackend
+    ?? closedAiSetup?.readiness.activeBackend;
+  const activeClosedBackendLabel = activeClosedBackend === "browser-ai"
+    ? "Browser AI"
+    : activeClosedBackend === "local-ollama"
+      ? "本機 Ollama"
+      : activeClosedBackend === "private-ai-hub"
+        ? "Private AI Hub"
+        : "已驗證本機算力";
+  const closedAiSourceLabel = effectiveClosedAiStartupState === "ready"
+    ? `閉端 AI · 已啟動（${activeClosedBackendLabel}）· 不外傳`
+    : effectiveClosedAiStartupState === "starting"
+      ? "閉端 AI · 正在連線既有本機算力"
+      : effectiveClosedAiStartupState === "timeout_fallback"
+        ? "閉端 AI · 連線明確逾時 · 規則後備待命"
+      : effectiveClosedAiStartupState === "failed"
+        ? "閉端 AI · 自動啟動未完成"
+        : "閉端 AI · 需要完成本機準備";
+  const closedAiSetupTitle = effectiveClosedAiStartupState === "starting"
+    ? "正在啟動閉端 AI"
+    : effectiveClosedAiStartupState === "timeout_fallback"
+      ? "閉端 AI 連線已明確逾時"
+    : effectiveClosedAiStartupState === "failed"
+      ? "閉端 AI 自動啟動未完成"
+      : closedAiSetup?.status === "unsupported"
+        ? "目前沒有可用的閉端算力"
+        : closedAiSetupLifecycle === "cancelled"
+          ? "自動協調器準備已取消"
+          : "完整小說正文尚未可用";
+  const closedAiSetupMessage = closedAiSetupError
+    ?? closedAiSetupProgress?.message
+    ?? (effectiveClosedAiStartupState === "starting"
+      ? "正在連接這台電腦上已啟動的閉端 AI，並核對已安裝的 Browser AI。"
+      : closedAiSetup?.safeMessage ?? CHAPTER_CONTINUE_SETUP_REQUIRED_MESSAGE);
   return (
     <footer
       className={styles.composerWrap}
@@ -149,9 +196,11 @@ export function MessageComposer({
       data-closed-ai-planned-backend={closedAiSetup?.runtime.plannedBackend ?? "none"}
       data-latest-closed-ai-executor={latestInvocation?.actualExecutor ?? "none"}
       data-closed-ai-setup-busy={closedAiSetupBusy}
+      data-closed-ai-startup-state={effectiveClosedAiStartupState}
+      data-closed-ai-rules-fallback-ready={rulesFallbackReady}
       data-closed-ai-external-fallback={closedAiSetup?.readiness.externalFallback ?? false}
       data-closed-ai-silent-external-fallback={closedAiSetup?.readiness.silentExternalFallback ?? false}
-      aria-busy={busy}
+      aria-busy={busy || closedAiStarting}
     >
       <div className={styles.composerSettings} data-testid="conversation-composer-settings">
         <section
@@ -162,6 +211,7 @@ export function MessageComposer({
           data-selected-source={externalSelected ? "external" : "closed"}
           data-external-provider-configured={externalProviderConfigured}
           data-external-execution-enabled={externalExecutionEnabled}
+          data-closed-ai-startup-state={effectiveClosedAiStartupState}
         >
         <button
           type="button"
@@ -176,7 +226,7 @@ export function MessageComposer({
             <strong>
               {externalSelected
                 ? `${EXTERNAL_AI_PROVIDER_LABELS[externalProviderId]} 外來候選 · ${externalSourceStatus}`
-                : "閉端 AI · 預設、不外傳"}
+                : closedAiSourceLabel}
             </strong>
           </span>
           <span className={styles.aiSourceToggle}>{sourceControlsOpen ? "收合" : "重新設定"}</span>
@@ -189,7 +239,7 @@ export function MessageComposer({
           <div className={styles.aiSourceHeading}>
             <div>
               <small>候選來源設定</small>
-              <strong>{externalSelected ? "外來 AI · 只建立候選" : "閉端 AI · 預設"}</strong>
+              <strong>{externalSelected ? "外來 AI · 只建立候選" : closedAiSourceLabel}</strong>
             </div>
             <label>
               模式
@@ -244,11 +294,11 @@ export function MessageComposer({
               </label>
               <p className={styles.externalBoundary} role="status">
                 {!externalExecutionEnabled
-                  ? "公開外來 AI 執行尚未開放，內容不會送出；RPG 會留下未外送紀錄後改由閉端 AI 完整 180 秒處理，一般要求則停止。"
+                  ? "公開外來 AI 執行尚未開放，內容不會送出；RPG 會留下未外送紀錄後改由閉端 AI 最長 360 秒處理，一般要求則停止。"
                   : externalProviderStatusError
                   ?? (externalProviderConfigured
-                    ? "接點已設定；RPG 會優先使用這個外來 AI。若呼叫失敗或正文無效，才交給閉端 AI 完整 180 秒，必要時再進入獨立 60 秒隱藏複核。"
-                    : "此供應商尚未在伺服器設定；RPG 會留下未外送的真實失敗紀錄，再交給閉端 AI 完整 180 秒。瀏覽器不會顯示或保存 API 金鑰。")}
+                    ? "接點已設定；RPG 會優先使用這個外來 AI。若呼叫失敗或正文無效，才交給閉端 AI 最長 360 秒，必要時再進入獨立 360 秒隱藏複核。"
+                    : "此供應商尚未在伺服器設定；RPG 會留下未外送的真實失敗紀錄，再交給閉端 AI 最長 360 秒。瀏覽器不會顯示或保存 API 金鑰。")}
               </p>
               <label className={styles.externalConsent}>
                 <input
@@ -276,25 +326,17 @@ export function MessageComposer({
           <section
             className={styles.closedAiSetupCard}
             data-testid="closed-ai-setup-card"
-            data-status={taskRoutable ? "ready" : "setup_required"}
+            data-status="setup_required"
+            data-startup-state={effectiveClosedAiStartupState}
+            data-rules-fallback-ready={rulesFallbackReady}
             data-setup-lifecycle={closedAiSetupLifecycle}
             data-estimated-download-bytes={closedAiSetup?.setup.estimatedDownloadBytes ?? 0}
-            aria-busy={closedAiSetupBusy}
+            aria-busy={closedAiSetupBusy || closedAiStarting}
           >
           <div>
             <small>第一次使用 · 閉端 AI 自動協調器</small>
-            <h2>{closedAiSetup?.status === "unsupported"
-              ? "目前沒有可用的閉端算力"
-              : closedAiSetupLifecycle === "cancelled"
-                ? "自動協調器準備已取消"
-              : closedAiSetupBusy
-                ? "正在準備自動協調器"
-                : "完整小說正文尚未可用"}</h2>
-            <p>{closedAiSetupError
-              ?? closedAiSetupProgress?.message
-              ?? (taskRoutable
-                ? closedAiSetup?.safeMessage
-                : CHAPTER_CONTINUE_SETUP_REQUIRED_MESSAGE)}</p>
+            <h2>{closedAiSetupTitle}</h2>
+            <p>{closedAiSetupMessage}</p>
           </div>
           {selectedModel ? (
             <dl className={styles.closedAiSetupFacts}>
@@ -305,22 +347,28 @@ export function MessageComposer({
             </dl>
           ) : null}
           <div className={styles.closedAiSetupActions}>
-            {closedAiSetup?.status !== "unsupported" ? (
-              closedAiSetupBusy
+            {closedAiSetupBusy
+              ? closedAiSetupLifecycle === "preparing"
                 ? <button type="button" onClick={onCancelClosedAiSetup}>取消準備</button>
-                : <button
+                : null
+              : effectiveClosedAiStartupState !== "starting"
+                && closedAiSetup?.status !== "unsupported"
+                ? <button
                     className={styles.primaryAction}
                     type="button"
                     data-testid="closed-ai-prepare-browser"
                     onClick={onPrepareClosedAi}
-                  >{closedAiSetupError ? "重試自動協調器" : "準備自動協調器"}</button>
-            ) : null}
+                  >{effectiveClosedAiStartupState === "failed"
+                    || effectiveClosedAiStartupState === "timeout_fallback"
+                    ? "重新連線本機閉端 AI"
+                    : "準備 Browser AI"}</button>
+                : null}
             <Link prefetch={false} href={`/studio/project/${encodeURIComponent(projectId)}/closed-ai`}>
               自動協調器設定
             </Link>
           </div>
           <p className={styles.closedAiSetupTruth}>
-            系統會自動核對現有的本機與私有算力，依目前任務選出已驗證資源。若需要在此裝置下載模型，只會在你按下準備後開始；不會改用外部 AI 或規則模板冒充。
+            網站只會連線這台電腦上已啟動的 Novel Local AI Companion 與 Ollama，不能自行啟動或安裝 Ollama。Browser AI 模型也不會自動下載；只有你按下「準備 Browser AI」後，系統才會在本裝置下載並驗證。服務不存在或一般啟動失敗時不會自動開啟後備；自動規則後備只有在連線明確逾時後才會以獨立標示的待命狀態出現。你仍可明確選擇提早改用規則後備，兩者都不會冒充閉端 AI 成功。
           </p>
           </section>
         ) : null}
@@ -355,7 +403,7 @@ export function MessageComposer({
         <span>Enter 送出 · Shift＋Enter 換行</span>
         <span>·</span>
         <span className={styles.localBadge}>
-          {externalSelected ? `${EXTERNAL_AI_PROVIDER_LABELS[externalProviderId]} 外來候選` : "閉端 AI 自動協調器"}{busy ? " · 協調中" : ""}
+          {externalSelected ? `${EXTERNAL_AI_PROVIDER_LABELS[externalProviderId]} 外來候選` : closedAiSourceLabel}{busy ? " · 協調中" : ""}
           {` · 資料${latestInvocation?.dataLeftDevice ? "已" : "未"}離開裝置`}
         </span>
       </div>

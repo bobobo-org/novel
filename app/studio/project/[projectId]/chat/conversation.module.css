@@ -930,6 +930,39 @@
   flex-wrap: wrap;
 }
 
+.fallbackReviewNotice {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 13px;
+  border: 1px solid rgba(246, 191, 96, 0.38);
+  border-radius: 12px;
+  color: #f2dfbc;
+  background: rgba(79, 51, 19, 0.28);
+}
+
+.fallbackReviewNotice p {
+  margin: 0;
+  color: #d9c9ac;
+  line-height: 1.55;
+}
+
+.fallbackReviewNotice button {
+  justify-self: start;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid rgba(246, 191, 96, 0.46);
+  border-radius: 9px;
+  color: var(--ink);
+  background: rgba(64, 50, 30, 0.9);
+  cursor: pointer;
+}
+
+.fallbackReviewNotice button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
 .approvalActions {
   display: contents;
 }

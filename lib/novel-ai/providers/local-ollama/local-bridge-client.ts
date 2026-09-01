@@ -20,6 +20,11 @@ export const LOCAL_BRIDGE_MODEL_VERIFICATION_TIMEOUT_MS = 60_000;
 export const LOCAL_BRIDGE_AUTOMATIC_CONNECTION_TIMEOUT_MS = 45_000;
 const CONTROL_CACHE_TTL_MS = 1_500;
 const LOOPBACK_DIAGNOSTIC_ENDPOINTS = ["http://127.0.0.1:3217", "http://localhost:3217", "http://[::1]:3217"] as const;
+const LOCAL_BRIDGE_SESSION_ERROR_CODES = new Set([
+  "BRIDGE_NOT_PAIRED",
+  "BRIDGE_PAIRING_EXPIRED",
+  "BRIDGE_PAIRING_REVOKED",
+]);
 
 export type LocalBridgeSession = { token: string; csrf: string; instanceId: string; expiresAt: string };
 export type LocalBridgeEvent = { type: "started" | "token" | "metadata" | "completed" | "cancelled" | "failed"; requestId?: string; text?: string; errorCode?: string; [key: string]: unknown };
@@ -802,10 +807,43 @@ export class LocalBridgeClient {
     const abort = () => { void this.cancel(input.requestId).catch(() => undefined); };
     input.signal?.addEventListener("abort", abort, { once: true });
     try {
-      let response: Response;
-      try { response = await fetch(`${this.endpoint}/generate`, { method: "POST", headers: { ...this.headers(true, true), "Content-Type": "application/json", "Idempotency-Key": input.requestId }, body: JSON.stringify(input), signal: input.signal }); }
-      catch (error) { throw await classifyBridgeConnectivityError(error, input.signal ?? new AbortController().signal); }
-      if (!response.ok) { await this.parse(response); return; }
+      const requestGeneration = async () => {
+        try {
+          return await fetch(`${this.endpoint}/generate`, {
+            method: "POST",
+            headers: {
+              ...this.headers(true, true),
+              "Content-Type": "application/json",
+              "Idempotency-Key": input.requestId,
+            },
+            body: JSON.stringify(input),
+            signal: input.signal,
+          });
+        } catch (error) {
+          throw await classifyBridgeConnectivityError(
+            error,
+            input.signal ?? new AbortController().signal,
+          );
+        }
+      };
+      const session = this.getSessionMetadata();
+      if (!session || Date.parse(session.expiresAt) <= Date.now() + 1_000) {
+        await this.connectAutomatically(input.model, input.signal);
+      }
+      let response = await requestGeneration();
+      if (!response.ok) {
+        try {
+          await this.parse(response);
+        } catch (error) {
+          const code = String((error as { code?: unknown })?.code ?? "");
+          if (input.signal?.aborted || !LOCAL_BRIDGE_SESSION_ERROR_CODES.has(code)) {
+            throw error;
+          }
+          await this.connectAutomatically(input.model, input.signal);
+          response = await requestGeneration();
+          if (!response.ok) await this.parse(response);
+        }
+      }
       const reader = response.body?.getReader();
       if (!reader) throw new AiProviderError("OLLAMA_INVALID_RESPONSE", "Local Bridge returned no stream.", { retryable: true });
       const decoder = new TextDecoder();

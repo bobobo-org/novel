@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 
 import {
   parseRpgLogicalTurnProviderTaskId,
+  rpgLogicalTurnFallbackRepairTaskId,
   rpgLogicalTurnFallbackReviewTaskId,
   rpgLogicalTurnGenerationTaskId,
 } from "../lib/novel-ai/conversation/rpg-logical-turn.ts";
@@ -25,6 +26,10 @@ import {
   validateRpgStoryTurnContract,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 import { evaluateNovelContinuityGate } from "../lib/novel-ai/web/story-output-quality.ts";
+import {
+  buildClosedAIModelPrompt,
+  getClosedAIModelProfile,
+} from "../lib/novel-ai/providers/closed/task-profile.ts";
 
 const paragraphs = [
   "雨勢壓低屋簷，林澄沿泥痕走到廊下，發現封條已被換過。他沒有急著伸手，只讓蘇錦魚守住出口，自己逐一核對證人的說法與燈影位置。窗邊冷風捲起殘紙，對手終於承認搬運路線臨時改動，卻拒絕說出下令的人。",
@@ -40,6 +45,11 @@ const paragraphs = [
 ];
 const validStory = ["〈雨夜封條〉", ...paragraphs].join("\n\n");
 const digestStory = (story) => createHash("sha256").update(story.normalize("NFKC")).digest("hex");
+const FALLBACK_SYNTHESIS_MARKER = "[RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]";
+const isFallbackSynthesisPrompt = (value) => (
+  value.startsWith(FALLBACK_SYNTHESIS_MARKER)
+  && value.endsWith("[/RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]")
+);
 validateRpgStoryTurnContract(validStory, "zh-TW");
 
 const simplifiedChineseGate = evaluateNovelContinuityGate({
@@ -243,24 +253,37 @@ assert.equal(unavailableExecutions, 0, "an unavailable provider must never recei
 
 fakeNow = 0;
 let failedReadyExecutions = 0;
+let failedReadyProbes = 0;
+let failedReadyWaits = 0;
+const failedReadyError = Object.assign(new Error("terminal application rejection"), {
+  code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+});
 await assert.rejects(
   () => runRpgClosedAIUntilDeadline({
     deadlineMs: 3_000,
     execute: async () => {
       failedReadyExecutions += 1;
-      throw new Error("retryable");
+      throw failedReadyError;
     },
     dependencies: {
       now: () => fakeNow,
-      wait: async (delayMs) => { fakeNow += delayMs; },
-      probeAvailability: async () => "ready",
+      wait: async (delayMs) => {
+        failedReadyWaits += 1;
+        fakeNow += delayMs;
+      },
+      probeAvailability: async () => {
+        failedReadyProbes += 1;
+        return "ready";
+      },
       retryBackoffMs: 1_000,
     },
   }),
-  (error) => error?.code === "RPG_STORY_AI_TIMEOUT",
+  (error) => error === failedReadyError,
 );
-assert.equal(fakeNow, 3_000, "fake clock must consume the configured deadline without a real wait");
+assert.equal(fakeNow, 0, "a completed failed dispatch must preserve its original error without fake waiting");
 assert.equal(failedReadyExecutions, 1, "a failed ready provider must not be resubmitted automatically");
+assert.equal(failedReadyProbes, 1, "readiness is checked once before the single dispatch");
+assert.equal(failedReadyWaits, 0, "post-dispatch readiness polling cannot recover an already failed request");
 
 const hungExecutionStartedAt = Date.now();
 let hungExecutionCalls = 0;
@@ -550,18 +573,14 @@ const fullReviewedCandidate = await generateRpgChatTurnCandidate({
   },
   closedAIInvoker: async (request) => {
     fullInvokerCalls += 1;
-    let payload = null;
-    try {
-      payload = JSON.parse(request.input);
-    } catch {
-      // Initial prose generation uses the director prompt rather than JSON.
-    }
-    if (payload?.task !== "closed_select_and_rewrite_internal_rpg_fallback_drafts") {
+    if (!isFallbackSynthesisPrompt(request.input)) {
       fullGenerationTaskIds.push(request.taskId);
-      throw Object.assign(new Error("generation backend still loading"), { code: "MODEL_LOADING" });
+      throw Object.assign(new Error("generation exceeded its explicit deadline"), { code: "OLLAMA_TIMEOUT" });
     }
     fullReviewRequest = request;
-    fullReviewPayload = payload;
+    fullReviewPayload = {
+      prompt: request.input,
+    };
     return {
       taskId: request.taskId,
       candidateId: "closed-review-candidate-1",
@@ -605,14 +624,17 @@ assert.equal(fullReviewedCandidate.story, fullReviewedStory, "the full generator
 assert.equal(fullReviewedCandidate.candidateId, "closed-review-candidate-1");
 assert.equal(fullReviewedCandidate.model, "qwen-review-test");
 assert.equal(fullReviewedCandidate.actualExecutor, "local-ollama");
-assert.equal(fullClock, 200, "one failed generation request must preserve the original deadline before fallback review");
+assert.equal(fullClock, 0, "an explicitly timed-out generation must enter fallback review without an extra empty deadline wait");
 assert.equal(fullInvokerCalls, 2, "the flow must contain exactly one generation dispatch and one fallback-review dispatch");
 assert.deepEqual(
   fullGenerationTaskIds,
   [await rpgLogicalTurnGenerationTaskId("logical-turn-fallback-review", 1)],
-  "a failed generation request must never manufacture generation attempt-2",
+  "a timed-out generation request must never manufacture generation attempt-2",
 );
-assert.equal(fullReviewPayload?.internalDraftCandidates?.length, 3, "the full fallback review prompt must contain three hidden candidates");
+assert.match(fullReviewPayload?.prompt ?? "", /RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1/u);
+assert.match(fullReviewPayload?.prompt ?? "", /RPG_SCENE_CONTRACT_V2/u);
+assert.ok((fullReviewPayload?.prompt.length ?? Infinity) <= 1_950, "the fallback synthesis objective must fit the substantive-scene budget");
+assert.doesNotMatch(fullReviewPayload?.prompt ?? "", /internalDraftCandidates|"story"\s*:/u, "hidden draft prose must not enter the small-model prompt");
 assert.equal(fullReviewRequest?.ephemeralPrompt, true, "hidden fallback drafts must use the non-persistent Closed Agent prompt path");
 assert.equal(typeof fullReviewRequest?.validateBeforePersistence, "function", "the RPG application validator must run before OS persistence");
 assert.equal(
@@ -621,31 +643,68 @@ assert.equal(
   "the fallback review must have its own deterministic first-attempt provider identity",
 );
 assert.equal(fullReviewRequest?.applicationValidationBindingDigest?.length, 64);
-assert.equal(fullReviewPayload?.candidateDigests?.length, 3, "the full fallback review prompt must carry three candidate digests");
-assert.equal(fullReviewPayload?.lockedOutcome, fullReviewedCandidate.resolution.outcome, "all hidden drafts and the rewrite must share the resolved outcome");
-assert.equal(
-  Object.hasOwn(fullReviewPayload ?? {}, "lockedEffect"),
-  false,
-  "canonical locked-effect values must never be serialized into the hidden-review prompt",
-);
-assert.deepEqual(
-  fullReviewPayload?.lockedEffectPolicy,
-  {
-    canonicalValuesWithheldFromPrompt: true,
-    enforcement: "application-side-digest-and-commit-gate",
+assert.doesNotMatch(fullReviewPayload?.prompt ?? "", /draft-[1-3]=[a-f0-9]{64}/u, "lineage digests stay application-bound and must not consume the small-model prompt budget");
+assert.match(fullReviewPayload.prompt, new RegExp(fullChoice.title.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+assert.match(fullReviewPayload.prompt, /鎖定結果:/u);
+assert.match(fullReviewPayload.prompt, /主角:林澄/u);
+const localFallbackProfile = {
+  ...getClosedAIModelProfile("chapter.continue", "local-ollama"),
+  maxInputCharacters: 2_600,
+};
+const localFallbackModelPrompt = buildClosedAIModelPrompt({
+  objective: fullReviewPayload.prompt,
+  context: [],
+  profile: localFallbackProfile,
+  substantiveScene: true,
+});
+assert.ok(localFallbackModelPrompt.prompt.length <= 2_600, "the real local prompt builder must accept the bounded fallback synthesis contract");
+
+let explicitRetryClock = 0;
+const explicitRetryTaskIds = [];
+const explicitRetryLogicalTurnId = "logical-turn-fallback-review-explicit-retry";
+const explicitRetryCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: explicitRetryLogicalTurnId,
+  resumeProviderTaskId: await rpgLogicalTurnGenerationTaskId(
+    explicitRetryLogicalTurnId,
+    3,
+  ),
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => explicitRetryClock,
+    wait: async (delayMs) => { explicitRetryClock += delayMs; },
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
   },
-  "the hidden-review prompt must explain that the sealed application digest enforces the locked effect",
+  closedAIInvoker: async (request) => {
+    explicitRetryTaskIds.push(request.taskId);
+    if (!isFallbackSynthesisPrompt(request.input)) {
+      throw Object.assign(new Error("explicit retry generation exceeded its deadline"), {
+        code: "OLLAMA_TIMEOUT",
+      });
+    }
+    const result = closedReviewResult(request, "closed-review-candidate-attempt-3");
+    result.executionReceipt.attempt = 3;
+    return result;
+  },
+});
+assert.deepEqual(explicitRetryTaskIds, [
+  await rpgLogicalTurnGenerationTaskId(explicitRetryLogicalTurnId, 3),
+  await rpgLogicalTurnFallbackReviewTaskId(explicitRetryLogicalTurnId, 3),
+]);
+assert.equal(
+  explicitRetryCandidate.taskId,
+  await rpgLogicalTurnFallbackReviewTaskId(explicitRetryLogicalTurnId, 3),
 );
-assert.equal(new Set(fullReviewPayload.internalDraftCandidates.map((draft) => draft.story)).size, 3, "all three deterministic drafts must be textually distinct");
-assert.equal(new Set(fullReviewPayload.candidateDigests).size, 3, "all three deterministic draft digests must be distinct");
-assert.deepEqual(
-  fullReviewPayload.internalDraftCandidates.map((draft) => draft.digest),
-  fullReviewPayload.candidateDigests,
-  "candidate identity and digest evidence must remain aligned",
+assert.equal(
+  explicitRetryCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+  3,
 );
-assert.ok(
-  fullReviewPayload.internalDraftCandidates.every((draft) => draft.story !== fullReviewedCandidate.story),
-  "the final reviewed scene must not be an unchanged deterministic draft",
+assert.equal(
+  explicitRetryCandidate.executionReceipt.postFallbackClosedReview?.selectionRewriteEvidence?.attempts,
+  3,
 );
 
 const abstractNonSceneParagraphs = [
@@ -684,6 +743,9 @@ const continuitySnapshot = {
 let continuityClock = 0;
 let continuityAttempt = 0;
 const continuityTaskIds = [];
+let continuityProbes = 0;
+let continuityWaits = 0;
+let continuityRepairPrompt = null;
 let invalidCandidatePersisted = false;
 let continuityFailure = null;
 const continuityCandidate = await generateRpgChatTurnCandidate({
@@ -693,13 +755,20 @@ const continuityCandidate = await generateRpgChatTurnCandidate({
   generationDeadlineMs: 100,
   coordinationDependencies: {
     now: () => continuityClock,
-    wait: async (delayMs) => { continuityClock += delayMs; },
-    probeAvailability: async () => "ready",
+    wait: async (delayMs) => {
+      continuityWaits += 1;
+      continuityClock += delayMs;
+    },
+    probeAvailability: async () => {
+      continuityProbes += 1;
+      return "ready";
+    },
     retryBackoffMs: 1,
   },
   closedAIInvoker: async (request) => {
     continuityAttempt += 1;
     continuityTaskIds.push(request.taskId);
+    if (continuityAttempt === 2) continuityRepairPrompt = request.input;
     const content = continuityAttempt === 1
       ? longButNonNarrativeStory
       : fullReviewedStory;
@@ -746,7 +815,13 @@ const continuityCandidate = await generateRpgChatTurnCandidate({
       await request.validateBeforePersistence?.(result);
       if (continuityAttempt === 1) invalidCandidatePersisted = true;
     } catch (error) {
-      if (continuityAttempt === 1) continuityFailure = error;
+      if (continuityAttempt === 1) {
+        continuityFailure = error;
+        throw Object.assign(
+          new Error("continuity repair begins only after the explicit generation deadline"),
+          { code: "RPG_STORY_AI_TIMEOUT", cause: error },
+        );
+      }
       throw error;
     }
     return result;
@@ -758,25 +833,49 @@ assert.ok(continuityFailure?.continuityFailures?.includes("continuity_anchor"));
 assert.ok(continuityFailure?.continuityFailures?.includes("narrative_scene"));
 assert.ok(continuityFailure?.continuityFailures?.includes("action_progression"));
 assert.ok(continuityFailure?.continuityFailures?.includes("causality"));
-assert.equal(continuityAttempt, 2, "the flow must dispatch one rejected generation and one hidden fallback review");
+assert.ok(continuityFailure?.qualityReasonCodes?.includes("QUALITY_CONTEXT_ANCHOR_MISSING"));
+assert.ok(continuityFailure?.qualityReasonCodes?.includes("QUALITY_CONTINUITY_LOW"));
+assert.equal(continuityAttempt, 2, "the flow must dispatch one timed-out rejected generation and one bounded hidden continuity repair");
+assert.equal(continuityClock, 0, "the explicit timeout must enter independent review without an extra empty deadline wait");
+assert.equal(continuityWaits, 0, "neither dispatched stage may enter readiness polling after completion");
+assert.equal(continuityProbes, 2, "generation and fallback repair each perform one pre-dispatch readiness check");
 assert.deepEqual(
   continuityTaskIds,
   [
     await rpgLogicalTurnGenerationTaskId("logical-turn-continuity-fallback-review", 1),
-    await rpgLogicalTurnFallbackReviewTaskId("logical-turn-continuity-fallback-review", 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      "logical-turn-continuity-fallback-review",
+      continuityFailure.continuityFailures,
+      1,
+    ),
   ],
-  "continuity rejection must route to fallback review without generation attempt-2",
+  "a timeout carrying continuity rejection evidence must route to its distinct repair stage without generation attempt-2",
 );
+assert.match(continuityRepairPrompt ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
+assert.match(continuityRepairPrompt ?? "", /RPG_SCENE_CONTRACT_V2/u);
+assert.match(continuityRepairPrompt ?? "", /本次必補:/u);
+assert.match(continuityRepairPrompt ?? "", /正文第一段須自然且逐字放入「沿泥痕追查換封者」與「林澄」/u);
+assert.match(continuityRepairPrompt ?? "", /場景詞含門外與火光/u);
+assert.match(continuityRepairPrompt ?? "", /動作詞含推開、握住、轉身/u);
+assert.match(continuityRepairPrompt ?? "", /正文明寫因此形成因果/u);
+assert.match(continuityRepairPrompt ?? "", /末220字須自然寫出「門外突然傳來聲音」/u);
+assert.ok((continuityRepairPrompt?.length ?? Infinity) <= 1_950);
+assert.doesNotMatch(continuityRepairPrompt ?? "", /抽象概念的排列/u, "the rejected prose must never enter its repair prompt");
 assert.equal(continuityCandidate.story, fullReviewedStory);
 assert.equal(
   continuityCandidate.executionReceipt.postFallbackClosedReview?.passed,
   true,
   "only the closed-reviewed fallback may leave the continuity rejection path",
 );
+assert.equal(
+  continuityCandidate.executionReceipt.postFallbackClosedReview?.reviewStage,
+  "fallback-repair",
+);
 const fullReviewReceipt = fullReviewedCandidate.executionReceipt.postFallbackClosedReview;
 assert.equal(fullReviewReceipt?.passed, true);
 assert.equal(fullReviewReceipt?.draftCount, 3);
-assert.deepEqual(fullReviewReceipt?.draftDigests, fullReviewPayload.candidateDigests);
+assert.equal(fullReviewReceipt?.draftDigests?.length, 3);
+assert.equal(new Set(fullReviewReceipt?.draftDigests ?? []).size, 3);
 assert.equal(fullReviewReceipt?.lockedOutcome, fullReviewedCandidate.resolution.outcome);
 assert.equal(typeof fullReviewReceipt?.lockedEffectDigest, "string");
 assert.equal(fullReviewReceipt?.lockedEffectDigest?.length, 64);
@@ -808,6 +907,29 @@ assert.deepEqual(
   "the reader-facing receipt must bind the provider attempt that actually succeeded",
 );
 
+let nonTimeoutInvokerCalls = 0;
+await assert.rejects(
+  () => generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId: "logical-turn-non-timeout-fail-closed",
+    generationDeadlineMs: 200,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async () => {
+      nonTimeoutInvokerCalls += 1;
+      throw Object.assign(new Error("generation backend still loading"), { code: "MODEL_LOADING" });
+    },
+  }),
+  (error) => error?.code === "MODEL_LOADING",
+  "an ordinary provider failure must remain fail-closed instead of opening rules fallback",
+);
+assert.equal(nonTimeoutInvokerCalls, 1, "a non-timeout provider failure must not dispatch a fallback review");
+
 let convergenceClock = 0;
 const convergenceTaskIds = [];
 const reviewedAfterInvalidAttempt = await generateRpgChatTurnCandidate({
@@ -823,8 +945,12 @@ const reviewedAfterInvalidAttempt = await generateRpgChatTurnCandidate({
   },
   closedAIInvoker: async (request) => {
     convergenceTaskIds.push(request.taskId);
-    const valid = convergenceTaskIds.length > 1;
-    const content = valid ? fullReviewedStory : withFragment;
+    if (convergenceTaskIds.length === 1) {
+      throw Object.assign(new Error("first generation exceeded its explicit deadline"), {
+        code: "OLLAMA_TIMEOUT",
+      });
+    }
+    const content = fullReviewedStory;
     const contentDigest = digestStory(content);
     return {
       taskId: request.taskId,
@@ -874,7 +1000,7 @@ assert.deepEqual(convergenceTaskIds, [
 assert.equal(
   reviewedAfterInvalidAttempt.taskId,
   convergenceTaskIds[1],
-  "an invalid first OS task must route to the single hidden-review request instead of generation attempt-2",
+  "an explicitly timed-out first OS task must route to the single hidden-review request instead of generation attempt-2",
 );
 assert.equal(
   reviewedAfterInvalidAttempt.executionReceipt.attempt,
@@ -910,9 +1036,7 @@ await assert.rejects(
 );
 assert.equal(tamperedApprovalRepositoryCalls, 0, "tampered review evidence must fail before any repository write");
 assert.equal(Object.hasOwn(fullReviewedCandidate, "draft"), false, "the full candidate must not expose the hidden draft");
-for (const hiddenDraft of fullReviewPayload.internalDraftCandidates) {
-  assert.doesNotMatch(JSON.stringify(fullReviewedCandidate), new RegExp(hiddenDraft.story.slice(0, 24)), "hidden draft prose must not be persisted in the returned candidate or receipt");
-}
+assert.doesNotMatch(JSON.stringify(fullReviewedCandidate), /internalDraftCandidates|RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1/u, "the returned candidate and receipt must not persist the ephemeral fallback prompt");
 
 let exhaustedGenerationClock = 0;
 let reviewStartedAfterFullGenerationDeadline = false;
@@ -932,14 +1056,7 @@ const exhaustedGenerationCandidate = await generateRpgChatTurnCandidate({
     retryBackoffMs: 60_000,
   },
   closedAIInvoker: async (request) => {
-    let payload = null;
-    try {
-      payload = JSON.parse(request.input);
-    } catch {
-      // Generation prompts are prose; this branch must remain unreachable
-      // while the readiness probe reports unavailable.
-    }
-    if (payload?.task !== "closed_select_and_rewrite_internal_rpg_fallback_drafts") {
+    if (!isFallbackSynthesisPrompt(request.input)) {
       exhaustedGenerationDispatches += 1;
       throw Object.assign(new Error("generation backend unavailable"), { code: "MODEL_UNAVAILABLE" });
     }
@@ -980,13 +1097,7 @@ await assert.rejects(
       retryBackoffMs: 1,
     },
     closedAIInvoker: async (request) => {
-      let payload = null;
-      try {
-        payload = JSON.parse(request.input);
-      } catch {
-        // Generation prompt.
-      }
-      if (payload?.task === "closed_select_and_rewrite_internal_rpg_fallback_drafts") {
+      if (isFallbackSynthesisPrompt(request.input)) {
         generationAbortReachedReview = true;
       }
       generationAbortController.abort(generationAbortReason);
@@ -1022,13 +1133,7 @@ await assert.rejects(
       retryBackoffMs: 1,
     },
     closedAIInvoker: async (request) => {
-      let payload = null;
-      try {
-        payload = JSON.parse(request.input);
-      } catch {
-        // Generation prompt.
-      }
-      if (payload?.task !== "closed_select_and_rewrite_internal_rpg_fallback_drafts") {
+      if (!isFallbackSynthesisPrompt(request.input)) {
         reviewAbortGenerationDispatches += 1;
         throw Object.assign(new Error("generation timed out"), { code: "MODEL_UNAVAILABLE" });
       }
@@ -1071,11 +1176,11 @@ const failedFullReview = await generateRpgChatTurnCandidate({
 assert.equal(failedFullReview?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
 assert.equal(
   failedReviewClock,
-  50,
-  `the two hard stage deadlines must be independently enforced and add to fifty fake milliseconds; waits=${JSON.stringify(failedReviewWaits)}`,
+  20,
+  `pre-dispatch unavailability must consume its explicit deadline, while a completed failed review dispatch returns immediately; waits=${JSON.stringify(failedReviewWaits)}`,
 );
 assert.equal(failedReviewDispatches, 1, "the failed hidden review must not be resubmitted during its own deadline");
-assert.equal(failedFullReview?.reviewFailureCode, "RPG_STORY_AI_TIMEOUT");
+assert.equal(failedFullReview?.reviewFailureCode, "MODEL_UNAVAILABLE");
 assert.match(String(failedFullReview?.message), /沒有產生可顯示的正文.*請重試/u);
 assert.equal(Object.hasOwn(failedFullReview ?? {}, "draft"), false);
 assert.doesNotMatch(JSON.stringify(failedFullReview), /雨勢壓低屋簷|internalDraft|規則草稿/u, "review failure must not expose draft prose or its review prompt");
@@ -1092,7 +1197,7 @@ console.log(JSON.stringify({
   prePersistenceContinuityGate: {
     rejectedHanCharacters: longButNonNarrativeStory.match(/[\p{Script=Han}]/gu)?.length ?? 0,
     failures: continuityFailure?.continuityFailures,
-    reviewedFallbackAfterRejectedGeneration:
+    reviewedFallbackAfterExplicitTimeoutWithContinuityCause:
       continuityAttempt === 2
       && !invalidCandidatePersisted
       && continuityCandidate.executionReceipt.postFallbackClosedReview?.passed === true,

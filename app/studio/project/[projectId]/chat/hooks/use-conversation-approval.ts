@@ -542,6 +542,19 @@ export function useConversationApprovalController({
         if (!currentSession || !currentMessage || !currentArtifact) {
           throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
         }
+        const closedAgentApprovalBinding = candidate.externalRequest
+          || candidate.actualExecutor === "deterministic-rule-fallback"
+          ? undefined
+          : await buildConversationClosedAgentApprovalBindingProof(
+              await loadClosedCandidateApprovalBinding({
+                projectId,
+                sessionId: session.id,
+                repository,
+                candidateId: candidate.candidateId,
+                sourceMessageId: sourceMessage.id,
+                artifactId: freshArtifact.id,
+              }),
+            );
         await rpgRuntime.approveRpgChatTurn({
           repository,
           snapshot,
@@ -557,6 +570,7 @@ export function useConversationApprovalController({
             expectedArtifactRevision: currentArtifact.revision,
             expectedSourceMessageRevision: currentMessage.revision,
             expectedSourceRevision: freshArtifact.sourceRevision,
+            closedAgentApprovalBinding,
           },
         });
         rpgCanonCommitted = true;

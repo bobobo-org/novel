@@ -89,7 +89,7 @@ export async function generateRpgChatTurnCandidateWithExternalCascade(input: {
 }): Promise<RpgChatTurnCandidate> {
   const closedInvoker = input.closedInvoker ?? generateRpgChatTurnCandidate;
   const invokeClosed = async (lineage: Awaited<ReturnType<typeof sealExternalRpgFailureLineage>>) => {
-    input.onCascadeProgress?.("外來 AI 未完成；閉端 AI 現在取得完整 180 秒產生正文，必要時再進入獨立 60 秒隱藏複核。");
+    input.onCascadeProgress?.("外來 AI 未完成；閉端 AI 現在取得完整正文時限，必要時再進入獨立 360 秒隱藏複核。");
     const candidate = await closedInvoker({
       snapshot: input.snapshot,
       choice: input.choice,
@@ -241,6 +241,7 @@ export async function generateRpgChatTurnCandidateWithExternalCascade(input: {
       taskId: externalTaskId,
       candidateId,
       candidateDigest,
+      storyDigest: candidateDigest,
       model: result.modelId,
       modelDigest,
       actualExecutor: `external:${result.providerId}`,

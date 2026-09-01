@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type MutableRefObject } from "react";
-import type { ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
+import type { ClosedAgentCandidate, ClosedAIProgressEvent } from "@/lib/novel-ai/closed-agent-os";
 import type {
   Chapter,
   ConversationArtifact,
@@ -15,11 +15,14 @@ import type {
 import type { NovelRepository } from "@/lib/novel-ai/repository";
 import type { SovereignLearningRepository } from "@/lib/novel-ai/sovereign-learning";
 import { conversationContentDigest } from "@/lib/novel-ai/conversation/approval-transaction";
+import { buildConversationClosedAgentCacheOriginProof } from "@/lib/novel-ai/conversation/closed-agent-cache-origin-proof";
 import { sha256Hex, stableStringify } from "@/lib/novel-ai/closed-ai-cache";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
 import {
   isRpgLogicalTurnProviderTaskId,
+  rpgLogicalTurnExternalGenerationTaskId,
+  rpgLogicalTurnGenerationTaskId,
 } from "@/lib/novel-ai/conversation/rpg-logical-turn";
 import type { RpgChoice } from "@/lib/novel-ai/game/progression/rpg-progression";
 import {
@@ -44,6 +47,7 @@ import type {
 import {
   parseRpgCandidate,
   parseRpgChoices,
+  rpgCandidateRequiresClosedReview,
   serializeRpgChoices,
 } from "../components/conversation-presentation";
 import type { DrawerPayload, RpgChoiceEnvelope } from "../components/conversation-types";
@@ -69,14 +73,60 @@ function rpgErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
     return String((error as { code?: unknown }).code ?? "CONVERSATION_RPG_FAILED");
   }
+  const messageCode = error instanceof Error ? error.message.trim() : "";
+  if (/^(?:RPG|CONVERSATION|CLOSED_AI|CLOSED_AGENT|OLLAMA)_[A-Z0-9_]{1,100}$/u.test(messageCode)) {
+    return messageCode;
+  }
   if ((error as { name?: string })?.name === "AbortError") return "CONVERSATION_CANCELLED";
   return "CONVERSATION_RPG_FAILED";
 }
 
+function rpgLeafErrorCode(error: unknown) {
+  let current = error;
+  let leaf: string | null = null;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && /^RPG_[A-Z0-9_]{1,100}$/u.test(code)) {
+      leaf = code;
+    }
+    const message = current instanceof Error ? current.message.trim() : "";
+    if (/^RPG_[A-Z0-9_]{1,100}$/u.test(message)) leaf = message;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return leaf ?? rpgErrorCode(error);
+}
+
+function rpgSafeContinuityFailures(error: unknown) {
+  let current = error;
+  for (let depth = 0; depth < 12 && current && typeof current === "object"; depth += 1) {
+    const source = current as {
+      reviewContinuityFailures?: unknown;
+      continuityFailures?: unknown;
+      cause?: unknown;
+    };
+    const rawFailures = Array.isArray(source.reviewContinuityFailures)
+      ? source.reviewContinuityFailures
+      : source.continuityFailures;
+    if (
+      Array.isArray(rawFailures)
+      && rawFailures.length
+      && rawFailures.every((failure) => (
+        typeof failure === "string" && /^[a-z_]{1,40}$/u.test(failure)
+      ))
+    ) return [...new Set(rawFailures)] as string[];
+    current = source.cause;
+  }
+  return [];
+}
+
 function rpgErrorMessage(error: unknown) {
-  return error instanceof Error && error.message
+  const base = error instanceof Error && error.message
     ? error.message
     : "故事回合沒有完成；故事與數值均未寫入，原有內容維持不變。";
+  const failures = rpgSafeContinuityFailures(error);
+  return failures.length
+    ? `${base} 安全檢查缺項：${failures.join("、")}。`
+    : base;
 }
 
 function rpgProgressLabel(event: ClosedAIProgressEvent) {
@@ -109,6 +159,36 @@ async function resolveRpgLogicalTurnExecutionTruth(candidate: RpgChatTurnCandida
     externalRequest: candidate.externalRequest || Boolean(failureLineage?.attempted),
     dataLeftDevice: candidate.dataLeftDevice || failureLineage?.dataLeftDevice === true,
     externalAttempt,
+  };
+}
+
+async function resolveRpgConversationClosedAgentProof(candidate: RpgChatTurnCandidate) {
+  if (candidate.externalRequest || candidate.actualExecutor === "deterministic-rule-fallback") {
+    return undefined;
+  }
+  const { getStudioClosedAgentOS } = await import("@/lib/novel-ai/web/closed-agent-os-service");
+  const os = getStudioClosedAgentOS();
+  const authoritative = await os.state.get<ClosedAgentCandidate>(candidate.candidateId);
+  if (
+    !authoritative
+    || !await os.verifyCandidateIntegrity(candidate.candidateId)
+    || authoritative.id !== candidate.candidateId
+    || authoritative.taskId !== candidate.taskId
+    || authoritative.contentDigest !== candidate.candidateDigest
+    || authoritative.modelId !== candidate.model
+    || authoritative.modelDigest !== candidate.modelDigest
+  ) {
+    throw Object.assign(new Error("RPG 候選缺少可驗證的閉端 AI 執行身分。"), {
+      code: "RPG_CHAT_TURN_PROOF_MISSING",
+    });
+  }
+  return {
+    schemaVersion: authoritative.schemaVersion,
+    backendId: authoritative.backendId,
+    normalizationReceiptId: authoritative.traditionalChineseNormalization.receiptId,
+    traditionalChineseNormalizerVersion:
+      authoritative.traditionalChineseNormalization.normalizerVersion,
+    cacheOrigin: await buildConversationClosedAgentCacheOriginProof(authoritative),
   };
 }
 
@@ -166,6 +246,13 @@ export function inspectRpgChoiceTurn(
       && responseIdsWithFinishedArtifact.has(response.id)
     ))
     .map((response) => response.parentMessageId!));
+  const rejectedRuleFallbackResponseIds = new Set(artifacts
+    .filter((artifact) => (
+      artifact.artifactType === "rpg"
+      && artifact.status === "rejected"
+      && rpgCandidateRequiresClosedReview(artifact, invocations)
+    ))
+    .map((artifact) => artifact.sourceMessageId));
   const choiceCard = messages.find((message) => message.id === choiceSourceMessageId) ?? null;
   const abandoned = Boolean(choiceCard && invocations.some((invocation) => (
     invocation.messageId === choiceSourceMessageId
@@ -173,12 +260,16 @@ export function inspectRpgChoiceTurn(
   )));
   const consumed = settledAttemptIds.size > 0;
   const closed = consumed || abandoned;
+  const closedReviewRequired = responses.some((response) => (
+    rejectedRuleFallbackResponseIds.has(response.id)
+  ));
   return {
     attempts,
     responses,
     consumed,
     abandoned,
     closed,
+    closedReviewRequired,
     recoverableUser: closed
       ? null
       : [...attempts]
@@ -813,7 +904,12 @@ export function useConversationRpgController({
               code: "RPG_EXTERNAL_DURABLE_ARTIFACT_STALE",
             });
           }
-          if (await sha256Hex(parsed.story.normalize("NFKC")) !== parsed.candidateDigest) {
+          const recoveredStoryDigest = await sha256Hex(parsed.story.normalize("NFKC"));
+          if (
+            parsed.storyDigest !== undefined
+              ? recoveredStoryDigest !== parsed.storyDigest
+              : parsed.externalRequest && recoveredStoryDigest !== parsed.candidateDigest
+          ) {
             throw Object.assign(new Error("已保存的 RPG 候選摘要不一致；不會重新執行模型。"), {
               code: "RPG_EXTERNAL_DURABLE_ARTIFACT_INVALID",
             });
@@ -879,6 +975,7 @@ export function useConversationRpgController({
             : "__invalid_rpg_logical_turn_provider_task__",
           );
         let invocationCompleted = recoveryMode === "resume_completed";
+        let explicitRetryProviderTaskId: string | undefined;
 
         const startExecutionAttempt = async (attemptNumber: number) => {
           const initial = attemptNumber === 1;
@@ -961,6 +1058,9 @@ export function useConversationRpgController({
           invocation = sourceInvocation;
         } else if (recoveryMode === "retry_terminal" && existingAssistant && sourceInvocation) {
           const attemptNumber = responseAttempts.length + 1;
+          explicitRetryProviderTaskId = executionSourceSnapshot.externalSelected
+            ? await rpgLogicalTurnExternalGenerationTaskId(userMessage.id, attemptNumber)
+            : await rpgLogicalTurnGenerationTaskId(userMessage.id, attemptNumber);
           const retry = await conversation.prepareToolInvocationRetry({
             projectId,
             sessionId: input.sessionId,
@@ -985,7 +1085,7 @@ export function useConversationRpgController({
           if (!candidate) {
             onRpgGenerationStarted();
             if (executionSourceSnapshot.externalSelected) {
-              setProgress("已依本次單次同意優先交由指定外來 AI 產生完整小說正文；失敗後才啟動閉端 AI 的獨立 180 秒，必要時再追加最多 60 秒隱藏後備複核。");
+              setProgress("已依本次單次同意優先交由指定外來 AI 產生完整小說正文；失敗後才啟動閉端 AI 的獨立 360 秒，必要時再追加最多 360 秒隱藏後備複核。");
               const { generateRpgChatTurnCandidateWithExternalCascade } = await import("@/lib/novel-ai/web/rpg-external-cascade");
               assertRpgRuntimeLoadActive(input.signal);
               candidate = await generateRpgChatTurnCandidateWithExternalCascade({
@@ -998,24 +1098,24 @@ export function useConversationRpgController({
                 publicExecutionEnabled: executionSourceSnapshot.publicExecutionEnabled,
                 providerConfigured: executionSourceSnapshot.providerConfigured,
                 providerStatusError: executionSourceSnapshot.providerStatusError,
-                resumeProviderTaskId: invocationCompleted
+                resumeProviderTaskId: explicitRetryProviderTaskId ?? (invocationCompleted
                   ? invocation.executionReceipt?.providerRunId ?? undefined
-                  : undefined,
+                  : undefined),
                 signal: input.signal,
-                onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 閉端正文階段最長 180 秒；若進入隱藏後備複核，最多另加 60 秒`),
+                onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 閉端正文階段最長 360 秒；若進入隱藏後備複核，最多另加 360 秒`),
                 onCascadeProgress: setProgress,
               });
             } else {
-              setProgress("閉端 AI 正在依你選定的 A／B／C 分支產生完整小說正文；正文階段完整等待 180 秒。若仍無有效正文，才會在背景建立三份不可見草稿，並追加最多 60 秒閉端複核；複核通過才會顯示候選。");
+              setProgress("閉端 AI 正在依你選定的 A／B／C 分支產生完整小說正文；CPU 小模型會分段補完，正文階段最長 360 秒。若仍無有效正文，才會在背景建立三份不可見草稿，並追加最多 360 秒閉端獨立合成複核；複核通過才會顯示候選。");
               candidate = await rpgRuntime.generateRpgChatTurnCandidate({
                 snapshot,
                 choice: input.choice,
                 logicalTurnId: userMessage.id,
-                resumeProviderTaskId: invocationCompleted
+                resumeProviderTaskId: explicitRetryProviderTaskId ?? (invocationCompleted
                   ? invocation.executionReceipt?.providerRunId ?? undefined
-                  : undefined,
+                  : undefined),
                 signal: input.signal,
-                onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 正文階段最長 180 秒；若進入隱藏後備複核，最多另加 60 秒`),
+                onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 正文階段最長 360 秒；若進入隱藏後備複核，最多另加 360 秒`),
               });
             }
           } else {
@@ -1091,6 +1191,7 @@ export function useConversationRpgController({
             });
           }
           if (!invocationCompleted) {
+            const closedAgentProof = await resolveRpgConversationClosedAgentProof(candidate);
             invocation = await conversation.updateToolInvocationStatus({
               projectId,
               sessionId: input.sessionId,
@@ -1110,6 +1211,7 @@ export function useConversationRpgController({
                 dataLeftDevice: executionTruth.dataLeftDevice,
                 externalAttempt: executionTruth.externalAttempt,
                 receipt: candidate.executionReceipt as Parameters<typeof toExecutionReceipt>[0]["receipt"],
+                closedAgentProof,
               }),
               externalRequest: executionTruth.externalRequest,
               dataLeftDevice: executionTruth.dataLeftDevice,
@@ -1129,6 +1231,7 @@ export function useConversationRpgController({
           setDrawer({ kind: "artifact", artifactId: artifact.id });
           return { artifact, message: completedMessage };
         } catch (error) {
+          const safeContinuityFailures = rpgSafeContinuityFailures(error);
           const friendlyError = friendlyConversationExecutionError(
             rpgErrorCode(error),
             rpgErrorMessage(error),
@@ -1175,8 +1278,15 @@ export function useConversationRpgController({
               invocationId: durableInvocation.id,
               expectedRevision: durableInvocation.revision,
               status: input.signal.aborted ? "cancelled" : "failed",
-              safeErrorCode: rpgErrorCode(error),
+              safeErrorCode: rpgLeafErrorCode(error),
               canonicalMutationCount: 0,
+              safeProgress: safeContinuityFailures.length
+                ? {
+                    stage: "failed-quality",
+                    percent: 100,
+                    message: `連貫性安全檢查缺項：${safeContinuityFailures.join("、")}`,
+                  }
+                : undefined,
             }).catch(() => undefined);
           }
           throw error;
@@ -1538,7 +1648,13 @@ export function useConversationRpg({
 }) {
   return useMemo(() => {
     const parsed = parseRpgChoices(message.content);
-    if (!parsed) return { parsed: null, consumed: false, abandoned: false, closed: false };
+    if (!parsed) return {
+      parsed: null,
+      consumed: false,
+      abandoned: false,
+      closed: false,
+      closedReviewRequired: false,
+    };
     const artifacts = [...artifactsByMessage.values()].flat();
     const state = inspectRpgChoiceTurn(messages, artifacts, message.id, invocations);
     return {
@@ -1546,6 +1662,7 @@ export function useConversationRpg({
       consumed: state.consumed,
       abandoned: state.abandoned,
       closed: state.closed,
+      closedReviewRequired: state.closedReviewRequired,
     };
   }, [artifactsByMessage, invocations, message, messages]);
 }

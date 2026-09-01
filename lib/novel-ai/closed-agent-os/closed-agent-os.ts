@@ -380,13 +380,15 @@ function closedBrowserTaskExecutionSnapshot(
 }
 
 function safeClosedAgentTaskErrorCode(cause: unknown) {
-  const code = (cause as { code?: unknown } | null)?.code;
-  return typeof code === "string"
-    && /^(?:CLOSED_AGENT|CLOSED_AI|BROWSER_AI|BROWSER_WEBLLM|BROWSER_GPU|OLLAMA)_[A-Z0-9_]{1,80}$/u.test(
-      code,
-    )
-    ? code
-    : "CLOSED_AGENT_TASK_FAILED";
+  const coded = (cause as { code?: unknown } | null)?.code;
+  const message = cause instanceof Error ? cause.message.trim() : "";
+  const code = [coded, message].find((value) => (
+    typeof value === "string"
+    && /^(?:(?:CLOSED_AGENT|CLOSED_AI|BROWSER_AI|BROWSER_WEBLLM|BROWSER_GPU|OLLAMA)_[A-Z0-9_]{1,80}|RPG_[A-Z0-9_]{1,100})$/u.test(value)
+  ));
+  // Only a bounded machine code may cross this diagnostics boundary. Never
+  // persist a provider/validator message because it can contain story text.
+  return typeof code === "string" ? code : "CLOSED_AGENT_TASK_FAILED";
 }
 
 const CLOSED_AGENT_PLANNER_STRATEGIES = new Set([

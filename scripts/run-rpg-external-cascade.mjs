@@ -635,6 +635,126 @@ assert.deepEqual(
   "dispatched external failure must remain visible without relabelling the final closed/local executor",
 );
 
+const dualDigestScenario = await createExternalRpgScenario("closed-cleaned-story-identity");
+const wrappedClosedStory = `\`\`\`text\n${dualDigestScenario.deterministic.story}\n\`\`\``;
+closedAgentOS.backends = new Map([
+  ["local-ollama", new FixedClosedRpgBackend(wrappedClosedStory)],
+]);
+const dualDigestCandidate = await generateRpgChatTurnCandidate({
+  snapshot: dualDigestScenario.snapshot,
+  choice: dualDigestScenario.choice,
+  logicalTurnId: "closed-rpg-cleaned-story-identity",
+  generationDeadlineMs: 2_000,
+  coordinationDependencies: {
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    const result = await closedAgentOS.execute({
+      taskId: request.taskId,
+      namespace: closedNamespace(dualDigestScenario.snapshot.project.id),
+      taskType: "chapter.continue",
+      objective: request.input,
+      context: [],
+      complexity: "standard",
+      qualityMode: request.qualityMode ?? "fast",
+      preferredBackend: "local-ollama",
+      allowedToolIds: [],
+      permissionScopes: [
+        "story:read",
+        "story-bible:read",
+        "candidate:write",
+        "candidate:read",
+        "evaluation:write",
+      ],
+      sourceChapterId: request.sourceChapterId,
+      sourceRevision: request.sourceRevision,
+      applicationValidationBindingDigest:
+        request.applicationValidationBindingDigest,
+      validateBeforePersistence: request.validateBeforePersistence,
+    });
+    return {
+      taskId: result.task.id,
+      candidateId: result.candidate.id,
+      status: "awaiting_approval",
+      provider: result.candidate.backendId,
+      model: result.candidate.modelId,
+      modelDigest: result.candidate.modelDigest,
+      sourceChapterId: result.candidate.sourceChapterId,
+      sourceRevision: result.candidate.sourceRevision,
+      content: result.candidate.content,
+      contentDigest: result.candidate.contentDigest,
+      actualExecutor: result.candidate.actualExecutor,
+      executionReceipt: result.candidate.executionReceipt,
+      contextDigest: result.candidate.contextDigest ?? null,
+      contextSourceSummary: result.candidate.contextSourceSummary ?? null,
+      dataLeftDevice: result.candidate.dataLeftDevice ?? false,
+      externalRequest: result.candidate.externalRequest ?? false,
+      warnings: result.candidate.evaluation.warningCodes,
+      toolExecutions: result.toolExecutions,
+      ledgerHeadHash: result.ledgerHeadHash,
+      requestContractDigest: result.candidate.requestContractDigest,
+      applicationValidationBindingDigest:
+        result.candidate.applicationValidationBindingDigest,
+      canonicalMutationCount: result.candidate.canonicalMutationCount,
+      regeneration: result.candidate.regeneration ?? null,
+      cache: result.cache,
+    };
+  },
+});
+const authoritativeDualDigestCandidate = await closedAgentOS.state.get(
+  dualDigestCandidate.candidateId,
+);
+assert.ok(authoritativeDualDigestCandidate);
+assert.equal(authoritativeDualDigestCandidate.content, wrappedClosedStory);
+assert.equal(
+  authoritativeDualDigestCandidate.contentDigest,
+  dualDigestCandidate.candidateDigest,
+  "candidateDigest must retain the exact Closed Agent provider-output identity",
+);
+assert.equal(
+  dualDigestCandidate.storyDigest,
+  await (async () => {
+    const bytes = new TextEncoder().encode(dualDigestCandidate.story.normalize("NFKC"));
+    return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+  })(),
+);
+assert.notEqual(
+  dualDigestCandidate.candidateDigest,
+  dualDigestCandidate.storyDigest,
+  "the regression fixture must exercise raw provider output that differs from cleaned Canon prose",
+);
+assert.equal(dualDigestCandidate.story, dualDigestScenario.deterministic.story);
+
+const tamperedStoryDigestCandidate = structuredClone(dualDigestCandidate);
+tamperedStoryDigestCandidate.storyDigest = "f".repeat(64);
+await assert.rejects(
+  approveRpgChatTurn({
+    repository: dualDigestScenario.repository,
+    snapshot: dualDigestScenario.snapshot,
+    candidate: tamperedStoryDigestCandidate,
+  }),
+  (error) => error?.code === "RPG_CHAT_RESULT_IDENTITY_MISMATCH",
+  "a self-contained storyDigest tamper must fail before any RPG repository write",
+);
+await assertNoApprovalWrites(dualDigestScenario, "closed-story-digest");
+
+const approvedDualDigestCandidate = await approveRpgChatTurn({
+  repository: dualDigestScenario.repository,
+  snapshot: dualDigestScenario.snapshot,
+  candidate: dualDigestCandidate,
+});
+assert.equal(approvedDualDigestCandidate.approved.canonicalMutationCount, 1);
+assert.equal(
+  (await dualDigestScenario.repository.listAcceptedChoices(
+    dualDigestScenario.snapshot.project.id,
+  )).length,
+  1,
+  "raw/clean dual identity must still permit exactly one verified Canon commit",
+);
+
 // This case intentionally runs after the valid approval paths: a story whose
 // sealed digest no longer matches must be rejected before even a pending
 // ChoiceCandidate is written.
@@ -657,6 +777,11 @@ console.log(JSON.stringify({
     dataLeftDevice: externalAcceptedChoices[0].provenance.dataLeftDevice,
   },
   externalApprovalTamperCases: ["receipt", "story", "locked-outcome", "context"],
+  closedRawAndCleanStoryDigests: {
+    distinct: dualDigestCandidate.candidateDigest !== dualDigestCandidate.storyDigest,
+    canonicalCommits: 1,
+    storyDigestTamperRejected: true,
+  },
   closedFallbackFailureLineageApproved: verifiedFailureLineage.failureCode,
   dispatchedFailureThenClosedSuccess: {
     finalExecutor: closedAfterExternalFailure.actualExecutor,

@@ -1,6 +1,31 @@
 import { sha256Hex } from "../closed-ai-cache";
 
-export type RpgLogicalTurnProviderStage = "external-generation" | "generation" | "fallback-review";
+export type RpgLogicalTurnProviderStage =
+  | "external-generation"
+  | "generation"
+  | "fallback-review"
+  | "fallback-repair";
+
+export const RPG_CONTINUITY_REPAIR_FAILURE_ORDER = [
+  "length",
+  "paragraphs",
+  "dialogue",
+  "dialogue_attribution",
+  "continuity_anchor",
+  "active_character",
+  "offstage_character",
+  "narrative_scene",
+  "action_progression",
+  "sensory_detail",
+  "report_style",
+  "causality",
+  "foreshadowing",
+  "serial_hook",
+  "repetition",
+] as const;
+
+export type RpgContinuityRepairFailure =
+  typeof RPG_CONTINUITY_REPAIR_FAILURE_ORDER[number];
 
 export type RpgLogicalTurnProviderTaskIdentity = {
   logicalRoot: string;
@@ -8,7 +33,31 @@ export type RpgLogicalTurnProviderTaskIdentity = {
   attempt: number;
   taskId: string;
   legacy: boolean;
+  repairFailures: RpgContinuityRepairFailure[] | null;
 };
+
+export function rpgContinuityRepairFailureToken(
+  failures: readonly RpgContinuityRepairFailure[],
+) {
+  const unique = [...new Set(failures)];
+  if (!unique.length) throw new Error("RPG_CONTINUITY_REPAIR_FAILURES_REQUIRED");
+  let mask = 0;
+  for (const failure of unique) {
+    const index = RPG_CONTINUITY_REPAIR_FAILURE_ORDER.indexOf(failure);
+    if (index < 0) throw new Error("RPG_CONTINUITY_REPAIR_FAILURE_INVALID");
+    mask |= (1 << index);
+  }
+  return mask.toString(16).padStart(4, "0");
+}
+
+export function parseRpgContinuityRepairFailureToken(token: string) {
+  if (!/^[a-f0-9]{4}$/u.test(token)) return null;
+  const mask = Number.parseInt(token, 16);
+  if (!Number.isSafeInteger(mask) || mask <= 0 || mask >= (1 << 15)) return null;
+  return RPG_CONTINUITY_REPAIR_FAILURE_ORDER.filter((_, index) => (
+    (mask & (1 << index)) !== 0
+  ));
+}
 
 function assertRpgLogicalTurnAttempt(attempt: number) {
   if (!Number.isSafeInteger(attempt) || attempt < 1 || attempt > 1_000_000) {
@@ -47,13 +96,25 @@ export async function rpgLogicalTurnFallbackReviewTaskId(
   return `${await rpgLogicalTurnTaskRoot(logicalTurnId)}:fallback-review:attempt-${attempt}`;
 }
 
+export async function rpgLogicalTurnFallbackRepairTaskId(
+  logicalTurnId: string,
+  failures: readonly RpgContinuityRepairFailure[],
+  attempt = 1,
+) {
+  assertRpgLogicalTurnAttempt(attempt);
+  const failureToken = rpgContinuityRepairFailureToken(failures);
+  return `${await rpgLogicalTurnTaskRoot(logicalTurnId)}:fallback-repair:quality-${failureToken}:attempt-${attempt}`;
+}
+
 /**
  * Authenticates a durable provider run against one logical RPG turn.  Legacy
  * pre-attempt receipts remain replayable, while all new runs carry a distinct,
  * deterministic stage/attempt identity. Product generation dispatches attempt
- * 1 only; fallback review has its own identity instead of silently creating a
- * second generation task. Higher attempt values remain parseable solely for
- * old persisted receipts and explicit operator tooling.
+ * 1 on first dispatch; fallback review has its own identity instead of
+ * silently creating a second generation task. Higher attempt values are used
+ * only by an explicit author retry after a terminal attempt, preserving the
+ * old immutable ledger entry while preventing a failed provider task from
+ * being replayed forever.
  */
 export async function parseRpgLogicalTurnProviderTaskId(
   logicalTurnId: string,
@@ -65,6 +126,25 @@ export async function parseRpgLogicalTurnProviderTaskId(
   const suffix = taskId.startsWith(`${logicalRoot}:`)
     ? taskId.slice(logicalRoot.length + 1)
     : "";
+  const repair = /^fallback-repair:quality-([a-f0-9]{4}):attempt-([1-9]\d{0,6})$/u.exec(suffix);
+  if (repair) {
+    const repairFailures = parseRpgContinuityRepairFailureToken(repair[1]!);
+    const attempt = Number(repair[2]);
+    if (
+      !repairFailures
+      || !Number.isSafeInteger(attempt)
+      || attempt < 1
+      || attempt > 1_000_000
+    ) return null;
+    return {
+      logicalRoot,
+      stage: "fallback-repair",
+      attempt,
+      taskId,
+      legacy: false,
+      repairFailures,
+    };
+  }
   const current = /^(external-generation|generation|fallback-review):attempt-([1-9]\d{0,6})$/u.exec(suffix);
   if (current) {
     const attempt = Number(current[2]);
@@ -75,12 +155,14 @@ export async function parseRpgLogicalTurnProviderTaskId(
       attempt,
       taskId,
       legacy: false,
+      repairFailures: null,
     };
   }
   if (
     suffix === "external-generation"
     || suffix === "generation"
     || suffix === "fallback-review"
+    || suffix === "fallback-repair"
   ) {
     return {
       logicalRoot,
@@ -88,6 +170,7 @@ export async function parseRpgLogicalTurnProviderTaskId(
       attempt: 1,
       taskId,
       legacy: true,
+      repairFailures: null,
     };
   }
   return null;

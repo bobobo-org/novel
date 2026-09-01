@@ -32,6 +32,7 @@ import {
   acceptedChoiceConversationApprovalPayloadFingerprint,
   prepareAcceptedChoiceConversationApproval,
   conversationApprovalPayloadFingerprint,
+  conversationCandidateRawContentDigest,
   conversationCanonicalRecordDigest,
   conversationContentDigest,
   type ConversationArtifactApprovalInput,
@@ -407,7 +408,7 @@ export class MemoryNovelRepository implements NovelRepository {
         canonicalRecord,
         toolInvocations,
         candidateRawContentDigest: artifact
-          ? await sha256Hex(artifact.candidateContent)
+          ? await conversationCandidateRawContentDigest(artifact)
           : undefined,
       },
       candidateContentDigest,
@@ -486,7 +487,7 @@ export class MemoryNovelRepository implements NovelRepository {
         canonicalRecord,
         toolInvocations,
         candidateRawContentDigest: artifact
-          ? await sha256Hex(artifact.candidateContent)
+          ? await conversationCandidateRawContentDigest(artifact)
           : undefined,
       },
       candidateContentDigest,

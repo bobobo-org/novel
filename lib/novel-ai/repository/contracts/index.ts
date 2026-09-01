@@ -45,6 +45,7 @@ export type AcceptChoiceConversationApprovalInput = {
   expectedArtifactRevision: number;
   expectedSourceMessageRevision: number;
   expectedSourceRevision: number;
+  closedAgentApprovalBinding?: ConversationClosedAgentApprovalBindingProof;
 };
 
 export type AcceptChoiceTransactionInput = {

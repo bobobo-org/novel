@@ -1608,6 +1608,7 @@ export function buildPrivateHubClosedGenerationRequest(
     },
     toolResults: input.toolResults,
     workingMaterials: input.workingMaterials,
+    substantiveScene: input.request.generationOptions?.substantiveScene === true,
   });
   return {
     profile,

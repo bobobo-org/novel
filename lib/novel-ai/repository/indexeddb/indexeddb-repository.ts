@@ -31,6 +31,7 @@ import {
   buildConversationApprovalRecords,
   buildNextConversationCanonicalRecord,
   conversationApprovalPayloadFingerprint,
+  conversationCandidateRawContentDigest,
   conversationCanonicalRecordDigest,
   conversationContentDigest,
   prepareAcceptedChoiceConversationApproval,
@@ -226,7 +227,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
         )
       : null;
     const conversationCandidateRawDigest = conversationPreflightArtifact
-      ? await sha256Hex(conversationPreflightArtifact.candidateContent)
+      ? await conversationCandidateRawContentDigest(conversationPreflightArtifact)
       : undefined;
     let prepared: {
       records: ReturnType<typeof buildAcceptedChoiceRecords>;
@@ -286,8 +287,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
           session,
           sourceMessage,
           artifact,
-          candidateRawContentDigest: conversationCandidateRawDigest
-            ?? await sha256Hex(artifact.candidateContent),
+          candidateRawContentDigest: conversation.candidateRawContentDigest,
         };
       }
     }
@@ -601,7 +601,7 @@ export class IndexedDbNovelRepository implements NovelRepository {
       ? await conversationContentDigest(preflightArtifact.candidateContent)
       : "";
     const candidateRawContentDigest = preflightArtifact
-      ? await sha256Hex(preflightArtifact.candidateContent)
+      ? await conversationCandidateRawContentDigest(preflightArtifact)
       : undefined;
     const preflightCanonicalDigest = preflightCanonical
       ? await conversationCanonicalRecordDigest(preflightCanonical)

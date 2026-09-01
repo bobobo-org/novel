@@ -10,6 +10,10 @@ import {
   ClosedAgentOS,
   MemoryClosedAgentStateRepository,
 } from "../lib/novel-ai/closed-agent-os/index.ts";
+import {
+  assertConversationClosedAgentApprovalBinding,
+  buildConversationClosedAgentApprovalBindingProof,
+} from "../lib/novel-ai/conversation/closed-agent-approval.ts";
 import { ConversationRepositoryService } from "../lib/novel-ai/conversation/repository.ts";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "../lib/novel-ai/conversation/tool-registry.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
@@ -288,7 +292,7 @@ async function buildFixture(label, faultPoint) {
     status: "completed",
   });
   const contextDigest = await sha256Hex(`rpg-settlement-context:${label}`);
-  await conversation.saveToolInvocation({
+  const invocation = await conversation.saveToolInvocation({
     projectId: bundle.project.id,
     sessionId: session.id,
     messageId: message.id,
@@ -298,14 +302,14 @@ async function buildFixture(label, faultPoint) {
     inputDigest: await sha256Hex(`rpg-settlement-input:${label}`),
     contextDigest,
     status: "completed",
-    actualExecutor: "deterministic-rule-fallback",
+    actualExecutor: candidate.actualExecutor,
     modelId: candidate.model,
     modelDigest: candidate.modelDigest,
     executionReceipt: {
       receiptId: `conversation-rpg-settlement-receipt:${label}`,
       modelId: candidate.model,
       modelDigest: candidate.modelDigest,
-      providerRunId: `conversation-rpg-settlement:${label}`,
+      providerRunId: candidate.taskId,
       contextDigest,
       outputDigest: candidate.candidateDigest,
       externalRequest: false,
@@ -329,6 +333,16 @@ async function buildFixture(label, faultPoint) {
       candidate,
     }),
   });
+  const artifactLinkedMessage = await repository.get("conversationMessages", message.id);
+  assert.ok(artifactLinkedMessage);
+  const approvalMessage = await repository.put("conversationMessages", {
+    ...artifactLinkedMessage,
+    candidateIds: [...new Set([
+      ...artifactLinkedMessage.candidateIds,
+      artifact.id,
+      generated.candidate.id,
+    ])],
+  }, artifactLinkedMessage.revision);
   const saved = await persistStudioChoiceCandidate(
     repository,
     projectSeed(snapshot),
@@ -345,12 +359,26 @@ async function buildFixture(label, faultPoint) {
       rpgSettlement: resolution.settlement,
     },
   );
-  const [approvalSession, approvalMessage, approvalArtifact] = await Promise.all([
+  const [approvalSession, approvalArtifact, approvalTarget] = await Promise.all([
     repository.get("conversationSessions", session.id),
-    repository.get("conversationMessages", message.id),
     repository.get("conversationArtifacts", artifact.id),
+    repository.get("chapters", snapshot.chapter.id),
   ]);
-  assert.ok(approvalSession && approvalMessage && approvalArtifact);
+  assert.ok(approvalSession && approvalArtifact && approvalTarget);
+  const closedAgentApprovalBinding = await buildConversationClosedAgentApprovalBindingProof(
+    await assertConversationClosedAgentApprovalBinding({
+      projectId: bundle.project.id,
+      sessionId: session.id,
+      session: approvalSession,
+      sourceMessage: approvalMessage,
+      artifact: approvalArtifact,
+      sourceMessageCandidateArtifacts: [approvalArtifact],
+      invocations: [invocation],
+      targetRecord: approvalTarget,
+      candidate: generated.candidate,
+      candidateIntegrityVerified: await os.verifyCandidateIntegrity(generated.candidate.id),
+    }),
+  );
   const conversationApproval = {
     operationId: `conversation-rpg-approval:${artifact.id}`,
     idempotencyKey: `conversation-rpg-approval:${artifact.id}:${artifact.candidateDigest}`,
@@ -362,6 +390,7 @@ async function buildFixture(label, faultPoint) {
     expectedArtifactRevision: approvalArtifact.revision,
     expectedSourceMessageRevision: approvalMessage.revision,
     expectedSourceRevision: snapshot.chapter.revision,
+    closedAgentApprovalBinding,
   };
   let canonicalCommitCalls = 0;
   let firstCallbackFaultEnabled = faultPoint === "after-canon-before-ledger";
@@ -374,14 +403,6 @@ async function buildFixture(label, faultPoint) {
       `${choice.key}｜${choice.title}｜${resolution.outcomeLabel}`,
       conversationApproval,
     );
-    const linkedMessage = await repository.get("conversationMessages", message.id);
-    assert.ok(linkedMessage);
-    if (!linkedMessage.candidateIds.includes(generated.candidate.id)) {
-      await repository.put("conversationMessages", {
-        ...linkedMessage,
-        candidateIds: [...linkedMessage.candidateIds, generated.candidate.id],
-      }, linkedMessage.revision);
-    }
     if (firstCallbackFaultEnabled) {
       firstCallbackFaultEnabled = false;
       throw Object.assign(new Error("TEST_AFTER_CANON_BEFORE_LEDGER"), {

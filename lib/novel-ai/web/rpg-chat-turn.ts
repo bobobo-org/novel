@@ -27,8 +27,12 @@ import { resolveProjectStoryBible } from "../domain/story-bible-selection";
 import { sha256Hex, stableStringify } from "../closed-ai-cache";
 import {
   parseRpgLogicalTurnProviderTaskId,
+  RPG_CONTINUITY_REPAIR_FAILURE_ORDER,
+  rpgContinuityRepairFailureToken,
+  rpgLogicalTurnFallbackRepairTaskId,
   rpgLogicalTurnFallbackReviewTaskId,
   rpgLogicalTurnGenerationTaskId,
+  type RpgContinuityRepairFailure,
 } from "../conversation/rpg-logical-turn";
 import {
   isGameStoryPlayMode,
@@ -84,6 +88,7 @@ import {
   rejectStudioClosedAgentCandidate,
 } from "./closed-agent-os-service";
 import {
+  buildCompactRpgResolutionDirectorPrompt,
   buildRpgReaderSafeChoicePayload,
   buildRpgChoiceDirectorPrompt,
   buildRpgResolutionDirectorPrompt,
@@ -105,6 +110,7 @@ import {
 import {
   evaluateNovelContinuityGate,
   hasVerifiedExecutedStoryOutput,
+  type NovelContinuityGateFailure,
 } from "./story-output-quality";
 import {
   verifyExternalRpgExecutionReceipt,
@@ -132,10 +138,42 @@ export {
 
 export const RPG_CHAT_TURN_SCHEMA_VERSION = "rpg-chat-turn-v1" as const;
 export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 180_000;
-export const RPG_CHAT_STORY_AI_TIMEOUT_MS = 180_000;
-export const RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 60_000;
+export const RPG_CHAT_STORY_AI_TIMEOUT_MS = 360_000;
+export const RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 360_000;
 export const RPG_CHAT_STORY_AI_RETRY_BACKOFF_MS = 750;
 export const RPG_SHARED_LEARNING_SYNC_WAIT_MS = 350;
+
+const RPG_CHOICE_RULE_FALLBACK_TIMEOUT_CODES = new Set([
+  "REQUEST_TIMEOUT",
+  "OLLAMA_TIMEOUT",
+  "RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT",
+]);
+
+const RPG_STORY_RULE_FALLBACK_TIMEOUT_CODES = new Set([
+  "RPG_STORY_AI_TIMEOUT",
+  "REQUEST_TIMEOUT",
+  "OLLAMA_TIMEOUT",
+]);
+
+export function rpgChoiceRuleFallbackReason(input: {
+  error: unknown;
+  requestAbortReason?: unknown;
+  enhancementAbortReason?: unknown;
+}) {
+  if (input.requestAbortReason === "USER_REQUESTED_RULE_FALLBACK") {
+    return "USER_REQUESTED_RULE_FALLBACK";
+  }
+  if (input.enhancementAbortReason === "RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT") {
+    return "RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT";
+  }
+  const code = String((input.error as { code?: unknown } | null)?.code ?? "");
+  return RPG_CHOICE_RULE_FALLBACK_TIMEOUT_CODES.has(code) ? code : null;
+}
+
+export function rpgStoryRuleFallbackReason(error: unknown) {
+  const code = String((error as { code?: unknown } | null)?.code ?? "");
+  return RPG_STORY_RULE_FALLBACK_TIMEOUT_CODES.has(code) ? code : null;
+}
 
 export type RpgClosedAIDeadlineDependencies = {
   now?: () => number;
@@ -143,6 +181,61 @@ export type RpgClosedAIDeadlineDependencies = {
   probeAvailability?: (signal?: AbortSignal) => Promise<PreCreationProviderAvailability>;
   retryBackoffMs?: number;
 };
+
+function safeRpgFailureLeafCode(error: unknown) {
+  let current = error;
+  let leaf: string | null = null;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && /^RPG_[A-Z0-9_]{1,100}$/u.test(code)) leaf = code;
+    const message = current instanceof Error ? current.message.trim() : "";
+    if (/^RPG_[A-Z0-9_]{1,100}$/u.test(message)) leaf = message;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return leaf;
+}
+
+const RPG_NOVEL_CONTINUITY_FAILURES = new Set<NovelContinuityGateFailure>([
+  "length",
+  "paragraphs",
+  "dialogue",
+  "dialogue_attribution",
+  "continuity_anchor",
+  "active_character",
+  "offstage_character",
+  "narrative_scene",
+  "action_progression",
+  "sensory_detail",
+  "report_style",
+  "causality",
+  "foreshadowing",
+  "serial_hook",
+  "repetition",
+]);
+
+function rpgNovelContinuityFailures(error: unknown) {
+  let current = error;
+  for (let depth = 0; depth < 6 && current && typeof current === "object"; depth += 1) {
+    const candidate = current as {
+      code?: unknown;
+      continuityFailures?: unknown;
+      cause?: unknown;
+    };
+    if (
+      candidate.code === "RPG_NOVEL_CONTINUITY_GATE_FAILED"
+      && Array.isArray(candidate.continuityFailures)
+      && candidate.continuityFailures.length > 0
+      && candidate.continuityFailures.every((failure) => (
+        typeof failure === "string"
+        && RPG_NOVEL_CONTINUITY_FAILURES.has(failure as NovelContinuityGateFailure)
+      ))
+    ) {
+      return [...new Set(candidate.continuityFailures)] as NovelContinuityGateFailure[];
+    }
+    current = candidate.cause;
+  }
+  return null;
+}
 
 function rpgClosedAITimeoutError(attempts: number, cause?: unknown) {
   return Object.assign(new Error("The RPG closed-AI generation deadline expired."), {
@@ -321,36 +414,13 @@ export async function runRpgClosedAIUntilDeadline<T>(input: {
     };
   } catch (error) {
     if (input.signal?.aborted) throw input.signal.reason ?? error;
-    if (error && typeof error === "object" && "code" in error
-      && (error as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
-      throw error;
-    }
-    lastError = error;
-  }
-
-  // A failed provider call is never resubmitted automatically.  Keep the
-  // original user-visible deadline alive by polling readiness only; this makes
-  // the 180-second promise truthful without manufacturing attempt-2/3 tasks.
-  while (true) {
-    if (input.signal?.aborted) throw input.signal.reason ?? lastError;
-    const remainingBeforeProbe = remaining();
-    if (remainingBeforeProbe <= 0) throw rpgClosedAITimeoutError(attempt, lastError);
-    let availability: PreCreationProviderAvailability = "unknown";
-    try {
-      availability = await raceRpgClosedAIOperation({
-        operation: probeAvailability,
-        remainingMs: remainingBeforeProbe,
-        callerSignal: input.signal,
-        attempts: attempt,
-      });
-    } catch (probeError) {
-      if (input.signal?.aborted) throw input.signal.reason ?? probeError;
-      if (probeError && typeof probeError === "object" && "code" in probeError
-        && (probeError as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
-        throw probeError;
-      }
-    }
-    await waitForNextProbe(availability, lastError);
+    // Once the one authorized provider request has returned a failure there is
+    // no state transition in which readiness polling can make that same request
+    // succeed. Preserve the original provider/application error so the caller
+    // can fail closed or enter its independently reviewed fallback immediately.
+    // Pre-dispatch unavailability and a hung in-flight request still consume the
+    // explicit deadline above; no request is silently resubmitted here.
+    throw error;
   }
 }
 
@@ -738,7 +808,10 @@ export type RpgChatTurnCandidate = {
   schemaVersion: typeof RPG_CHAT_TURN_SCHEMA_VERSION;
   taskId: string;
   candidateId: string;
+  /** Digest of the authoritative provider output kept by Closed Agent OS. */
   candidateDigest: string;
+  /** Digest of the application-validated story that is eligible for Canon. */
+  storyDigest?: string;
   model: string;
   modelDigest: string;
   actualExecutor: string;
@@ -1831,15 +1904,15 @@ export async function planRpgChatChoices(input: {
       externalRequest: false,
     };
   } catch (error) {
+    const fallbackReason = rpgChoiceRuleFallbackReason({
+      error,
+      requestAbortReason: input.signal?.reason,
+      enhancementAbortReason: enhancementController.signal.reason,
+    });
+    if (!fallbackReason) throw error;
     return buildRpgRuleChoicePlan({
       snapshot: input.snapshot,
-      fallbackReason: error && typeof error === "object" && "code" in error
-        ? String((error as { code?: unknown }).code ?? "RPG_CHOICE_AI_UNAVAILABLE")
-        : enhancementController.signal.aborted && !input.signal?.aborted
-          ? "RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT"
-        : input.signal?.aborted
-          ? "RPG_CHOICE_AI_ABORTED"
-          : "RPG_CHOICE_AI_UNAVAILABLE",
+      fallbackReason,
     });
   } finally {
     clearTimeout(enhancementTimeout);
@@ -2896,10 +2969,10 @@ function buildTraditionalNovelFallback(input: {
   ]);
   const sensory = chooseDeterministicProse(seed, [
     "潮濕木料、舊紙與冷茶的氣味混在一起",
-    "石地留下凌亂水痕，鞋底每移一步都發出短促摩擦聲",
+    "石地留下凌亂水痕，冰冷鞋底每移一步都發出短促摩擦聲",
     "未散的藥香貼在衣袖上，苦味一直壓到舌根",
-    "桌面殘留一圈乾涸墨跡，幾張被反覆折過的紙壓在燈下",
-    "外頭人聲忽近忽遠，偶爾夾著車輪或金屬碰撞的聲響",
+    "桌面殘留一圈乾涸墨色，幾張被反覆折過的紙壓在搖晃燈影下",
+    "外頭聲音忽近忽遠，偶爾夾著車輪或金屬碰撞的聲響",
   ], 1);
   const visiblePressure = chooseDeterministicProse(seed, [
     "守在外面的人再次催促，聲音已從商量變成命令",
@@ -3503,6 +3576,7 @@ export async function buildDeterministicRpgChatTurnCandidate(input: {
     taskId,
     candidateId: taskId,
     candidateDigest,
+    storyDigest: candidateDigest,
     model: "rules-only",
     modelDigest,
     actualExecutor: "deterministic-rule-fallback",
@@ -3542,6 +3616,8 @@ type PostFallbackClosedReviewReceiptBody = {
   schemaVersion: typeof POST_FALLBACK_CLOSED_REVIEW_SCHEMA;
   required: true;
   passed: true;
+  /** Absent only on receipts created before the bounded continuity-repair stage existed. */
+  reviewStage?: "fallback-review" | "fallback-repair";
   triggerReason: string;
   lockedOutcome: RpgChoiceResolution["outcome"];
   lockedEffectDigest: string;
@@ -3594,7 +3670,7 @@ export async function verifyPostFallbackClosedReviewReceipt(input: {
   const raw = envelope && typeof envelope === "object"
     ? (envelope as Record<string, unknown>).postFallbackClosedReview
     : null;
-  const expected = /:fallback-review(?::attempt-[1-9]\d{0,6})?$/u.test(
+  const expected = /:fallback-(?:review(?::attempt-[1-9]\d{0,6})?|repair(?::quality-[a-f0-9]{4})?(?::attempt-[1-9]\d{0,6})?)$/u.test(
     input.candidate.taskId,
   ) || Boolean(raw);
   if (!expected) return null;
@@ -3602,6 +3678,7 @@ export async function verifyPostFallbackClosedReviewReceipt(input: {
   const receipt = raw as PostFallbackClosedReviewReceipt;
   const { receiptDigest, ...body } = receipt;
   const evidence = receipt.selectionRewriteEvidence;
+  const reviewStage = receipt.reviewStage ?? "fallback-review";
   if (
     receipt.schemaVersion !== POST_FALLBACK_CLOSED_REVIEW_SCHEMA
     || receipt.required !== true
@@ -3618,6 +3695,14 @@ export async function verifyPostFallbackClosedReviewReceipt(input: {
     || !cryptographicDigest(receiptDigest)
     || await sha256Hex(stableStringify(body)) !== receiptDigest
     || !evidence
+    || !["fallback-review", "fallback-repair"].includes(reviewStage)
+    || !(reviewStage === "fallback-repair"
+      ? /:fallback-repair(?::quality-[a-f0-9]{4})?(?::attempt-[1-9]\d{0,6})?$/u.test(
+          input.candidate.taskId,
+        )
+      : /:fallback-review(?::attempt-[1-9]\d{0,6})?$/u.test(
+          input.candidate.taskId,
+        ))
     || evidence.taskId !== input.candidate.taskId
     || evidence.candidateId !== input.candidate.candidateId
     || evidence.candidateContentDigest !== input.candidate.candidateDigest
@@ -3632,7 +3717,9 @@ export async function verifyPostFallbackClosedReviewReceipt(input: {
       stableStringify(input.candidate.resolution.effect),
     )
     || receipt.applicationValidationBindingDigest !== await sha256Hex(stableStringify({
-      domain: "rpg-fallback-review-application-validation-v1",
+      domain: reviewStage === "fallback-repair"
+        ? "rpg-fallback-repair-application-validation-v1"
+        : "rpg-fallback-review-application-validation-v1",
       reviewRequestDigest: receipt.reviewRequestDigest,
       sourceChapterId: input.candidate.sourceChapterId,
       sourceRevision: input.candidate.sourceRevision,
@@ -3650,8 +3737,10 @@ function normalizedFallbackDraftText(value: string) {
 
 /**
  * Deterministic stories are hidden source drafts, never reader-facing output.
- * A closed model must compare all three candidates and return a materially
- * rewritten scene that independently passes the continuity and prose gates.
+ * A closed model must independently synthesize a new scene from the protected
+ * turn contract. The three hidden drafts remain lineage evidence and are used
+ * only to reject an unchanged or near-copy result; their prose is never placed
+ * in the small-model prompt.
  */
 export async function reviewDeterministicRpgFallbackDrafts(input: {
   drafts: readonly DeterministicRpgFallbackDraftCandidate[];
@@ -3697,7 +3786,7 @@ export async function reviewDeterministicRpgFallbackDrafts(input: {
   }
   const rawReview = await input.reviewer(input.drafts);
   if (!rawReview?.trim()) {
-    throw Object.assign(new Error("Closed AI did not review the deterministic RPG drafts."), {
+    throw Object.assign(new Error("Closed AI did not synthesize an independent RPG fallback scene."), {
       code: "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
     });
   }
@@ -3707,7 +3796,7 @@ export async function reviewDeterministicRpgFallbackDrafts(input: {
     distinctDrafts.has(normalizedReviewedStory)
     || validatedDrafts.some((draft) => rpgTextSimilarity(normalizedReviewedStory, draft) >= 0.94)
   ) {
-    throw Object.assign(new Error("Closed AI returned an unchanged fallback draft instead of a reviewed rewrite."), {
+    throw Object.assign(new Error("Closed AI returned an unchanged fallback draft instead of an independent scene."), {
       code: "RPG_FALLBACK_CLOSED_REVIEW_UNCHANGED",
     });
   }
@@ -3715,30 +3804,107 @@ export async function reviewDeterministicRpgFallbackDrafts(input: {
 }
 
 function buildRpgFallbackReviewPrompt(input: {
-  drafts: readonly DeterministicRpgFallbackDraftCandidate[];
-  recentAcceptedTexts: string[];
-  language: StoryOutputLanguage;
-  resolution: RpgChoiceResolution;
+  sceneContract: string;
 }) {
-  return JSON.stringify({
-    task: "closed_select_and_rewrite_internal_rpg_fallback_drafts",
-    outputLanguage: input.language,
-    lockedOutcome: input.resolution.outcome,
-    lockedEffectPolicy: {
-      canonicalValuesWithheldFromPrompt: true,
-      enforcement: "application-side-digest-and-commit-gate",
-    },
-    instruction: input.language === "en"
-      ? "Compare the three hidden source drafts, select the strongest scene shape or fuse their strongest parts, then materially rewrite them as one complete novel scene. Preserve the locked outcome while repairing continuity, character motives, concrete scene actions, causal links, natural dialogue, prose rhythm, repeated passages and the final chapter hook. Remove template language, interface labels and database prose. Do not copy or lightly paraphrase any source draft. Return only the final story."
-      : "以下三份皆為不可曝光的內部草稿。請比較場景力度，選出最佳方案或融合各自優點，再實質重寫為一個完整小說場景。必須保留鎖定結果，並依最近正文修正上下文、人物動機、具體場景行動、因果、自然對話、文字節奏、重複段落與章末鉤子；刪除規則句、介面標籤、固定台詞與資料庫語氣。不得原樣回傳或只做近義改寫；只回傳複核後的完整正文，不要解說。",
-    recentStoryContinuity: input.recentAcceptedTexts.slice(-3).map((text) => Array.from(text).slice(-800).join("")),
-    candidateDigests: input.drafts.map((draft) => draft.digest),
-    internalDraftCandidates: input.drafts.map((draft) => ({
-      key: draft.key,
-      digest: draft.digest,
-      story: draft.story,
-    })),
-  });
+  const prompt = [
+    "[RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]",
+    "三份規則草稿僅留在應用程式內作血緣與近似度檢查，正文不會放進模型提示。請依下列受保護契約獨立寫出一份全新完整場景；只輸出標題與正文。",
+    input.sceneContract,
+    "[/RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]",
+  ].join("\n");
+  if (prompt.length > 1_950) {
+    throw Object.assign(new Error("RPG_FALLBACK_SYNTHESIS_PROMPT_BUDGET_EXCEEDED"), {
+      code: "RPG_FALLBACK_SYNTHESIS_PROMPT_BUDGET_EXCEEDED",
+      inputCharacters: prompt.length,
+      maximumCharacters: 1_950,
+    });
+  }
+  return prompt;
+}
+
+function buildRpgFallbackContinuityRepairPrompt(input: {
+  sceneContract: string;
+  failures: readonly RpgContinuityRepairFailure[];
+  continuityExcerpt: string;
+  activeCharacterNames: readonly string[];
+}) {
+  const requirementLabels: Record<RpgContinuityRepairFailure, string> = {
+    length: "1200–1450字",
+    paragraphs: "正文10個空行分隔段落",
+    dialogue: "至少兩句完整「」對話",
+    dialogue_attribution: "對話同段用具名人物說道／問道／答道",
+    continuity_anchor: "首段逐字重用指定承接短句",
+    active_character: "正文明寫指定主角名",
+    offstage_character: "只用契約列出的人物",
+    narrative_scene: "場景詞含門外與火光",
+    action_progression: "動作詞含推開、握住、轉身",
+    sensory_detail: "感官詞含聽見與冰冷",
+    report_style: "只寫小說且不用清單或欄位標籤",
+    causality: "正文明寫因此形成因果",
+    foreshadowing: "正文明寫線索",
+    serial_hook: "末220字含門外突然傳來聲音",
+    repetition: "各段事件與句式不得重複",
+  };
+  const uniqueFailures = [...new Set(input.failures)];
+  if (!uniqueFailures.length || uniqueFailures.some((failure) => (
+    !RPG_CONTINUITY_REPAIR_FAILURE_ORDER.includes(failure)
+  ))) {
+    throw Object.assign(new Error("RPG_CONTINUITY_REPAIR_FAILURES_INVALID"), {
+      code: "RPG_CONTINUITY_REPAIR_FAILURES_INVALID",
+    });
+  }
+  const anchorRuns = input.continuityExcerpt.match(/[\p{Script=Han}]{4,}/gu) ?? [];
+  const anchorSource = anchorRuns.at(-1) ?? "";
+  const continuityAnchor = Array.from(anchorSource).slice(-8).join("");
+  const activeCharacter = input.activeCharacterNames.find((name) => name.trim().length >= 2)?.trim()
+    ?? "主角";
+  const repairLine = `本次必補:${uniqueFailures.map((failure) => (
+    requirementLabels[failure]
+  )).join("；")}`;
+  const visibleEvidenceLines = [
+    `正文第一段須自然且逐字放入「${continuityAnchor || "最近正式正文尾"}」與「${activeCharacter}」。`,
+    "場景中須自然寫出門外與火光；人物須依次推開、握住並轉身，也須聽見聲響並碰到冰冷物件。",
+    `至少一段使用${activeCharacter}說道：「完整對話。」的句型；前因後果中須明寫「因此」，並留下明寫為「線索」的未解事物。`,
+    "正文須有10個空行分隔段落；末220字須自然寫出「門外突然傳來聲音」，並以完整小說句號收尾。",
+    "不得輸出「本次必補」、修復格式、規則、檢核、欄位或上述指令文字。",
+  ];
+  const contractLines = input.sceneContract.split("\n");
+  const contractEndIndex = contractLines.lastIndexOf("[/RPG_SCENE_CONTRACT_V2]");
+  if (contractEndIndex < 0) {
+    throw Object.assign(new Error("RPG_FALLBACK_REPAIR_SCENE_CONTRACT_INVALID"), {
+      code: "RPG_FALLBACK_REPAIR_SCENE_CONTRACT_INVALID",
+    });
+  }
+  contractLines.splice(contractEndIndex, 0, repairLine, ...visibleEvidenceLines);
+  let repairSceneContract = contractLines.join("\n");
+  for (const optionalPrefix of ["既有資產:", "作品:", "場景:"]) {
+    if (repairSceneContract.length <= 1_600) break;
+    const optionalIndex = contractLines.findIndex((line) => line.startsWith(optionalPrefix));
+    if (optionalIndex >= 0) contractLines.splice(optionalIndex, 1);
+    repairSceneContract = contractLines.join("\n");
+  }
+  if (repairSceneContract.length > 1_600) {
+    throw Object.assign(new Error("RPG_FALLBACK_REPAIR_SCENE_CONTRACT_BUDGET_EXCEEDED"), {
+      code: "RPG_FALLBACK_REPAIR_SCENE_CONTRACT_BUDGET_EXCEEDED",
+      inputCharacters: repairSceneContract.length,
+      maximumCharacters: 1_600,
+    });
+  }
+  const prompt = [
+    "[RPG_FALLBACK_CONTINUITY_REPAIR_V1]",
+    "前一份模型正文未通過連貫性檢查，已丟棄且不會提供。只依下列受保護契約重新獨立寫出全新場景。",
+    "契約末行列出本次實際缺項；每一項都必須在正文中可直接辨認。只輸出標題與小說正文。",
+    repairSceneContract,
+    "[/RPG_FALLBACK_CONTINUITY_REPAIR_V1]",
+  ].join("\n");
+  if (prompt.length > 1_950) {
+    throw Object.assign(new Error("RPG_FALLBACK_REPAIR_PROMPT_BUDGET_EXCEEDED"), {
+      code: "RPG_FALLBACK_REPAIR_PROMPT_BUDGET_EXCEEDED",
+      inputCharacters: prompt.length,
+      maximumCharacters: 1_950,
+    });
+  }
+  return prompt;
 }
 
 function rpgCandidateActiveCharacterNames(snapshot: RpgChatSnapshot) {
@@ -3820,6 +3986,13 @@ export async function validateRpgStoryCandidateBeforePersistence(input: {
     throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
       code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
       continuityFailures: continuityGate.failures,
+      qualityReasonCodes: [...new Set(continuityGate.failures.map((failure) => {
+        if (failure === "length") return "QUALITY_NARRATIVE_TOO_SHORT";
+        if (failure === "continuity_anchor") return "QUALITY_CONTEXT_ANCHOR_MISSING";
+        if (failure === "active_character") return "QUALITY_CONTEXT_CHARACTER_MISSING";
+        if (failure === "repetition") return "QUALITY_REPETITION_LOW";
+        return "QUALITY_CONTINUITY_LOW";
+      }))],
       ...continuityGate.metrics,
     });
   }
@@ -3844,9 +4017,9 @@ export async function generateRpgChatTurnCandidate(input: {
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
   coordinationDependencies?: RpgClosedAIDeadlineDependencies;
-  /** Complete deadline reserved for closed-AI story generation. Defaults to 180 seconds. */
+  /** Complete deadline reserved for closed-AI story generation. Defaults to 360 seconds. */
   generationDeadlineMs?: number;
-  /** Independent hidden fallback-review deadline. Defaults to 60 seconds. */
+  /** Independent hidden fallback-review deadline. Defaults to 360 seconds. */
   fallbackReviewDeadlineMs?: number;
   /** Explicit, scope-bound adult structural request. Never inferred from adultMode alone. */
   adultNarrativeRuntime?: Omit<
@@ -3911,7 +4084,7 @@ export async function generateRpgChatTurnCandidate(input: {
     choice: input.choice,
     outcome: resolution.outcome,
   });
-  const baseDirectorPrompt = buildRpgResolutionDirectorPrompt({
+  const fullDirectorPrompt = buildRpgResolutionDirectorPrompt({
     context: input.snapshot.directorContext,
     choice: input.choice,
     language: input.snapshot.language,
@@ -3924,6 +4097,17 @@ export async function generateRpgChatTurnCandidate(input: {
     },
     readerSafeCausalContract,
   });
+  const fullDirectorContractDigest = await sha256Hex(fullDirectorPrompt);
+  const baseDirectorPrompt = buildCompactRpgResolutionDirectorPrompt({
+    context: input.snapshot.directorContext,
+    choice: input.choice,
+    language: input.snapshot.language,
+    resolution: {
+      outcomeLabel: resolution.outcomeLabel,
+      settlement: outcomeLines,
+    },
+  });
+  const rpgProseContractDigest = await sha256Hex(baseDirectorPrompt);
   const directorPrompt = adultRuntimePrompt
     ? `${baseDirectorPrompt}\n\n${adultRuntimePrompt}`
     : baseDirectorPrompt;
@@ -3954,16 +4138,20 @@ export async function generateRpgChatTurnCandidate(input: {
       code: "RPG_CHAT_RECOVERY_PROVIDER_TASK_MISMATCH",
     });
   }
-  const resumeFallbackReview = resumeIdentity?.stage === "fallback-review";
-  const generationStartAttempt = resumeIdentity?.stage === "generation"
-    ? resumeIdentity.attempt
-    : 1;
-  const fallbackReviewStartAttempt = resumeIdentity?.stage === "fallback-review"
-    ? resumeIdentity.attempt
-    : 1;
+  const resumeReviewStage = resumeIdentity?.stage === "fallback-review"
+    || resumeIdentity?.stage === "fallback-repair"
+      ? resumeIdentity.stage
+      : null;
+  const resumeClosedReview = Boolean(resumeReviewStage);
+  const logicalAttempt = resumeIdentity?.attempt ?? 1;
+  const generationStartAttempt = resumeClosedReview
+    ? 1
+    : logicalAttempt;
+  const fallbackReviewStartAttempt = logicalAttempt;
   const providerTaskId = async (
-    stage: "generation" | "fallback-review",
+    stage: "generation" | "fallback-review" | "fallback-repair",
     attempt: number,
+    repairFailures?: readonly RpgContinuityRepairFailure[],
   ) => {
     if (
       resumeIdentity
@@ -3971,9 +4159,26 @@ export async function generateRpgChatTurnCandidate(input: {
       && resumeIdentity.attempt === attempt
     ) return resumeIdentity.taskId;
     if (logicalTurnId) {
-      return stage === "generation"
-        ? rpgLogicalTurnGenerationTaskId(logicalTurnId, attempt)
+      if (stage === "generation") {
+        return rpgLogicalTurnGenerationTaskId(logicalTurnId, attempt);
+      }
+      return stage === "fallback-repair"
+        ? rpgLogicalTurnFallbackRepairTaskId(
+            logicalTurnId,
+            repairFailures ?? (() => { throw new Error(
+              "RPG_CONTINUITY_REPAIR_FAILURES_REQUIRED",
+            ); })(),
+            attempt,
+          )
         : rpgLogicalTurnFallbackReviewTaskId(logicalTurnId, attempt);
+    }
+    if (stage === "fallback-repair") {
+      const failureToken = rpgContinuityRepairFailureToken(
+        repairFailures ?? (() => { throw new Error(
+          "RPG_CONTINUITY_REPAIR_FAILURES_REQUIRED",
+        ); })(),
+      );
+      return `${generationRunRoot}:${stage}:quality-${failureToken}:attempt-${attempt}`;
     }
     return `${generationRunRoot}:${stage}:attempt-${attempt}`;
   };
@@ -3983,9 +4188,11 @@ export async function generateRpgChatTurnCandidate(input: {
   let fallbackReviewReceipt: PostFallbackClosedReviewReceipt | null = null;
   let acceptedAdultApplicationValidationBaseDigest: string | null = null;
   try {
-    if (resumeFallbackReview) {
-      throw Object.assign(new Error("Resume the durable fallback-review provider task."), {
-        code: "RPG_STORY_AI_RESUME_FALLBACK_REVIEW",
+    if (resumeClosedReview) {
+      throw Object.assign(new Error("Resume the durable closed-review provider task."), {
+        code: resumeReviewStage === "fallback-repair"
+          ? "RPG_STORY_AI_RESUME_FALLBACK_REPAIR"
+          : "RPG_STORY_AI_RESUME_FALLBACK_REVIEW",
       });
     }
     const generationDeadlineMs = Math.max(
@@ -4004,6 +4211,11 @@ export async function generateRpgChatTurnCandidate(input: {
         const baseApplicationValidationBindingDigest = await sha256Hex(stableStringify({
           domain: "rpg-story-application-validation-v1",
           promptDigest: await sha256Hex(attemptPrompt),
+          fullDirectorContractDigest,
+          rpgProseContractDigest,
+          contextDigest: input.snapshot.contextDigest,
+          contextRevisionDigest: input.snapshot.contextRevisionDigest,
+          causalKnowledgeSnapshotDigest: input.snapshot.causalKnowledge.snapshotDigest,
           projectId: input.snapshot.project.id,
           sourceChapterId: input.snapshot.chapter.id,
           sourceRevision: input.snapshot.chapter.revision,
@@ -4036,7 +4248,12 @@ export async function generateRpgChatTurnCandidate(input: {
           targetLength: input.snapshot.language === "en" ? 1_700 : 1_600,
           sourceChapterId: input.snapshot.chapter.id,
           sourceRevision: input.snapshot.chapter.revision,
-          qualityMode: "balanced",
+          // A substantive RPG turn already uses the same local model's bounded
+          // supplement pass and then crosses the RPG application validator
+          // before persistence. Running the generic balanced pipeline would
+          // ask a CPU-bound local model for a second complete 900+ character
+          // scene and exceed this turn's explicit 360-second deadline.
+          qualityMode: "fast",
           browserComputePolicy: "quality-first",
           applicationValidationBindingDigest,
           validateBeforePersistence: async (candidate) => {
@@ -4124,6 +4341,21 @@ export async function generateRpgChatTurnCandidate(input: {
     const triggerReason = error && typeof error === "object" && "code" in error
       ? String((error as { code?: unknown }).code ?? "RPG_STORY_AI_UNAVAILABLE")
       : "RPG_STORY_AI_UNAVAILABLE";
+    if (!resumeClosedReview && !rpgStoryRuleFallbackReason(error)) {
+      throw error;
+    }
+    const generationContinuityFailures = rpgNovelContinuityFailures(error);
+    const reviewStage: "fallback-review" | "fallback-repair" =
+      resumeReviewStage
+      ?? (generationContinuityFailures ? "fallback-repair" : "fallback-review");
+    const repairFailures: RpgContinuityRepairFailure[] | null =
+      reviewStage === "fallback-repair"
+        ? (
+            resumeIdentity?.repairFailures
+            ?? generationContinuityFailures
+            ?? [...RPG_CONTINUITY_REPAIR_FAILURE_ORDER]
+          )
+        : null;
     const drafts: DeterministicRpgFallbackDraftCandidate[] = [];
     const seenDraftDigests = new Set<string>();
     const seenDraftStories: string[] = [];
@@ -4165,6 +4397,7 @@ export async function generateRpgChatTurnCandidate(input: {
     }
     const draftDigests = drafts.map((draft) => draft.digest) as [string, string, string];
     const lockedEffectDigest = await sha256Hex(stableStringify(resolution.effect));
+    let latestReviewContinuityFailures: RpgContinuityRepairFailure[] | null = null;
     try {
       if (input.signal?.aborted) {
         throw input.signal.reason ?? generationError;
@@ -4176,18 +4409,24 @@ export async function generateRpgChatTurnCandidate(input: {
           input.fallbackReviewDeadlineMs ?? RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
         ),
       );
-      const baseReviewPrompt = buildRpgFallbackReviewPrompt({
-        drafts,
-        recentAcceptedTexts: fallbackReviewContinuityTexts,
-        language: input.snapshot.language,
-        resolution,
-      });
+      const baseReviewPrompt = reviewStage === "fallback-repair"
+        ? buildRpgFallbackContinuityRepairPrompt({
+            sceneContract: baseDirectorPrompt,
+            failures: repairFailures ?? [...RPG_CONTINUITY_REPAIR_FAILURE_ORDER],
+            continuityExcerpt: fallbackReviewContinuityTexts.at(-1) ?? "",
+            activeCharacterNames: rpgCandidateActiveCharacterNames(input.snapshot),
+          })
+        : buildRpgFallbackReviewPrompt({
+            sceneContract: baseDirectorPrompt,
+          });
       const reviewPrompt = adultRuntimePrompt
         ? `${baseReviewPrompt}\n\n${adultRuntimePrompt}`
         : baseReviewPrompt;
       const reviewRequestDigest = await sha256Hex(reviewPrompt);
       const baseApplicationValidationBindingDigest = await sha256Hex(stableStringify({
-        domain: "rpg-fallback-review-application-validation-v1",
+        domain: reviewStage === "fallback-repair"
+          ? "rpg-fallback-repair-application-validation-v1"
+          : "rpg-fallback-review-application-validation-v1",
         reviewRequestDigest,
         sourceChapterId: input.snapshot.chapter.id,
         sourceRevision: input.snapshot.chapter.revision,
@@ -4209,7 +4448,11 @@ export async function generateRpgChatTurnCandidate(input: {
         dependencies: input.coordinationDependencies,
         execute: async (attempt, attemptSignal) => {
           let prevalidatedStory = "";
-          const reviewTaskId = await providerTaskId("fallback-review", attempt);
+          const reviewTaskId = await providerTaskId(
+            reviewStage,
+            attempt,
+            repairFailures ?? undefined,
+          );
           const reviewResult = await invokeClosedAI({
             projectId: input.snapshot.project.id,
             task: "branch_choice",
@@ -4218,7 +4461,11 @@ export async function generateRpgChatTurnCandidate(input: {
             targetLength: input.snapshot.language === "en" ? 1_700 : 1_600,
             sourceChapterId: input.snapshot.chapter.id,
             sourceRevision: input.snapshot.chapter.revision,
-            qualityMode: "balanced",
+            // The hidden-draft path still requires a verified closed-model
+            // rewrite and the identical RPG application validator. Keep it to
+            // one bounded quality pipeline so the review deadline is
+            // truthful instead of starting an impossible second full rewrite.
+            qualityMode: "fast",
             browserComputePolicy: "quality-first",
             ephemeralPrompt: true,
             applicationValidationBindingDigest,
@@ -4239,23 +4486,28 @@ export async function generateRpgChatTurnCandidate(input: {
                   code: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
                 });
               }
-              prevalidatedStory = await reviewDeterministicRpgFallbackDrafts({
-                drafts,
-                recentAcceptedTexts: fallbackReviewContinuityTexts,
-                language: input.snapshot.language,
-                reviewer: async () => candidate.content,
-              });
-              prevalidatedStory = await validateRpgStoryCandidateBeforePersistence({
-                snapshot: input.snapshot,
-                choice: input.choice,
-                resolution,
-                rawStory: prevalidatedStory,
-                recentAcceptedTexts: fallbackReviewContinuityTexts,
-                prompt: reviewPrompt,
-                adultParticipantDisplayNames: adultRuntimeBinding?.applicable
-                  ? adultRuntimeBinding.participantDisplayNames
-                  : undefined,
-              });
+              try {
+                prevalidatedStory = await reviewDeterministicRpgFallbackDrafts({
+                  drafts,
+                  recentAcceptedTexts: fallbackReviewContinuityTexts,
+                  language: input.snapshot.language,
+                  reviewer: async () => candidate.content,
+                });
+                prevalidatedStory = await validateRpgStoryCandidateBeforePersistence({
+                  snapshot: input.snapshot,
+                  choice: input.choice,
+                  resolution,
+                  rawStory: prevalidatedStory,
+                  recentAcceptedTexts: fallbackReviewContinuityTexts,
+                  prompt: reviewPrompt,
+                  adultParticipantDisplayNames: adultRuntimeBinding?.applicable
+                    ? adultRuntimeBinding.participantDisplayNames
+                    : undefined,
+                });
+              } catch (validationError) {
+                latestReviewContinuityFailures = rpgNovelContinuityFailures(validationError);
+                throw validationError;
+              }
             },
             generationOptions: {
               maxTokens: 1_792,
@@ -4342,6 +4594,7 @@ export async function generateRpgChatTurnCandidate(input: {
         schemaVersion: POST_FALLBACK_CLOSED_REVIEW_SCHEMA,
         required: true,
         passed: true,
+        reviewStage,
         triggerReason,
         lockedOutcome: resolution.outcome,
         lockedEffectDigest,
@@ -4370,9 +4623,17 @@ export async function generateRpgChatTurnCandidate(input: {
       }
       throw Object.assign(new Error("閉端 AI 未完成本回合品質複核，沒有產生可顯示的正文。請重試。"), {
         code: "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
+        cause: reviewError,
         reviewFailureCode: reviewError && typeof reviewError === "object" && "code" in reviewError
           ? String((reviewError as { code?: unknown }).code ?? "RPG_FALLBACK_REVIEW_FAILED")
           : "RPG_FALLBACK_REVIEW_FAILED",
+        reviewFailureLeafCode: safeRpgFailureLeafCode(reviewError),
+        generationFailureLeafCode: safeRpgFailureLeafCode(generationError),
+        reviewContinuityFailures:
+          latestReviewContinuityFailures
+          ?? rpgNovelContinuityFailures(reviewError)
+          ?? [],
+        generationContinuityFailures: rpgNovelContinuityFailures(generationError) ?? [],
         generationFailure: triggerReason,
         draftCount: 3,
       });
@@ -4400,11 +4661,13 @@ export async function generateRpgChatTurnCandidate(input: {
     taskId: generated.taskId,
     candidateId: generated.candidateId,
     candidateDigest: generated.contentDigest,
+    storyDigest: await sha256Hex(story.normalize("NFKC")),
     model: generated.model,
     modelDigest: generated.modelDigest,
     actualExecutor: generated.actualExecutor,
     executionReceipt: withCausalKnowledgeReceipt({
       ...generatedReceipt,
+      rpgProseContractDigest,
       ...(fallbackReviewReceipt ? { postFallbackClosedReview: fallbackReviewReceipt } : {}),
       ...(adultPolicyReceipt ? { adultNarrativeRuntime: adultPolicyReceipt } : {}),
     }, input.snapshot),
@@ -4552,7 +4815,15 @@ export async function approveRpgChatTurn(input: {
   const defensivelyValidatedDigest = await sha256Hex(
     defensivelyValidatedStory.normalize("NFKC"),
   );
-  if (defensivelyValidatedDigest !== input.candidate.candidateDigest) {
+  // Closed Agent OS binds its receipt to the exact raw provider output, while
+  // the RPG application intentionally strips wrappers and validates the story
+  // before it can reach Canon. Keep those two identities separate. Legacy
+  // candidates did not carry storyDigest and are bound below by reloading the
+  // authoritative Closed Agent candidate and reproducing the same cleaning.
+  if (
+    input.candidate.storyDigest !== undefined
+    && defensivelyValidatedDigest !== input.candidate.storyDigest
+  ) {
     throw Object.assign(new Error("RPG 候選正文摘要與執行證明不一致。"), {
       code: "RPG_CHAT_RESULT_IDENTITY_MISMATCH",
     });
@@ -4625,7 +4896,7 @@ export async function approveRpgChatTurn(input: {
   if (externalReceipt) {
     const verifiedDigest = await sha256Hex(input.candidate.story.normalize("NFKC"));
     if (
-      verifiedDigest !== input.candidate.candidateDigest
+      verifiedDigest !== (input.candidate.storyDigest ?? input.candidate.candidateDigest)
       || externalReceipt.candidateDigest !== verifiedDigest
       || input.candidate.actualExecutor !== `external:${externalReceipt.providerId}`
     ) {
@@ -4678,6 +4949,14 @@ export async function approveRpgChatTurn(input: {
         if (verifiedStory !== input.candidate.story) {
           throw Object.assign(new Error("RPG 候選正文與閉端 AI 證明不一致。"), {
             code: "RPG_CHAT_RESULT_STORY_MISMATCH",
+          });
+        }
+        if (
+          await sha256Hex(verifiedStory.normalize("NFKC"))
+            !== (input.candidate.storyDigest ?? defensivelyValidatedDigest)
+        ) {
+          throw Object.assign(new Error("RPG 候選正文摘要與閉端 AI 證明不一致。"), {
+            code: "RPG_CHAT_RESULT_IDENTITY_MISMATCH",
           });
         }
         const transaction = await commitVerifiedStory(verifiedStory);

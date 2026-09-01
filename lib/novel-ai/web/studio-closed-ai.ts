@@ -554,7 +554,10 @@ async function runStudioClosedAIUnsettled(
 ) {
   const requestId = input.taskId?.trim() || `studio-closed-${crypto.randomUUID()}`;
   const taskType = studioPlatformTaskType(input.task);
-  const targetInstruction = input.targetLength
+  const protectedSubstantiveScene =
+    taskType === "chapter.continue"
+    && input.generationOptions?.substantiveScene === true;
+  const targetInstruction = !protectedSubstantiveScene && input.targetLength
     ? taskType === "chapter.continue"
       ? `\n\n請將候選正文寫到約 ${input.targetLength} 個中文字，至少 ${Math.ceil(input.targetLength * 0.6)} 字；必須完成本場景的新事件與直接後果。`
       : `\n\n請將候選內容控制在約 ${input.targetLength} 個中文字以內。`
@@ -562,10 +565,12 @@ async function runStudioClosedAIUnsettled(
   const regenerationInstruction = input.regeneration
     ? explicitRegenerationInstruction(input.regeneration)
     : "";
-  const humanizedInstruction = humanizedSerialFictionInstruction(
-    taskType,
-    input.targetLength,
-  );
+  const humanizedInstruction = protectedSubstantiveScene
+    ? ""
+    : humanizedSerialFictionInstruction(
+        taskType,
+        input.targetLength,
+      );
   const objective = `${input.input}${targetInstruction}${humanizedInstruction}${regenerationInstruction}`;
   const browserComputePolicy = resolveStudioClosedComputePolicy(
     input.browserComputePolicy,

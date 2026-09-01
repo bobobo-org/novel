@@ -1370,7 +1370,7 @@ await test("source-truth", async () => {
   assert.match(service, /externalFallback:\s*false/u);
   assert.doesNotMatch(service, /openai|grok/iu);
   assert.match(composer, /取消準備/u);
-  assert.match(composer, /重試自動協調器/u);
+  assert.match(composer, /重新連線本機閉端 AI/u);
   assert.match(composer, /閉端 AI 自動協調器/u);
   assert.doesNotMatch(composer, /改用 Local Ollama|連接 Private AI Hub|\?backend=/u);
   assert.match(composer, /closedAiSetupError\s*\n\s*\?\? closedAiSetupProgress\?\.message/u);
@@ -1380,10 +1380,40 @@ await test("source-truth", async () => {
   assert.match(composer, /data-closed-ai-generation-verified-backends/u);
   assert.match(composer, /data-closed-ai-active-backend/u);
   assert.match(composer, /data-closed-ai-setup-busy=\{closedAiSetupBusy\}/u);
+  assert.match(composer, /data-closed-ai-startup-state=\{effectiveClosedAiStartupState\}/u);
+  assert.match(composer, /閉端 AI · 正在連線既有本機算力/u);
+  assert.match(composer, /閉端 AI · 已啟動/u);
+  assert.match(composer, /閉端 AI · 自動啟動未完成/u);
+  assert.match(composer, /閉端 AI · 連線明確逾時 · 規則後備待命/u);
+  assert.match(composer, /data-closed-ai-rules-fallback-ready=\{rulesFallbackReady\}/u);
+  assert.match(composer, /data-rules-fallback-ready=\{rulesFallbackReady\}/u);
+  assert.match(composer, /重新連線本機閉端 AI/u);
+  assert.match(composer, /準備 Browser AI/u);
+  assert.match(composer, /網站只會連線這台電腦上已啟動的 Novel Local AI Companion 與 Ollama/u);
+  assert.match(composer, /不能自行啟動或安裝 Ollama/u);
+  assert.match(composer, /Browser AI 模型也不會自動下載/u);
+  assert.match(composer, /blocked:\s*externalBlocked \|\| closedAiStarting/u);
   assert.match(composer, /data-closed-ai-external-fallback/u);
   assert.match(composer, /data-setup-lifecycle=\{closedAiSetupLifecycle\}/u);
-  assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\(safeErrorMessage\(error\)\)/u);
+  assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);[\s\S]*CLOSED_AI_AUTOSTART_KNOWN_FAILURE_CODES\.has/u);
   assert.match(bootstrapHook, /setClosedAiSetupProgress\(null\);\s*\n\s*setClosedAiSetupError\("已取消自動協調器準備/u);
+  assert.match(bootstrapHook, /PASSWORDLESS_LOCAL_AI_ORIGINS\.includes/u);
+  assert.match(bootstrapHook, /shouldAutostartStudioLocalAI\(window\.location\.origin\)/u);
+  const automaticConversationBootstrap = bootstrapHook.slice(
+    bootstrapHook.indexOf("useEffect(() =>"),
+    bootstrapHook.indexOf("const prepareClosedAi"),
+  );
+  assert.match(automaticConversationBootstrap, /connectLocalAutomatically\(\)/u);
+  assert.doesNotMatch(automaticConversationBootstrap, /connectLocalAutomatically\(controller\.signal\)/u);
+  assert.doesNotMatch(automaticConversationBootstrap, /prepareBrowserAi/u);
+  assert.match(automaticConversationBootstrap, /taskTypes:\s*\["chapter\.abcChoices", "chapter\.continue"\]/u);
+  assert.match(automaticConversationBootstrap, /prewarmStudioInteractiveChoiceAI\(controller\.signal\)/u);
+  assert.match(bootstrapHook, /retryingLocal = closedAiStartupState === "failed"[\s\S]*closedAiStartupState === "timeout_fallback"/u);
+  assert.match(bootstrapHook, /retryLocalOnOfficialOrigin[\s\S]*connectLocalAutomatically\([\s\S]*controller\.signal/u);
+  assert.match(bootstrapHook, /retryLocalOnOfficialOrigin[\s\S]*:\s*await bootstrapCoordinator\.prepareBrowserAi/u);
+  assert.match(bootstrapHook, /CLOSED_AI_AUTOSTART_TIMEOUT_CODES = new Set\(\[[\s\S]*"REQUEST_TIMEOUT",[\s\S]*"OLLAMA_TIMEOUT"/u);
+  assert.match(bootstrapHook, /CLOSED_AI_AUTOSTART_TIMEOUT_CODES\.has\(code\)[\s\S]*等待本機閉端 AI 連線已明確逾時/u);
+  assert.match(bootstrapHook, /CLOSED_AI_AUTOSTART_TIMEOUT_CODES\.has\(closedAiAutostartErrorCode\(error\)\)[\s\S]*\? "timeout_fallback"[\s\S]*: "failed"/u);
   assert.doesNotMatch(closedAgentRunner, /preferredBackend:\s*previousDigest\s*\?\s*"local-ollama"/u);
   assert.match(bootstrapHook, /verifiedConversationRegenerationBackend/u);
   assert.match(bootstrapHook, /sourceBackendStillReady/u);

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { planConversationRequest } from "../lib/novel-ai/conversation/planner.ts";
 import {
+  rpgLogicalTurnFallbackRepairTaskId,
   rpgLogicalTurnFallbackReviewTaskId,
   rpgLogicalTurnGenerationTaskId,
 } from "../lib/novel-ai/conversation/rpg-logical-turn.ts";
@@ -20,7 +21,11 @@ import {
   findRpgChoiceRecoveryTarget,
   latestRpgChoicesFrom,
 } from "../app/studio/project/[projectId]/chat/conversation-workspace-support.ts";
-import { serializeRpgChoices } from "../app/studio/project/[projectId]/chat/components/conversation-presentation.ts";
+import {
+  rpgCandidateRequiresClosedReview,
+  rpgChoiceSelectionDisabled,
+  serializeRpgChoices,
+} from "../app/studio/project/[projectId]/chat/components/conversation-presentation.ts";
 import {
   inspectRpgChoiceTurn,
   resolveRpgExecutionRecoveryMode,
@@ -35,9 +40,69 @@ import {
   RPG_CHOICE_STALE_EVIDENCE_TOOL_ID,
   rpgChoiceStaleEvidenceId,
 } from "../lib/novel-ai/conversation/rpg-choice-stale-evidence.ts";
+import {
+  rpgChoiceRuleFallbackReason,
+  rpgStoryRuleFallbackReason,
+} from "../lib/novel-ai/web/rpg-chat-turn.ts";
 
 const projectId = "project-rpg-recovery";
 const sessionId = "session-rpg-recovery";
+
+assert.equal(
+  rpgChoiceRuleFallbackReason({
+    error: Object.assign(new Error("bridge missing"), { code: "BRIDGE_PROCESS_UNREACHABLE" }),
+  }),
+  null,
+  "a missing service must remain a visible failure instead of silently becoming rules fallback",
+);
+assert.equal(
+  rpgChoiceRuleFallbackReason({
+    error: Object.assign(new Error("request timed out"), { code: "REQUEST_TIMEOUT" }),
+  }),
+  "REQUEST_TIMEOUT",
+);
+assert.equal(
+  rpgChoiceRuleFallbackReason({
+    error: Object.assign(new Error("model timed out"), { code: "OLLAMA_TIMEOUT" }),
+  }),
+  "OLLAMA_TIMEOUT",
+);
+assert.equal(
+  rpgChoiceRuleFallbackReason({
+    error: new Error("enhancement deadline"),
+    enhancementAbortReason: "RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT",
+  }),
+  "RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT",
+);
+assert.equal(
+  rpgChoiceRuleFallbackReason({
+    error: new Error("author chose fallback"),
+    requestAbortReason: "USER_REQUESTED_RULE_FALLBACK",
+  }),
+  "USER_REQUESTED_RULE_FALLBACK",
+);
+assert.equal(
+  rpgChoiceRuleFallbackReason({
+    error: new Error("navigation cancelled"),
+    requestAbortReason: "CONVERSATION_CANCELLED",
+  }),
+  null,
+  "ordinary cancellation must never persist a fallback choice card",
+);
+assert.equal(
+  rpgStoryRuleFallbackReason(
+    Object.assign(new Error("bridge missing"), { code: "BRIDGE_PROCESS_UNREACHABLE" }),
+  ),
+  null,
+  "a non-timeout story failure must remain fail-closed",
+);
+for (const timeoutCode of ["RPG_STORY_AI_TIMEOUT", "REQUEST_TIMEOUT", "OLLAMA_TIMEOUT"]) {
+  assert.equal(
+    rpgStoryRuleFallbackReason(Object.assign(new Error(timeoutCode), { code: timeoutCode })),
+    timeoutCode,
+    `${timeoutCode} must be recognized as an explicit story fallback deadline`,
+  );
+}
 
 function message(id, overrides = {}) {
   return {
@@ -626,17 +691,31 @@ assert.equal(
 );
 
 const stableProviderRunId = await rpgLogicalTurnGenerationTaskId(persistedChoice.id);
+const explicitRetryProviderRunId = await rpgLogicalTurnGenerationTaskId(persistedChoice.id, 2);
 const stableFallbackReviewRunId = await rpgLogicalTurnFallbackReviewTaskId(persistedChoice.id);
+const stableFallbackRepairFailures = ["continuity_anchor", "dialogue_attribution"];
+const stableFallbackRepairRunId = await rpgLogicalTurnFallbackRepairTaskId(
+  persistedChoice.id,
+  stableFallbackRepairFailures,
+);
 assert.equal(
   await rpgLogicalTurnGenerationTaskId(persistedChoice.id),
   stableProviderRunId,
   "the same logical turn must replay the same Closed Agent idempotency key",
 );
 assert.notEqual(
+  explicitRetryProviderRunId,
+  stableProviderRunId,
+  "an explicit terminal retry must preserve attempt 1 and dispatch a distinct attempt 2",
+);
+assert.match(explicitRetryProviderRunId, /:generation:attempt-2$/u);
+assert.notEqual(
   await rpgLogicalTurnGenerationTaskId(`${persistedChoice.id}:next-attempt`),
   stableProviderRunId,
   "an explicitly new choice attempt must receive a distinct idempotency key",
 );
+assert.match(stableFallbackRepairRunId, /:fallback-repair:quality-[a-f0-9]{4}:attempt-1$/u);
+assert.notEqual(stableFallbackRepairRunId, stableFallbackReviewRunId);
 const receipt = {
   receiptId: "choice-receipt-completed-before-message",
   modelId: "test-model",
@@ -677,6 +756,18 @@ assert.equal(
   ),
   "resume_completed",
   "a completed deterministic fallback-review receipt must resume the same logical turn",
+);
+assert.equal(
+  resolveRpgExecutionRecoveryMode(
+    orphanAssistant,
+    {
+      ...completedInvocation,
+      executionReceipt: { ...receipt, providerRunId: stableFallbackRepairRunId },
+    },
+    [stableProviderRunId, stableFallbackRepairRunId],
+  ),
+  "resume_completed",
+  "a completed bounded continuity-repair receipt must resume the same logical turn",
 );
 assert.equal(
   resolveRpgExecutionRecoveryMode(
@@ -732,6 +823,81 @@ assert.equal(
   null,
   "a rejected attempt is finished and must not replay its rejected artifact id",
 );
+
+const fallbackCandidateTaskId = "fallback-review-task";
+const fallbackCandidateDigest = "f".repeat(64);
+const fallbackCandidateArtifact = artifact(
+  "choice-artifact-fallback-candidate",
+  completedAssistantBeforeArtifact.id,
+  "candidate",
+  {
+    candidateContent: JSON.stringify({
+      schemaVersion: "conversation-rpg-candidate-v1",
+      candidate: {
+        taskId: fallbackCandidateTaskId,
+        candidateDigest: fallbackCandidateDigest,
+      },
+    }),
+  },
+);
+const fallbackInvocation = invocation(
+  "choice-invocation-fallback-candidate",
+  completedAssistantBeforeArtifact.id,
+  {
+    status: "completed",
+    actualExecutor: "deterministic-rule-fallback",
+    executionReceipt: {
+      providerRunId: fallbackCandidateTaskId,
+      outputDigest: fallbackCandidateDigest,
+    },
+  },
+);
+assert.equal(
+  rpgCandidateRequiresClosedReview(fallbackCandidateArtifact, [fallbackInvocation]),
+  true,
+  "the exact fallback invocation bound by task and output digest must require closed review",
+);
+assert.equal(
+  rpgCandidateRequiresClosedReview(fallbackCandidateArtifact, [{
+    ...fallbackInvocation,
+    executionReceipt: {
+      ...fallbackInvocation.executionReceipt,
+      outputDigest: "e".repeat(64),
+    },
+  }]),
+  false,
+  "an unrelated fallback invocation must not block a candidate",
+);
+const rejectedFallbackArtifact = { ...fallbackCandidateArtifact, status: "rejected" };
+const rejectedFallbackState = inspectRpgChoiceTurn(
+  [persistedChoice, completedAssistantBeforeArtifact],
+  [rejectedFallbackArtifact],
+  choiceCardId,
+  [fallbackInvocation],
+);
+assert.equal(rejectedFallbackState.consumed, false, "rejecting the old fallback candidate must unconsume the choice");
+assert.equal(rejectedFallbackState.closed, false, "rejecting the old fallback candidate must reopen the turn");
+assert.equal(
+  rejectedFallbackState.closedReviewRequired,
+  true,
+  "the reopened turn must remember that verified closed review is required",
+);
+assert.equal(rpgChoiceSelectionDisabled({
+  busy: false,
+  consumed: rejectedFallbackState.consumed,
+  abandoned: rejectedFallbackState.abandoned,
+  hasEnvelope: true,
+  closedReviewRequired: rejectedFallbackState.closedReviewRequired,
+  closedAiReady: false,
+}), true, "the original choice must wait while closed AI is not routable and ready");
+assert.equal(rpgChoiceSelectionDisabled({
+  busy: false,
+  consumed: rejectedFallbackState.consumed,
+  abandoned: rejectedFallbackState.abandoned,
+  hasEnvelope: true,
+  closedReviewRequired: rejectedFallbackState.closedReviewRequired,
+  closedAiReady: true,
+}), false, "the original choice must be selectable again after closed AI becomes ready");
 
 const completedPlan = message("completed-plan", {
   parentMessageId: approvedTurn.id,
@@ -852,7 +1018,18 @@ const generalPlan = await planConversationRequest({
 });
 assert.equal(generalPlan.intent, "general_assistant", "bare continuation routing must stay scoped to game stories");
 
-const [rpgController, approvalController, timeline, sessionController, composer, workspace, rpgTurnSource] = await Promise.all([
+const [
+  rpgController,
+  approvalController,
+  timeline,
+  sessionController,
+  composer,
+  workspace,
+  rpgTurnSource,
+  candidateCardSource,
+  artifactDrawerSource,
+  rpgTurnCardSource,
+] = await Promise.all([
   readFile("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", "utf8"),
   readFile("app/studio/project/[projectId]/chat/hooks/use-conversation-approval.ts", "utf8"),
   readFile("app/studio/project/[projectId]/chat/components/message-timeline.tsx", "utf8"),
@@ -860,6 +1037,9 @@ const [rpgController, approvalController, timeline, sessionController, composer,
   readFile("app/studio/project/[projectId]/chat/components/message-composer.tsx", "utf8"),
   readFile("app/studio/project/[projectId]/chat/conversation-workspace.tsx", "utf8"),
   readFile("lib/novel-ai/web/rpg-chat-turn.ts", "utf8"),
+  readFile("app/studio/project/[projectId]/chat/components/candidate-card.tsx", "utf8"),
+  readFile("app/studio/project/[projectId]/chat/components/artifact-drawer.tsx", "utf8"),
+  readFile("app/studio/project/[projectId]/chat/components/rpg-turn-card.tsx", "utf8"),
 ]);
 const recoveryStart = rpgController.indexOf("async function recoverRpgChoices");
 const recoveryEnd = rpgController.indexOf("\n  return {", recoveryStart);
@@ -915,19 +1095,30 @@ assert.match(
   "typed stale A/B/C must retry through choice recovery, never through the old send request",
 );
 assert.match(timeline, /inspectRpgChoiceTurn\(/u, "dashboard placement must share the recoverable choice boundary");
+assert.match(candidateCardSource, /!closedReviewRequired[\s\S]*?<ApprovalCard/u, "inline fallback candidates must hide approval");
+assert.match(candidateCardSource, /放棄舊候選，回到原三選一/u);
+assert.match(artifactDrawerSource, /!canonMutationForbidden && !closedReviewRequired/u, "the drawer must hide fallback approval too");
+assert.match(artifactDrawerSource, /放棄舊候選，回到原三選一/u);
+assert.match(rpgTurnCardSource, /rpgChoiceSelectionDisabled\(/u, "choice re-entry must use the closed readiness gate");
+assert.match(rpgTurnCardSource, /rpg-closed-review-status/u, "the waiting state must be visible to the user");
 assert.match(rpgController, /readRpgChoiceTurnState\([\s\S]*?true/u);
 assert.match(rpgController, /logicalTurnId:\s*userMessage\.id/u);
 assert.match(
   rpgController,
-  /resumeProviderTaskId:\s*invocationCompleted[\s\S]{0,100}invocation\.executionReceipt\?\.providerRunId/u,
+  /resumeProviderTaskId:\s*explicitRetryProviderTaskId \?\? \(invocationCompleted[\s\S]{0,100}invocation\.executionReceipt\?\.providerRunId/u,
   "completed recovery must pass the exact durable provider task into candidate replay",
+);
+assert.match(
+  rpgController,
+  /recoveryMode === "retry_terminal"[\s\S]{0,300}rpgLogicalTurnGenerationTaskId\(userMessage\.id, attemptNumber\)/u,
+  "an explicit terminal retry must use a new immutable provider attempt instead of replaying the failed task",
 );
 assert.match(rpgController, /artifactId:\s*`conversation-rpg-artifact:\$\{input\.sessionId\}:\$\{userMessage\.id\}`/u);
 assert.match(rpgTurnSource, /rpgLogicalTurnGenerationTaskId\(logicalTurnId, attempt\)/u);
 assert.match(
   rpgTurnSource,
-  /const resumeIdentity = resumeProviderTaskId[\s\S]{0,180}parseRpgLogicalTurnProviderTaskId[\s\S]{0,400}const resumeFallbackReview = resumeIdentity\?\.stage === "fallback-review"[\s\S]*if \(resumeFallbackReview\)[\s\S]*RPG_STORY_AI_RESUME_FALLBACK_REVIEW/u,
-  "fallback-review recovery must bypass the initial generation task before replaying its durable receipt",
+  /const resumeIdentity = resumeProviderTaskId[\s\S]{0,180}parseRpgLogicalTurnProviderTaskId[\s\S]{0,500}const resumeReviewStage = resumeIdentity\?\.stage === "fallback-review"[\s\S]*if \(resumeClosedReview\)[\s\S]*RPG_STORY_AI_RESUME_FALLBACK_REPAIR[\s\S]*RPG_STORY_AI_RESUME_FALLBACK_REVIEW/u,
+  "fallback review and continuity-repair recovery must bypass initial generation before replaying their durable receipt",
 );
 assert.match(
   rpgTurnSource,

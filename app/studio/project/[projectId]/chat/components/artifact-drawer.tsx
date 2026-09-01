@@ -8,7 +8,7 @@ import type {
   ConversationToolInvocation,
 } from "@/lib/novel-ai/domain";
 import { isStoryWorkspaceForbiddenCanonicalTarget } from "@/lib/novel-ai/conversation/approval-transaction";
-import { artifactStory } from "./conversation-presentation";
+import { artifactStory, rpgCandidateRequiresClosedReview } from "./conversation-presentation";
 import type { ArtifactView, DrawerPayload } from "./conversation-types";
 import styles from "../conversation.module.css";
 
@@ -52,6 +52,11 @@ export default function ArtifactDrawer({
     ? invocations.filter((invocation) => invocation.messageId === selectedArtifact.sourceMessageId)
     : [];
   const canonMutationForbidden = isStoryWorkspaceForbiddenCanonicalTarget(selectedArtifact?.targetStore);
+  const closedReviewRequired = Boolean(
+    selectedArtifact
+    && selectedArtifact.status === "candidate"
+    && rpgCandidateRequiresClosedReview(selectedArtifact, selectedArtifactInvocations),
+  );
   const evidence = selectedArtifact ? {
     candidateDigest: selectedArtifact.candidateDigest,
     sourceRevision: selectedArtifact.sourceRevision,
@@ -106,9 +111,19 @@ export default function ArtifactDrawer({
                 這是舊版人物／世界 Canon 候選。故事工作台不能採用；可放棄候選，或回首頁修改正式設定。
               </p>
             ) : null}
+            {closedReviewRequired ? (
+              <section
+                className={styles.fallbackReviewNotice}
+                role="status"
+                data-testid="conversation-rpg-fallback-review-required"
+              >
+                <strong>這是舊版規則後備候選，尚未經閉端 AI 複核</strong>
+                <p>為保護正文與 Canon，這份候選不能核准。放棄後會回到原本的三選一；閉端 AI 就緒後才能重新選擇。</p>
+              </section>
+            ) : null}
             {selectedArtifact.status === "candidate" ? (
               <div className={styles.candidateActions}>
-                {!canonMutationForbidden ? <button className={styles.approvalPrimary} type="button" disabled={busy} onClick={() => onApprove(
+                {!canonMutationForbidden && !closedReviewRequired ? <button className={styles.approvalPrimary} type="button" disabled={busy} onClick={() => onApprove(
                     selectedArtifact,
                     ["rpg", "learning_rule"].includes(selectedArtifact.artifactType)
                       ? undefined
@@ -118,7 +133,9 @@ export default function ArtifactDrawer({
                       : selectedArtifact.artifactType === "learning_rule"
                         ? "採用整份學習規則"
                         : "修改後採用"}</button> : null}
-                <button type="button" disabled={busy} onClick={() => onReject(selectedArtifact)}>放棄</button>
+                <button type="button" disabled={busy} onClick={() => onReject(selectedArtifact)}>
+                  {closedReviewRequired ? "放棄舊候選，回到原三選一" : "放棄"}
+                </button>
               </div>
             ) : null}
           </section>

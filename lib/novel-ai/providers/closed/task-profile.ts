@@ -311,9 +311,22 @@ function outputContract(
     minimumCombinedHanCharacters: number;
     maximumCombinedHanCharacters: number;
   },
+  substantiveScene = false,
 ) {
   if (phase === "critic") return null;
   if (taskType === "chapter.continue") {
+    if (substantiveScene) {
+      return [
+        "<最終輸出契約>",
+        "只輸出一行〈具體場景標題〉及可直接接在目前章節末尾的小說正文。",
+        "繁體中文正文穩健目標一千一百至一千五百字、八至十六個完整段落且至少十二句；不得以摘要、資料表或碎片段落湊數。",
+        "首段必須承接場景契約所列最近正文尾的至少兩個具體錨點；全文須有具名對話、三個可見動作、兩種感官、自然因果、未解線索及結尾的新危機。",
+        "選定行動、具體阻力、直接代價與鎖定結果都必須落地；若契約列出兩名配角，兩人都要以不同的具名行動與對話改變局勢。",
+        "只能使用受保護場景契約中的人物、時代、能力、所有權、Canon 與最近正式正文；不得重貼既有正文或改寫成另一篇故事。",
+        "最後停在讀者下一次可作決定的具體畫面。禁止分析、規則、結算表、JSON、Markdown、A／B／C 或任何介面文字。",
+        "</最終輸出契約>",
+      ].join("\n");
+    }
     if (continuationSeed) {
       const maximumSuffixHanCharacters =
         continuationSeed.maximumCombinedHanCharacters
@@ -380,6 +393,8 @@ export function buildClosedAIModelPrompt(input: {
     minimumCombinedHanCharacters: number;
     maximumCombinedHanCharacters: number;
   };
+  /** The objective is already a bounded, protected long-form scene contract. */
+  substantiveScene?: boolean;
 }): ClosedAIPromptBuild {
   const phase = input.qualityPhase ?? "draft";
   const finalContextExpectations = input.browserFinalContextExpectations ?? [];
@@ -451,12 +466,24 @@ export function buildClosedAIModelPrompt(input: {
     + toolSources.reduce((total, item) => total + item.length, 0)
     + planSources.reduce((total, item) => total + item.length, 0)
     + workingSources.reduce((total, item) => total + item.length, 0);
-  const objectiveLimit = Math.max(256, Math.min(
-    input.profile.backendId === "private-ai-hub" ? 8_000 : 4_000,
-    Math.floor(input.profile.maxInputCharacters * 0.35),
-    input.profile.maxInputCharacters - 1_050 - mandatoryInstruction.length,
-  ));
-  const objective = escapePromptMarkup(compactText(input.objective, objectiveLimit));
+  const objectiveLimit = input.substantiveScene
+    ? Math.max(256, input.profile.maxInputCharacters - 650 - mandatoryInstruction.length)
+    : Math.max(256, Math.min(
+        input.profile.backendId === "private-ai-hub" ? 8_000 : 4_000,
+        Math.floor(input.profile.maxInputCharacters * 0.35),
+        input.profile.maxInputCharacters - 1_050 - mandatoryInstruction.length,
+      ));
+  const escapedObjective = escapePromptMarkup(input.objective);
+  if (input.substantiveScene && escapedObjective.length > objectiveLimit) {
+    throw Object.assign(new Error("CLOSED_AI_SUBSTANTIVE_SCENE_PROMPT_BUDGET_EXCEEDED"), {
+      code: "CLOSED_AI_SUBSTANTIVE_SCENE_PROMPT_BUDGET_EXCEEDED",
+      inputCharacters: escapedObjective.length,
+      maximumCharacters: objectiveLimit,
+    });
+  }
+  const objective = input.substantiveScene
+    ? escapedObjective
+    : escapePromptMarkup(compactText(input.objective, objectiveLimit));
   const seen = new Set<string>();
   const context = ordinaryRawContext
     .map((item) => escapePromptMarkup(item.replace(/\r\n?/gu, "\n").trim()))
@@ -466,7 +493,7 @@ export function buildClosedAIModelPrompt(input: {
       seen.add(key);
       return true;
     });
-  const continuityAnchor = continuationSeed
+  const continuityAnchor = continuationSeed || input.substantiveScene
     ? null
     : directProseContinuityAnchor({
       taskType: input.profile.taskType,
@@ -546,6 +573,7 @@ export function buildClosedAIModelPrompt(input: {
     input.profile.taskType,
     phase,
     continuationSeed,
+    input.substantiveScene,
   );
   const prompt = [
     ...(protectedContext.block ? [protectedContext.block] : []),
@@ -589,13 +617,19 @@ export function buildClosedAIModelPrompt(input: {
     ...(continuityAnchor ? [continuityAnchor] : []),
     ...(finalOutputContract ? [finalOutputContract] : []),
   ].join("\n");
-  if (
-    finalContextExpectations.length
-    && prompt.length > input.profile.maxInputCharacters
-  ) {
-    throw Object.assign(new Error("BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED"), {
-      code: "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED",
-    });
+  if (prompt.length > input.profile.maxInputCharacters) {
+    const code = finalContextExpectations.length
+      ? "BROWSER_FINAL_CONTEXT_BUDGET_EXCEEDED"
+      : input.substantiveScene
+        ? "CLOSED_AI_SUBSTANTIVE_SCENE_PROMPT_BUDGET_EXCEEDED"
+        : null;
+    if (code) {
+      throw Object.assign(new Error(code), {
+        code,
+        inputCharacters: prompt.length,
+        maximumCharacters: input.profile.maxInputCharacters,
+      });
+    }
   }
   return {
     prompt,

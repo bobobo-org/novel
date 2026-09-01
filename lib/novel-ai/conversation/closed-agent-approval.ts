@@ -51,8 +51,11 @@ export async function assertConversationClosedAgentApprovalBinding(input: {
     && invocation.messageId === sourceMessage.id
     && sourceMessage.toolInvocationIds.includes(invocation.id)
     && invocation.status === "completed"
-    && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
-    && invocation.taskId === candidate?.taskId
+    && (artifact.artifactType === "rpg"
+      ? invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+        && invocation.executionReceipt?.providerRunId === candidate?.taskId
+      : invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
+        && invocation.taskId === candidate?.taskId)
   ));
   const invocation = candidateInvocations.length === 1
     ? candidateInvocations[0]
@@ -70,6 +73,54 @@ export async function assertConversationClosedAgentApprovalBinding(input: {
   const normalizedMessageDigest = await conversationContentDigest(
     sourceMessage.content,
   );
+  type RpgApprovalEnvelope = {
+    schemaVersion?: unknown;
+    candidate?: {
+      schemaVersion?: unknown;
+      taskId?: unknown;
+      candidateId?: unknown;
+      candidateDigest?: unknown;
+      storyDigest?: unknown;
+      model?: unknown;
+      modelDigest?: unknown;
+      sourceChapterId?: unknown;
+      sourceRevision?: unknown;
+      story?: unknown;
+      canonicalMutationCount?: unknown;
+      externalRequest?: unknown;
+      dataLeftDevice?: unknown;
+    };
+  };
+  let rpgEnvelope: RpgApprovalEnvelope | null = null;
+  if (artifact.artifactType === "rpg") {
+    try {
+      rpgEnvelope = JSON.parse(artifact.candidateContent) as RpgApprovalEnvelope;
+    } catch {
+      rpgEnvelope = null;
+    }
+  }
+  const rpg = rpgEnvelope?.candidate;
+  const rpgArtifactBindingVerified = Boolean(
+    candidate
+    && artifact.artifactType === "rpg"
+    && rpgEnvelope?.schemaVersion === "conversation-rpg-candidate-v1"
+    && rpg?.schemaVersion === "rpg-chat-turn-v1"
+    && rpg.taskId === candidate.taskId
+    && rpg.candidateId === candidate.id
+    && rpg.candidateDigest === candidate.contentDigest
+    && (rpg.storyDigest === undefined || rpg.storyDigest === normalizedMessageDigest)
+    && rpg.model === candidate.modelId
+    && rpg.modelDigest === candidate.modelDigest
+    && rpg.sourceChapterId === artifact.targetRecordId
+    && rpg.sourceRevision === artifact.sourceRevision
+    && rpg.story === sourceMessage.content
+    && rpg.canonicalMutationCount === 0
+    && rpg.externalRequest === false
+    && rpg.dataLeftDevice === false,
+  );
+  const directArtifactBindingVerified = artifact.artifactType !== "rpg"
+    && normalizedCandidateDigest === artifact.candidateDigest
+    && sourceMessage.contentDigest === artifact.candidateDigest;
   const expectedCacheProof = candidate
     ? await buildConversationClosedAgentCacheOriginProof(candidate)
     : undefined;
@@ -101,6 +152,42 @@ export async function assertConversationClosedAgentApprovalBinding(input: {
     && hasValidConversationClosedAgentCacheOriginProof(persistedCacheProof)
     && stableStringify(persistedCacheProof) === stableStringify(expectedCacheProof),
   );
+  const legacyRpgReceiptVerified = Boolean(
+    artifact.artifactType === "rpg"
+    && candidate
+    && invocation
+    && receipt
+    && freshExecutionVerified
+    && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+    && receipt.providerRunId === candidate.taskId
+    && receipt.contextDigest === invocation.contextDigest
+    && receipt.outputDigest === candidate.contentDigest
+    && receipt.closedAgentSchemaVersion === undefined
+    && receipt.closedAgentBackendId === undefined
+    && receipt.normalizationReceiptId === undefined
+    && receipt.traditionalChineseNormalizerVersion === undefined
+    && receipt.closedAgentCacheOrigin === undefined,
+  );
+  const persistedReceiptProofVerified = Boolean(
+    candidate
+    && receipt
+    && (
+      legacyRpgReceiptVerified
+      || (
+        receipt.contextDigest === candidate.contextDigest
+        && receipt.closedAgentSchemaVersion === candidate.schemaVersion
+        && receipt.closedAgentBackendId === candidate.backendId
+        && receipt.normalizationReceiptId
+          === candidate.traditionalChineseNormalization.receiptId
+        && receipt.traditionalChineseNormalizerVersion
+          === candidate.traditionalChineseNormalization.normalizerVersion
+      )
+    ),
+  );
+  const invocationContextVerified = legacyRpgReceiptVerified
+    || (artifact.artifactType === "rpg"
+      ? receipt?.contextDigest === candidate?.contextDigest
+      : invocation?.contextDigest === candidate?.contextDigest);
   const targetRevisionVerified = input.targetRecord
     ? input.targetRecord.id === artifact.targetRecordId
       && input.targetRecord.projectId === input.projectId
@@ -142,13 +229,12 @@ export async function assertConversationClosedAgentApprovalBinding(input: {
     || candidate.sourceRevision !== artifact.sourceRevision
     || rawCandidateDigest !== candidate.contentDigest
     || candidate.traditionalChineseNormalization.outputDigest !== candidate.contentDigest
-    || normalizedCandidateDigest !== artifact.candidateDigest
     || normalizedArtifactDigest !== artifact.candidateDigest
     || normalizedMessageDigest !== sourceMessage.contentDigest
-    || sourceMessage.contentDigest !== artifact.candidateDigest
+    || (!directArtifactBindingVerified && !rpgArtifactBindingVerified)
     || invocation.modelId !== candidate.modelId
     || invocation.modelDigest !== candidate.modelDigest
-    || invocation.contextDigest !== candidate.contextDigest
+    || !invocationContextVerified
     || invocation.externalRequest !== false
     || invocation.dataLeftDevice !== false
     || invocation.canonicalMutationCount !== 0
@@ -157,16 +243,10 @@ export async function assertConversationClosedAgentApprovalBinding(input: {
     || (cachedExecutionVerified && receipt.providerRunId !== null)
     || receipt.modelId !== candidate.modelId
     || receipt.modelDigest !== candidate.modelDigest
-    || receipt.contextDigest !== candidate.contextDigest
     || receipt.outputDigest !== candidate.contentDigest
     || receipt.externalRequest !== false
     || receipt.dataLeftDevice !== false
-    || receipt.closedAgentSchemaVersion !== candidate.schemaVersion
-    || receipt.closedAgentBackendId !== candidate.backendId
-    || receipt.normalizationReceiptId
-      !== candidate.traditionalChineseNormalization.receiptId
-    || receipt.traditionalChineseNormalizerVersion
-      !== candidate.traditionalChineseNormalization.normalizerVersion
+    || !persistedReceiptProofVerified
     || (!freshExecutionVerified && !cachedExecutionVerified)
   ) {
     throw approvalBindingError();

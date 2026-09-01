@@ -980,6 +980,7 @@ export async function runBrowserAI(
       toolResults: request.toolResults,
       workingMaterials: request.workingMaterials,
       unapprovedContinuationSeed: options.unapprovedContinuationSeed,
+      substantiveScene: request.generationOptions?.substantiveScene === true,
     });
     try {
       const generated = await generateWithBrowserWebLLM({
@@ -1148,6 +1149,7 @@ export async function runBrowserAI(
       agentPlan: request.agentPlan,
       toolResults: request.toolResults,
       workingMaterials: request.workingMaterials,
+      substantiveScene: request.generationOptions?.substantiveScene === true,
     });
     let session: BrowserLanguageModelSession | null = null;
     try {

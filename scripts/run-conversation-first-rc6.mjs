@@ -686,6 +686,7 @@ async function setupRpgConversationApproval({
   const storyState = (await repository.list("storyStates", projectRecord.id))[0];
   const storyBible = (await repository.list("storyBibles", projectRecord.id))[0];
   const acceptedText = "Lin Zhao opens the gate and accepts the immediate consequence.";
+  const acceptedTextDigest = await sha256Hex(acceptedText.normalize("NFKC"));
   const candidateBase = makeRecord(projectRecord.id, "ai_candidate");
   const candidate = await repository.put("candidates", {
     ...candidateBase,
@@ -724,9 +725,12 @@ async function setupRpgConversationApproval({
     role: "assistant",
     content: "A complete RPG story turn is ready for approval.",
   });
+  const invocationContextDigest = await sha256Hex(`context:${assistant.id}`);
   const candidateContent = JSON.stringify({
     schemaVersion: "conversation-rpg-candidate-v1",
     candidate: {
+      candidateDigest: acceptedTextDigest,
+      contextDigest: invocationContextDigest,
       story: acceptedText,
       sourceChapterId: chapterRecord.id,
       sourceRevision: chapterRecord.revision,
@@ -955,9 +959,11 @@ harness.test("contract", "chapter continuation setup follows task route, not any
   assert.match(composer, /CHAPTER_CONTINUE_SETUP_REQUIRED_MESSAGE/u);
   assert.match(
     composer,
-    /showSetup = Boolean\(!externalSelected && closedAiSetup && !taskRoutable\)/u,
+    /showSetup = !externalSelected && effectiveClosedAiStartupState !== "ready"/u,
   );
   assert.match(composer, /data-closed-ai-task-routable=\{taskRoutable\}/u);
+  assert.match(composer, /data-closed-ai-startup-state=\{effectiveClosedAiStartupState\}/u);
+  assert.match(composer, /closedAiStartupState === "ready" && !taskRoutable/u);
   assert.match(composer, /自動協調器設定/u);
 });
 
@@ -1575,6 +1581,91 @@ harness.test("approval", "Closed approval preflight binds the current IndexedDB 
   assert.equal(rejectedSignedIntentCount, 0);
   assert.equal((await tampered.repository.get("chapters", tampered.chapterId)).revision, 1);
   assert.equal((await tampered.repository.list("conversationApprovalTransactions", tampered.projectId)).length, 0);
+});
+
+harness.test("approval", "RPG Closed approval proof binds the story envelope to the exact rpgTurn invocation", async () => {
+  const state = await setupClosedApprovalFixture({
+    cacheHit: false,
+    candidateContent: "封閉模型完成一段可核准的繁體 RPG 正文。",
+  });
+  const storyDigest = await conversationContentDigest(state.message.content);
+  const envelope = {
+    schemaVersion: "conversation-rpg-candidate-v1",
+    candidate: {
+      schemaVersion: "rpg-chat-turn-v1",
+      taskId: state.candidate.taskId,
+      candidateId: state.candidate.id,
+      candidateDigest: state.candidate.contentDigest,
+      storyDigest,
+      model: state.candidate.modelId,
+      modelDigest: state.candidate.modelDigest,
+      sourceChapterId: state.targetRecord.id,
+      sourceRevision: state.targetRecord.revision,
+      story: state.message.content,
+      canonicalMutationCount: 0,
+      externalRequest: false,
+      dataLeftDevice: false,
+    },
+  };
+  const candidateContent = JSON.stringify(envelope);
+  const artifact = {
+    ...state.artifact,
+    artifactType: "rpg",
+    candidateContent,
+    candidateDigest: await conversationContentDigest(candidateContent),
+  };
+  const invocation = {
+    ...state.invocation,
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.rpgTurn,
+    executionReceipt: {
+      ...state.invocation.executionReceipt,
+      providerRunId: state.candidate.taskId,
+    },
+  };
+  const bindingInput = {
+    ...state.bindingInput,
+    artifact,
+    sourceMessageCandidateArtifacts: [artifact],
+    invocations: [invocation],
+  };
+  const binding = await assertConversationClosedAgentApprovalBinding(bindingInput);
+  const proof = await buildConversationClosedAgentApprovalBindingProof(binding);
+  assert.equal(proof.invocationId, invocation.id);
+  assert.equal(proof.invocationRevision, invocation.revision);
+  assert.equal(proof.candidateRawContentDigest, state.candidate.contentDigest);
+  assert.equal(proof.sourceMessageContentDigest, storyDigest);
+  assert.equal(proof.artifactCandidateDigest, artifact.candidateDigest);
+
+  await assert.rejects(
+    () => assertConversationClosedAgentApprovalBinding({
+      ...bindingInput,
+      invocations: [{
+        ...invocation,
+        executionReceipt: {
+          ...invocation.executionReceipt,
+          providerRunId: `wrong:${state.candidate.taskId}`,
+        },
+      }],
+    }),
+    errorWithCode("CONVERSATION_CLOSED_CANDIDATE_BINDING_INVALID"),
+  );
+
+  const tamperedEnvelope = structuredClone(envelope);
+  tamperedEnvelope.candidate.storyDigest = "f".repeat(64);
+  const tamperedCandidateContent = JSON.stringify(tamperedEnvelope);
+  const tamperedArtifact = {
+    ...artifact,
+    candidateContent: tamperedCandidateContent,
+    candidateDigest: await conversationContentDigest(tamperedCandidateContent),
+  };
+  await assert.rejects(
+    () => assertConversationClosedAgentApprovalBinding({
+      ...bindingInput,
+      artifact: tamperedArtifact,
+      sourceMessageCandidateArtifacts: [tamperedArtifact],
+    }),
+    errorWithCode("CONVERSATION_CLOSED_CANDIDATE_BINDING_INVALID"),
+  );
 });
 
 harness.test("approval", "Closed cache-hit approval requires exact persisted origin proof", async () => {

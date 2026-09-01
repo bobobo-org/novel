@@ -44,6 +44,9 @@ export function ConversationExecutionTrace({
           <div><dt>模型／引擎</dt><dd>{trace.modelLabel}</dd></div>
           <div><dt>資料邊界</dt><dd>{trace.boundaryLabel}</dd></div>
           <div><dt>正式故事</dt><dd>{trace.canonLabel}</dd></div>
+          {trace.invocation.safeErrorCode ? (
+            <div><dt>安全停止碼</dt><dd>{trace.invocation.safeErrorCode}</dd></div>
+          ) : null}
         </dl>
       </details>
     </section>

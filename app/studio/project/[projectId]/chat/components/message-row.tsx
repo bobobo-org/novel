@@ -84,6 +84,7 @@ export const MessageRow = memo(function MessageRow({
   const rpgChoices = rpg.parsed;
   const rpgChoicesConsumed = rpg.consumed;
   const rpgChoicesAbandoned = rpg.abandoned;
+  const rpgClosedReviewRequired = rpg.closedReviewRequired;
   const messageArtifacts = artifactsByMessage.get(message.id) ?? [];
   const hasRpgStory = messageArtifacts.some((artifact) => artifact.artifactType === "rpg");
   const storyLayout = hasRpgStory && message.content.trim().length >= 800 ? "spread" : "page";
@@ -162,6 +163,8 @@ export const MessageRow = memo(function MessageRow({
           busy={busy}
           consumed={rpgChoicesConsumed}
           abandoned={rpgChoicesAbandoned}
+          closedReviewRequired={rpgClosedReviewRequired}
+          closedAiReady={regenerationReady}
           dashboard={playDashboardPlacement === "choices" ? playDashboard : null}
           onChoose={(key) => {
             if (rpgChoices.envelope) actions.chooseRpgOption(rpgChoices.envelope, message.id, key);
@@ -213,6 +216,8 @@ export const MessageRow = memo(function MessageRow({
           sourceMessage={message}
           busy={busy}
           canRegenerate={canRegenerate}
+          invocations={messageInvocations}
+          closedAiReady={regenerationReady}
           hasComparableCandidate={hasComparableCandidate}
           onOpen={actions.openArtifact}
           onApprove={actions.approveArtifact}

@@ -18,11 +18,16 @@ import type { PlatformTaskType } from "@/lib/novel-ai/router/platform-types";
 import {
   getStudioClosedAgentOS,
   getStudioClosedAIBootstrapCoordinator,
+  getStudioClosedAIRuntimeCoordinator,
+  prewarmStudioProjectAIState,
 } from "@/lib/novel-ai/web/closed-agent-os-service";
+import { prewarmStudioInteractiveChoiceAI } from "@/lib/novel-ai/web/studio-closed-ai";
+import { PASSWORDLESS_LOCAL_AI_ORIGINS } from "@/lib/novel-ai/providers/local-ollama/companion-release";
 import type {
   ClosedAiBootstrapProgress,
   ClosedAiBootstrapResult,
 } from "@/lib/novel-ai/web/closed-ai-bootstrap-coordinator";
+import { isClosedAiTaskRoutable } from "../closed-ai-task-readiness";
 
 function safeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -35,6 +40,63 @@ export type ClosedAiSetupLifecycle =
   | "cancelled"
   | "failed"
   | "ready";
+
+export type ClosedAiStartupState =
+  | "starting"
+  | "ready"
+  | "action_required"
+  | "failed"
+  | "timeout_fallback";
+
+export function shouldAutostartStudioLocalAI(origin: string) {
+  return PASSWORDLESS_LOCAL_AI_ORIGINS.includes(
+    origin as (typeof PASSWORDLESS_LOCAL_AI_ORIGINS)[number],
+  );
+}
+
+function closedAiAutostartErrorCode(error: unknown) {
+  return String((error as { code?: unknown } | null)?.code ?? "");
+}
+
+const CLOSED_AI_AUTOSTART_TIMEOUT_CODES = new Set([
+  "REQUEST_TIMEOUT",
+  "OLLAMA_TIMEOUT",
+]);
+const CLOSED_AI_AUTOSTART_KNOWN_FAILURE_CODES = new Set([
+  ...CLOSED_AI_AUTOSTART_TIMEOUT_CODES,
+  "LOCAL_NETWORK_PERMISSION_DENIED",
+  "OLLAMA_MODEL_NOT_FOUND",
+  "LOCAL_PROVIDER_NOT_READY",
+  "BRIDGE_PROCESS_UNREACHABLE",
+]);
+
+export function closedAiAutostartFailureState(
+  error: unknown,
+): Extract<ClosedAiStartupState, "failed" | "timeout_fallback"> {
+  return CLOSED_AI_AUTOSTART_TIMEOUT_CODES.has(closedAiAutostartErrorCode(error))
+    ? "timeout_fallback"
+    : "failed";
+}
+
+export function closedAiAutostartFailureMessage(error: unknown) {
+  const code = closedAiAutostartErrorCode(error);
+  if (code === "LOCAL_NETWORK_PERMISSION_DENIED") {
+    return "瀏覽器未允許這個正式網址存取本機網路；請允許本機網路存取後重試。";
+  }
+  if (CLOSED_AI_AUTOSTART_TIMEOUT_CODES.has(code)) {
+    return "等待本機閉端 AI 連線已明確逾時；RPG 規則後備現在只會以明確標示的後備路徑待命，不會冒充閉端 AI 成功。網站無法自行啟動電腦上的 Ollama；若要產生並複核完整正文，請先啟動 Novel Local AI Companion 與 Ollama，再重試。";
+  }
+  if (code === "OLLAMA_MODEL_NOT_FOUND") {
+    return "已找到本機橋接程式，但沒有可生成正文的 Ollama 模型。請先在本機完成模型安裝。";
+  }
+  if (code === "LOCAL_PROVIDER_NOT_READY") {
+    return "已找到本機橋接程式，但版本或執行狀態尚未符合這個正式站；請更新並重新啟動 Novel Local AI Companion。";
+  }
+  if (code === "BRIDGE_PROCESS_UNREACHABLE") {
+    return "找不到已啟動的本機閉端 AI 服務。一般網站無法自行啟動電腦上的 Ollama；請先啟動 Novel Local AI Companion 與 Ollama。";
+  }
+  return "閉端 AI 自動啟動未完成。請確認 Novel Local AI Companion 與 Ollama 已啟動，或改在此裝置明確準備 Browser AI。";
+}
 
 const CLOSED_REGENERATION_BACKENDS = new Set<ClosedAIBackendId>([
   "browser-ai",
@@ -103,6 +165,7 @@ export function useClosedAiBootstrap(projectId: string) {
   const [closedAiSetupBusy, setClosedAiSetupBusy] = useState(false);
   const [closedAiSetupError, setClosedAiSetupError] = useState<string | null>(null);
   const [closedAiSetupLifecycle, setClosedAiSetupLifecycle] = useState<ClosedAiSetupLifecycle>("inspecting");
+  const [closedAiStartupState, setClosedAiStartupState] = useState<ClosedAiStartupState>("starting");
   const setupAbortRef = useRef<AbortController | null>(null);
 
   const inspectAfterFailure = useCallback(async (
@@ -111,8 +174,11 @@ export function useClosedAiBootstrap(projectId: string) {
   ) => {
     if (controller.signal.aborted) return;
     setClosedAiSetupProgress(null);
-    setClosedAiSetupError(safeErrorMessage(error));
+    setClosedAiSetupError(CLOSED_AI_AUTOSTART_KNOWN_FAILURE_CODES.has(
+      closedAiAutostartErrorCode(error),
+    ) ? closedAiAutostartFailureMessage(error) : safeErrorMessage(error));
     setClosedAiSetupLifecycle("failed");
+    setClosedAiStartupState(closedAiAutostartFailureState(error));
     const inspected = await getStudioClosedAIBootstrapCoordinator().inspect({
       projectId,
       taskType: "chapter.continue",
@@ -129,19 +195,94 @@ export function useClosedAiBootstrap(projectId: string) {
       setClosedAiSetupBusy(true);
       setClosedAiSetupError(null);
       setClosedAiSetupLifecycle("inspecting");
-      void getStudioClosedAIBootstrapCoordinator().bootstrap({
+      setClosedAiStartupState("starting");
+      setClosedAiSetupProgress({
+        step: "capability_detect",
+        percent: 1,
+        message: "正在連接已啟動的本機閉端 AI，並核對此裝置可用的 Browser AI。",
+      });
+      const bootstrapCoordinator = getStudioClosedAIBootstrapCoordinator();
+      const runtimeCoordinator = getStudioClosedAIRuntimeCoordinator();
+      // Keep the bounded Local Bridge discovery alive across React Strict Mode's
+      // mount -> unmount -> remount probe. The bridge client already owns a
+      // 45-second timeout and de-duplicates this request; binding the shared
+      // promise to the first mount's AbortSignal would poison the remount.
+      const localConnection = shouldAutostartStudioLocalAI(window.location.origin)
+        ? runtimeCoordinator.connectLocalAutomatically().then(
+            () => ({ attempted: true as const, error: null }),
+            (error: unknown) => ({ attempted: true as const, error }),
+          )
+        : Promise.resolve({
+            attempted: false as const,
+            error: null,
+          });
+      const browserBootstrap = bootstrapCoordinator.bootstrap({
         projectId,
         taskType: "chapter.continue",
         signal: controller.signal,
         onProgress: (next) => {
           if (!controller.signal.aborted) setClosedAiSetupProgress(next);
         },
-      }).then((result) => {
-        if (!controller.signal.aborted) {
-          setClosedAiSetup(result);
-          setClosedAiSetupLifecycle(result.status === "ready" ? "ready" : "idle");
+      }).then(
+        (result) => ({ result, error: null }),
+        (error: unknown) => ({ result: null, error }),
+      );
+      void (async () => {
+        const browser = await browserBootstrap;
+        if (controller.signal.aborted) return;
+        // bootstrap() already returns a complete, verified Browser snapshot.
+        // Re-inspecting here would probe Local again and could hold a ready
+        // Browser route in "starting" for another 15 seconds.
+        let inspected = browser.result;
+        // A verified Browser AI route is already sufficient. Do not keep the
+        // author in "starting" while the optional Local Bridge reaches its
+        // explicit timeout in the background.
+        let local: { attempted: boolean; error: unknown | null } = {
+          attempted: false,
+          error: null,
+        };
+        if (!isClosedAiTaskRoutable(inspected)) {
+          local = await localConnection;
+          if (controller.signal.aborted) return;
+          inspected = await bootstrapCoordinator.inspect({
+            projectId,
+            taskType: "chapter.continue",
+            signal: controller.signal,
+          }).catch(() => inspected ?? browser.result);
         }
-      }).catch((error) => inspectAfterFailure(controller, error)).finally(() => {
+        if (!inspected) {
+          throw browser.error ?? local.error ?? new Error("閉端 AI 自動啟動沒有回傳可驗證狀態。");
+        }
+        if (controller.signal.aborted) return;
+        const routable = isClosedAiTaskRoutable(inspected);
+        setClosedAiSetup(inspected);
+        const localFailed = local.attempted && Boolean(local.error);
+        const localFailureState = localFailed
+          ? closedAiAutostartFailureState(local.error)
+          : "action_required";
+        setClosedAiSetupLifecycle(routable ? "ready" : localFailed ? "failed" : "idle");
+        setClosedAiStartupState(routable ? "ready" : localFailureState);
+        setClosedAiSetupError(routable ? null : localFailed
+          ? closedAiAutostartFailureMessage(local.error)
+          : null);
+        if (routable) {
+          setClosedAiSetupProgress({
+            step: "router_register",
+            percent: 100,
+            message: "閉端 AI 已連線並完成真實生成實測，可開始創作。",
+          });
+          void Promise.allSettled([
+            prewarmStudioProjectAIState({
+              projectId,
+              taskTypes: ["chapter.abcChoices", "chapter.continue"],
+              signal: controller.signal,
+            }),
+            prewarmStudioInteractiveChoiceAI(controller.signal),
+          ]);
+        } else {
+          setClosedAiSetupProgress(null);
+        }
+      })().catch((error) => inspectAfterFailure(controller, error)).finally(() => {
         if (setupAbortRef.current === controller) {
           setupAbortRef.current = null;
           setClosedAiSetupBusy(false);
@@ -157,36 +298,76 @@ export function useClosedAiBootstrap(projectId: string) {
 
   const prepareClosedAi = useCallback(async () => {
     if (closedAiSetupBusy || setupAbortRef.current) return;
+    const retryingLocal = closedAiStartupState === "failed"
+      || closedAiStartupState === "timeout_fallback";
     const controller = new AbortController();
     setupAbortRef.current = controller;
     setClosedAiSetupBusy(true);
     setClosedAiSetupError(null);
     setClosedAiSetupLifecycle("preparing");
+    setClosedAiStartupState("starting");
     setClosedAiSetupProgress({
       step: "capability_detect",
       percent: 1,
       message: "正在啟動閉端 AI 自動協調器準備流程。",
     });
     try {
-      const result = await getStudioClosedAIBootstrapCoordinator().prepareBrowserAi({
-        projectId,
-        taskType: "chapter.continue",
-        userInitiated: true,
-        signal: controller.signal,
-        onProgress: (next) => {
-          if (!controller.signal.aborted) setClosedAiSetupProgress(next);
-        },
-      });
+      const bootstrapCoordinator = getStudioClosedAIBootstrapCoordinator();
+      const retryLocalOnOfficialOrigin = retryingLocal
+        && shouldAutostartStudioLocalAI(window.location.origin);
+      const result = retryLocalOnOfficialOrigin
+        ? await (async () => {
+            setClosedAiSetupProgress({
+              step: "capability_detect",
+              percent: 10,
+              message: "正在重新連線這台電腦上已啟動的 Novel Local AI Companion 與 Ollama。",
+            });
+            await getStudioClosedAIRuntimeCoordinator().connectLocalAutomatically(
+              controller.signal,
+            );
+            const inspected = await bootstrapCoordinator.inspect({
+              projectId,
+              taskType: "chapter.continue",
+              signal: controller.signal,
+            });
+            if (!isClosedAiTaskRoutable(inspected)) {
+              throw Object.assign(new Error("本機閉端 AI 已連線，但仍未取得可生成正文的驗證路由。"), {
+                code: "LOCAL_PROVIDER_NOT_READY",
+              });
+            }
+            return inspected;
+          })()
+        : await bootstrapCoordinator.prepareBrowserAi({
+            projectId,
+            taskType: "chapter.continue",
+            userInitiated: true,
+            signal: controller.signal,
+            onProgress: (next) => {
+              if (!controller.signal.aborted) setClosedAiSetupProgress(next);
+            },
+          });
       if (!controller.signal.aborted) {
+        const routable = isClosedAiTaskRoutable(result);
         setClosedAiSetup(result);
-        setClosedAiSetupLifecycle(result.status === "ready" ? "ready" : "idle");
-        setClosedAiSetupProgress(result.status === "ready"
+        setClosedAiSetupLifecycle(routable ? "ready" : "idle");
+        setClosedAiStartupState(routable ? "ready" : "action_required");
+        setClosedAiSetupProgress(routable
           ? {
               step: "router_register",
               percent: 100,
               message: "自動協調器已完成真實生成實測，可開始創作。",
             }
           : null);
+        if (routable) {
+          void Promise.allSettled([
+            prewarmStudioProjectAIState({
+              projectId,
+              taskTypes: ["chapter.abcChoices", "chapter.continue"],
+              signal: controller.signal,
+            }),
+            prewarmStudioInteractiveChoiceAI(controller.signal),
+          ]);
+        }
       }
     } catch (error) {
       await inspectAfterFailure(controller, error);
@@ -196,7 +377,7 @@ export function useClosedAiBootstrap(projectId: string) {
         setClosedAiSetupBusy(false);
       }
     }
-  }, [closedAiSetupBusy, inspectAfterFailure, projectId]);
+  }, [closedAiSetupBusy, closedAiStartupState, inspectAfterFailure, projectId]);
 
   const cancelClosedAiSetup = useCallback(() => {
     setupAbortRef.current?.abort("CONVERSATION_CLOSED_AI_SETUP_CANCELLED");
@@ -205,6 +386,7 @@ export function useClosedAiBootstrap(projectId: string) {
     setClosedAiSetupProgress(null);
     setClosedAiSetupError("已取消自動協調器準備；未完成的模型不會標記為可用。你可以稍後重試。");
     setClosedAiSetupLifecycle("cancelled");
+    setClosedAiStartupState("action_required");
   }, []);
 
   const resolveRegenerationBackend = useCallback(async (input: {
@@ -333,6 +515,7 @@ export function useClosedAiBootstrap(projectId: string) {
     closedAiSetupBusy,
     closedAiSetupError,
     closedAiSetupLifecycle,
+    closedAiStartupState,
     prepareClosedAi,
     cancelClosedAiSetup,
     resolveRegenerationBackend,

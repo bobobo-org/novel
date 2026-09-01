@@ -1,6 +1,7 @@
 import type {
   ConversationArtifact,
   ConversationMessage,
+  ConversationToolInvocation,
 } from "@/lib/novel-ai/domain";
 import type { RpgChatChoicePlan, RpgChatTurnCandidate } from "@/lib/novel-ai/web/rpg-chat-turn";
 import type {
@@ -157,6 +158,43 @@ export function parseRpgCandidate(artifact: ConversationArtifact) {
   } catch {
     return null;
   }
+}
+
+export function rpgCandidateInvocation(
+  artifact: ConversationArtifact,
+  invocations: readonly ConversationToolInvocation[],
+) {
+  const candidate = parseRpgCandidate(artifact);
+  if (!candidate) return null;
+  return invocations.find((invocation) => (
+    invocation.messageId === artifact.sourceMessageId
+    && invocation.status === "completed"
+    && invocation.executionReceipt?.providerRunId === candidate.taskId
+    && invocation.executionReceipt.outputDigest === candidate.candidateDigest
+  )) ?? null;
+}
+
+export function rpgCandidateRequiresClosedReview(
+  artifact: ConversationArtifact,
+  invocations: readonly ConversationToolInvocation[],
+) {
+  return rpgCandidateInvocation(artifact, invocations)?.actualExecutor
+    === "deterministic-rule-fallback";
+}
+
+export function rpgChoiceSelectionDisabled(input: {
+  busy: boolean;
+  consumed: boolean;
+  abandoned: boolean;
+  hasEnvelope: boolean;
+  closedReviewRequired: boolean;
+  closedAiReady: boolean;
+}) {
+  return input.busy
+    || input.consumed
+    || input.abandoned
+    || !input.hasEnvelope
+    || (input.closedReviewRequired && !input.closedAiReady);
 }
 
 export function parseLearningImportCandidate(artifact: ConversationArtifact) {

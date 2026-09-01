@@ -82,6 +82,7 @@ export type ConversationWorkspaceViewProps = {
   closedAiSetupBusy: ComposerProps["closedAiSetupBusy"];
   closedAiSetupError: ComposerProps["closedAiSetupError"];
   closedAiSetupLifecycle: ComposerProps["closedAiSetupLifecycle"];
+  closedAiStartupState: ComposerProps["closedAiStartupState"];
   aiExecutionMode: ComposerProps["aiExecutionMode"];
   hybridAiSource: ComposerProps["hybridAiSource"];
   externalProviderId: ComposerProps["externalProviderId"];
@@ -231,6 +232,7 @@ export function ConversationWorkspaceView(props: ConversationWorkspaceViewProps)
             closedAiSetupBusy={props.closedAiSetupBusy}
             closedAiSetupError={props.closedAiSetupError}
             closedAiSetupLifecycle={props.closedAiSetupLifecycle}
+            closedAiStartupState={props.closedAiStartupState}
             aiExecutionMode={props.aiExecutionMode}
             hybridAiSource={props.hybridAiSource}
             externalProviderId={props.externalProviderId}

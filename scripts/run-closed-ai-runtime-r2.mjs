@@ -31,9 +31,14 @@ import {
   closedAITabSessionStorageKey,
 } from "../lib/novel-ai/providers/closed/tab-session-recovery.ts";
 import {
+  configureLocalBridgeClient,
+  configureLocalBridgeModel,
   LOCAL_BRIDGE_PROTOCOL,
   LocalBridgeClient,
 } from "../lib/novel-ai/providers/local-ollama/local-bridge-client.ts";
+import {
+  probeLocalOllama,
+} from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
 import {
   evaluateLocalAIRuntimeVersion,
   PASSWORDLESS_LOCAL_AI_ORIGINS,
@@ -873,6 +878,10 @@ test("automatic-local-connection", "official origin connects without password or
   const modelId = "qwen2.5:3b";
   const modelDigest = "auto-model-digest-r2";
   const requests = [];
+  const invalidAuthorizations = new Set();
+  const generationFailuresRemaining = new Map();
+  let automaticSessionSerial = 0;
+  let reportUnpairedRuntime = false;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const headers = new Headers(init.headers);
@@ -882,6 +891,7 @@ test("automatic-local-connection", "official origin connects without password or
       method: String(init.method ?? "GET"),
       authorization: headers.get("Authorization"),
       csrf: headers.get("X-Bridge-CSRF"),
+      idempotencyKey: headers.get("Idempotency-Key"),
       body: typeof init.body === "string" ? init.body : null,
     });
     if (pathname === "/health") {
@@ -891,12 +901,17 @@ test("automatic-local-connection", "official origin connects without password or
         protocolVersion: LOCAL_BRIDGE_PROTOCOL,
         instanceId: reportedInstanceId,
         automaticSessionSupported: true,
+        pairingState: reportUnpairedRuntime ? "unpaired" : "paired",
+        ollamaReachable: true,
+        modelAvailable: true,
+        runtimeReady: !reportUnpairedRuntime,
       });
     }
     if (pathname === "/session/auto") {
+      automaticSessionSerial += 1;
       return Response.json({
-        token: "t".repeat(48),
-        csrf: "c".repeat(32),
+        token: `token-${automaticSessionSerial}`.padEnd(48, "t"),
+        csrf: `csrf-${automaticSessionSerial}`.padEnd(32, "c"),
         instanceId: reportedInstanceId,
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
         state: "paired",
@@ -907,6 +922,13 @@ test("automatic-local-connection", "official origin connects without password or
     }
     if (pathname === "/models") {
       assert.match(headers.get("Authorization") ?? "", /^Bearer /u);
+      if (invalidAuthorizations.has(headers.get("Authorization"))) {
+        return Response.json({
+          errorCode: "BRIDGE_PAIRING_EXPIRED",
+          message: "The short Local Bridge session expired.",
+          retryable: true,
+        }, { status: 401 });
+      }
       return Response.json({
         models: [{
           modelId,
@@ -919,7 +941,7 @@ test("automatic-local-connection", "official origin connects without password or
     }
     if (pathname === "/model/verify") {
       assert.match(headers.get("Authorization") ?? "", /^Bearer /u);
-      assert.equal(headers.get("X-Bridge-CSRF"), "c".repeat(32));
+      assert.match(headers.get("X-Bridge-CSRF") ?? "", /^csrf-/u);
       return Response.json({
         proofVersion: "local-model-inference-proof-v1",
         state: "inference_verified",
@@ -934,6 +956,28 @@ test("automatic-local-connection", "official origin connects without password or
         evalCount: 3,
         externalRequest: false,
         dataLeftDevice: false,
+      });
+    }
+    if (pathname === "/generate") {
+      const request = JSON.parse(String(init.body ?? "{}"));
+      const failuresRemaining = generationFailuresRemaining.get(request.requestId) ?? 0;
+      if (failuresRemaining > 0) {
+        generationFailuresRemaining.set(request.requestId, failuresRemaining - 1);
+        invalidAuthorizations.add(headers.get("Authorization"));
+        return Response.json({
+          errorCode: "BRIDGE_PAIRING_EXPIRED",
+          message: "The short Local Bridge session expired during dispatch.",
+          retryable: true,
+        }, { status: 401 });
+      }
+      return new Response([
+        JSON.stringify({ type: "started", requestId: request.requestId }),
+        JSON.stringify({ type: "token", requestId: request.requestId, text: "本機續期後正文" }),
+        JSON.stringify({ type: "completed", requestId: request.requestId }),
+        "",
+      ].join("\n"), {
+        status: 200,
+        headers: { "Content-Type": "application/x-ndjson" },
       });
     }
     return Response.json({ errorCode: "UNEXPECTED_TEST_REQUEST" }, { status: 500 });
@@ -966,7 +1010,150 @@ test("automatic-local-connection", "official origin connects without password or
       2,
     );
     assert.equal(client.getSessionMetadata()?.instanceId, reportedInstanceId);
+
+    const expiredClient = new LocalBridgeClient({
+      origin,
+      session: {
+        token: "expired-session-token".padEnd(48, "x"),
+        csrf: "expired-session-csrf".padEnd(32, "x"),
+        instanceId: reportedInstanceId,
+        expiresAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+      tabStorage: storage,
+      rememberWithinTab: true,
+    });
+    const renewedEvents = [];
+    for await (const event of expiredClient.generate({
+      requestId: "expired-session-generation-r2",
+      model: modelId,
+      prompt: "只輸出本機正文",
+      taskType: "chapter.continue",
+    })) {
+      renewedEvents.push(event.type);
+    }
+    assert.deepEqual(renewedEvents, ["started", "token", "completed"]);
+    assert.equal(
+      requests.filter((item) => item.pathname === "/session/auto").length,
+      3,
+      "an expired short session must renew before the next generation request",
+    );
+    const renewedGenerate = requests.findLast((item) => item.pathname === "/generate");
+    assert.match(renewedGenerate?.authorization ?? "", /^Bearer /u);
+    assert.notEqual(renewedGenerate?.authorization, "Bearer expired-session-token".padEnd(55, "x"));
+
+    const runtimeExpiredRequestId = "runtime-expired-first-response-r2";
+    const runtimeExpiredAuthorization = `Bearer ${"runtime-expired-token".padEnd(48, "x")}`;
+    const runtimeExpiredClient = new LocalBridgeClient({
+      origin,
+      session: {
+        token: "runtime-expired-token".padEnd(48, "x"),
+        csrf: "runtime-expired-csrf".padEnd(32, "x"),
+        instanceId: reportedInstanceId,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+      tabStorage: storage,
+      rememberWithinTab: true,
+    });
+    generationFailuresRemaining.set(runtimeExpiredRequestId, 1);
+    const autoSessionsBeforeRuntimeExpiry = requests.filter(
+      (item) => item.pathname === "/session/auto",
+    ).length;
+    const runtimeExpiredEvents = [];
+    for await (const event of runtimeExpiredClient.generate({
+      requestId: runtimeExpiredRequestId,
+      model: modelId,
+      prompt: "只輸出本機正文",
+      taskType: "chapter.continue",
+    })) {
+      runtimeExpiredEvents.push(event.type);
+    }
+    assert.deepEqual(runtimeExpiredEvents, ["started", "token", "completed"]);
+    const runtimeExpiredAttempts = requests.filter((item) => (
+      item.pathname === "/generate"
+      && JSON.parse(item.body ?? "{}").requestId === runtimeExpiredRequestId
+    ));
+    assert.equal(runtimeExpiredAttempts.length, 2, "a generation-time expired session must retry exactly once");
+    assert.deepEqual(
+      runtimeExpiredAttempts.map((item) => item.idempotencyKey),
+      [runtimeExpiredRequestId, runtimeExpiredRequestId],
+      "the retry must preserve the original Idempotency-Key",
+    );
+    assert.equal(runtimeExpiredAttempts[0].authorization, runtimeExpiredAuthorization);
+    assert.notEqual(runtimeExpiredAttempts[1].authorization, runtimeExpiredAuthorization);
+    assert.equal(
+      requests.filter((item) => item.pathname === "/session/auto").length,
+      autoSessionsBeforeRuntimeExpiry + 1,
+      "generation-time expiry must issue exactly one replacement session",
+    );
+
+    const repeatedExpiryRequestId = "runtime-expired-twice-r2";
+    const repeatedExpiryClient = new LocalBridgeClient({
+      origin,
+      session: {
+        token: "runtime-repeated-expiry-token".padEnd(48, "x"),
+        csrf: "runtime-repeated-expiry-csrf".padEnd(32, "x"),
+        instanceId: reportedInstanceId,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+      tabStorage: storage,
+      rememberWithinTab: true,
+    });
+    generationFailuresRemaining.set(repeatedExpiryRequestId, 2);
+    const autoSessionsBeforeRepeatedExpiry = requests.filter(
+      (item) => item.pathname === "/session/auto",
+    ).length;
+    await assert.rejects(async () => {
+      for await (const event of repeatedExpiryClient.generate({
+        requestId: repeatedExpiryRequestId,
+        model: modelId,
+        prompt: "只輸出本機正文",
+        taskType: "chapter.continue",
+      })) {
+        void event;
+      }
+    }, (error) => error?.code === "BRIDGE_PAIRING_EXPIRED");
+    const repeatedExpiryAttempts = requests.filter((item) => (
+      item.pathname === "/generate"
+      && JSON.parse(item.body ?? "{}").requestId === repeatedExpiryRequestId
+    ));
+    assert.equal(repeatedExpiryAttempts.length, 2, "a second 401 must fail closed without a third generation request");
+    assert.deepEqual(
+      repeatedExpiryAttempts.map((item) => item.idempotencyKey),
+      [repeatedExpiryRequestId, repeatedExpiryRequestId],
+      "the single retry must retain one Idempotency-Key even when it also fails",
+    );
+    assert.equal(
+      requests.filter((item) => item.pathname === "/session/auto").length,
+      autoSessionsBeforeRepeatedExpiry + 1,
+      "a repeated generation expiry must not renew more than once",
+    );
+
+    const expiredProbeClient = new LocalBridgeClient({
+      origin,
+      session: {
+        token: "expired-probe-token".padEnd(48, "x"),
+        csrf: "expired-probe-csrf".padEnd(32, "x"),
+        instanceId: reportedInstanceId,
+        expiresAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+      tabStorage: storage,
+      rememberWithinTab: true,
+    });
+    configureLocalBridgeClient(expiredProbeClient);
+    configureLocalBridgeModel(modelId);
+    reportUnpairedRuntime = true;
+    const renewedSnapshot = await probeLocalOllama();
+    reportUnpairedRuntime = false;
+    assert.equal(renewedSnapshot.status, "ready");
+    assert.equal(renewedSnapshot.modelId, modelId);
+    assert.equal(
+      requests.filter((item) => item.pathname === "/session/auto").length,
+      6,
+      "the passive readiness probe must also renew an expired short session",
+    );
   } finally {
+    configureLocalBridgeClient(null);
+    configureLocalBridgeModel(null);
     globalThis.fetch = originalFetch;
   }
 
@@ -1014,11 +1201,14 @@ test("automatic-local-connection", "official origin connects without password or
     recommendedVersion: "1.4.0",
   }), "update_available");
   return {
-    automaticSessionRequests: 2,
+    automaticSessionRequests: 6,
     pairingCodeRequests: 0,
     passwordInputs: 0,
     modelProofVerified: true,
     restartAutoRecovery: true,
+    expiredSessionAutoRecovery: true,
+    generationSessionExpirySingleRetry: true,
+    generationRetryPreservesIdempotencyKey: true,
     versionUpdateStates: 3,
   };
 });

@@ -148,16 +148,27 @@ import {
   readStudioClosedComputePolicy,
   resolveStudioClosedComputePolicy,
 } from "../lib/novel-ai/web/studio-closed-compute-policy.ts";
+import { runStudioClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
 import {
   shouldRestoreStudioLocalRuntime,
 } from "../lib/novel-ai/web/closed-agent-os-service.ts";
 import { adaptStudioProfileForExplicitLocalCompute } from "../lib/novel-ai/web/studio-local-performance-policy.ts";
 import {
   buildSubstantiveSceneContinuationPrompt,
+  extractProtectedSubstantiveSceneContract,
+  LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS,
+  LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS,
+  LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION,
+  LOCAL_SUBSTANTIVE_SCENE_TOTAL_TIMEOUT_MS,
   measureSubstantiveScene,
   mergeSubstantiveSceneContinuation,
+  repairLocalChineseDialogueQuotes,
   repairLocalProseCompletionBoundary,
   resolveLocalOllamaPerformanceBudget,
+  SMALL_LOCAL_SUBSTANTIVE_SCENE_FINAL_SUPPLEMENT_MAX_OUTPUT_TOKENS,
+  SMALL_LOCAL_SUBSTANTIVE_SCENE_INITIAL_MAX_OUTPUT_TOKENS,
+  SMALL_LOCAL_SUBSTANTIVE_SCENE_MAX_SUPPLEMENT_PASSES,
+  SMALL_LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_MAX_OUTPUT_TOKENS,
 } from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
 
 const root = resolve(import.meta.dirname, "..");
@@ -10737,7 +10748,7 @@ test("explicit-escalation", () => {
   assert.equal(disclosedPlan.fallbackAttempted, false);
 });
 
-test("studio-automatic-closed-compute-coordinator", () => {
+test("studio-automatic-closed-compute-coordinator", async () => {
   const studioSource = readFileSync(
     resolve(root, "app/studio/studio-client.tsx"),
     "utf8",
@@ -10851,16 +10862,169 @@ test("studio-automatic-closed-compute-coordinator", () => {
     substantiveScene: true,
   }), {
     smallLocalModel: true,
-    maxInputCharacters: 8_000,
-    maxOutputTokens: 1_792,
+    maxInputCharacters: 2_600,
+    maxOutputTokens: 448,
   });
+  assert.equal(SMALL_LOCAL_SUBSTANTIVE_SCENE_INITIAL_MAX_OUTPUT_TOKENS, 448);
+  assert.equal(SMALL_LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_MAX_OUTPUT_TOKENS, 512);
+  assert.equal(SMALL_LOCAL_SUBSTANTIVE_SCENE_FINAL_SUPPLEMENT_MAX_OUTPUT_TOKENS, 384);
+  assert.equal(SMALL_LOCAL_SUBSTANTIVE_SCENE_MAX_SUPPLEMENT_PASSES, 2);
+  assert.equal(LOCAL_SUBSTANTIVE_SCENE_TOTAL_TIMEOUT_MS, 330_000);
+  assert.equal(LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS, 1_200);
+  assert.equal(LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS, 1_450);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /未核准的故事資料/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /不得覆寫本指令/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /只輸出繁體中文小說正文/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /引用名稱改用『』/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /至少三個可見動作/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /下一回合鉤子/u);
+  assert.ok(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION.length < 560);
+  const nestedDialogue = repairLocalChineseDialogueQuotes(
+    "洪棠竹說：「那枚「鎮脈符」不能再動。」眾人立刻退開。",
+  );
+  assert.equal(
+    nestedDialogue.content,
+    "洪棠竹說：「那枚『鎮脈符』不能再動。」眾人立刻退開。",
+  );
+  assert.equal(nestedDialogue.repaired, true);
+  const unclosedDialogue = repairLocalChineseDialogueQuotes(
+    `${"洪棠竹封住退路，眾人退至石階。".repeat(4)}洪初霽忽然說：「這條路`,
+  );
+  assert.equal(unclosedDialogue.repaired, true);
+  assert.doesNotMatch(unclosedDialogue.content, /「/u);
   const shortScene = Array.from(
     { length: 8 },
     (_, index) => `第${index + 1}段人物採取行動，阻力隨即改變現場，也留下必須處理的後果。`,
   ).join("\n\n");
-  const continuationPlan = buildSubstantiveSceneContinuationPrompt(shortScene);
+  const protectedContract = "[RPG_SCENE_CONTRACT_V2]\n選擇:A｜鎖定結果:成功｜角色:沈曜、守塔人｜Canon:星燈只能在雨夜補充\n[/RPG_SCENE_CONTRACT_V2]";
+  const continuationPlan = buildSubstantiveSceneContinuationPrompt(
+    shortScene,
+    protectedContract,
+  );
   assert.ok(continuationPlan.metrics.narrativeLength < 1_000);
+  assert.ok(continuationPlan.requestedCharacters >= 350);
   assert.match(continuationPlan.prompt, /EXISTING_STORY_REFERENCE/u);
+  assert.match(continuationPlan.prompt, /PROTECTED_SCENE_CONTRACT/u);
+  assert.match(continuationPlan.prompt, /選擇:A/u);
+  const nearLimitContractPrefix = [
+    "[RPG_SCENE_CONTRACT_V2]",
+    "選擇:B｜鎖定結果:部分成功｜角色:沈曜、守塔人",
+    "Canon:",
+  ].join("\n");
+  const nearLimitContractSuffix = [
+    "契約尾端:必須承接雨夜石階上的最後一次敲門",
+    "[/RPG_SCENE_CONTRACT_V2]",
+  ].join("\n");
+  const nearLimitProtectedContract = `${nearLimitContractPrefix}${"既".repeat(
+    1_550 - nearLimitContractPrefix.length - nearLimitContractSuffix.length - 1,
+  )}\n${nearLimitContractSuffix}`;
+  assert.equal(nearLimitProtectedContract.length, 1_550);
+  const wrappedFallbackContract = [
+    "[RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]",
+    "只依契約獨立合成。",
+    nearLimitProtectedContract,
+    "[/RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]",
+  ].join("\n");
+  assert.equal(
+    extractProtectedSubstantiveSceneContract(wrappedFallbackContract),
+    nearLimitProtectedContract,
+  );
+  for (const [label, protectedObjective] of [
+    ["primary", nearLimitProtectedContract],
+    ["fallback", wrappedFallbackContract],
+  ]) {
+    let capturedRequest = null;
+    await runStudioClosedAI({
+      projectId: `substantive-scene-${label}`,
+      task: "continue_story",
+      input: protectedObjective,
+      targetLength: 1_600,
+      generationOptions: {
+        maxTokens: 1_792,
+        substantiveScene: true,
+      },
+    }, async (request) => {
+      capturedRequest = request;
+      return {
+        requestId: request.requestId,
+        providerId: "local-ollama",
+        modelId: "qwen2.5:3b",
+        modelDigest: "sha256:test-model",
+        content: "本機候選正文",
+        candidateOnly: true,
+        externalRequest: false,
+        dataLeavesDevice: false,
+        elapsedMs: 10,
+        provenance: {
+          providerId: "local-ollama",
+          modelId: "qwen2.5:3b",
+          privacyMode: "strict-local",
+          reason: "protected substantive-scene prompt budget test",
+          contextSources: [],
+          externalRequest: false,
+          dataLeavesDevice: false,
+          fallbackChain: [],
+          warnings: [],
+        },
+      };
+    });
+    assert.ok(capturedRequest);
+    assert.equal(capturedRequest.input, protectedObjective);
+    assert.doesNotMatch(capturedRequest.input, /作者的明確指令/u);
+    const fullModelPrompt = buildClosedAIModelPrompt({
+      objective: capturedRequest.input,
+      context: [],
+      profile: {
+        ...getClosedAIModelProfile("chapter.continue", "local-ollama"),
+        maxInputCharacters: 2_600,
+      },
+      qualityPhase: "draft",
+      substantiveScene: true,
+    });
+    assert.ok(fullModelPrompt.prompt.length <= 2_600);
+  }
+  assert.throws(
+    () => extractProtectedSubstantiveSceneContract(
+      `${nearLimitProtectedContract}\n[/RPG_SCENE_CONTRACT_V2]`,
+    ),
+    (error) => error?.code === "OLLAMA_SUBSTANTIVE_SCENE_CONTRACT_INVALID",
+  );
+  for (const sceneLength of [589, 900, 1_400]) {
+    const latestTailAnchor = `最新承接點-${sceneLength}-沈曜聽見石門後第三次敲擊。`;
+    const longScene = `開場識別-${sceneLength}。${"既有故事中段。".repeat(Math.ceil(sceneLength / 8))}${latestTailAnchor}`;
+    const boundedContinuation = buildSubstantiveSceneContinuationPrompt(
+      longScene,
+      nearLimitProtectedContract,
+      2_600,
+    );
+    assert.ok(boundedContinuation.prompt.length <= 2_600);
+    assert.match(boundedContinuation.prompt, /契約尾端:必須承接雨夜石階上的最後一次敲門/u);
+    assert.match(boundedContinuation.prompt, new RegExp(latestTailAnchor, "u"));
+  }
+  assert.throws(
+    () => buildSubstantiveSceneContinuationPrompt(
+      shortScene,
+      `[RPG_SCENE_CONTRACT_V2]${"不可裁切".repeat(410)}[/RPG_SCENE_CONTRACT_V2]`,
+      2_600,
+    ),
+    (error) => error?.code === "OLLAMA_SUBSTANTIVE_SCENE_PROMPT_BUDGET_EXCEEDED",
+  );
+  const substantiveProfile = {
+    ...getClosedAIModelProfile("chapter.continue", "local-ollama"),
+    maxInputCharacters: 2_600,
+  };
+  const substantivePrompt = buildClosedAIModelPrompt({
+    objective: protectedContract,
+    context: [`目前章節：${"不可重複的舊正文。".repeat(400)}`],
+    profile: substantiveProfile,
+    qualityPhase: "draft",
+    substantiveScene: true,
+  });
+  assert.ok(substantivePrompt.prompt.length <= substantiveProfile.maxInputCharacters);
+  assert.match(substantivePrompt.prompt, /選擇:A/u);
+  assert.match(substantivePrompt.prompt, /一千一百至一千五百字/u);
+  assert.match(substantivePrompt.prompt, /至少兩個具體錨點/u);
+  assert.doesNotMatch(substantivePrompt.prompt, /<既有章節（僅供辨識，禁止輸出）>/u);
   const supplement = "新的壓力沿著牆面傳來，人物沒有重述先前行動，而是辨認出口與同伴反應。".repeat(12);
   const mergedScene = mergeSubstantiveSceneContinuation(shortScene, supplement);
   const mergedMetrics = measureSubstantiveScene(mergedScene);

@@ -1548,9 +1548,10 @@ export function buildRpgChoices(input: {
     };
     const contextualDescription = [
       strategyOpening[strategy],
+      conflictFocus,
       fallbackAction[strategy].description,
       encounter.catalyst ?? encounter.telegraph,
-      `${anchorLead}承接「${conflictFocus}」`,
+      anchorLead,
       pressureLead,
       threadLead,
       encounter.complication,
