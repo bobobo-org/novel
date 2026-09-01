@@ -294,8 +294,8 @@ const fallbackReviewedCandidate = await generateRpgChatTurnCandidate({
   logicalTurnId: RPG_ADULT_RUNTIME_LOGICAL_TURN_ID,
   adultNarrativeRuntime: reviewFixture.adultNarrativeRuntime,
   adultNarrativeRuntimeClock: () => new Date("2026-08-30T06:00:00.000Z"),
-  // Leave enough real wall-clock headroom for raceRpgClosedAIOperation while
-  // the injected coordination clock still deterministically exhausts it.
+  // Leave enough real wall-clock headroom for the explicit provider timeout to
+  // enter the independently bounded hidden-review stage.
   generationDeadlineMs: 200,
   fallbackReviewDeadlineMs: 200,
   coordinationDependencies: {
@@ -312,7 +312,9 @@ const fallbackReviewedCandidate = await generateRpgChatTurnCandidate({
       });
     }
     reviewGenerationRequests.push(request);
-    throw Object.assign(new Error("closed generation still loading"), { code: "MODEL_LOADING" });
+    throw Object.assign(new Error("closed generation reached its explicit deadline"), {
+      code: "RPG_STORY_AI_TIMEOUT",
+    });
   },
 });
 assert.equal(reviewGenerationRequests.length, 1, "closed generation must dispatch exactly once before fallback");
