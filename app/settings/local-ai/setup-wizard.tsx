@@ -315,7 +315,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
       </header>
 
       <nav className={styles.topNav}>
-        <Link href={returnTo}>返回原本的創作畫面</Link>
+        <Link href={returnTo} prefetch={false}>返回原本的創作畫面</Link>
         <Link href="/studio/settings/ai" prefetch={false}>進階診斷</Link>
         <button type="button" disabled={busy} onClick={() => void refresh()}>
           連線／檢查
@@ -625,7 +625,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\bridge\novel-local-ai
               </p>
             </details>
             <div className={styles.actions}>
-              <Link className={styles.primary} href={returnTo}>
+              <Link className={styles.primary} href={returnTo} prefetch={false}>
                 回到原本的創作畫面
               </Link>
               <Link href="/studio/settings/ai" prefetch={false}>開啟進階實測</Link>

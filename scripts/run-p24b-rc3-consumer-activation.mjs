@@ -132,6 +132,11 @@ async function frontdoorAISetupDiscovery() {
     2,
     "the setup page must not prefetch the shared AI settings chunk before navigation",
   );
+  assert.equal(
+    (wizard.match(/href=\{returnTo\} prefetch=\{false\}/gu) ?? []).length,
+    2,
+    "the setup page must not prefetch the return route before the user leaves setup",
+  );
 }
 
 async function frontdoorProjectRouting() {
@@ -176,7 +181,11 @@ async function frontdoorProjectRouting() {
   assert.match(studioPage, /requestedScreen === "write"/);
   assert.match(studioPage, /chat\?mode=play/);
   assert.match(wizard, /value\.startsWith\("\/studio"\)/);
-  assert.match(wizard, /href=\{returnTo\}/);
+  assert.equal(
+    (wizard.match(/href=\{returnTo\} prefetch=\{false\}/gu) ?? []).length,
+    2,
+    "both safe return links must navigate only after an explicit user action",
+  );
 }
 
 async function interactiveStoryOutputAcceptance() {
