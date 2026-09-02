@@ -234,6 +234,32 @@ type DirectedChoicePayload = {
   consequenceTeaser: string;
 };
 
+const COMPANION_145_CHOICE_KEYS = [
+  "consequence",
+  "continuityReason",
+  "description",
+  "key",
+  "title",
+] as const;
+
+function hasCompanion145ChoiceKeys(row: Record<string, unknown>) {
+  const keys = Object.keys(row).sort();
+  return keys.length === COMPANION_145_CHOICE_KEYS.length
+    && keys.every((key, index) => key === COMPANION_145_CHOICE_KEYS[index]);
+}
+
+function isCompanion145ChoicePayload(parsed: Record<string, unknown>) {
+  return Object.keys(parsed).length === 1
+    && Object.hasOwn(parsed, "choices")
+    && Array.isArray(parsed.choices)
+    && parsed.choices.length === 3
+    && parsed.choices.every((value) => (
+      Boolean(value)
+      && typeof value === "object"
+      && hasCompanion145ChoiceKeys(value as Record<string, unknown>)
+    ));
+}
+
 function cleanText(value: unknown, maximum: number) {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim().slice(0, maximum);
@@ -277,6 +303,7 @@ export function parseRpgChoiceDirectorOutput(raw: string): DirectedChoicePayload
   assertRpgReaderSafeOutput(raw);
   const parsed = parseJsonObject(raw);
   if (!Array.isArray(parsed.choices)) throw new Error("RPG_AI_CHOICE_ARRAY_MISSING");
+  const companion145Payload = isCompanion145ChoicePayload(parsed);
   const rows = parsed.choices.map((value) => {
     const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
     const key = row.key === "A" || row.key === "B" || row.key === "C" ? row.key : null;
@@ -292,10 +319,28 @@ export function parseRpgChoiceDirectorOutput(raw: string): DirectedChoicePayload
     const consequenceTeaser = cleanText(
       Object.hasOwn(row, "consequenceTeaser")
         ? row.consequenceTeaser
-        : row.consequence,
+        : companion145Payload
+          ? row.consequence
+          : undefined,
       40,
     );
-    if (!key || title.length < 8 || description.length < 30 || consequenceTeaser.length < 12) {
+    const continuityReason = companion145Payload ? cleanText(row.continuityReason, 50) : "";
+    // The already-installed Companion 1.4.5 schema is exact and origin-bound,
+    // but its Chinese display minima are 3/18/8 characters rather than the
+    // web contract's newer 8/30/12.  Accept only that five-field legacy shape
+    // at its own declared minima.  Current payloads, payloads with extra keys,
+    // reader-safety checks, A/B/C distinctness and fresh-execution proof all
+    // keep the stricter contract.
+    const minimumTitleLength = companion145Payload ? 3 : 8;
+    const minimumDescriptionLength = companion145Payload ? 18 : 30;
+    const minimumConsequenceLength = companion145Payload ? 8 : 12;
+    if (
+      !key
+      || title.length < minimumTitleLength
+      || description.length < minimumDescriptionLength
+      || consequenceTeaser.length < minimumConsequenceLength
+      || (companion145Payload && continuityReason.length < 8)
+    ) {
       throw new Error("RPG_AI_CHOICE_INCOMPLETE");
     }
     return { key, title, description, consequenceTeaser } satisfies DirectedChoicePayload;

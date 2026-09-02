@@ -187,7 +187,75 @@ assert.equal(
   false,
   "the obsolete Companion-only continuity field must never reach the visible choice contract",
 );
+const conciseCompanion145ChoicePayload = JSON.stringify({
+  choices: [
+    {
+      key: "A",
+      title: "封側門",
+      description: "主角封鎖側門，核對證人最後通行紀錄。".slice(0, 18),
+      consequence: "會失去追趕先機。".slice(0, 8),
+      continuityReason: "承接證人失蹤線索。".slice(0, 8),
+    },
+    {
+      key: "B",
+      title: "換密報",
+      description: "主角以張家名義交涉，換取校方巡查時限。".slice(0, 18),
+      consequence: "會留下公開人情債。".slice(0, 8),
+      continuityReason: "延續張家資源責任。".slice(0, 8),
+    },
+    {
+      key: "C",
+      title: "潛封樓",
+      description: "主角趁警戒交替潛入，確認異常儀器狀態。".slice(0, 18),
+      consequence: "失敗會暴露隊伍位置。".slice(0, 8),
+      continuityReason: "推進封樓儀器線索。".slice(0, 8),
+    },
+  ],
+});
+const conciseCompanion145Choices = parseRpgChoiceDirectorOutput(conciseCompanion145ChoicePayload);
+assert.deepEqual(
+  conciseCompanion145Choices.map((choice) => choice.title),
+  ["封側門", "換密報", "潛封樓"],
+  "the exact Companion 1.4.5 shape must accept its declared Chinese 3/18/8 minima",
+);
+for (const row of JSON.parse(conciseCompanion145ChoicePayload).choices) {
+  assert.equal(row.title.length, 3);
+  assert.equal(row.description.length, 18);
+  assert.equal(row.consequence.length, 8);
+  assert.equal(row.continuityReason.length, 8);
+}
+for (const [field, value] of [
+  ["title", "太短"],
+  ["description", "短".repeat(17)],
+  ["consequence", "短".repeat(7)],
+  ["continuityReason", "短".repeat(7)],
+]) {
+  const belowLegacyMinimum = JSON.parse(conciseCompanion145ChoicePayload);
+  belowLegacyMinimum.choices[0][field] = value;
+  assert.throws(
+    () => parseRpgChoiceDirectorOutput(JSON.stringify(belowLegacyMinimum)),
+    /RPG_AI_CHOICE_INCOMPLETE/u,
+    `Companion 1.4.5 ${field} must reject values below its declared minimum`,
+  );
+}
+const relaxedShapeWithExtraField = JSON.parse(conciseCompanion145ChoicePayload);
+relaxedShapeWithExtraField.choices[0].unexpected = "must not activate legacy minima";
+assert.throws(
+  () => parseRpgChoiceDirectorOutput(JSON.stringify(relaxedShapeWithExtraField)),
+  /RPG_AI_CHOICE_INCOMPLETE/u,
+  "extra fields must not activate the Companion 1.4.5 compatibility minima",
+);
+const relaxedRootWithExtraField = JSON.parse(conciseCompanion145ChoicePayload);
+relaxedRootWithExtraField.metadata = "must not activate legacy minima";
+assert.throws(
+  () => parseRpgChoiceDirectorOutput(JSON.stringify(relaxedRootWithExtraField)),
+  /RPG_AI_CHOICE_INCOMPLETE/u,
+  "extra root fields must not activate the Companion 1.4.5 compatibility minima",
+);
 const currentChoicePayload = JSON.parse(companion145ChoicePayload);
+for (const choice of currentChoicePayload.choices) {
+  choice.consequenceTeaser = choice.consequence;
+}
 currentChoicePayload.choices[0].consequenceTeaser = "目前網站欄位必須優先，不能被舊欄位覆蓋。";
 assert.equal(
   parseRpgChoiceDirectorOutput(JSON.stringify(currentChoicePayload))[0].consequenceTeaser,
@@ -205,7 +273,7 @@ shortLegacyChoicePayload.choices[0].consequence = "代價太短";
 assert.throws(
   () => parseRpgChoiceDirectorOutput(JSON.stringify(shortLegacyChoicePayload)),
   /RPG_AI_CHOICE_INCOMPLETE/u,
-  "the Companion compatibility field must retain the canonical minimum length",
+  "the Companion compatibility field must retain the declared legacy minimum length",
 );
 const missingLegacyChoicePayload = JSON.parse(companion145ChoicePayload);
 delete missingLegacyChoicePayload.choices[0].consequence;
@@ -213,6 +281,20 @@ assert.throws(
   () => parseRpgChoiceDirectorOutput(JSON.stringify(missingLegacyChoicePayload)),
   /RPG_AI_CHOICE_INCOMPLETE/u,
   "missing canonical and compatibility consequence fields must remain fail-closed",
+);
+const missingLegacyContinuityPayload = JSON.parse(companion145ChoicePayload);
+delete missingLegacyContinuityPayload.choices[0].continuityReason;
+assert.throws(
+  () => parseRpgChoiceDirectorOutput(JSON.stringify(missingLegacyContinuityPayload)),
+  /RPG_AI_CHOICE_INCOMPLETE/u,
+  "a long legacy row missing continuityReason must not use the compatibility alias",
+);
+const longLegacyRootWithExtraField = JSON.parse(companion145ChoicePayload);
+longLegacyRootWithExtraField.metadata = "must not activate legacy alias";
+assert.throws(
+  () => parseRpgChoiceDirectorOutput(JSON.stringify(longLegacyRootWithExtraField)),
+  /RPG_AI_CHOICE_INCOMPLETE/u,
+  "a long legacy payload with extra root fields must not use the compatibility alias",
 );
 const unsafeDiscardedChoicePayload = JSON.parse(companion145ChoicePayload);
 unsafeDiscardedChoicePayload.choices[0].continuityReason = "下一回合會自動套用內部規則。";
