@@ -874,18 +874,27 @@ const repetitionLeafCases = [
     leafCode: "RPG_AI_CONTINUATION_WHOLE_SCENE_LOOP",
     logicalTurnId: "logical-turn-whole-scene-loop-repair",
     invalidStory: validStory.replace(paragraphs[0], `${paragraphs[0]}${paragraphs[0]}`),
+    validateInvalid: (story) => validateRpgStoryTurnContract(story, "zh-TW"),
   },
   {
     leafCode: "RPG_AI_CONTINUATION_INTERNAL_PARAGRAPH_LOOP",
     logicalTurnId: "logical-turn-internal-paragraph-loop-repair",
     invalidStory: validStory.replace(paragraphs[4], paragraphs[3]),
+    validateInvalid: (story) => validateRpgStoryTurnContract(story, "zh-TW"),
+  },
+  {
+    leafCode: "RPG_AI_CONTINUATION_REPETITIVE",
+    logicalTurnId: "logical-turn-recent-canon-replay-repair",
+    invalidStory: validStory,
+    validateInvalid: (story) => validateRpgContinuationNovelty(story, [validStory]),
+    forceLeafBeforeApplicationCallback: true,
   },
 ];
 const repetitionLeafRepairResults = [];
 for (const repetitionCase of repetitionLeafCases) {
   let directValidationError = null;
   try {
-    validateRpgStoryTurnContract(repetitionCase.invalidStory, "zh-TW");
+    repetitionCase.validateInvalid(repetitionCase.invalidStory);
   } catch (error) {
     directValidationError = error;
   }
@@ -921,6 +930,9 @@ for (const repetitionCase of repetitionLeafCases) {
       );
       if (!firstDispatch) repairPrompt = request.input;
       try {
+        if (firstDispatch && repetitionCase.forceLeafBeforeApplicationCallback) {
+          repetitionCase.validateInvalid(content);
+        }
         await request.validateBeforePersistence?.(result);
       } catch (error) {
         rejectedGenerationLeaf = error;
@@ -963,6 +975,74 @@ for (const repetitionCase of repetitionLeafCases) {
     repairTaskId: dispatchedTaskIds[1],
   });
 }
+
+const forbiddenRepairCases = [
+  {
+    logicalTurnId: "logical-turn-canon-item-claim-remains-closed",
+    error: new Error("RPG_AI_STORY_UNAPPROVED_FORMAL_ITEM"),
+    expectedCode: "RPG_AI_STORY_UNAPPROVED_FORMAL_ITEM",
+  },
+  {
+    logicalTurnId: "logical-turn-prose-gate-remains-closed",
+    error: Object.assign(new Error("STORY_PROSE_OUTPUT_INVALID"), {
+      code: "STORY_PROSE_OUTPUT_INVALID",
+      proseFailures: ["sentence_fragment"],
+    }),
+    expectedCode: "STORY_PROSE_OUTPUT_INVALID",
+  },
+];
+for (const forbiddenCase of forbiddenRepairCases) {
+  let dispatches = 0;
+  await assert.rejects(
+    () => generateRpgChatTurnCandidate({
+      snapshot: fullSnapshot,
+      choice: fullChoice,
+      logicalTurnId: forbiddenCase.logicalTurnId,
+      generationDeadlineMs: 100,
+      fallbackReviewDeadlineMs: 100,
+      coordinationDependencies: {
+        now: () => 0,
+        wait: async () => undefined,
+        probeAvailability: async () => "ready",
+        retryBackoffMs: 1,
+      },
+      closedAIInvoker: async () => {
+        dispatches += 1;
+        throw forbiddenCase.error;
+      },
+    }),
+    (error) => (error?.code ?? error?.message) === forbiddenCase.expectedCode,
+    `${forbiddenCase.expectedCode} must remain fail-closed`,
+  );
+  assert.equal(dispatches, 1, `${forbiddenCase.expectedCode} must not dispatch hidden prose repair`);
+}
+
+let missingProofDispatches = 0;
+await assert.rejects(
+  () => generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId: "logical-turn-proof-missing-remains-closed",
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async (request) => {
+      missingProofDispatches += 1;
+      const result = closedReviewResult(request, null, fullReviewedStory);
+      await request.validateBeforePersistence?.(result);
+      return result;
+    },
+  }),
+  (error) => error?.code === "RPG_CHAT_TURN_PROOF_MISSING",
+  "missing execution proof must remain fail-closed instead of entering prose repair",
+);
+assert.equal(missingProofDispatches, 1, "a proof failure must never dispatch hidden prose repair");
+
 const fullReviewReceipt = fullReviewedCandidate.executionReceipt.postFallbackClosedReview;
 assert.equal(fullReviewReceipt?.passed, true);
 assert.equal(fullReviewReceipt?.draftCount, 3);
