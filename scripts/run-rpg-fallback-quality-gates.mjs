@@ -719,6 +719,11 @@ assert.match(fullReviewPayload?.prompt ?? "", /RPG_SCENE_CONTRACT_V2/u);
 assert.ok((fullReviewPayload?.prompt.length ?? Infinity) <= 1_950, "the fallback synthesis objective must fit the substantive-scene budget");
 assert.doesNotMatch(fullReviewPayload?.prompt ?? "", /internalDraftCandidates|"story"\s*:/u, "hidden draft prose must not enter the small-model prompt");
 assert.equal(fullReviewRequest?.ephemeralPrompt, true, "hidden fallback drafts must use the non-persistent Closed Agent prompt path");
+assert.equal(
+  fullReviewRequest?.generationOptions?.substantiveSceneBudget,
+  undefined,
+  "ordinary fallback review must retain the standard provider scene target",
+);
 assert.equal(typeof fullReviewRequest?.validateBeforePersistence, "function", "the RPG application validator must run before OS persistence");
 assert.equal(
   fullReviewRequest?.taskId,
@@ -829,6 +834,7 @@ const continuityTaskIds = [];
 let continuityProbes = 0;
 let continuityWaits = 0;
 let continuityRepairPrompt = null;
+let continuityRepairBudget = null;
 let invalidCandidatePersisted = false;
 let continuityFailure = null;
 const continuityCandidate = await generateRpgChatTurnCandidate({
@@ -851,7 +857,10 @@ const continuityCandidate = await generateRpgChatTurnCandidate({
   closedAIInvoker: async (request) => {
     continuityAttempt += 1;
     continuityTaskIds.push(request.taskId);
-    if (continuityAttempt === 2) continuityRepairPrompt = request.input;
+    if (continuityAttempt === 2) {
+      continuityRepairPrompt = request.input;
+      continuityRepairBudget = request.generationOptions?.substantiveSceneBudget ?? null;
+    }
     const content = continuityAttempt === 1
       ? longButNonNarrativeStory
       : fullReviewedStory;
@@ -932,6 +941,11 @@ assert.deepEqual(
   "a direct continuity rejection must route to its distinct repair stage without generation attempt-2",
 );
 assert.match(continuityRepairPrompt ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
+assert.equal(
+  continuityRepairBudget,
+  "rpg-application-minimum",
+  "only the digest-bound fallback repair may use the application completion floor",
+);
 assert.match(continuityRepairPrompt ?? "", /RPG_SCENE_CONTRACT_V2/u);
 assert.match(continuityRepairPrompt ?? "", /本次必補:/u);
 assert.match(continuityRepairPrompt ?? "", /正文第一段須自然且逐字放入「沿泥痕追查換封者」與「林澄」/u);
@@ -989,6 +1003,7 @@ for (const repetitionCase of repetitionLeafCases) {
   );
 
   const dispatchedTaskIds = [];
+  const dispatchedBudgets = [];
   let repairPrompt = null;
   let rejectedGenerationLeaf = null;
   const repairedCandidate = await generateRpgChatTurnCandidate({
@@ -1005,6 +1020,9 @@ for (const repetitionCase of repetitionLeafCases) {
     },
     closedAIInvoker: async (request) => {
       dispatchedTaskIds.push(request.taskId);
+      dispatchedBudgets.push(
+        request.generationOptions?.substantiveSceneBudget ?? null,
+      );
       const firstDispatch = dispatchedTaskIds.length === 1;
       const content = firstDispatch ? repetitionCase.invalidStory : fullReviewedStory;
       const result = closedReviewResult(
@@ -1053,6 +1071,11 @@ for (const repetitionCase of repetitionLeafCases) {
     ));
   }
   assert.deepEqual(dispatchedTaskIds, expectedTaskIds);
+  assert.deepEqual(
+    dispatchedBudgets,
+    [null, ...expectedTaskIds.slice(1).map(() => "rpg-application-minimum")],
+    "generation retains the standard target while every bounded repair uses the application floor",
+  );
   assert.match(repairPrompt ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
   assert.match(repairPrompt ?? "", /本次必補:各段事件與句式不得重複/u);
   assert.doesNotMatch(

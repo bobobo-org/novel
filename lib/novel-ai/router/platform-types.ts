@@ -87,6 +87,13 @@ export type PlatformAIRequest = {
     repetitionPenalty?: number;
     /** Opt in to a bounded long-form scene budget with an application-level validator. */
     substantiveScene?: boolean;
+    /**
+     * Trusted RPG repair hint: stop provider-side supplementation once the
+     * unchanged application validator's conservative length/structure floor
+     * is reachable. The Closed Agent OS only authorizes this for an ephemeral,
+     * digest-bound pre-persistence validation request.
+     */
+    substantiveSceneBudget?: "rpg-application-minimum";
   };
   idempotencyKey?: string;
   cacheNamespace?: ClosedAINamespace;

@@ -1550,6 +1550,21 @@ export class ClosedAgentOS {
     ) {
       throw osError("CLOSED_AGENT_TRANSIENT_VALIDATION_CONTRACT_INVALID");
     }
+    const substantiveSceneBudget =
+      request.generationOptions?.substantiveSceneBudget;
+    if (
+      substantiveSceneBudget !== undefined
+      && (
+        substantiveSceneBudget !== "rpg-application-minimum"
+        || request.taskType !== "chapter.continue"
+        || request.generationOptions?.substantiveScene !== true
+        || request.ephemeralPrompt !== true
+        || !hasApplicationValidator
+        || !hasApplicationValidationBinding
+      )
+    ) {
+      throw osError("CLOSED_AGENT_SUBSTANTIVE_SCENE_BUDGET_INVALID");
+    }
     const {
       createTraditionalChineseNormalizationPolicy,
       TRADITIONAL_CHINESE_NORMALIZER_VERSION,
@@ -2255,6 +2270,12 @@ export class ClosedAgentOS {
           maxTokens: request.generationOptions?.maxTokens ?? null,
           repetitionPenalty: request.generationOptions?.repetitionPenalty ?? null,
           substantiveScene: request.generationOptions?.substantiveScene ?? null,
+          ...(request.generationOptions?.substantiveSceneBudget
+            ? {
+              substantiveSceneBudget:
+                request.generationOptions.substantiveSceneBudget,
+            }
+            : {}),
         },
         learningConfiguration: request.learningConfiguration ?? {},
         toolResultDigests: await Promise.all(

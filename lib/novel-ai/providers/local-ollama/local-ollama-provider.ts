@@ -38,6 +38,10 @@ export const SMALL_LOCAL_SUBSTANTIVE_SCENE_FINAL_SUPPLEMENT_MAX_OUTPUT_TOKENS = 
 export const SMALL_LOCAL_SUBSTANTIVE_SCENE_MAX_SUPPLEMENT_PASSES = 2;
 export const LOCAL_SUBSTANTIVE_SCENE_TOTAL_TIMEOUT_MS = 330_000;
 export const LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS = 1_200;
+// This is deliberately the stricter of the RPG application's Chinese (900)
+// and English (950) length floors. All structural, continuity, outcome,
+// safety, proof and Canon gates still run after provider completion.
+export const LOCAL_RPG_APPLICATION_MINIMUM_CHARACTERS = 950;
 export const LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS = 1_450;
 export const LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION = [
   "你是台灣繁體中文小說系統的裝置內閉端 AI。",
@@ -48,6 +52,32 @@ export const LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION = [
   "只輸出繁體中文小說正文；不得輸出分析、標題、選項、狀態面板、JSON、Markdown、隱藏推理或規則說明。",
   "最後一句必須完整，並停在可由讀者決定下一步的具體畫面。",
 ].join("\n");
+
+export function resolveLocalSubstantiveSceneStableMinimumCharacters(input: {
+  taskType: PlatformAIRequest["taskType"];
+  substantiveScene?: boolean;
+  substantiveSceneBudget?: NonNullable<
+    PlatformAIRequest["generationOptions"]
+  >["substantiveSceneBudget"];
+}) {
+  if (
+    input.taskType === "chapter.continue"
+    && input.substantiveScene === true
+    && input.substantiveSceneBudget === "rpg-application-minimum"
+  ) {
+    return LOCAL_RPG_APPLICATION_MINIMUM_CHARACTERS;
+  }
+  return LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS;
+}
+
+export function localSubstantiveSceneRequiresSupplement(input: {
+  metrics: SubstantiveSceneMetrics;
+  minimumCharacters: number;
+}) {
+  return input.metrics.narrativeLength < input.minimumCharacters
+    || input.metrics.paragraphCount < 8
+    || input.metrics.sentenceCount < 10;
+}
 
 export function measureSubstantiveScene(value: string): SubstantiveSceneMetrics {
   return {
@@ -724,6 +754,13 @@ export async function runLocalOllama(
     boundedQualityRepair: runtimeOptions?.boundedQualityRepair,
     substantiveScene: request.generationOptions?.substantiveScene,
   });
+  const substantiveSceneStableMinimumCharacters =
+    resolveLocalSubstantiveSceneStableMinimumCharacters({
+      taskType: request.taskType,
+      substantiveScene: request.generationOptions?.substantiveScene,
+      substantiveSceneBudget:
+        request.generationOptions?.substantiveSceneBudget,
+    });
   const requestedTemperatureOption = request.generationOptions?.temperature;
   const requestedTemperature = typeof requestedTemperatureOption === "number"
     && Number.isFinite(requestedTemperatureOption)
@@ -885,11 +922,10 @@ export async function runLocalOllama(
     && substantiveSupplementPasses < SMALL_LOCAL_SUBSTANTIVE_SCENE_MAX_SUPPLEMENT_PASSES
   ) {
     const currentMetrics = measureSubstantiveScene(normalizedContent);
-    if (
-      currentMetrics.narrativeLength >= LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS
-      && currentMetrics.paragraphCount >= 8
-      && currentMetrics.sentenceCount >= 10
-    ) break;
+    if (!localSubstantiveSceneRequiresSupplement({
+      metrics: currentMetrics,
+      minimumCharacters: substantiveSceneStableMinimumCharacters,
+    })) break;
 
     // Model output is unapproved data. Each supplement receives the exact same
     // application-built scene contract, so shortening the prompt never drops
@@ -1055,6 +1091,10 @@ export async function runLocalOllama(
     }${
       request.generationOptions?.substantiveScene ? ":substantive-scene" : ""
     }${
+      request.generationOptions?.substantiveSceneBudget === "rpg-application-minimum"
+        ? ":rpg-application-minimum"
+        : ""
+    }${
       substantiveSupplementRunId ? ":same-model-supplement" : ""
     }`,
     firstTokenMs,
@@ -1071,6 +1111,9 @@ export async function runLocalOllama(
         ? "completion-boundary-repaired=1"
         : null,
       substantiveOverlapRepaired ? "substantive-overlap-repaired=1" : null,
+      request.generationOptions?.substantiveScene
+        ? `substantive-scene-stable-minimum=${substantiveSceneStableMinimumCharacters}`
+        : null,
       substantiveSupplementRunId
         ? `substantive-supplement-provider-run-id=${substantiveSupplementRunId}`
         : null,

@@ -4713,6 +4713,12 @@ export async function generateRpgChatTurnCandidate(input: {
               repetitionPenalty: 1.2,
               seed: (baseSeed + 7_919 + (attempt - 1) * 104_729) >>> 0,
               substantiveScene: true,
+              // This changes only the provider's supplement stop point. The
+              // identical digest-bound application validator below remains
+              // authoritative and rejects any incomplete or unsafe scene.
+              ...(reviewStage === "fallback-repair"
+                ? { substantiveSceneBudget: "rpg-application-minimum" as const }
+                : {}),
             },
             signal: attemptSignal,
             onProgress: input.onProgress,

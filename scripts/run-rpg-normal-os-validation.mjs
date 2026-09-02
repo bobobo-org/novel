@@ -443,6 +443,188 @@ await assertNoTaskDurability(
   "binding without validator",
 );
 
+const unauthorizedBudgetProjectId = await createCanonicalProject(
+  `unauthorized-scene-budget-${crypto.randomUUID()}`,
+);
+const unauthorizedBudgetTaskId =
+  `unauthorized-scene-budget-task-${crypto.randomUUID()}`;
+const executionsBeforeUnauthorizedBudget = backend.executionCount;
+await assert.rejects(
+  () => runStudioClosedAI({
+    projectId: unauthorizedBudgetProjectId,
+    task: "branch_choice",
+    taskId: unauthorizedBudgetTaskId,
+    input: "沒有綁定應用驗證器的普通請求不得降低 provider 完成門檻。",
+    targetLength: 1_600,
+    browserComputePolicy: "quality-first",
+    generationOptions: {
+      maxTokens: 1_792,
+      substantiveScene: true,
+      substantiveSceneBudget: "rpg-application-minimum",
+    },
+  }),
+  (error) => error?.code === "CLOSED_AGENT_SUBSTANTIVE_SCENE_BUDGET_INVALID",
+);
+assert.equal(
+  backend.executionCount,
+  executionsBeforeUnauthorizedBudget,
+  "an unbound application-minimum request executed a backend",
+);
+await assertNoTaskDurability(
+  os,
+  unauthorizedBudgetProjectId,
+  unauthorizedBudgetTaskId,
+  "unauthorized application-minimum scene budget",
+);
+
+const sceneBudgetAuthorizationCases = [
+  {
+    name: "wrong-task-type",
+    task: "summary",
+    ephemeralPrompt: true,
+    applicationValidationBindingDigest: "8".repeat(64),
+    validateBeforePersistence: async () => undefined,
+    substantiveScene: true,
+    budget: "rpg-application-minimum",
+    expectedCode: "CLOSED_AGENT_SUBSTANTIVE_SCENE_BUDGET_INVALID",
+  },
+  {
+    name: "non-substantive-scene",
+    task: "branch_choice",
+    ephemeralPrompt: true,
+    applicationValidationBindingDigest: "8".repeat(64),
+    validateBeforePersistence: async () => undefined,
+    substantiveScene: false,
+    budget: "rpg-application-minimum",
+    expectedCode: "CLOSED_AGENT_SUBSTANTIVE_SCENE_BUDGET_INVALID",
+  },
+  {
+    name: "non-ephemeral-prompt",
+    task: "branch_choice",
+    ephemeralPrompt: false,
+    applicationValidationBindingDigest: "8".repeat(64),
+    validateBeforePersistence: async () => undefined,
+    substantiveScene: true,
+    budget: "rpg-application-minimum",
+    expectedCode: "CLOSED_AGENT_SUBSTANTIVE_SCENE_BUDGET_INVALID",
+  },
+  {
+    name: "missing-validator",
+    task: "branch_choice",
+    ephemeralPrompt: true,
+    applicationValidationBindingDigest: "8".repeat(64),
+    validateBeforePersistence: undefined,
+    substantiveScene: true,
+    budget: "rpg-application-minimum",
+    expectedCode: "CLOSED_AGENT_TRANSIENT_VALIDATION_CONTRACT_INVALID",
+  },
+  {
+    name: "missing-binding",
+    task: "branch_choice",
+    ephemeralPrompt: true,
+    applicationValidationBindingDigest: undefined,
+    validateBeforePersistence: async () => undefined,
+    substantiveScene: true,
+    budget: "rpg-application-minimum",
+    expectedCode: "CLOSED_AGENT_TRANSIENT_VALIDATION_CONTRACT_INVALID",
+  },
+  {
+    name: "unknown-runtime-enum",
+    task: "branch_choice",
+    ephemeralPrompt: true,
+    applicationValidationBindingDigest: "8".repeat(64),
+    validateBeforePersistence: async () => undefined,
+    substantiveScene: true,
+    budget: "unknown-runtime-value",
+    expectedCode: "CLOSED_AGENT_SUBSTANTIVE_SCENE_BUDGET_INVALID",
+  },
+];
+for (const authorizationCase of sceneBudgetAuthorizationCases) {
+  const projectId = await createCanonicalProject(
+    `scene-budget-${authorizationCase.name}-${crypto.randomUUID()}`,
+  );
+  const taskId = `scene-budget-${authorizationCase.name}-task-${crypto.randomUUID()}`;
+  const executionsBeforeCase = backend.executionCount;
+  await assert.rejects(
+    () => runStudioClosedAI({
+      projectId,
+      task: authorizationCase.task,
+      taskId,
+      input: "受限的 RPG repair provider 提示不得離開其驗證邊界。",
+      targetLength: 1_600,
+      browserComputePolicy: "quality-first",
+      ephemeralPrompt: authorizationCase.ephemeralPrompt,
+      applicationValidationBindingDigest:
+        authorizationCase.applicationValidationBindingDigest,
+      validateBeforePersistence: authorizationCase.validateBeforePersistence,
+      generationOptions: {
+        maxTokens: 1_792,
+        substantiveScene: authorizationCase.substantiveScene,
+        substantiveSceneBudget: authorizationCase.budget,
+      },
+    }),
+    (error) => error?.code === authorizationCase.expectedCode,
+    `${authorizationCase.name} must fail before backend execution`,
+  );
+  assert.equal(
+    backend.executionCount,
+    executionsBeforeCase,
+    `${authorizationCase.name} executed a backend`,
+  );
+  await assertNoTaskDurability(
+    os,
+    projectId,
+    taskId,
+    `scene budget authorization case ${authorizationCase.name}`,
+  );
+}
+
+const authorizedBudgetProjectId = await createCanonicalProject(
+  `authorized-scene-budget-${crypto.randomUUID()}`,
+);
+const authorizedBudgetTaskId =
+  `authorized-scene-budget-task-${crypto.randomUUID()}`;
+const authorizedBudgetInput = {
+  projectId: authorizedBudgetProjectId,
+  task: "branch_choice",
+  taskId: authorizedBudgetTaskId,
+  input: "以不可持久化的修復提示產生候選，並在寫入前通過綁定驗證。",
+  targetLength: 1_600,
+  sourceChapterId: "chapter-authorized-scene-budget",
+  sourceRevision: 1,
+  browserComputePolicy: "quality-first",
+  qualityMode: "fast",
+  ephemeralPrompt: true,
+  applicationValidationBindingDigest: "9".repeat(64),
+  validateBeforePersistence: async (candidate) => {
+    assert.match(candidate.content, /〈雨夜封條〉/u);
+  },
+  generationOptions: {
+    maxTokens: 1_792,
+    substantiveScene: true,
+    substantiveSceneBudget: "rpg-application-minimum",
+  },
+};
+const authorizedBudgetResult = await runStudioClosedAI(authorizedBudgetInput);
+assert.match(authorizedBudgetResult.requestContractDigest, /^[a-f0-9]{64}$/u);
+const executionsAfterAuthorizedBudget = backend.executionCount;
+await assert.rejects(
+  () => runStudioClosedAI({
+    ...authorizedBudgetInput,
+    generationOptions: {
+      maxTokens: 1_792,
+      substantiveScene: true,
+    },
+  }),
+  (error) => error?.code === "CLOSED_AGENT_IDEMPOTENCY_CONFLICT",
+  "changing the sealed scene budget under the same task id must fail closed",
+);
+assert.equal(
+  backend.executionCount,
+  executionsAfterAuthorizedBudget,
+  "a scene-budget request-contract mismatch re-executed the backend",
+);
+
 const learnedReplayProjectId = await createCanonicalProject(
   `learned-replay-${crypto.randomUUID()}`,
 );

@@ -157,13 +157,17 @@ import {
   buildSubstantiveSceneContinuationPrompt,
   extractProtectedSubstantiveSceneContract,
   LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS,
+  LOCAL_RPG_APPLICATION_MINIMUM_CHARACTERS,
   LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS,
   LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION,
   LOCAL_SUBSTANTIVE_SCENE_TOTAL_TIMEOUT_MS,
+  localSubstantiveSceneRequiresSupplement,
   measureSubstantiveScene,
   mergeSubstantiveSceneContinuation,
   repairLocalChineseDialogueQuotes,
   repairLocalProseCompletionBoundary,
+  resolveLocalSubstantiveSceneStableMinimumCharacters,
+  runLocalOllama,
   trimSubstantiveSceneLeadingParagraphReplay,
   trimSubstantiveSceneContinuationOverlap,
   resolveLocalOllamaPerformanceBudget,
@@ -172,6 +176,9 @@ import {
   SMALL_LOCAL_SUBSTANTIVE_SCENE_MAX_SUPPLEMENT_PASSES,
   SMALL_LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_MAX_OUTPUT_TOKENS,
 } from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
+import {
+  configureLocalBridgeClient,
+} from "../lib/novel-ai/providers/local-ollama/local-bridge-client.ts";
 
 const root = resolve(import.meta.dirname, "..");
 const mode = process.argv[2] ?? "all";
@@ -10873,6 +10880,156 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.equal(SMALL_LOCAL_SUBSTANTIVE_SCENE_MAX_SUPPLEMENT_PASSES, 2);
   assert.equal(LOCAL_SUBSTANTIVE_SCENE_TOTAL_TIMEOUT_MS, 330_000);
   assert.equal(LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS, 1_200);
+  assert.equal(LOCAL_RPG_APPLICATION_MINIMUM_CHARACTERS, 950);
+  assert.equal(resolveLocalSubstantiveSceneStableMinimumCharacters({
+    taskType: "chapter.continue",
+    substantiveScene: true,
+  }), 1_200, "ordinary substantive scenes retain the 1,200-character provider target");
+  assert.equal(resolveLocalSubstantiveSceneStableMinimumCharacters({
+    taskType: "chapter.continue",
+    substantiveScene: true,
+    substantiveSceneBudget: "rpg-application-minimum",
+  }), 950, "digest-bound RPG repairs may stop at the conservative application floor");
+  assert.equal(resolveLocalSubstantiveSceneStableMinimumCharacters({
+    taskType: "chapter.continue",
+    substantiveScene: false,
+    substantiveSceneBudget: "rpg-application-minimum",
+  }), 1_200, "non-substantive calls cannot lower the provider target");
+  assert.equal(resolveLocalSubstantiveSceneStableMinimumCharacters({
+    taskType: "story.summary",
+    substantiveScene: true,
+    substantiveSceneBudget: "rpg-application-minimum",
+  }), 1_200, "non-RPG-continuation calls cannot lower the provider target");
+  assert.equal(resolveLocalSubstantiveSceneStableMinimumCharacters({
+    taskType: "chapter.continue",
+    substantiveScene: true,
+    substantiveSceneBudget: "unrecognized-runtime-value",
+  }), 1_200, "unknown runtime values fail closed to the standard target");
+  const structurallyCompleteApplicationScene = {
+    narrativeLength: 950,
+    paragraphCount: 8,
+    sentenceCount: 10,
+  };
+  assert.equal(localSubstantiveSceneRequiresSupplement({
+    metrics: structurallyCompleteApplicationScene,
+    minimumCharacters: 1_200,
+  }), true, "the standard policy still requests a third provider call at 950 characters");
+  assert.equal(localSubstantiveSceneRequiresSupplement({
+    metrics: structurallyCompleteApplicationScene,
+    minimumCharacters: 950,
+  }), false, "the bound RPG repair stops before an unnecessary third provider call");
+  assert.equal(localSubstantiveSceneRequiresSupplement({
+    metrics: { ...structurallyCompleteApplicationScene, narrativeLength: 949 },
+    minimumCharacters: 950,
+  }), true, "a repair below the conservative application floor still receives supplementation");
+  assert.equal(localSubstantiveSceneRequiresSupplement({
+    metrics: { ...structurallyCompleteApplicationScene, paragraphCount: 7 },
+    minimumCharacters: 950,
+  }), true, "length alone cannot bypass the eight-paragraph provider structure check");
+  assert.equal(localSubstantiveSceneRequiresSupplement({
+    metrics: { ...structurallyCompleteApplicationScene, sentenceCount: 9 },
+    minimumCharacters: 950,
+  }), true, "length alone cannot bypass the ten-sentence provider structure check");
+  const substantiveScenePart = (prefix, start, count, repetitions) => Array.from(
+    { length: count },
+    (_, index) => [
+      `${prefix}${start + index}。`,
+      "石階上的雨水映著燈影，沈曜握住繩結確認門縫方向，守塔人則退到牆邊聽辨聲音。".repeat(repetitions),
+      "遠處鐘聲落下，兩人因此改變站位。",
+    ].join(""),
+  ).join("\n\n");
+  const providerInitialScene = substantiveScenePart("初稿段", 1, 4, 2);
+  const providerFirstSupplement = substantiveScenePart("補寫段", 5, 4, 4);
+  const providerFinalSupplement = substantiveScenePart("收束段", 9, 2, 3);
+  assert.deepEqual(measureSubstantiveScene(providerInitialScene), {
+    narrativeLength: 380,
+    paragraphCount: 4,
+    sentenceCount: 16,
+  });
+  assert.deepEqual(
+    measureSubstantiveScene(`${providerInitialScene}\n\n${providerFirstSupplement}`),
+    { narrativeLength: 1_056, paragraphCount: 8, sentenceCount: 40 },
+  );
+  const providerDecision = {
+    providerId: "local-ollama",
+    modelId: "qwen2.5:0.5b",
+    modelDigest: "a".repeat(64),
+    privacyMode: "strict-local",
+    reason: "substantive scene supplement budget integration fixture",
+    contextSources: [],
+    externalRequest: false,
+    dataLeavesDevice: false,
+    fallbackChain: [],
+    warnings: [],
+  };
+  const runProviderSupplementFixture = async (budget) => {
+    const outputs = [
+      providerInitialScene,
+      providerFirstSupplement,
+      providerFinalSupplement,
+    ];
+    let calls = 0;
+    configureLocalBridgeClient({
+      async *generate(request) {
+        const content = outputs[calls] ?? providerFinalSupplement;
+        calls += 1;
+        yield { type: "started", requestId: request.requestId };
+        yield { type: "token", requestId: request.requestId, text: content };
+        yield {
+          type: "metadata",
+          requestId: request.requestId,
+          evalCount: 64,
+          doneReason: "stop",
+        };
+        yield { type: "completed", requestId: request.requestId };
+      },
+    });
+    try {
+      const result = await runLocalOllama({
+        requestId: `provider-supplement-${budget ?? "standard"}`,
+        projectId: "provider-supplement-project",
+        taskType: "chapter.continue",
+        privacyMode: "strict-local",
+        privacyLevel: "device_only",
+        fallbackPolicy: "none",
+        preferredProvider: "local-ollama",
+        input: "[RPG_SCENE_CONTRACT_V2]\n選擇:A｜角色:沈曜、守塔人｜Canon:星燈只在雨夜點亮\n[/RPG_SCENE_CONTRACT_V2]",
+        context: [],
+        qualityPreference: "fast",
+        generationOptions: {
+          maxTokens: 1_792,
+          substantiveScene: true,
+          ...(budget ? { substantiveSceneBudget: budget } : {}),
+        },
+        externalConsent: false,
+        closedOnly: true,
+        offlineRequired: true,
+      }, providerDecision, undefined, undefined, {
+        deferTraditionalChineseNormalization: true,
+      });
+      return { calls, result };
+    } finally {
+      configureLocalBridgeClient(null);
+    }
+  };
+  const standardProviderSupplement = await runProviderSupplementFixture();
+  assert.equal(
+    standardProviderSupplement.calls,
+    3,
+    "a standard 1,056-character scene must retain the third provider call toward 1,200",
+  );
+  const applicationProviderSupplement = await runProviderSupplementFixture(
+    "rpg-application-minimum",
+  );
+  assert.equal(
+    applicationProviderSupplement.calls,
+    2,
+    "a bound RPG repair must stop after the structurally complete 1,056-character merge",
+  );
+  assert.match(
+    applicationProviderSupplement.result.runtimeStats ?? "",
+    /substantive-scene-stable-minimum=950/u,
+  );
   assert.equal(LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS, 1_450);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /未核准的故事資料/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /不得覆寫本指令/u);
