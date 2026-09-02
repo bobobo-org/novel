@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { chromium, webkit } from "@playwright/test";
+import {
+  isCompletedNextStaticScriptNavigationCancellation as isCompletedNextStaticScriptCancellation,
+  isVerifiedNextStaticScriptResponse,
+} from "./humanized-navigation-diagnostics.mjs";
 
 const baseUrl = String(process.argv.slice(2).find((value) => value !== "--") || "http://127.0.0.1:4174").replace(/\/$/u, "");
 const engineName = process.env.MOBILE_BROWSER_ENGINE === "webkit" ? "webkit" : "chromium";
@@ -14,6 +18,7 @@ const requestFailures = [];
 const pageErrors = [];
 const unexpectedLoopbackRequests = [];
 const expectedNavigationCancellations = [];
+const nextStaticScriptHttpFailures = [];
 let page = null;
 
 function attachDiagnostics(targetPage) {
@@ -32,7 +37,28 @@ function attachDiagnostics(targetPage) {
       method: request.method(),
       resourceType: request.resourceType(),
       rscHeader: request.headers().rsc ?? "",
+      observedAt: Date.now(),
     });
+  });
+  targetPage.on("response", (response) => {
+    if (response.status() < 400) return;
+    const request = response.request();
+    try {
+      const responseUrl = new URL(response.url());
+      if (
+        responseUrl.origin === new URL(baseUrl).origin
+        && request.method() === "GET"
+        && request.resourceType() === "script"
+        && /^\/_next\/static\/chunks\/.+\.js$/u.test(responseUrl.pathname)
+      ) {
+        nextStaticScriptHttpFailures.push({
+          url: response.url(),
+          status: response.status(),
+        });
+      }
+    } catch {
+      // Malformed URLs cannot be same-origin Next static assets.
+    }
   });
   targetPage.on("request", (request) => {
     try {
@@ -56,6 +82,7 @@ async function openFreshPage(url) {
   requestFailures.length = 0;
   pageErrors.length = 0;
   unexpectedLoopbackRequests.length = 0;
+  nextStaticScriptHttpFailures.length = 0;
   page = await context.newPage();
   attachDiagnostics(page);
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
@@ -135,52 +162,33 @@ function isCompletedLegacyRedirectCancellation(failure, projectId) {
   }
 }
 
-function isCompletedNextStaticScriptNavigationCancellation(failure) {
-  if (
-    engineName !== "webkit"
-    || failure.errorText !== "Load request cancelled"
-    || failure.method !== "GET"
-    || failure.resourceType !== "script"
-    || failure.rscHeader
-  ) return false;
-
-  try {
-    const requestUrl = new URL(failure.url);
-    return requestUrl.origin === new URL(baseUrl).origin
-      && requestUrl.username === ""
-      && requestUrl.password === ""
-      && requestUrl.search === ""
-      && requestUrl.hash === ""
-      && /^\/_next\/static\/chunks\/[A-Za-z0-9_-]{8,64}\.js$/u.test(requestUrl.pathname);
-  } catch {
-    return false;
-  }
+function isCompletedNextStaticScriptNavigationCancellation(failure, currentUrl, navigationProofs) {
+  return navigationProofs.some((navigationProof) => isCompletedNextStaticScriptCancellation({
+    failure,
+    engineName,
+    baseUrl,
+    currentUrl,
+    navigationProof,
+  }));
 }
 
 async function assertCancelledNextStaticScriptStillAvailable(label, failure) {
   const response = await context.request.get(failure.url, {
     failOnStatusCode: false,
+    maxRedirects: 0,
     timeout: 60_000,
   });
-  assert.equal(
-    response.status(),
-    200,
-    `${label}: cancelled Next static script must remain available: ${failure.url}`,
-  );
   const headers = response.headers();
-  assert.match(
-    headers["content-type"] ?? "",
-    /^(?:application|text)\/javascript(?:;|$)/iu,
-    `${label}: cancelled Next static script must remain JavaScript: ${failure.url}`,
-  );
-  assert.match(
-    headers["cache-control"] ?? "",
-    /(?:^|,)\s*(?:public\s*,\s*)?max-age=\d+\s*,\s*immutable(?:,|$)/iu,
-    `${label}: cancelled Next static script must remain immutable: ${failure.url}`,
-  );
-  assert.ok(
-    (await response.body()).byteLength > 0,
-    `${label}: cancelled Next static script must not be empty: ${failure.url}`,
+  const body = await response.body();
+  assert.equal(
+    isVerifiedNextStaticScriptResponse({
+      status: response.status(),
+      contentType: headers["content-type"] ?? "",
+      cacheControl: headers["cache-control"] ?? "",
+      bodyLength: body.byteLength,
+    }),
+    true,
+    `${label}: cancelled Next static script must still be a direct 200 immutable JavaScript response with a non-empty body: ${failure.url}`,
   );
 }
 
@@ -312,9 +320,15 @@ async function assertCleanDiagnostics(label, options = {}) {
     unacceptedRequestFailures = requestFailures.filter((failure) => !accepted.includes(failure));
     expectedNavigationCancellations.push(...accepted);
 
-    const completedStaticScriptCancellations = unacceptedRequestFailures.filter(
-      isCompletedNextStaticScriptNavigationCancellation,
-    );
+    const completedStaticScriptNavigationProofs = options.completedStaticScriptNavigationProofs ?? [];
+    const currentUrl = page.url();
+    const completedStaticScriptCancellations = unacceptedRequestFailures.filter((failure) => (
+      isCompletedNextStaticScriptNavigationCancellation(
+        failure,
+        currentUrl,
+        completedStaticScriptNavigationProofs,
+      )
+    ));
     assert.ok(
       completedStaticScriptCancellations.length <= 1,
       `${label}: at most one completed Next static script navigation cancellation is allowed: ${JSON.stringify(completedStaticScriptCancellations)}`,
@@ -433,6 +447,11 @@ async function assertCleanDiagnostics(label, options = {}) {
   assert.deepEqual(pageErrors, [], `${label}: page errors: ${JSON.stringify(pageErrors)}`);
   assert.deepEqual(consoleErrors, [], `${label}: console errors: ${JSON.stringify(consoleErrors)}`);
   assert.deepEqual(
+    nextStaticScriptHttpFailures,
+    [],
+    `${label}: Next static script HTTP failures: ${JSON.stringify(nextStaticScriptHttpFailures)}`,
+  );
+  assert.deepEqual(
     unacceptedRequestFailures,
     [],
     `${label}: failed requests: ${JSON.stringify(unacceptedRequestFailures)}`,
@@ -443,6 +462,8 @@ const results = [];
 let createdProjectId = "";
 let frontdoorCanonVisitStartedAt = 0;
 let frontdoorCanonEditorArrivedAt = 0;
+const workspaceStaticScriptNavigationProofs = [];
+const readerStaticScriptNavigationProofs = [];
 async function check(name, work) {
   await work();
   results.push({ name, status: "PASS" });
@@ -856,12 +877,19 @@ try {
     const playLink = page.getByRole("link", { name: "在故事工作台開始遊玩" });
     const playHref = await playLink.getAttribute("href");
     assert.match(playHref, /\/chat\?mode=play$/u);
+    const navigationStartedAt = Date.now();
     try {
       await Promise.all([
         page.waitForURL(/\/studio\/project\/[^/]+\/chat\?mode=play$/u, { timeout: 60_000 }),
         playLink.click(),
       ]);
       await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
+      workspaceStaticScriptNavigationProofs.push({
+        startedAt: navigationStartedAt,
+        arrivedAt: Date.now(),
+        destinationUrl: page.url(),
+        landed: true,
+      });
     } catch (error) {
       throw new Error(
         `PLAY_WORKSPACE_NAVIGATION_FAILED ${JSON.stringify({
@@ -886,10 +914,17 @@ try {
   });
 
   await check("stale completed A/B/C is durably abandoned and rebuilt before B can continue", async () => {
+    const reloadStartedAt = Date.now();
     await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
     await page.getByTestId("rpg-inline-choices").waitFor({ state: "visible", timeout: 60_000 });
     await waitForTimelineScrollRestore(page);
+    workspaceStaticScriptNavigationProofs.push({
+      startedAt: reloadStartedAt,
+      arrivedAt: Date.now(),
+      destinationUrl: page.url(),
+      landed: true,
+    });
     const originalChoiceCard = page.locator('article[data-rpg-choices="true"]').last();
     const originalChoiceMessageId = await originalChoiceCard.getAttribute("data-message-id");
     assert.ok(originalChoiceMessageId, "the completed A/B/C card must expose its durable message identity");
@@ -1133,6 +1168,7 @@ try {
     await assertCleanDiagnostics("RPG creation and workspace navigation", {
       allowSupersededWorkspacePrefetchesForProjectId: createdProjectId,
       allowBoundedSharedLearningRequest: true,
+      completedStaticScriptNavigationProofs: workspaceStaticScriptNavigationProofs,
     });
     await openFreshPage(chatUrl);
     await page.setViewportSize(mobileViewport);
@@ -1426,12 +1462,19 @@ try {
     await openFreshPage(`${baseUrl}/professional?intent=library&projectId=${encodeURIComponent(createdProjectId)}`);
     await page.getByTestId("professional-canonical-workbench").waitFor({ state: "visible" });
     const readerLink = page.getByRole("link", { name: "閱讀作品", exact: true }).first();
+    const readerNavigationStartedAt = Date.now();
     try {
       await Promise.all([
         page.waitForURL(new RegExp(`/studio/read/${createdProjectId}$`, "u"), { timeout: 60_000 }),
         readerLink.tap(),
       ]);
       await page.locator(".readerShell").waitFor({ state: "visible" });
+      readerStaticScriptNavigationProofs.push({
+        startedAt: readerNavigationStartedAt,
+        arrivedAt: Date.now(),
+        destinationUrl: page.url(),
+        landed: true,
+      });
     } catch (error) {
       throw new Error(`READER_NAVIGATION_FAILED ${JSON.stringify({
         currentUrl: page.url(),
@@ -1462,6 +1505,7 @@ try {
       allowSupersededReaderNavigationForProjectId: createdProjectId,
       allowSupersededHealthRequest: true,
       allowBoundedSharedLearningRequest: true,
+      completedStaticScriptNavigationProofs: readerStaticScriptNavigationProofs,
     });
   });
 

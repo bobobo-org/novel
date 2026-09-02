@@ -74,6 +74,7 @@
     "test:p12": "node scripts/run-p12-tests.mjs",
     "test:studio:story-topic-audit": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-story-topic-audit-contract.mjs",
     "test:studio:humanized-onboarding": "node scripts/run-humanized-creation-onboarding.mjs",
+    "test:studio:humanized-navigation-diagnostics": "node tests/humanized-navigation-diagnostics.test.mjs",
     "test:studio:create-story-seed-ai": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-create-story-seed-ai.mjs",
     "test:studio:project-context-navigation": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-project-context-navigation-contract.mjs",
     "test:studio:project-playmode-clone": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-project-playmode-clone.mjs",

@@ -1717,6 +1717,7 @@ jobs:
         run: |
           set -euo pipefail
           {
+            pnpm test:studio:humanized-navigation-diagnostics
             # A staged gate intentionally starts with WebKit before the longer
             # Chromium sweep accumulates automated traffic at Vercel's edge.
             # Both engines and every viewport still run before alias cutover.
