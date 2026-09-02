@@ -246,6 +246,71 @@ function rpgNovelContinuityFailures(error: unknown) {
   return null;
 }
 
+/**
+ * A fallback-repair dispatch may be rejected by a strict reader-facing story
+ * validator even when the original repair target was repetition.  Those
+ * content-only failures are safe to regenerate once because the next result
+ * must pass the identical application validator before persistence.  Proof,
+ * security, adult-policy, timeout and transport failures deliberately remain
+ * non-retryable here.
+ */
+const RPG_RETRYABLE_CLOSED_REPAIR_CONTENT_LEAF_CODES = new Set([
+  "RPG_AI_CONTINUATION_FRAGMENT_VISIBLE",
+  "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
+  "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED",
+  "RPG_AI_CONTINUATION_TOO_SHORT",
+  "RPG_AI_CONTINUATION_TOO_LONG",
+  "RPG_AI_STORY_SELECTED_ACTION_MISSING",
+  "RPG_AI_STORY_OUTCOME_MISMATCH",
+]);
+
+const RPG_TRANSPARENT_CLOSED_REPAIR_ERROR_WRAPPERS = new Set([
+  "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+]);
+
+function directRpgFailureCode(error: unknown) {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (typeof code === "string") {
+    if (!/^RPG_[A-Z0-9_]{1,100}$/u.test(code)) return null;
+    if (/^RPG_[A-Z0-9_]{1,100}$/u.test(message) && message !== code) return null;
+    return code;
+  }
+  return /^RPG_[A-Z0-9_]{1,100}$/u.test(message) ? message : null;
+}
+
+function rpgRetryableClosedRepairContentFailure(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const outer = error as { code?: unknown; cause?: unknown };
+  const terminal = (
+    typeof outer.code === "string"
+    && RPG_TRANSPARENT_CLOSED_REPAIR_ERROR_WRAPPERS.has(outer.code)
+  ) ? outer.cause : error;
+  if (!terminal || typeof terminal !== "object") return false;
+  const candidate = terminal as {
+    continuityFailures?: unknown;
+    cause?: unknown;
+  };
+  // A terminal content leaf never wraps another failure. Any deeper cause is
+  // ambiguous (and may be proof, policy or transport), so keep it fail-closed.
+  if (candidate.cause !== undefined && candidate.cause !== null) return false;
+  const failureCode = directRpgFailureCode(terminal);
+  if (RPG_NOVEL_REPETITION_LEAF_CODES.has(failureCode ?? "")) return true;
+  if (
+    failureCode === "RPG_NOVEL_CONTINUITY_GATE_FAILED"
+    && Array.isArray(candidate.continuityFailures)
+    && candidate.continuityFailures.length > 0
+    && candidate.continuityFailures.every((failure) => (
+      typeof failure === "string"
+      && RPG_NOVEL_CONTINUITY_FAILURES.has(failure as NovelContinuityGateFailure)
+    ))
+  ) {
+    return true;
+  }
+  return RPG_RETRYABLE_CLOSED_REPAIR_CONTENT_LEAF_CODES.has(failureCode ?? "");
+}
+
 function rpgClosedAITimeoutError(attempts: number, cause?: unknown) {
   return Object.assign(new Error("The RPG closed-AI generation deadline expired."), {
     code: "RPG_STORY_AI_TIMEOUT",
@@ -4566,9 +4631,7 @@ export async function generateRpgChatTurnCandidate(input: {
             || repairFailures?.length !== 1
             || repairFailures[0] !== "repetition"
           ) return false;
-          const retryFailures = rpgNovelContinuityFailures(error);
-          const retryAuthorized = retryFailures?.length === 1
-            && retryFailures[0] === "repetition";
+          const retryAuthorized = rpgRetryableClosedRepairContentFailure(error);
           if (retryAuthorized) {
             // A fresh readiness phase has no application-validation result yet.
             // Clear the rejected attempt now, before the next execute callback,

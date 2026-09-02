@@ -1094,6 +1094,286 @@ for (const repetitionCase of repetitionLeafCases) {
   });
 }
 
+for (const crossContentCase of [
+  {
+    name: "selected-action",
+    leafCode: "RPG_AI_STORY_SELECTED_ACTION_MISSING",
+  },
+  {
+    name: "continuation-length",
+    leafCode: "RPG_AI_CONTINUATION_TOO_SHORT",
+  },
+]) {
+  let crossGateRepairDispatches = 0;
+  const crossGateRepairTaskIds = [];
+  const logicalTurnId = `logical-turn-repetition-repair-cross-${crossContentCase.name}-gate`;
+  const crossGateRepairCandidate = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async (request) => {
+      crossGateRepairDispatches += 1;
+      crossGateRepairTaskIds.push(request.taskId);
+      if (crossGateRepairDispatches === 1) {
+        const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+          code: "RPG_AI_CONTINUATION_REPETITIVE",
+        });
+        throw Object.assign(new Error("local provider rejected repeated prose"), {
+          code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+          cause: repetitionError,
+        });
+      }
+      if (crossGateRepairDispatches === 2) {
+        const contentError = new Error(crossContentCase.leafCode);
+        throw Object.assign(new Error("local provider rejected repair content"), {
+          code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+          cause: contentError,
+        });
+      }
+      const result = closedReviewResult(
+        request,
+        `cross-${crossContentCase.name}-gate-repair-success`,
+        fullReviewedStory,
+      );
+      await request.validateBeforePersistence?.(result);
+      return result;
+    },
+  });
+  assert.equal(
+    crossGateRepairDispatches,
+    3,
+    `${crossContentCase.leafCode} receives one bounded repair retry`,
+  );
+  assert.deepEqual(crossGateRepairTaskIds, [
+    await rpgLogicalTurnGenerationTaskId(logicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(logicalTurnId, ["repetition"], 1),
+    await rpgLogicalTurnFallbackRepairTaskId(logicalTurnId, ["repetition"], 2),
+  ]);
+  assert.equal(crossGateRepairCandidate.story, fullReviewedStory);
+  assert.equal(
+    crossGateRepairCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+    2,
+    "the receipt must bind the second closed repair dispatch",
+  );
+  assert.ok(
+    await verifyPostFallbackClosedReviewReceipt({ candidate: crossGateRepairCandidate }),
+    "the cross-content-gate repair receipt must verify",
+  );
+}
+
+let nonRetryableRepairDispatches = 0;
+const nonRetryableRepairFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-repetition-repair-proof-stops",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async () => {
+    nonRetryableRepairDispatches += 1;
+    if (nonRetryableRepairDispatches === 1) {
+      const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        code: "RPG_AI_CONTINUATION_REPETITIVE",
+      });
+      throw Object.assign(new Error("local provider rejected repeated prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: repetitionError,
+      });
+    }
+    throw Object.assign(new Error("closed review proof is missing"), {
+      code: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
+    });
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  nonRetryableRepairDispatches,
+  2,
+  "proof failures must not consume the bounded content-repair retry",
+);
+assert.equal(nonRetryableRepairFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  nonRetryableRepairFailure?.reviewFailureCode,
+  "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
+);
+
+let leakageRepairDispatches = 0;
+const leakageRepairFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-repetition-repair-leakage-stops",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async () => {
+    leakageRepairDispatches += 1;
+    if (leakageRepairDispatches === 1) {
+      const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        code: "RPG_AI_CONTINUATION_REPETITIVE",
+      });
+      throw Object.assign(new Error("local provider rejected repeated prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: repetitionError,
+      });
+    }
+    const leakageError = new Error("RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE");
+    throw Object.assign(new Error("local provider rejected leaked engine language"), {
+      code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+      cause: leakageError,
+    });
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  leakageRepairDispatches,
+  2,
+  "engine-language leakage must not consume the bounded content-repair retry",
+);
+assert.equal(leakageRepairFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  leakageRepairFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE",
+);
+
+for (const blockerCase of [
+  {
+    name: "proof",
+    outerCode: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
+    nestedCode: "RPG_AI_STORY_SELECTED_ACTION_MISSING",
+  },
+  {
+    name: "timeout",
+    outerCode: "RPG_STORY_AI_TIMEOUT",
+    nestedCode: "RPG_AI_CONTINUATION_REPETITIVE",
+  },
+  {
+    name: "adult-policy",
+    outerCode: "RPG_ADULT_RUNTIME_POLICY_RECEIPT_INVALID",
+    nestedCode: "RPG_AI_CONTINUATION_TOO_SHORT",
+  },
+  {
+    name: "transport",
+    outerCode: "OLLAMA_STREAM_INTERRUPTED",
+    nestedCode: "RPG_AI_CONTINUATION_TOO_SHORT",
+    outerMessage: "RPG_AI_CONTINUATION_TOO_SHORT",
+  },
+]) {
+  let nestedBlockerDispatches = 0;
+  const nestedBlockerFailure = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId: `logical-turn-repetition-repair-${blockerCase.name}-cause-stops`,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async () => {
+      nestedBlockerDispatches += 1;
+      if (nestedBlockerDispatches === 1) {
+        const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+          code: "RPG_AI_CONTINUATION_REPETITIVE",
+        });
+        throw Object.assign(new Error("local provider rejected repeated prose"), {
+          code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+          cause: repetitionError,
+        });
+      }
+      const nestedContentError = Object.assign(new Error(blockerCase.nestedCode), {
+        code: blockerCase.nestedCode,
+      });
+      throw Object.assign(new Error(
+        blockerCase.outerMessage ?? `${blockerCase.name} blocks repair retry`,
+      ), {
+        code: blockerCase.outerCode,
+        cause: nestedContentError,
+      });
+    },
+  }).then(() => null, (error) => error);
+  assert.equal(
+    nestedBlockerDispatches,
+    2,
+    `${blockerCase.name} must stop repair retry even when its cause is an allowlisted content leaf`,
+  );
+  assert.equal(nestedBlockerFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+  assert.equal(nestedBlockerFailure?.reviewFailureCode, blockerCase.outerCode);
+}
+
+async function assertAmbiguousRepairFailureStops(name, repairError) {
+  let dispatches = 0;
+  await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId: `logical-turn-repetition-repair-${name}-stops`,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async () => {
+      dispatches += 1;
+      if (dispatches === 1) {
+        const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+          code: "RPG_AI_CONTINUATION_REPETITIVE",
+        });
+        throw Object.assign(new Error("local provider rejected repeated prose"), {
+          code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+          cause: repetitionError,
+        });
+      }
+      throw repairError;
+    },
+  }).then(() => null, (error) => error);
+  assert.equal(dispatches, 2, `${name} must not dispatch repair attempt 2`);
+}
+
+await assertAmbiguousRepairFailureStops(
+  "transport-code-message-spoof",
+  Object.assign(new Error("RPG_AI_CONTINUATION_TOO_SHORT"), {
+    code: "OLLAMA_STREAM_INTERRUPTED",
+  }),
+);
+await assertAmbiguousRepairFailureStops(
+  "conflicting-rpg-code-message",
+  Object.assign(new Error("RPG_AI_STORY_SELECTED_ACTION_MISSING"), {
+    code: "RPG_AI_CONTINUATION_TOO_SHORT",
+  }),
+);
+await assertAmbiguousRepairFailureStops(
+  "content-leaf-with-proof-cause",
+  Object.assign(new Error("local provider rejected repair content"), {
+    code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+    cause: Object.assign(new Error("RPG_AI_CONTINUATION_TOO_SHORT"), {
+      code: "RPG_AI_CONTINUATION_TOO_SHORT",
+      cause: Object.assign(new Error("closed review proof is missing"), {
+        code: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
+      }),
+    }),
+  }),
+);
+
 let changedLeafDispatches = 0;
 const changedLeafFailure = await generateRpgChatTurnCandidate({
   snapshot: fullSnapshot,
