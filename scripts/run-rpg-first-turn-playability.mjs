@@ -25,6 +25,7 @@ import {
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
 import {
   buildCompactRpgResolutionDirectorPrompt,
+  parseRpgChoiceDirectorOutput,
   rpgTextSimilarity,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
 import { runStudioClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
@@ -151,6 +152,74 @@ assert.equal(
   }),
   null,
   "a proof failure must remain visible and must never become timeout fallback",
+);
+
+const companion145ChoicePayload = JSON.stringify({
+  choices: [
+    {
+      key: "A",
+      title: "先封住側門追查失蹤證人",
+      description: "主角先封住研究院側門，請張家守門人核對失蹤證人的通行紀錄與最後目擊位置。",
+      consequence: "會失去追趕先機，但能保住可追溯證據。",
+      continuityReason: "承接研究院封鎖與證人失蹤。",
+    },
+    {
+      key: "B",
+      title: "以張家名義交換巡查密報",
+      description: "主角請張家代表出面交涉，用一筆可公開核對的人情換取校方巡查紀錄與換班時限。",
+      consequence: "人情債會留下，也可能暴露調查方向。",
+      continuityReason: "延續張氏學術世家的資源與責任。",
+    },
+    {
+      key: "C",
+      title: "趁警戒交替潛入封存樓層",
+      description: "主角趁警戒交替沿維修通道潛入封存樓層，在增援抵達前確認異常儀器的實際狀態。",
+      consequence: "成功可逼近核心，失敗會暴露隊伍位置。",
+      continuityReason: "推進封存樓層與異常儀器線索。",
+    },
+  ],
+});
+const parsedCompanion145Choices = parseRpgChoiceDirectorOutput(companion145ChoicePayload);
+assert.deepEqual(parsedCompanion145Choices.map((choice) => choice.key), ["A", "B", "C"]);
+assert.equal(parsedCompanion145Choices[0].consequenceTeaser, "會失去追趕先機，但能保住可追溯證據。");
+assert.equal(
+  Object.hasOwn(parsedCompanion145Choices[0], "continuityReason"),
+  false,
+  "the obsolete Companion-only continuity field must never reach the visible choice contract",
+);
+const currentChoicePayload = JSON.parse(companion145ChoicePayload);
+currentChoicePayload.choices[0].consequenceTeaser = "目前網站欄位必須優先，不能被舊欄位覆蓋。";
+assert.equal(
+  parseRpgChoiceDirectorOutput(JSON.stringify(currentChoicePayload))[0].consequenceTeaser,
+  "目前網站欄位必須優先，不能被舊欄位覆蓋。",
+);
+const invalidCanonicalChoicePayload = structuredClone(currentChoicePayload);
+invalidCanonicalChoicePayload.choices[0].consequenceTeaser = null;
+assert.throws(
+  () => parseRpgChoiceDirectorOutput(JSON.stringify(invalidCanonicalChoicePayload)),
+  /RPG_AI_CHOICE_INCOMPLETE/u,
+  "an explicitly invalid canonical field must not be hidden by the legacy alias",
+);
+const shortLegacyChoicePayload = JSON.parse(companion145ChoicePayload);
+shortLegacyChoicePayload.choices[0].consequence = "代價太短";
+assert.throws(
+  () => parseRpgChoiceDirectorOutput(JSON.stringify(shortLegacyChoicePayload)),
+  /RPG_AI_CHOICE_INCOMPLETE/u,
+  "the Companion compatibility field must retain the canonical minimum length",
+);
+const missingLegacyChoicePayload = JSON.parse(companion145ChoicePayload);
+delete missingLegacyChoicePayload.choices[0].consequence;
+assert.throws(
+  () => parseRpgChoiceDirectorOutput(JSON.stringify(missingLegacyChoicePayload)),
+  /RPG_AI_CHOICE_INCOMPLETE/u,
+  "missing canonical and compatibility consequence fields must remain fail-closed",
+);
+const unsafeDiscardedChoicePayload = JSON.parse(companion145ChoicePayload);
+unsafeDiscardedChoicePayload.choices[0].continuityReason = "下一回合會自動套用內部規則。";
+assert.throws(
+  () => parseRpgChoiceDirectorOutput(JSON.stringify(unsafeDiscardedChoicePayload)),
+  /RPG_AI_INTERNAL_STORY_MECHANICS_LEAK/u,
+  "discarded Companion-only fields must remain inside the full reader-safety scan",
 );
 
 for (const abortReason of ["RPG_STORY_AI_TIMEOUT", "USER_REQUESTED_RULE_FALLBACK"]) {

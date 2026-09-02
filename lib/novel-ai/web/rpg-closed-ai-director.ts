@@ -282,7 +282,19 @@ export function parseRpgChoiceDirectorOutput(raw: string): DirectedChoicePayload
     const key = row.key === "A" || row.key === "B" || row.key === "C" ? row.key : null;
     const title = cleanText(row.title, 18);
     const description = cleanText(row.description, 72);
-    const consequenceTeaser = cleanText(row.consequenceTeaser, 40);
+    // Companion 1.4.5's origin-bound `chapter.abcChoices` JSON schema names
+    // this model-authored display field `consequence`.  The web contract was
+    // renamed to `consequenceTeaser` without a compatibility reader, so a
+    // fresh verified Local Ollama response was guaranteed to be rejected as
+    // incomplete after `/generate` returned 200.  Prefer the current field,
+    // but accept the already-installed Companion field while keeping the same
+    // reader-safety, length, distinctness and execution-proof gates.
+    const consequenceTeaser = cleanText(
+      Object.hasOwn(row, "consequenceTeaser")
+        ? row.consequenceTeaser
+        : row.consequence,
+      40,
+    );
     if (!key || title.length < 8 || description.length < 30 || consequenceTeaser.length < 12) {
       throw new Error("RPG_AI_CHOICE_INCOMPLETE");
     }
