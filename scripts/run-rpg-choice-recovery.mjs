@@ -1203,6 +1203,11 @@ assert.ok(
     < createChoicesBody.indexOf("onRpgGenerationStarted();"),
   "source controls may collapse only after the choice-plan invocation has started",
 );
+assert.equal(
+  createChoicesBody.match(/status: input\.signal\.aborted \? "cancelled" : "failed"/gu)?.length,
+  2,
+  "ordinary outer cancellation must settle both the choice placeholder and invocation as cancelled",
+);
 
 // Inject a persistence failure exactly after the streaming placeholder is
 // created. The controller must converge that orphan to failed even though no

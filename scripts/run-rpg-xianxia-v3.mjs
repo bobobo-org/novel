@@ -42,6 +42,7 @@ import {
   buildDeterministicRpgTurnStory,
   loadRpgChatSnapshot,
   parseRpgChoiceSelection,
+  planRpgChatChoices,
   validateRpgOutcomeNarrative,
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
 import {
@@ -489,6 +490,87 @@ register(22, "xianxia", "本機模型不可用時規則後備模式誠實運作"
   assert.equal(fallbackPlan.executionReceipt.choiceCount, 3);
   assert.deepEqual(fallbackPlan.executionReceipt.exactKeys, ["A", "B", "C"]);
   assert.equal(fallbackPlan.executionReceipt.terminalArchive, false);
+
+  const backendNotReady = () => Promise.reject(Object.assign(
+    new Error("closed backend is not ready"),
+    { code: "CLOSED_AI_REQUIRED_BACKEND_NOT_READY" },
+  ));
+  const explicitFallbackController = new AbortController();
+  let explicitFallbackSettled = false;
+  const explicitFallbackPromise = planRpgChatChoices({
+    snapshot,
+    signal: explicitFallbackController.signal,
+    choiceDeadlineMs: 1_000,
+    closedAIInvoker: backendNotReady,
+  }).finally(() => {
+    explicitFallbackSettled = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(
+    explicitFallbackSettled,
+    false,
+    "backend-not-ready must keep the choice operation pending for explicit fallback",
+  );
+  explicitFallbackController.abort("USER_REQUESTED_RULE_FALLBACK");
+  const explicitFallbackPlan = await explicitFallbackPromise;
+  assert.equal(explicitFallbackPlan.actualExecutor, "deterministic-rule-fallback");
+  assert.equal(
+    explicitFallbackPlan.executionReceipt.fallbackReason,
+    "USER_REQUESTED_RULE_FALLBACK",
+  );
+  assert.equal(explicitFallbackPlan.canonicalMutationCount, 0);
+
+  const racedFallbackController = new AbortController();
+  const racedFallbackPromise = planRpgChatChoices({
+    snapshot,
+    signal: racedFallbackController.signal,
+    choiceDeadlineMs: 1_000,
+    closedAIInvoker: backendNotReady,
+  });
+  racedFallbackController.abort("USER_REQUESTED_RULE_FALLBACK");
+  const racedFallbackPlan = await racedFallbackPromise;
+  assert.equal(
+    racedFallbackPlan.executionReceipt.fallbackReason,
+    "USER_REQUESTED_RULE_FALLBACK",
+    "an explicit fallback abort racing the backend error must not be missed",
+  );
+  assert.equal(racedFallbackPlan.canonicalMutationCount, 0);
+
+  let deadlineFallbackSettled = false;
+  const deadlineFallbackPromise = planRpgChatChoices({
+    snapshot,
+    choiceDeadlineMs: 40,
+    closedAIInvoker: backendNotReady,
+  }).finally(() => {
+    deadlineFallbackSettled = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(
+    deadlineFallbackSettled,
+    false,
+    "backend-not-ready must not silently fall back before the explicit deadline",
+  );
+  const deadlineFallbackPlan = await deadlineFallbackPromise;
+  assert.equal(
+    deadlineFallbackPlan.executionReceipt.fallbackReason,
+    "RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT",
+  );
+  assert.equal(deadlineFallbackPlan.canonicalMutationCount, 0);
+
+  const cancelledController = new AbortController();
+  const cancelledPlan = planRpgChatChoices({
+    snapshot,
+    signal: cancelledController.signal,
+    choiceDeadlineMs: 1_000,
+    closedAIInvoker: backendNotReady,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  cancelledController.abort("CONVERSATION_CANCELLED");
+  await assert.rejects(
+    cancelledPlan,
+    (error) => error?.code === "CLOSED_AI_REQUIRED_BACKEND_NOT_READY",
+    "ordinary cancellation must fail closed instead of producing fallback choices",
+  );
 });
 
 register(23, "economy", "Reload 後能力、資源、境界與 receipt 保持一致", async () => {

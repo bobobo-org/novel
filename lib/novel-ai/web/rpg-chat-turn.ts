@@ -1813,6 +1813,11 @@ export async function planRpgChatChoices(input: {
   snapshot: RpgChatSnapshot;
   signal?: AbortSignal;
   onProgress?: (event: ClosedAIProgressEvent) => void;
+  /** Complete deadline reserved for closed-AI choice planning. Defaults to 180 seconds. */
+  choiceDeadlineMs?: number;
+  closedAIInvoker?: (
+    request: Parameters<typeof runStudioClosedAI>[0],
+  ) => ReturnType<typeof runStudioClosedAI>;
 }): Promise<RpgChatChoicePlan> {
   const flags = storyWorldFlags(input.snapshot.storyState);
   if (
@@ -1836,15 +1841,22 @@ export async function planRpgChatChoices(input: {
   const relayAbort = () => enhancementController.abort(input.signal?.reason);
   if (input.signal?.aborted) relayAbort();
   else input.signal?.addEventListener("abort", relayAbort, { once: true });
+  const choiceDeadlineMs = Math.max(
+    1,
+    input.choiceDeadlineMs ?? RPG_CHAT_CHOICE_AI_TIMEOUT_MS,
+  );
   const enhancementTimeout = setTimeout(() => {
     enhancementController.abort("RPG_CHOICE_AI_ENHANCEMENT_TIMEOUT");
-  }, RPG_CHAT_CHOICE_AI_TIMEOUT_MS);
+  }, choiceDeadlineMs);
+  const invokeClosedAI = input.closedAIInvoker ?? ((request: Parameters<typeof runStudioClosedAI>[0]) => (
+    runStudioClosedAI(request)
+  ));
   try {
     const readerSafeCausalContracts = input.snapshot.baseChoices.map((choice) => ({
       key: choice.key,
       contract: buildRpgReaderSafeCausalPayload({ snapshot: input.snapshot, choice }),
     }));
-    const result = await runStudioClosedAI({
+    const result = await invokeClosedAI({
       projectId: input.snapshot.project.id,
       task: "three_choices",
       input: buildRpgChoiceDirectorPrompt({
@@ -1913,6 +1925,19 @@ export async function planRpgChatChoices(input: {
       externalRequest: false,
     };
   } catch (error) {
+    const errorCode = String((error as { code?: unknown } | null)?.code ?? "");
+    if (
+      errorCode === "CLOSED_AI_REQUIRED_BACKEND_NOT_READY"
+      && !enhancementController.signal.aborted
+    ) {
+      // A temporarily unavailable local backend is not permission to fabricate
+      // an immediate rules result. Keep the same operation pending so the
+      // existing UI control can explicitly request fallback, while the existing
+      // 180-second deadline remains the only automatic fallback path.
+      await new Promise<void>((resolve) => {
+        enhancementController.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    }
     const fallbackReason = rpgChoiceRuleFallbackReason({
       error,
       requestAbortReason: input.signal?.reason,
