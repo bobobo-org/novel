@@ -966,6 +966,268 @@ assert.equal(
   "fallback-repair",
 );
 
+const generationApplicationLeafCases = [
+  {
+    leafCode: "RPG_AI_CONTINUATION_FRAGMENT_VISIBLE",
+    repairFailures: ["dialogue", "continuity_anchor"],
+    wrapped: false,
+  },
+  {
+    leafCode: "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
+    repairFailures: ["dialogue"],
+    wrapped: true,
+  },
+  {
+    leafCode: "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED",
+    repairFailures: ["repetition"],
+    wrapped: false,
+  },
+  {
+    leafCode: "RPG_AI_CONTINUATION_TOO_SHORT",
+    repairFailures: ["length", "paragraphs"],
+    wrapped: true,
+    codeBearing: true,
+  },
+  {
+    leafCode: "RPG_AI_CONTINUATION_TOO_LONG",
+    repairFailures: ["length", "paragraphs"],
+    wrapped: false,
+    codeBearing: true,
+  },
+  {
+    leafCode: "RPG_AI_STORY_SELECTED_ACTION_MISSING",
+    repairFailures: ["action_progression"],
+    wrapped: true,
+  },
+  {
+    leafCode: "RPG_AI_STORY_OUTCOME_MISMATCH",
+    repairFailures: ["action_progression", "causality"],
+    wrapped: false,
+  },
+];
+for (const generationLeafCase of generationApplicationLeafCases) {
+  const logicalTurnId = `logical-turn-generation-${generationLeafCase.leafCode.toLowerCase()}`;
+  const taskIds = [];
+  let repairRequest = null;
+  const candidate = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async (request) => {
+      taskIds.push(request.taskId);
+      if (taskIds.length === 1) {
+        const contentFailure = Object.assign(
+          new Error(generationLeafCase.leafCode),
+          {
+            rejectedStory: "discarded-generation-prose-marker",
+            ...(generationLeafCase.codeBearing
+              ? { code: generationLeafCase.leafCode }
+              : {}),
+          },
+        );
+        if (generationLeafCase.wrapped) {
+          throw Object.assign(new Error("local provider rejected generated content"), {
+            code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+            cause: contentFailure,
+          });
+        }
+        throw contentFailure;
+      }
+      repairRequest = request;
+      const result = closedReviewResult(
+        request,
+        `generation-leaf-repair-${generationLeafCase.leafCode.toLowerCase()}`,
+      );
+      await request.validateBeforePersistence?.(result);
+      return result;
+    },
+  });
+  assert.deepEqual(taskIds, [
+    await rpgLogicalTurnGenerationTaskId(logicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      logicalTurnId,
+      generationLeafCase.repairFailures,
+      1,
+    ),
+  ], `${generationLeafCase.leafCode} must route directly to one bound fallback repair`);
+  assert.equal(
+    repairRequest?.generationOptions?.substantiveSceneBudget,
+    "rpg-application-minimum",
+  );
+  assert.match(repairRequest?.input ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
+  assert.match(
+    repairRequest?.input ?? "",
+    new RegExp(fullChoice.title.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"),
+  );
+  assert.match(repairRequest?.input ?? "", /鎖定結果:/u);
+  assert.doesNotMatch(
+    repairRequest?.input ?? "",
+    /discarded-generation-prose-marker/u,
+    "rejected model prose must not enter the repair prompt",
+  );
+  assert.equal(candidate.story, fullReviewedStory);
+  assert.equal(
+    candidate.executionReceipt.postFallbackClosedReview?.reviewStage,
+    "fallback-repair",
+  );
+  assert.equal(
+    candidate.executionReceipt.postFallbackClosedReview?.triggerReason,
+    generationLeafCase.leafCode,
+    "the sealed receipt must preserve the classified terminal application failure",
+  );
+  assert.ok(
+    await verifyPostFallbackClosedReviewReceipt({ candidate }),
+    `${generationLeafCase.leafCode} must leave a verified repair receipt`,
+  );
+}
+
+let timeoutNestedRepetitionDispatches = 0;
+const timeoutNestedRepetitionRequests = [];
+const timeoutNestedRepetitionLogicalTurnId =
+  "logical-turn-generation-timeout-nested-repetition";
+const timeoutNestedRepetitionCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: timeoutNestedRepetitionLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    timeoutNestedRepetitionDispatches += 1;
+    timeoutNestedRepetitionRequests.push(request);
+    if (timeoutNestedRepetitionDispatches === 1) {
+      throw Object.assign(new Error("generation timed out"), {
+        code: "RPG_STORY_AI_TIMEOUT",
+        cause: new Error("RPG_AI_CONTINUATION_REPETITIVE"),
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      "timeout-nested-repetition-fallback-review",
+    );
+    await request.validateBeforePersistence?.(result);
+    return result;
+  },
+});
+assert.deepEqual(timeoutNestedRepetitionRequests.map((request) => request.taskId), [
+  await rpgLogicalTurnGenerationTaskId(timeoutNestedRepetitionLogicalTurnId, 1),
+  await rpgLogicalTurnFallbackReviewTaskId(timeoutNestedRepetitionLogicalTurnId, 1),
+]);
+assert.equal(
+  timeoutNestedRepetitionRequests[1]?.generationOptions?.substantiveSceneBudget,
+  undefined,
+  "a timeout with a nested content leaf must enter ordinary fallback review",
+);
+assert.match(
+  timeoutNestedRepetitionRequests[1]?.input ?? "",
+  /RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1/u,
+);
+assert.equal(
+  timeoutNestedRepetitionCandidate.executionReceipt.postFallbackClosedReview?.reviewStage,
+  "fallback-review",
+);
+assert.equal(
+  timeoutNestedRepetitionCandidate.executionReceipt.postFallbackClosedReview?.triggerReason,
+  "RPG_STORY_AI_TIMEOUT",
+  "an unclassified nested leaf must not replace the outer timeout truth",
+);
+
+for (const generationBlockerCase of [
+  { name: "proof", code: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING" },
+  { name: "adult-policy", code: "RPG_ADULT_RUNTIME_POLICY_RECEIPT_INVALID" },
+  { name: "engine-language", code: "RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE" },
+  { name: "transport", code: "OLLAMA_STREAM_INTERRUPTED" },
+  {
+    name: "proof-wrapped-content-leaf",
+    code: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
+    causeCode: "RPG_AI_CONTINUATION_TOO_SHORT",
+    causeCodeBearing: true,
+  },
+  {
+    name: "exact-wrapper-engine-language",
+    code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+    causeCode: "RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE",
+  },
+  {
+    name: "exact-wrapper-story-prose-invalid",
+    code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+    causeCode: "STORY_PROSE_OUTPUT_INVALID",
+    causeCodeBearing: true,
+  },
+  ...[
+    ["proof", "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING"],
+    ["security", "CLOSED_AGENT_EVALUATION_BLOCKED"],
+    ["transport", "OLLAMA_STREAM_INTERRUPTED"],
+  ].flatMap(([name, code]) => [
+    {
+      name: `${name}-nested-structured-continuity`,
+      code,
+      causeCode: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+      causeContinuityFailures: ["length"],
+      causeCodeBearing: true,
+    },
+    {
+      name: `${name}-nested-repetition`,
+      code,
+      causeCode: "RPG_AI_CONTINUATION_REPETITIVE",
+    },
+  ]),
+]) {
+  let dispatches = 0;
+  const blocked = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId: `logical-turn-generation-${generationBlockerCase.name}-stops`,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async () => {
+      dispatches += 1;
+      const cause = generationBlockerCase.causeCode
+        ? Object.assign(new Error(generationBlockerCase.causeCode), {
+            ...(generationBlockerCase.causeCodeBearing
+              ? { code: generationBlockerCase.causeCode }
+              : {}),
+            ...(generationBlockerCase.causeContinuityFailures
+              ? {
+                  continuityFailures:
+                    generationBlockerCase.causeContinuityFailures,
+                }
+              : {}),
+          })
+        : undefined;
+      throw Object.assign(new Error(`${generationBlockerCase.name} blocks generation repair`), {
+        code: generationBlockerCase.code,
+        ...(cause ? { cause } : {}),
+      });
+    },
+  }).then(() => null, (error) => error);
+  assert.equal(
+    dispatches,
+    1,
+    `${generationBlockerCase.name} must not enter generation fallback repair`,
+  );
+  assert.equal(blocked?.code, generationBlockerCase.code);
+}
+
 const repetitionLeafCases = [
   {
     leafCode: "RPG_AI_CONTINUATION_WHOLE_SCENE_LOOP",

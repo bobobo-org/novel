@@ -264,9 +264,39 @@ const RPG_RETRYABLE_CLOSED_REPAIR_CONTENT_LEAF_CODES = new Set([
   "RPG_AI_STORY_OUTCOME_MISMATCH",
 ]);
 
+const RPG_GENERATION_CONTENT_REPAIR_FAILURES = {
+  RPG_AI_CONTINUATION_FRAGMENT_VISIBLE: ["dialogue", "continuity_anchor"],
+  RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES: ["dialogue"],
+  RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED: ["repetition"],
+  RPG_AI_CONTINUATION_TOO_SHORT: ["length", "paragraphs"],
+  RPG_AI_CONTINUATION_TOO_LONG: ["length", "paragraphs"],
+  RPG_AI_STORY_SELECTED_ACTION_MISSING: ["action_progression"],
+  RPG_AI_STORY_OUTCOME_MISMATCH: ["action_progression", "causality"],
+} as const satisfies Record<
+  string,
+  readonly RpgContinuityRepairFailure[]
+>;
+
 const RPG_TRANSPARENT_CLOSED_REPAIR_ERROR_WRAPPERS = new Set([
   "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
 ]);
+
+function rpgClosedRepairTerminalError(error: unknown) {
+  if (!error || typeof error !== "object") return null;
+  const outer = error as { code?: unknown; cause?: unknown };
+  const terminal = (
+    typeof outer.code === "string"
+    && RPG_TRANSPARENT_CLOSED_REPAIR_ERROR_WRAPPERS.has(outer.code)
+  ) ? outer.cause : error;
+  if (!terminal || typeof terminal !== "object") return null;
+  const candidate = terminal as { cause?: unknown };
+  // Only a direct application leaf (or one exact provider wrapper around it)
+  // may authorize repair. A deeper cause can hide proof, policy or transport
+  // failure and therefore remains fail-closed.
+  return candidate.cause === undefined || candidate.cause === null
+    ? terminal
+    : null;
+}
 
 function directRpgFailureCode(error: unknown) {
   if (!error || typeof error !== "object") return null;
@@ -281,20 +311,11 @@ function directRpgFailureCode(error: unknown) {
 }
 
 function rpgRetryableClosedRepairContentFailure(error: unknown) {
-  if (!error || typeof error !== "object") return false;
-  const outer = error as { code?: unknown; cause?: unknown };
-  const terminal = (
-    typeof outer.code === "string"
-    && RPG_TRANSPARENT_CLOSED_REPAIR_ERROR_WRAPPERS.has(outer.code)
-  ) ? outer.cause : error;
-  if (!terminal || typeof terminal !== "object") return false;
+  const terminal = rpgClosedRepairTerminalError(error);
+  if (!terminal) return false;
   const candidate = terminal as {
     continuityFailures?: unknown;
-    cause?: unknown;
   };
-  // A terminal content leaf never wraps another failure. Any deeper cause is
-  // ambiguous (and may be proof, policy or transport), so keep it fail-closed.
-  if (candidate.cause !== undefined && candidate.cause !== null) return false;
   const failureCode = directRpgFailureCode(terminal);
   if (RPG_NOVEL_REPETITION_LEAF_CODES.has(failureCode ?? "")) return true;
   if (
@@ -309,6 +330,41 @@ function rpgRetryableClosedRepairContentFailure(error: unknown) {
     return true;
   }
   return RPG_RETRYABLE_CLOSED_REPAIR_CONTENT_LEAF_CODES.has(failureCode ?? "");
+}
+
+function rpgGenerationApplicationRepair(
+  error: unknown,
+): {
+  failures: RpgContinuityRepairFailure[];
+  failureCode: string;
+} | null {
+  const terminal = rpgClosedRepairTerminalError(error);
+  if (!terminal) return null;
+  const candidate = terminal as { continuityFailures?: unknown };
+  const failureCode = directRpgFailureCode(terminal);
+  if (!failureCode) return null;
+  if (
+    failureCode === "RPG_NOVEL_CONTINUITY_GATE_FAILED"
+    && Array.isArray(candidate.continuityFailures)
+    && candidate.continuityFailures.length > 0
+    && candidate.continuityFailures.every((failure) => (
+      typeof failure === "string"
+      && RPG_NOVEL_CONTINUITY_FAILURES.has(failure as NovelContinuityGateFailure)
+    ))
+  ) {
+    return {
+      failures: [...new Set(candidate.continuityFailures)] as RpgContinuityRepairFailure[],
+      failureCode,
+    };
+  }
+  if (RPG_NOVEL_REPETITION_LEAF_CODES.has(failureCode)) {
+    return { failures: ["repetition"], failureCode };
+  }
+  if (!RPG_RETRYABLE_CLOSED_REPAIR_CONTENT_LEAF_CODES.has(failureCode)) return null;
+  const mapped = RPG_GENERATION_CONTENT_REPAIR_FAILURES[
+    failureCode as keyof typeof RPG_GENERATION_CONTENT_REPAIR_FAILURES
+  ];
+  return mapped ? { failures: [...mapped], failureCode } : null;
 }
 
 function rpgClosedAITimeoutError(attempts: number, cause?: unknown) {
@@ -4508,10 +4564,13 @@ export async function generateRpgChatTurnCandidate(input: {
       await rejectStudioClosedAgentCandidate(generated.candidateId).catch(() => undefined);
     }
     generated = null;
-    const triggerReason = error && typeof error === "object" && "code" in error
-      ? String((error as { code?: unknown }).code ?? "RPG_STORY_AI_UNAVAILABLE")
-      : "RPG_STORY_AI_UNAVAILABLE";
-    const generationContinuityFailures = rpgNovelContinuityFailures(error);
+    const generationApplicationRepair = rpgGenerationApplicationRepair(error);
+    const generationContinuityFailures =
+      generationApplicationRepair?.failures ?? null;
+    const triggerReason = generationApplicationRepair?.failureCode
+      ?? (error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code ?? "RPG_STORY_AI_UNAVAILABLE")
+        : "RPG_STORY_AI_UNAVAILABLE");
     if (
       !resumeClosedReview
       && !rpgStoryRuleFallbackReason(error)
