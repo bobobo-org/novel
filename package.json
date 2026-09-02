@@ -290,6 +290,8 @@
     "verify:public-lounge-storage": "node scripts/provision-public-lounge-storage.mjs --required --verify-only",
     "test:ai:closed:optimization:real": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-optimization-real.mjs",
     "test:ai:closed:model-verification-timeout": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-model-verification-timeout.mjs",
+    "test:ai:closed:bridge:model-verification-lifecycle": "node scripts/run-closed-ai-bridge-model-verification-lifecycle.mjs",
+    "test:ai:closed:autostart-race": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-autostart-race.mjs",
     "test:ai:closed:web-operability": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-closed-ai-web-operability.mjs",
     "test:ai:closed:super-agent-rpg": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-novel-super-agent-rpg.mjs",
     "test:ai:character-dynamics-procedural-rpg": "node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-character-dynamics-procedural-rpg.mjs",

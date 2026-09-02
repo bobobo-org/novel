@@ -27,6 +27,7 @@ import type {
   ClosedAiBootstrapProgress,
   ClosedAiBootstrapResult,
 } from "@/lib/novel-ai/web/closed-ai-bootstrap-coordinator";
+import { raceClosedAiAutostartRoutes } from "@/lib/novel-ai/web/closed-ai-autostart-race";
 import { isClosedAiTaskRoutable } from "../closed-ai-task-readiness";
 
 function safeErrorMessage(error: unknown) {
@@ -208,62 +209,48 @@ export function useClosedAiBootstrap(projectId: string) {
       // 45-second timeout and de-duplicates this request; binding the shared
       // promise to the first mount's AbortSignal would poison the remount.
       const localConnection = shouldAutostartStudioLocalAI(window.location.origin)
-        ? runtimeCoordinator.connectLocalAutomatically().then(
-            () => ({ attempted: true as const, error: null }),
-            (error: unknown) => ({ attempted: true as const, error }),
-          )
-        : Promise.resolve({
-            attempted: false as const,
-            error: null,
-          });
+        ? runtimeCoordinator.connectLocalAutomatically()
+        : null;
+      let autostartSettled = false;
       const browserBootstrap = bootstrapCoordinator.bootstrap({
         projectId,
         taskType: "chapter.continue",
         signal: controller.signal,
         onProgress: (next) => {
-          if (!controller.signal.aborted) setClosedAiSetupProgress(next);
+          if (!controller.signal.aborted && !autostartSettled) {
+            setClosedAiSetupProgress(next);
+          }
         },
-      }).then(
-        (result) => ({ result, error: null }),
-        (error: unknown) => ({ result: null, error }),
-      );
+      });
       void (async () => {
-        const browser = await browserBootstrap;
-        if (controller.signal.aborted) return;
-        // bootstrap() already returns a complete, verified Browser snapshot.
-        // Re-inspecting here would probe Local again and could hold a ready
-        // Browser route in "starting" for another 15 seconds.
-        let inspected = browser.result;
-        // A verified Browser AI route is already sufficient. Do not keep the
-        // author in "starting" while the optional Local Bridge reaches its
-        // explicit timeout in the background.
-        let local: { attempted: boolean; error: unknown | null } = {
-          attempted: false,
-          error: null,
-        };
-        if (!isClosedAiTaskRoutable(inspected)) {
-          local = await localConnection;
-          if (controller.signal.aborted) return;
-          inspected = await bootstrapCoordinator.inspect({
+        const outcome = await raceClosedAiAutostartRoutes({
+          browserBootstrap,
+          localConnection,
+          inspectAfterLocal: () => bootstrapCoordinator.inspect({
             projectId,
             taskType: "chapter.continue",
             signal: controller.signal,
-          }).catch(() => inspected ?? browser.result);
-        }
+          }),
+          isRoutable: isClosedAiTaskRoutable,
+          signal: controller.signal,
+        });
+        autostartSettled = true;
+        if (!outcome || controller.signal.aborted) return;
+        const inspected = outcome.result;
         if (!inspected) {
-          throw browser.error ?? local.error ?? new Error("閉端 AI 自動啟動沒有回傳可驗證狀態。");
+          throw outcome.error ?? new Error("閉端 AI 自動啟動沒有回傳可驗證狀態。");
         }
         if (controller.signal.aborted) return;
         const routable = isClosedAiTaskRoutable(inspected);
         setClosedAiSetup(inspected);
-        const localFailed = local.attempted && Boolean(local.error);
-        const localFailureState = localFailed
-          ? closedAiAutostartFailureState(local.error)
+        const autostartFailed = Boolean(outcome.error);
+        const autostartFailureState = autostartFailed
+          ? closedAiAutostartFailureState(outcome.error)
           : "action_required";
-        setClosedAiSetupLifecycle(routable ? "ready" : localFailed ? "failed" : "idle");
-        setClosedAiStartupState(routable ? "ready" : localFailureState);
-        setClosedAiSetupError(routable ? null : localFailed
-          ? closedAiAutostartFailureMessage(local.error)
+        setClosedAiSetupLifecycle(routable ? "ready" : autostartFailed ? "failed" : "idle");
+        setClosedAiStartupState(routable ? "ready" : autostartFailureState);
+        setClosedAiSetupError(routable ? null : autostartFailed
+          ? closedAiAutostartFailureMessage(outcome.error)
           : null);
         if (routable) {
           setClosedAiSetupProgress({
@@ -283,6 +270,7 @@ export function useClosedAiBootstrap(projectId: string) {
           setClosedAiSetupProgress(null);
         }
       })().catch((error) => inspectAfterFailure(controller, error)).finally(() => {
+        autostartSettled = true;
         if (setupAbortRef.current === controller) {
           setupAbortRef.current = null;
           setClosedAiSetupBusy(false);

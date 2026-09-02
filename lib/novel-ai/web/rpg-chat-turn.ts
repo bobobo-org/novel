@@ -4381,10 +4381,14 @@ export async function generateRpgChatTurnCandidate(input: {
     const triggerReason = error && typeof error === "object" && "code" in error
       ? String((error as { code?: unknown }).code ?? "RPG_STORY_AI_UNAVAILABLE")
       : "RPG_STORY_AI_UNAVAILABLE";
-    if (!resumeClosedReview && !rpgStoryRuleFallbackReason(error)) {
+    const generationContinuityFailures = rpgNovelContinuityFailures(error);
+    if (
+      !resumeClosedReview
+      && !rpgStoryRuleFallbackReason(error)
+      && !generationContinuityFailures
+    ) {
       throw error;
     }
-    const generationContinuityFailures = rpgNovelContinuityFailures(error);
     const reviewStage: "fallback-review" | "fallback-repair" =
       resumeReviewStage
       ?? (generationContinuityFailures ? "fallback-repair" : "fallback-review");

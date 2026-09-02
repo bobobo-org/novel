@@ -15,6 +15,10 @@ import { LocalSQLiteCacheStore } from "../cache/sqlite-cache-store.mjs";
 export const LOCAL_BRIDGE_MODEL_DISCOVERY_SERVER_TIMEOUT_MS = 5_000;
 export const LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS = 45_000;
 export const LOCAL_BRIDGE_MODEL_VERIFICATION_CACHE_TTL_MS = 10 * 60_000;
+export const LOCAL_BRIDGE_OLLAMA_ERROR_MAX_RESPONSE_BYTES = 16_384;
+export const LOCAL_BRIDGE_OLLAMA_VERSION_MAX_RESPONSE_BYTES = 65_536;
+export const LOCAL_BRIDGE_MODEL_DISCOVERY_MAX_RESPONSE_BYTES = 1_048_576;
+export const LOCAL_BRIDGE_MODEL_VERIFICATION_MAX_RESPONSE_BYTES = 65_536;
 const jsonHeaders = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store, max-age=0" };
 const characterExtractionFormat = {
   type: "object", additionalProperties: false, required: ["schemaVersion", "facts"],
@@ -95,7 +99,12 @@ async function ollamaFetch(endpoint, path, init = {}, timeoutMs = 5_000, control
   try {
     const response = await fetch(`${endpoint}${path}`, { ...init, redirect: "error", signal: localController.signal, headers: { "Content-Type": "application/json", ...(init.headers || {}) } });
     if (!response.ok) {
-      const text = await response.text().catch(() => "");
+      const text = await readBoundedTextResponse(
+        response,
+        LOCAL_BRIDGE_OLLAMA_ERROR_MAX_RESPONSE_BYTES,
+        localController,
+        "error",
+      );
       const missing = response.status === 404 || /not found/i.test(text);
       throw new BridgeError(missing ? "OLLAMA_MODEL_NOT_FOUND" : response.status >= 500 ? "OLLAMA_MODEL_LOAD_FAILED" : "OLLAMA_REQUEST_REJECTED", `Ollama HTTP ${response.status}.`, missing ? 404 : 502, response.status >= 500);
     }
@@ -105,6 +114,84 @@ async function ollamaFetch(endpoint, path, init = {}, timeoutMs = 5_000, control
     if (localController.signal.aborted) throw new BridgeError(localController.signal.reason === "cancelled" ? "OLLAMA_CANCELLED" : "OLLAMA_TIMEOUT", "Ollama request was cancelled or timed out.", 408, true);
     throw new BridgeError("OLLAMA_UNREACHABLE", "Ollama is not reachable on local loopback.", 503, true);
   } finally { clearTimeout(timer); }
+}
+
+function verificationAbortError(controller) {
+  return new BridgeError(
+    controller.signal.reason === "cancelled" ? "OLLAMA_CANCELLED" : "OLLAMA_TIMEOUT",
+    "Ollama request was cancelled or timed out.",
+    408,
+    true,
+  );
+}
+
+function assertVerificationNotAborted(controller) {
+  if (controller.signal.aborted) throw verificationAbortError(controller);
+}
+
+async function readBoundedJsonResponse(response, maxBytes, controller, label) {
+  const bytes = await readBoundedResponseBytes(response, maxBytes, controller, label);
+  try {
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    assertVerificationNotAborted(controller);
+    throw new BridgeError("OLLAMA_INVALID_RESPONSE", `Ollama ${label} response was not valid JSON.`, 502, true);
+  }
+}
+
+async function readBoundedTextResponse(response, maxBytes, controller, label) {
+  return (await readBoundedResponseBytes(response, maxBytes, controller, label)).toString("utf8");
+}
+
+async function readBoundedResponseBytes(response, maxBytes, controller, label) {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new BridgeError("OLLAMA_INVALID_RESPONSE", `Ollama ${label} response has no body.`, 502, true);
+  }
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      assertVerificationNotAborted(controller);
+      let result;
+      try {
+        result = await reader.read();
+      } catch {
+        assertVerificationNotAborted(controller);
+        throw new BridgeError("OLLAMA_INVALID_RESPONSE", `Ollama ${label} response body failed.`, 502, true);
+      }
+      assertVerificationNotAborted(controller);
+      if (result.done) break;
+      totalBytes += result.value.byteLength;
+      if (totalBytes > maxBytes) {
+        void reader.cancel("response-too-large").catch(() => undefined);
+        throw new BridgeError("OLLAMA_INVALID_RESPONSE", `Ollama ${label} response exceeded the safe size limit.`, 502, false);
+      }
+      chunks.push(Buffer.from(result.value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  assertVerificationNotAborted(controller);
+  return Buffer.concat(chunks, totalBytes);
+}
+
+async function readOllamaJsonWithDeadline({
+  endpoint,
+  path: requestPath,
+  init,
+  timeoutMs,
+  maxBytes,
+  controller = new AbortController(),
+  label,
+}) {
+  const timer = setTimeout(() => controller.abort("timeout"), timeoutMs);
+  try {
+    const response = await ollamaFetch(endpoint, requestPath, init, timeoutMs, controller);
+    return await readBoundedJsonResponse(response, maxBytes, controller, label);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function createBridgeServer(options = {}) {
@@ -137,8 +224,25 @@ export function createBridgeServer(options = {}) {
   const active = new Map();
   const modelVerificationCache = new Map();
   const modelVerificationInFlight = new Map();
+  const configuredModelDiscoveryTimeoutMs = Number(
+    options.modelDiscoveryTimeoutMs ?? LOCAL_BRIDGE_MODEL_DISCOVERY_SERVER_TIMEOUT_MS,
+  );
+  const modelDiscoveryTimeoutMs = Number.isFinite(configuredModelDiscoveryTimeoutMs)
+    && configuredModelDiscoveryTimeoutMs > 0
+    ? configuredModelDiscoveryTimeoutMs
+    : LOCAL_BRIDGE_MODEL_DISCOVERY_SERVER_TIMEOUT_MS;
+  const configuredModelVerificationTimeoutMs = Number(
+    options.modelVerificationTimeoutMs ?? LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS,
+  );
+  const modelVerificationTimeoutMs = Number.isFinite(configuredModelVerificationTimeoutMs)
+    && configuredModelVerificationTimeoutMs > 0
+    ? configuredModelVerificationTimeoutMs
+    : LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS;
   const logs = [];
   const testMode = options.testMode ?? process.env.BRIDGE_TEST_MODE === "1";
+  const modelVerificationTestHooks = testMode
+    ? options.modelVerificationTestHooks ?? {}
+    : {};
   const pairingFile = options.pairingFile ?? process.env.BRIDGE_PAIRING_FILE ?? "";
   const accessLogPath = options.accessLogPath ?? process.env.BRIDGE_ACCESS_LOG ?? "";
   const accessLogs = [];
@@ -167,14 +271,34 @@ export function createBridgeServer(options = {}) {
     if (!testMode) process.stdout.write(`${JSON.stringify(sanitized)}\n`);
   };
 
-  async function probeOllama() {
+  async function probeOllama(controller = new AbortController()) {
     try {
-      const [versionResponse, tagsResponse] = await Promise.all([ollamaFetch(ollamaEndpoint, "/api/version", { method: "GET" }, 2_000), ollamaFetch(ollamaEndpoint, "/api/tags", { method: "GET" }, 2_000)]);
-      const version = await versionResponse.json();
-      const tags = await tagsResponse.json();
+      const [version, tags] = await Promise.all([
+        readOllamaJsonWithDeadline({
+          endpoint: ollamaEndpoint,
+          path: "/api/version",
+          init: { method: "GET" },
+          timeoutMs: Math.min(modelDiscoveryTimeoutMs, 2_000),
+          maxBytes: LOCAL_BRIDGE_OLLAMA_VERSION_MAX_RESPONSE_BYTES,
+          controller,
+          label: "version",
+        }),
+        readOllamaJsonWithDeadline({
+          endpoint: ollamaEndpoint,
+          path: "/api/tags",
+          init: { method: "GET" },
+          timeoutMs: Math.min(modelDiscoveryTimeoutMs, 2_000),
+          maxBytes: LOCAL_BRIDGE_MODEL_DISCOVERY_MAX_RESPONSE_BYTES,
+          controller,
+          label: "model discovery",
+        }),
+      ]);
       const models = Array.isArray(tags.models) ? tags.models.map(modelProfileFromTag) : [];
       return { reachable: true, version: version.version ?? null, models };
-    } catch (error) { return { reachable: false, version: null, models: [], errorCode: error.code || "OLLAMA_UNREACHABLE" }; }
+    } catch (error) {
+      if (!controller.signal.aborted) controller.abort("cancelled");
+      return { reachable: false, version: null, models: [], errorCode: error.code || "OLLAMA_UNREACHABLE" };
+    }
   }
 
   function authenticate(request, origin, requireCsrf = request.method !== "GET") {
@@ -184,6 +308,9 @@ export function createBridgeServer(options = {}) {
   const server = http.createServer(async (request, response) => {
     let origin;
     let requestErrorCode = null;
+    let clientDisconnected = false;
+    let disconnectHandler = null;
+    let accessRecorded = false;
     const accessRecord = {
       timestamp: new Date().toISOString(),
       request_received: true,
@@ -202,7 +329,13 @@ export function createBridgeServer(options = {}) {
       origin_decision: "not_evaluated",
       host_decision: "not_evaluated",
     };
-    response.once("finish", () => {
+    const recordAccess = ({
+      requestState: requestStateOverride,
+      responseStatus: responseStatusOverride,
+      failureCode: failureCodeOverride,
+    } = {}) => {
+      if (accessRecorded) return;
+      accessRecorded = true;
       const requestState = response.statusCode < 400
         ? "SUCCESS"
         : requestErrorCode === "HOST_VALIDATION_FAILED" ? "HOST_REJECTED"
@@ -210,10 +343,26 @@ export function createBridgeServer(options = {}) {
             : requestErrorCode === "CORS_PREFLIGHT_REJECTED" ? "OPTIONS_REJECTED"
               : requestErrorCode === "BRIDGE_NOT_PAIRED" ? "PAIRING_REQUIRED"
                 : request.method === "OPTIONS" ? "OPTIONS_RECEIVED" : "GET_RECEIVED";
-      const row = { ...accessRecord, request_state: requestState, response_status: response.statusCode, failure_code: requestErrorCode, status: response.statusCode, errorCode: requestErrorCode };
+      const effectiveRequestState = requestStateOverride ?? requestState;
+      const effectiveStatus = responseStatusOverride ?? response.statusCode;
+      const effectiveFailureCode = failureCodeOverride ?? requestErrorCode;
+      const row = { ...accessRecord, request_state: effectiveRequestState, response_status: effectiveStatus, failure_code: effectiveFailureCode, status: effectiveStatus, errorCode: effectiveFailureCode };
       accessLogs.push(row);
       if (accessLogs.length > 500) accessLogs.shift();
       if (accessLogPath) void appendFile(accessLogPath, `${JSON.stringify(row)}\n`, { encoding: "utf8", mode: 0o600 }).catch(() => undefined);
+    };
+    response.once("finish", () => {
+      recordAccess();
+    });
+    response.once("close", () => {
+      if (response.writableFinished) return;
+      clientDisconnected = true;
+      disconnectHandler?.();
+      recordAccess({
+        requestState: "CLIENT_DISCONNECTED",
+        responseStatus: 499,
+        failureCode: "CLIENT_DISCONNECTED",
+      });
     });
     try {
       accessRecord.host_decision = "checking";
@@ -249,7 +398,16 @@ export function createBridgeServer(options = {}) {
       (isInferenceRequest ? inferenceRate : controlRate).take(origin);
 
       if (request.method === "GET" && url.pathname === "/health") {
-        const ollama = await probeOllama();
+        const controller = new AbortController();
+        disconnectHandler = () => controller.abort("cancelled");
+        if (clientDisconnected) disconnectHandler();
+        let ollama;
+        try {
+          ollama = await probeOllama(controller);
+        } finally {
+          disconnectHandler = null;
+        }
+        if (clientDisconnected || response.destroyed) return;
         const state = pairing.state();
         return sendJson(response, 200, { bridgeProcessAlive: true, bridgeVersion: BRIDGE_VERSION, protocolVersion: BRIDGE_PROTOCOL, instanceId: pairing.instanceId, providerKind: "local_ollama", operatingSystem: `${os.platform()} ${os.release()}`, supportedOperations: ["health", "trusted-origin-auto-session", "pairing", "models", "model-verify", "generate", "stream", "cancel", "cache-stats", "targeted-cache-invalidation"], streamingSupport: true, cancellationSupport: true, maximumRequestSize: limits.maxPromptBytes, configuredOrigins: [...allowlist], automaticSessionSupported: trustedAutoSessionOrigins.has(origin), securityMode: "loopback-origin-bound-short-session", bindAddress: host, pairingState: state, ollamaReachable: ollama.reachable, ollamaVersion: ollama.version, modelAvailable: ollama.models.some((item) => item.capabilities.textGeneration.value), runtimeReady: state === "paired" && ollama.reachable && ollama.models.some((item) => item.capabilities.textGeneration.value), cache: await cache.stats(), workload: { active: work.active, queued: work.queue.length, maxConcurrent: work.maxConcurrent, maxQueue: work.maxQueue }, limits }, origin);
       }
@@ -310,7 +468,16 @@ export function createBridgeServer(options = {}) {
 
       if (request.method === "GET" && url.pathname === "/models") {
         authenticate(request, origin, false);
-        const result = await probeOllama();
+        const controller = new AbortController();
+        disconnectHandler = () => controller.abort("cancelled");
+        if (clientDisconnected) disconnectHandler();
+        let result;
+        try {
+          result = await probeOllama(controller);
+        } finally {
+          disconnectHandler = null;
+        }
+        if (clientDisconnected || response.destroyed) return;
         if (!result.reachable) throw new BridgeError(result.errorCode || "OLLAMA_UNREACHABLE", "Ollama model discovery failed.", 503, true);
         return sendJson(response, 200, { providerKind: "local_ollama", models: result.models }, origin);
       }
@@ -319,12 +486,38 @@ export function createBridgeServer(options = {}) {
         authenticate(request, origin, false);
         const modelId = decodeURIComponent(url.pathname.slice(8));
         if (!modelId || modelId.length > 200 || /[\\/?#\0]/.test(modelId)) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model ID is invalid.", 404);
-        const tagsResponse = await ollamaFetch(ollamaEndpoint, "/api/tags", { method: "GET" });
-        const tags = await tagsResponse.json();
+        const controller = new AbortController();
+        disconnectHandler = () => controller.abort("cancelled");
+        if (clientDisconnected) disconnectHandler();
+        let tags;
+        let show;
+        try {
+          tags = await readOllamaJsonWithDeadline({
+            endpoint: ollamaEndpoint,
+            path: "/api/tags",
+            init: { method: "GET" },
+            timeoutMs: modelDiscoveryTimeoutMs,
+            maxBytes: LOCAL_BRIDGE_MODEL_DISCOVERY_MAX_RESPONSE_BYTES,
+            controller,
+            label: "model discovery",
+          });
+          const tag = (tags.models || []).find((item) => (item.model || item.name) === modelId);
+          if (!tag) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
+          show = await readOllamaJsonWithDeadline({
+            endpoint: ollamaEndpoint,
+            path: "/api/show",
+            init: { method: "POST", body: JSON.stringify({ model: modelId, verbose: false }) },
+            timeoutMs: 10_000,
+            maxBytes: LOCAL_BRIDGE_MODEL_DISCOVERY_MAX_RESPONSE_BYTES,
+            controller,
+            label: "model inspection",
+          });
+        } finally {
+          disconnectHandler = null;
+        }
+        if (clientDisconnected || response.destroyed) return;
         const tag = (tags.models || []).find((item) => (item.model || item.name) === modelId);
         if (!tag) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
-        const showResponse = await ollamaFetch(ollamaEndpoint, "/api/show", { method: "POST", body: JSON.stringify({ model: modelId, verbose: false }) }, 10_000);
-        const show = await showResponse.json();
         return sendJson(response, 200, { ...modelProfileFromTag(tag), inspection: { capabilities: show.capabilities ?? null, source: show.capabilities ? "reported" : "unknown" } }, origin);
       }
 
@@ -335,13 +528,33 @@ export function createBridgeServer(options = {}) {
         if (!modelId || modelId.length > 200 || /[\\/?#\0]/.test(modelId)) {
           throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model ID is invalid.", 404);
         }
-        const tagsResponse = await ollamaFetch(
-          ollamaEndpoint,
-          "/api/tags",
-          { method: "GET" },
-          LOCAL_BRIDGE_MODEL_DISCOVERY_SERVER_TIMEOUT_MS,
+        const discoveryController = new AbortController();
+        const discoveryTimer = setTimeout(
+          () => discoveryController.abort("timeout"),
+          modelDiscoveryTimeoutMs,
         );
-        const tags = await tagsResponse.json();
+        disconnectHandler = () => discoveryController.abort("cancelled");
+        if (clientDisconnected) disconnectHandler();
+        let tags;
+        try {
+          const tagsResponse = await ollamaFetch(
+            ollamaEndpoint,
+            "/api/tags",
+            { method: "GET" },
+            modelDiscoveryTimeoutMs,
+            discoveryController,
+          );
+          tags = await readBoundedJsonResponse(
+            tagsResponse,
+            LOCAL_BRIDGE_MODEL_DISCOVERY_MAX_RESPONSE_BYTES,
+            discoveryController,
+            "model discovery",
+          );
+          assertVerificationNotAborted(discoveryController);
+        } finally {
+          clearTimeout(discoveryTimer);
+          disconnectHandler = null;
+        }
         const tag = (tags.models || []).find((item) => (item.model || item.name) === modelId);
         if (!tag) throw new BridgeError("OLLAMA_MODEL_NOT_FOUND", "Model is not installed.", 404);
         const profile = modelProfileFromTag(tag);
@@ -350,62 +563,147 @@ export function createBridgeServer(options = {}) {
         }
         const verificationKey = `${pairing.instanceId}\u0000${modelId}\u0000${profile.modelDigest ?? "unknown"}`;
         const cachedVerification = modelVerificationCache.get(verificationKey);
-        let verification = cachedVerification?.expiresAt > Date.now()
-          ? Promise.resolve(cachedVerification.proof)
-          : modelVerificationInFlight.get(verificationKey);
-        if (!verification) {
-          verification = (async () => {
+        let inFlightVerification = modelVerificationInFlight.get(verificationKey);
+        if (inFlightVerification?.controller?.signal.aborted) {
+          if (modelVerificationInFlight.get(verificationKey) === inFlightVerification) {
+            modelVerificationInFlight.delete(verificationKey);
+          }
+          inFlightVerification = null;
+        }
+        let verificationEntry = cachedVerification?.expiresAt > Date.now()
+          ? { promise: Promise.resolve(cachedVerification.proof), controller: null, waiters: 0, settled: true }
+          : inFlightVerification;
+        if (!verificationEntry) {
+          const verificationController = new AbortController();
+          verificationEntry = {
+            controller: verificationController,
+            waiters: 0,
+            settled: false,
+            promise: null,
+          };
+          const entry = verificationEntry;
+          entry.promise = (async () => {
             const startedAt = performance.now();
-            const verifyResponse = await ollamaFetch(ollamaEndpoint, "/api/generate", {
-              method: "POST",
-              body: JSON.stringify({
-                model: modelId,
-                prompt: "這是本機模型啟動驗證。請只回覆四個字：驗證完成",
-                system: "You are a local runtime health verifier. Follow the fixed instruction and do not add explanations.",
-                stream: false,
-                keep_alive: "10m",
-                options: { temperature: 0, seed: 7, num_ctx: 512, num_predict: 8 },
-              }),
-            }, LOCAL_BRIDGE_MODEL_INFERENCE_SERVER_TIMEOUT_MS);
-            const verifyBody = await verifyResponse.json().catch(() => null);
-            const output = String(verifyBody?.response || "").trim();
-            if (!output) {
-              throw new BridgeError("LOCAL_MODEL_INFERENCE_NOT_VERIFIED", "Model returned no output during inference verification.", 502, true);
+            const verificationTimer = setTimeout(
+              () => verificationController.abort("timeout"),
+              modelVerificationTimeoutMs,
+            );
+            try {
+              const verifyResponse = await ollamaFetch(ollamaEndpoint, "/api/generate", {
+                method: "POST",
+                body: JSON.stringify({
+                  model: modelId,
+                  prompt: "這是本機模型啟動驗證。請只回覆四個字：驗證完成",
+                  system: "You are a local runtime health verifier. Follow the fixed instruction and do not add explanations.",
+                  stream: false,
+                  keep_alive: "10m",
+                  options: { temperature: 0, seed: 7, num_ctx: 512, num_predict: 8 },
+                }),
+              }, modelVerificationTimeoutMs, verificationController);
+              const verifyBody = await readBoundedJsonResponse(
+                verifyResponse,
+                LOCAL_BRIDGE_MODEL_VERIFICATION_MAX_RESPONSE_BYTES,
+                verificationController,
+                "model verification",
+              );
+              if (typeof modelVerificationTestHooks.afterBody === "function") {
+                await modelVerificationTestHooks.afterBody({
+                  modelId,
+                  signal: verificationController.signal,
+                });
+              }
+              assertVerificationNotAborted(verificationController);
+              const output = String(verifyBody?.response || "").trim();
+              if (!output) {
+                throw new BridgeError("LOCAL_MODEL_INFERENCE_NOT_VERIFIED", "Model returned no output during inference verification.", 502, true);
+              }
+              const outputDigest = Buffer.from(
+                await crypto.subtle.digest("SHA-256", new TextEncoder().encode(output)),
+              ).toString("hex");
+              assertVerificationNotAborted(verificationController);
+              if (typeof modelVerificationTestHooks.afterDigest === "function") {
+                await modelVerificationTestHooks.afterDigest({
+                  modelId,
+                  signal: verificationController.signal,
+                });
+              }
+              assertVerificationNotAborted(verificationController);
+              const proof = {
+                proofVersion: "local-model-inference-proof-v1",
+                state: "inference_verified",
+                providerKind: "local_ollama",
+                instanceId: pairing.instanceId,
+                modelId,
+                modelDigest: profile.modelDigest,
+                verifiedAt: new Date().toISOString(),
+                latencyMs: Math.round(performance.now() - startedAt),
+                outputDigest,
+                outputBytes: Buffer.byteLength(output, "utf8"),
+                evalCount: Number(verifyBody?.eval_count) || null,
+                externalRequest: false,
+                dataLeftDevice: false,
+              };
+              modelVerificationCache.set(verificationKey, {
+                proof,
+                expiresAt: Date.now() + LOCAL_BRIDGE_MODEL_VERIFICATION_CACHE_TTL_MS,
+              });
+              try {
+                assertVerificationNotAborted(verificationController);
+              } catch (error) {
+                modelVerificationCache.delete(verificationKey);
+                throw error;
+              }
+              log({ requestId: `model-verify:${outputDigest.slice(0, 16)}`, taskType: "model.verify", modelId, elapsedMs: proof.latencyMs, status: "completed", errorCode: null });
+              return proof;
+            } catch (error) {
+              const bridgeError = error instanceof BridgeError
+                ? error
+                : new BridgeError("OLLAMA_INVALID_RESPONSE", "Local model verification failed.", 500, true);
+              log({
+                requestId: `model-verify:${String(profile.modelDigest || "unknown").slice(0, 16)}`,
+                taskType: "model.verify",
+                modelId,
+                elapsedMs: Math.round(performance.now() - startedAt),
+                status: bridgeError.code === "OLLAMA_CANCELLED" ? "cancelled" : "failed",
+                errorCode: bridgeError.code,
+              });
+              throw bridgeError;
+            } finally {
+              clearTimeout(verificationTimer);
+              entry.settled = true;
             }
-            const outputDigest = Buffer.from(
-              await crypto.subtle.digest("SHA-256", new TextEncoder().encode(output)),
-            ).toString("hex");
-            const proof = {
-              proofVersion: "local-model-inference-proof-v1",
-              state: "inference_verified",
-              providerKind: "local_ollama",
-              instanceId: pairing.instanceId,
-              modelId,
-              modelDigest: profile.modelDigest,
-              verifiedAt: new Date().toISOString(),
-              latencyMs: Math.round(performance.now() - startedAt),
-              outputDigest,
-              outputBytes: Buffer.byteLength(output, "utf8"),
-              evalCount: Number(verifyBody?.eval_count) || null,
-              externalRequest: false,
-              dataLeftDevice: false,
-            };
-            modelVerificationCache.set(verificationKey, {
-              proof,
-              expiresAt: Date.now() + LOCAL_BRIDGE_MODEL_VERIFICATION_CACHE_TTL_MS,
-            });
-            log({ requestId: `model-verify:${outputDigest.slice(0, 16)}`, taskType: "model.verify", modelId, elapsedMs: proof.latencyMs, status: "completed", errorCode: null });
-            return proof;
           })();
-          modelVerificationInFlight.set(verificationKey, verification);
-          void verification.finally(() => {
-            if (modelVerificationInFlight.get(verificationKey) === verification) {
+          modelVerificationInFlight.set(verificationKey, entry);
+          void entry.promise.finally(() => {
+            if (modelVerificationInFlight.get(verificationKey) === entry) {
               modelVerificationInFlight.delete(verificationKey);
             }
           }).catch(() => undefined);
         }
-        const proof = await verification;
-        return sendJson(response, 200, proof, origin);
+        verificationEntry.waiters += 1;
+        let waiterReleased = false;
+        const releaseWaiter = (cancelWhenUnused = false) => {
+          if (waiterReleased) return;
+          waiterReleased = true;
+          verificationEntry.waiters = Math.max(0, verificationEntry.waiters - 1);
+          if (
+            cancelWhenUnused
+            && verificationEntry.waiters === 0
+            && !verificationEntry.settled
+          ) {
+            verificationEntry.controller?.abort("cancelled");
+          }
+        };
+        disconnectHandler = () => releaseWaiter(true);
+        if (clientDisconnected) disconnectHandler();
+        try {
+          const proof = await verificationEntry.promise;
+          if (clientDisconnected || response.destroyed) return;
+          return sendJson(response, 200, proof, origin);
+        } finally {
+          disconnectHandler = null;
+          releaseWaiter(false);
+        }
       }
 
       if (request.method === "POST" && url.pathname === "/cancel") {

@@ -2887,13 +2887,13 @@ Assert-NoGateResidue "GATE_RESIDUE_BEFORE_RUN"
 
 $currentPointer = "C:\Users\user\AppData\Local\NovelLocalAICompanion\current.txt"
 $release = (Get-Content -Raw -LiteralPath $currentPointer).Trim()
-$expectedReleaseRoot = "C:\Users\user\AppData\Local\NovelLocalAICompanion\releases\1.4.5"
+$expectedReleaseRoot = "C:\Users\user\AppData\Local\NovelLocalAICompanion\releases\1.4.6"
 if (-not (SamePath $release $expectedReleaseRoot)) { Fail "COMPANION_RELEASE_MISMATCH" }
 $bridgeServer = Join-Path $release "bridge\server.mjs"
 $bridgeCore = Join-Path $release "bridge\bridge-core.mjs"
 $hubServer = Join-Path $release "private-hub\server.mjs"
-$expectedBridgeServerSha256 = "19ea9035ebfe9e233eac9a571088a0cea7950787cafb990f003b63695e73fc1f"
-$expectedBridgeCoreSha256 = "8e7a0521b262c5986aa341d846ac6a075346ad4b4c4233724fb0328816ce1f94"
+$expectedBridgeServerSha256 = "55f151f598e09309013bfe5bfe03b1867ae6c35cc8ed2e46918e080de5937acc"
+$expectedBridgeCoreSha256 = "8619d0d343f3335984ce25d443642860cf0e7cf266611c6a43da278aebc4d22d"
 $expectedHubServerSha256 = "f2f5a7b10b5f6783641d0ba3b77bf607ec8de24c6624f36e4a702a60f10c3122"
 if ((Get-FileHash -LiteralPath $bridgeServer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedBridgeServerSha256) { Fail "BRIDGE_SERVER_DIGEST_INVALID" }
 if ((Get-FileHash -LiteralPath $bridgeCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedBridgeCoreSha256) { Fail "BRIDGE_CORE_DIGEST_INVALID" }

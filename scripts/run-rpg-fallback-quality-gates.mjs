@@ -817,10 +817,7 @@ const continuityCandidate = await generateRpgChatTurnCandidate({
     } catch (error) {
       if (continuityAttempt === 1) {
         continuityFailure = error;
-        throw Object.assign(
-          new Error("continuity repair begins only after the explicit generation deadline"),
-          { code: "RPG_STORY_AI_TIMEOUT", cause: error },
-        );
+        throw error;
       }
       throw error;
     }
@@ -835,8 +832,8 @@ assert.ok(continuityFailure?.continuityFailures?.includes("action_progression"))
 assert.ok(continuityFailure?.continuityFailures?.includes("causality"));
 assert.ok(continuityFailure?.qualityReasonCodes?.includes("QUALITY_CONTEXT_ANCHOR_MISSING"));
 assert.ok(continuityFailure?.qualityReasonCodes?.includes("QUALITY_CONTINUITY_LOW"));
-assert.equal(continuityAttempt, 2, "the flow must dispatch one timed-out rejected generation and one bounded hidden continuity repair");
-assert.equal(continuityClock, 0, "the explicit timeout must enter independent review without an extra empty deadline wait");
+assert.equal(continuityAttempt, 2, "the flow must dispatch one continuity-rejected generation and one bounded hidden continuity repair");
+assert.equal(continuityClock, 0, "a continuity rejection must enter independent repair without an empty deadline wait");
 assert.equal(continuityWaits, 0, "neither dispatched stage may enter readiness polling after completion");
 assert.equal(continuityProbes, 2, "generation and fallback repair each perform one pre-dispatch readiness check");
 assert.deepEqual(
@@ -849,7 +846,7 @@ assert.deepEqual(
       1,
     ),
   ],
-  "a timeout carrying continuity rejection evidence must route to its distinct repair stage without generation attempt-2",
+  "a direct continuity rejection must route to its distinct repair stage without generation attempt-2",
 );
 assert.match(continuityRepairPrompt ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
 assert.match(continuityRepairPrompt ?? "", /RPG_SCENE_CONTRACT_V2/u);
@@ -1197,7 +1194,7 @@ console.log(JSON.stringify({
   prePersistenceContinuityGate: {
     rejectedHanCharacters: longButNonNarrativeStory.match(/[\p{Script=Han}]/gu)?.length ?? 0,
     failures: continuityFailure?.continuityFailures,
-    reviewedFallbackAfterExplicitTimeoutWithContinuityCause:
+    reviewedFallbackAfterDirectContinuityRejection:
       continuityAttempt === 2
       && !invalidCandidatePersisted
       && continuityCandidate.executionReceipt.postFallbackClosedReview?.passed === true,
