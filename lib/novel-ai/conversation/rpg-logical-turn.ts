@@ -113,7 +113,8 @@ export async function rpgLogicalTurnFallbackRepairTaskId(
  * 1 on first dispatch; fallback review has its own identity instead of
  * silently creating a second generation task. Generation-stage attempt values
  * identify explicit author retries. Fallback stages reserve two deterministic
- * slots per author attempt (odd primary, even bounded repetition-only retry),
+ * slots per author attempt (odd primary, even bounded retry from a
+ * repetition-origin repair),
  * preserving immutable ledger entries without colliding with the next author
  * retry.
  */

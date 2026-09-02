@@ -310,28 +310,6 @@ function directRpgFailureCode(error: unknown) {
   return /^RPG_[A-Z0-9_]{1,100}$/u.test(message) ? message : null;
 }
 
-function rpgRetryableClosedRepairContentFailure(error: unknown) {
-  const terminal = rpgClosedRepairTerminalError(error);
-  if (!terminal) return false;
-  const candidate = terminal as {
-    continuityFailures?: unknown;
-  };
-  const failureCode = directRpgFailureCode(terminal);
-  if (RPG_NOVEL_REPETITION_LEAF_CODES.has(failureCode ?? "")) return true;
-  if (
-    failureCode === "RPG_NOVEL_CONTINUITY_GATE_FAILED"
-    && Array.isArray(candidate.continuityFailures)
-    && candidate.continuityFailures.length > 0
-    && candidate.continuityFailures.every((failure) => (
-      typeof failure === "string"
-      && RPG_NOVEL_CONTINUITY_FAILURES.has(failure as NovelContinuityGateFailure)
-    ))
-  ) {
-    return true;
-  }
-  return RPG_RETRYABLE_CLOSED_REPAIR_CONTENT_LEAF_CODES.has(failureCode ?? "");
-}
-
 function rpgGenerationApplicationRepair(
   error: unknown,
 ): {
@@ -365,6 +343,13 @@ function rpgGenerationApplicationRepair(
     failureCode as keyof typeof RPG_GENERATION_CONTENT_REPAIR_FAILURES
   ];
   return mapped ? { failures: [...mapped], failureCode } : null;
+}
+
+function mergeRpgContinuityRepairFailures(
+  ...failureGroups: readonly (readonly RpgContinuityRepairFailure[])[]
+) {
+  const failures = new Set(failureGroups.flat());
+  return RPG_CONTINUITY_REPAIR_FAILURE_ORDER.filter((failure) => failures.has(failure));
 }
 
 function rpgClosedAITimeoutError(attempts: number, cause?: unknown) {
@@ -4059,7 +4044,7 @@ function buildRpgFallbackContinuityRepairPrompt(input: {
     narrative_scene: "場景詞含門外與火光",
     action_progression: "動作詞含推開、握住、轉身",
     sensory_detail: "感官詞含聽見與冰冷",
-    report_style: "只寫小說且不用清單或欄位標籤",
+    report_style: "全篇以人物行動、對話與感官連續推進同一場景",
     causality: "正文明寫因此形成因果",
     foreshadowing: "正文明寫線索",
     serial_hook: "末220字含門外突然傳來聲音",
@@ -4086,7 +4071,7 @@ function buildRpgFallbackContinuityRepairPrompt(input: {
     "場景中須自然寫出門外與火光；人物須依次推開、握住並轉身，也須聽見聲響並碰到冰冷物件。",
     `至少一段使用${activeCharacter}說道：「完整對話。」的句型；前因後果中須明寫「因此」，並留下明寫為「線索」的未解事物。`,
     "正文須有10個空行分隔段落；末220字須自然寫出「門外突然傳來聲音」，並以完整小說句號收尾。",
-    "不得輸出「本次必補」、修復格式、規則、檢核、欄位或上述指令文字。",
+    "十段都直接描寫人物行動、對話、感官與因果，從第一句到末句保持自然小說敘事。",
   ];
   const contractLines = input.sceneContract.split("\n");
   const contractEndIndex = contractLines.lastIndexOf("[/RPG_SCENE_CONTRACT_V2]");
@@ -4642,72 +4627,84 @@ export async function generateRpgChatTurnCandidate(input: {
           input.fallbackReviewDeadlineMs ?? RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
         ),
       );
-      const baseReviewPrompt = reviewStage === "fallback-repair"
-        ? buildRpgFallbackContinuityRepairPrompt({
-            sceneContract: baseDirectorPrompt,
-            failures: repairFailures ?? [...RPG_CONTINUITY_REPAIR_FAILURE_ORDER],
-            continuityExcerpt: fallbackReviewContinuityTexts.at(-1) ?? "",
-            activeCharacterNames: rpgCandidateActiveCharacterNames(input.snapshot),
-          })
-        : buildRpgFallbackReviewPrompt({
-            sceneContract: baseDirectorPrompt,
-          });
-      const reviewPrompt = adultRuntimePrompt
-        ? `${baseReviewPrompt}\n\n${adultRuntimePrompt}`
-        : baseReviewPrompt;
-      const reviewRequestDigest = await sha256Hex(reviewPrompt);
-      const baseApplicationValidationBindingDigest = await sha256Hex(stableStringify({
-        domain: reviewStage === "fallback-repair"
-          ? "rpg-fallback-repair-application-validation-v1"
-          : "rpg-fallback-review-application-validation-v1",
-        reviewRequestDigest,
-        sourceChapterId: input.snapshot.chapter.id,
-        sourceRevision: input.snapshot.chapter.revision,
-        lockedOutcome: resolution.outcome,
-        lockedEffectDigest,
-        draftDigests,
-      }));
-      const applicationValidationBindingDigest = adultRuntimePolicyDigests
-        ? await bindRpgAdultApplicationValidationDigest({
-            baseApplicationValidationDigest:
-              baseApplicationValidationBindingDigest,
-            policyDigests: adultRuntimePolicyDigests,
-          })
-        : baseApplicationValidationBindingDigest;
+      const initialReviewRepairFailures = reviewStage === "fallback-repair"
+        ? mergeRpgContinuityRepairFailures(
+            repairFailures ?? [...RPG_CONTINUITY_REPAIR_FAILURE_ORDER],
+          )
+        : null;
+      let pendingReviewRepairFailures: RpgContinuityRepairFailure[] | null = null;
       const reviewed = await runRpgClosedAIUntilDeadline({
         deadlineMs: reviewDeadlineMs,
         startAttempt: fallbackReviewStartAttempt,
         maximumDispatches:
           reviewStage === "fallback-repair"
-          && repairFailures?.length === 1
-          && repairFailures[0] === "repetition"
+          && initialReviewRepairFailures?.length === 1
+          && initialReviewRepairFailures[0] === "repetition"
           && fallbackReviewStartAttempt % 2 === 1
             ? 2
             : 1,
         retryAfterDispatch: ({ error }) => {
           if (
-            reviewStage !== "fallback-repair"
-            || repairFailures?.length !== 1
-            || repairFailures[0] !== "repetition"
+            initialReviewRepairFailures?.length !== 1
+            || initialReviewRepairFailures[0] !== "repetition"
           ) return false;
-          const retryAuthorized = rpgRetryableClosedRepairContentFailure(error);
-          if (retryAuthorized) {
-            // A fresh readiness phase has no application-validation result yet.
-            // Clear the rejected attempt now, before the next execute callback,
-            // so a probe timeout cannot surface stale repetition diagnostics.
-            latestReviewContinuityFailures = null;
-          }
-          return retryAuthorized;
+          const applicationRepair = rpgGenerationApplicationRepair(error);
+          if (!applicationRepair) return false;
+          pendingReviewRepairFailures = mergeRpgContinuityRepairFailures(
+            initialReviewRepairFailures,
+            applicationRepair.failures,
+          );
+          // A fresh readiness phase has no application-validation result yet.
+          // Clear the rejected attempt now, before the next execute callback,
+          // so a probe timeout cannot surface stale content diagnostics.
+          latestReviewContinuityFailures = null;
+          return true;
         },
         signal: input.signal,
         dependencies: input.coordinationDependencies,
         execute: async (attempt, attemptSignal) => {
           latestReviewContinuityFailures = null;
+          const effectiveRepairFailures = initialReviewRepairFailures
+            ? (pendingReviewRepairFailures ?? initialReviewRepairFailures)
+            : null;
+          pendingReviewRepairFailures = null;
+          const baseReviewPrompt = effectiveRepairFailures
+            ? buildRpgFallbackContinuityRepairPrompt({
+                sceneContract: baseDirectorPrompt,
+                failures: effectiveRepairFailures,
+                continuityExcerpt: fallbackReviewContinuityTexts.at(-1) ?? "",
+                activeCharacterNames: rpgCandidateActiveCharacterNames(input.snapshot),
+              })
+            : buildRpgFallbackReviewPrompt({
+                sceneContract: baseDirectorPrompt,
+              });
+          const reviewPrompt = adultRuntimePrompt
+            ? `${baseReviewPrompt}\n\n${adultRuntimePrompt}`
+            : baseReviewPrompt;
+          const reviewRequestDigest = await sha256Hex(reviewPrompt);
+          const baseApplicationValidationBindingDigest = await sha256Hex(stableStringify({
+            domain: effectiveRepairFailures
+              ? "rpg-fallback-repair-application-validation-v1"
+              : "rpg-fallback-review-application-validation-v1",
+            reviewRequestDigest,
+            sourceChapterId: input.snapshot.chapter.id,
+            sourceRevision: input.snapshot.chapter.revision,
+            lockedOutcome: resolution.outcome,
+            lockedEffectDigest,
+            draftDigests,
+          }));
+          const applicationValidationBindingDigest = adultRuntimePolicyDigests
+            ? await bindRpgAdultApplicationValidationDigest({
+                baseApplicationValidationDigest:
+                  baseApplicationValidationBindingDigest,
+                policyDigests: adultRuntimePolicyDigests,
+              })
+            : baseApplicationValidationBindingDigest;
           let prevalidatedStory = "";
           const reviewTaskId = await providerTaskId(
             reviewStage,
             attempt,
-            repairFailures ?? undefined,
+            effectiveRepairFailures ?? undefined,
           );
           const reviewResult = await invokeClosedAI({
             projectId: input.snapshot.project.id,

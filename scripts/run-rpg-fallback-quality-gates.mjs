@@ -1383,10 +1383,12 @@ for (const crossContentCase of [
   {
     name: "selected-action",
     leafCode: "RPG_AI_STORY_SELECTED_ACTION_MISSING",
+    repairFailures: ["action_progression"],
   },
   {
     name: "continuation-length",
     leafCode: "RPG_AI_CONTINUATION_TOO_SHORT",
+    repairFailures: ["length", "paragraphs"],
   },
 ]) {
   let crossGateRepairDispatches = 0;
@@ -1440,7 +1442,11 @@ for (const crossContentCase of [
   assert.deepEqual(crossGateRepairTaskIds, [
     await rpgLogicalTurnGenerationTaskId(logicalTurnId, 1),
     await rpgLogicalTurnFallbackRepairTaskId(logicalTurnId, ["repetition"], 1),
-    await rpgLogicalTurnFallbackRepairTaskId(logicalTurnId, ["repetition"], 2),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      logicalTurnId,
+      ["repetition", ...crossContentCase.repairFailures],
+      2,
+    ),
   ]);
   assert.equal(crossGateRepairCandidate.story, fullReviewedStory);
   assert.equal(
@@ -1453,6 +1459,551 @@ for (const crossContentCase of [
     "the cross-content-gate repair receipt must verify",
   );
 }
+
+const productionReportStyleSegments = fullReviewedStory.split("\n\n");
+const productionReportStyleRepairStory = productionReportStyleSegments.map((segment, index) => {
+  if (index === 1) return `場景資訊：棄稿識別句只在銅窗下閃過。${segment}`;
+  if (index === 2) return `角色資料：${segment}`;
+  if (index === 3) return `行動建議：${segment}`;
+  return segment;
+}).join("\n\n");
+const productionReportStyleGate = evaluateNovelContinuityGate({
+  prose: productionReportStyleRepairStory,
+  language: "zh-TW",
+  minimumHanCharacters: 760,
+  minimumCharacters: 900,
+  minimumParagraphs: 8,
+  minimumDialogueCount: 1,
+  activeCharacterNames: ["林澄"],
+  offstageCharacterNames: [],
+  requireForeshadowing: true,
+  requireSerialHook: true,
+});
+assert.ok(
+  productionReportStyleGate.metrics.languageCharacters >= 1_000,
+  "the production-shaped rejected repair must contain a complete 1000+ character scene",
+);
+assert.deepEqual(
+  productionReportStyleGate.failures,
+  ["report_style"],
+  "the production-shaped repair fixture must fail only the report-style content gate",
+);
+assert.equal(productionReportStyleGate.metrics.labelLineCount, 3);
+
+const adaptiveReportStyleLogicalTurnId = "logical-turn-adaptive-report-style-repair";
+const adaptiveReportStyleRequests = [];
+let adaptiveReportStyleFailure = null;
+const adaptiveReportStyleCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: adaptiveReportStyleLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    adaptiveReportStyleRequests.push(request);
+    if (adaptiveReportStyleRequests.length === 1) {
+      const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        code: "RPG_AI_CONTINUATION_REPETITIVE",
+      });
+      throw Object.assign(new Error("local provider rejected repeated prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: repetitionError,
+      });
+    }
+    const rejectedRepair = adaptiveReportStyleRequests.length === 2;
+    const result = closedReviewResult(
+      request,
+      `adaptive-report-style-${adaptiveReportStyleRequests.length}`,
+      rejectedRepair ? productionReportStyleRepairStory : fullReviewedStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      adaptiveReportStyleFailure = error;
+      throw Object.assign(new Error("local provider rejected report-style repair prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+});
+assert.equal(adaptiveReportStyleFailure?.code, "RPG_NOVEL_CONTINUITY_GATE_FAILED");
+assert.deepEqual(adaptiveReportStyleFailure?.continuityFailures, ["report_style"]);
+assert.deepEqual(
+  adaptiveReportStyleRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(adaptiveReportStyleLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      adaptiveReportStyleLogicalTurnId,
+      ["repetition"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      adaptiveReportStyleLogicalTurnId,
+      ["report_style", "repetition"],
+      2,
+    ),
+  ],
+  "the second repair must receive a fresh task identity bound to its actual report-style leaf",
+);
+assert.match(adaptiveReportStyleRequests[1]?.input ?? "", /各段事件與句式不得重複/u);
+assert.match(
+  adaptiveReportStyleRequests[2]?.input ?? "",
+  /全篇以人物行動、對話與感官連續推進同一場景/u,
+  "the adapted prompt must explicitly demand reader-facing novel prose",
+);
+assert.match(
+  adaptiveReportStyleRequests[2]?.input ?? "",
+  /十段都直接描寫人物行動、對話、感官與因果.*自然小說敘事/u,
+);
+assert.doesNotMatch(
+  adaptiveReportStyleRequests[2]?.input ?? "",
+  /棄稿識別句/u,
+  "the rejected report-style prose must never be inserted into the adapted prompt",
+);
+assert.equal(adaptiveReportStyleRequests[2]?.ephemeralPrompt, true);
+assert.equal(
+  adaptiveReportStyleRequests[2]?.generationOptions?.substantiveSceneBudget,
+  "rpg-application-minimum",
+);
+assert.notEqual(
+  adaptiveReportStyleRequests[1]?.applicationValidationBindingDigest,
+  adaptiveReportStyleRequests[2]?.applicationValidationBindingDigest,
+  "changing the repair failure and prompt must change the application binding",
+);
+const adaptiveReportStyleReceipt =
+  adaptiveReportStyleCandidate.executionReceipt.postFallbackClosedReview;
+const adaptiveReportStyleFinalPromptDigest = createHash("sha256")
+  .update(adaptiveReportStyleRequests[2].input)
+  .digest("hex");
+assert.equal(adaptiveReportStyleReceipt?.reviewAttempts, 2);
+assert.equal(
+  adaptiveReportStyleReceipt?.triggerReason,
+  "RPG_AI_CONTINUATION_REPETITIVE",
+  "adaptive repair must preserve the original generation trigger in the sealed receipt",
+);
+assert.equal(
+  adaptiveReportStyleReceipt?.reviewRequestDigest,
+  adaptiveReportStyleFinalPromptDigest,
+  "the sealed receipt must bind the adapted prompt that actually succeeded",
+);
+assert.equal(
+  adaptiveReportStyleReceipt?.applicationValidationBindingDigest,
+  adaptiveReportStyleRequests[2]?.applicationValidationBindingDigest,
+);
+assert.equal(
+  adaptiveReportStyleReceipt?.selectionRewriteEvidence?.taskId,
+  adaptiveReportStyleRequests[2]?.taskId,
+);
+assert.equal(adaptiveReportStyleCandidate.story, fullReviewedStory);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({ candidate: adaptiveReportStyleCandidate }),
+  "the adaptively repaired report-style candidate must retain a valid sealed receipt",
+);
+
+const exhaustedReportStyleLogicalTurnId = "logical-turn-report-style-repair-exhausted";
+const exhaustedReportStyleRequests = [];
+let exhaustedReportStyleAcceptedCandidates = 0;
+const exhaustedReportStyleFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: exhaustedReportStyleLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    exhaustedReportStyleRequests.push(request);
+    if (exhaustedReportStyleRequests.length === 1) {
+      const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        code: "RPG_AI_CONTINUATION_REPETITIVE",
+      });
+      throw Object.assign(new Error("local provider rejected repeated prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: repetitionError,
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      `exhausted-report-style-${exhaustedReportStyleRequests.length}`,
+      productionReportStyleRepairStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected report-style repair prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    exhaustedReportStyleAcceptedCandidates += 1;
+    return result;
+  },
+}).then(() => null, (error) => error);
+assert.deepEqual(
+  exhaustedReportStyleRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(exhaustedReportStyleLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      exhaustedReportStyleLogicalTurnId,
+      ["repetition"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      exhaustedReportStyleLogicalTurnId,
+      ["report_style", "repetition"],
+      2,
+    ),
+  ],
+  "a second report-style rejection must stop after exactly two repair dispatches",
+);
+assert.equal(exhaustedReportStyleAcceptedCandidates, 0);
+assert.equal(exhaustedReportStyleFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  exhaustedReportStyleFailure?.generationFailure,
+  "RPG_AI_CONTINUATION_REPETITIVE",
+  "an exhausted adaptive repair must retain the original generation trigger",
+);
+assert.equal(
+  exhaustedReportStyleFailure?.reviewFailureCode,
+  "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+);
+assert.equal(
+  exhaustedReportStyleFailure?.reviewFailureLeafCode,
+  "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+);
+assert.deepEqual(
+  exhaustedReportStyleFailure?.reviewContinuityFailures,
+  ["report_style"],
+);
+assert.doesNotMatch(
+  JSON.stringify(exhaustedReportStyleFailure),
+  /棄稿識別句/u,
+  "a failed second repair must not expose rejected prose in its error evidence",
+);
+
+async function runCanonicalInitialRepairCase(initialFailures, candidateSuffix) {
+  const logicalTurnId = "logical-turn-canonical-initial-repair";
+  const requests = [];
+  const candidate = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async (request) => {
+      requests.push(request);
+      if (requests.length === 1) {
+        throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+          code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+          continuityFailures: initialFailures,
+        });
+      }
+      const result = closedReviewResult(
+        request,
+        `canonical-initial-repair-${candidateSuffix}`,
+      );
+      await request.validateBeforePersistence?.(result);
+      return result;
+    },
+  });
+  return { logicalTurnId, requests, candidate };
+}
+
+const scrambledInitialRepair = await runCanonicalInitialRepairCase(
+  ["report_style", "length", "report_style"],
+  "scrambled",
+);
+const canonicalInitialRepair = await runCanonicalInitialRepairCase(
+  ["length", "report_style"],
+  "canonical",
+);
+const expectedCanonicalInitialRepairTaskId = await rpgLogicalTurnFallbackRepairTaskId(
+  scrambledInitialRepair.logicalTurnId,
+  ["length", "report_style"],
+  1,
+);
+assert.equal(scrambledInitialRepair.requests.length, 2);
+assert.equal(canonicalInitialRepair.requests.length, 2);
+assert.equal(
+  scrambledInitialRepair.requests[1]?.taskId,
+  expectedCanonicalInitialRepairTaskId,
+);
+assert.equal(
+  canonicalInitialRepair.requests[1]?.taskId,
+  expectedCanonicalInitialRepairTaskId,
+);
+assert.equal(
+  scrambledInitialRepair.requests[1]?.input,
+  canonicalInitialRepair.requests[1]?.input,
+  "scrambled and duplicate structured failures must produce one canonical repair prompt",
+);
+assert.match(
+  scrambledInitialRepair.requests[1]?.input ?? "",
+  /本次必補:1200–1450字；全篇以人物行動、對話與感官連續推進同一場景/u,
+);
+assert.equal(
+  scrambledInitialRepair.requests[1]?.applicationValidationBindingDigest,
+  canonicalInitialRepair.requests[1]?.applicationValidationBindingDigest,
+  "canonical repair prompts must produce the same application binding digest",
+);
+assert.equal(
+  scrambledInitialRepair.candidate.executionReceipt.postFallbackClosedReview
+    ?.reviewRequestDigest,
+  canonicalInitialRepair.candidate.executionReceipt.postFallbackClosedReview
+    ?.reviewRequestDigest,
+  "canonical repair prompts must seal the same request digest",
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({ candidate: scrambledInitialRepair.candidate }),
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({ candidate: canonicalInitialRepair.candidate }),
+);
+
+async function runDeterministicEvenRepairResume(candidateSuffix) {
+  const logicalTurnId = "logical-turn-deterministic-quality-4400-resume";
+  const resumeProviderTaskId = await rpgLogicalTurnFallbackRepairTaskId(
+    logicalTurnId,
+    ["report_style", "repetition"],
+    2,
+  );
+  const requests = [];
+  const candidate = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId,
+    resumeProviderTaskId,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async (request) => {
+      requests.push(request);
+      const result = closedReviewResult(
+        request,
+        `deterministic-even-resume-${candidateSuffix}`,
+      );
+      result.executionReceipt.attempt = 2;
+      await request.validateBeforePersistence?.(result);
+      return result;
+    },
+  });
+  return { resumeProviderTaskId, requests, candidate };
+}
+
+const firstEvenRepairResume = await runDeterministicEvenRepairResume("first");
+const secondEvenRepairResume = await runDeterministicEvenRepairResume("second");
+for (const resumed of [firstEvenRepairResume, secondEvenRepairResume]) {
+  assert.equal(resumed.requests.length, 1, "a resumed even repair slot may dispatch only once");
+  assert.equal(resumed.requests[0]?.taskId, resumed.resumeProviderTaskId);
+  assert.match(
+    resumed.requests[0]?.input ?? "",
+    /本次必補:全篇以人物行動、對話與感官連續推進同一場景；各段事件與句式不得重複/u,
+  );
+  assert.equal(
+    resumed.candidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+    2,
+  );
+  assert.ok(await verifyPostFallbackClosedReviewReceipt({ candidate: resumed.candidate }));
+}
+assert.equal(
+  firstEvenRepairResume.requests[0]?.input,
+  secondEvenRepairResume.requests[0]?.input,
+  "the same authenticated quality-4400 resume must rebuild the same prompt",
+);
+assert.equal(
+  firstEvenRepairResume.requests[0]?.applicationValidationBindingDigest,
+  secondEvenRepairResume.requests[0]?.applicationValidationBindingDigest,
+  "the same authenticated quality-4400 resume must rebuild the same application digest",
+);
+assert.equal(
+  firstEvenRepairResume.candidate.executionReceipt.postFallbackClosedReview
+    ?.reviewRequestDigest,
+  secondEvenRepairResume.candidate.executionReceipt.postFallbackClosedReview
+    ?.reviewRequestDigest,
+  "the deterministic resumed prompt must seal the same request digest",
+);
+
+async function assertNestedReportStyleRepairBlocker(input) {
+  let dispatches = 0;
+  const logicalTurnId = `logical-turn-report-style-${input.name}-wrapper-stops`;
+  const failure = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async () => {
+      dispatches += 1;
+      if (dispatches === 1) {
+        throw new Error("RPG_AI_CONTINUATION_REPETITIVE");
+      }
+      const reportStyleError = Object.assign(
+        new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"),
+        {
+          code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+          continuityFailures: ["report_style"],
+        },
+      );
+      throw Object.assign(new Error(`${input.name} blocks adaptive repair`), {
+        code: input.outerCode,
+        cause: reportStyleError,
+      });
+    },
+  }).then(() => null, (error) => error);
+  assert.equal(
+    dispatches,
+    2,
+    `${input.name} with nested report-style evidence must not dispatch repair attempt 2`,
+  );
+  assert.equal(failure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+  assert.equal(failure?.reviewFailureCode, input.outerCode);
+}
+
+for (const nestedReportStyleBlocker of [
+  { name: "proof", outerCode: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING" },
+  { name: "security", outerCode: "CLOSED_AGENT_EVALUATION_BLOCKED" },
+  { name: "adult-policy", outerCode: "RPG_ADULT_RUNTIME_POLICY_RECEIPT_INVALID" },
+  { name: "timeout", outerCode: "RPG_STORY_AI_TIMEOUT" },
+  { name: "transport", outerCode: "OLLAMA_STREAM_INTERRUPTED" },
+  { name: "engine-language", outerCode: "RPG_AI_CONTINUATION_ENGINE_LANGUAGE_VISIBLE" },
+]) {
+  await assertNestedReportStyleRepairBlocker(nestedReportStyleBlocker);
+}
+
+async function assertAmbiguousReportStyleRepairStops(name, repairError) {
+  let dispatches = 0;
+  const failure = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId: `logical-turn-report-style-${name}-stops`,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async () => {
+      dispatches += 1;
+      if (dispatches === 1) throw new Error("RPG_AI_CONTINUATION_REPETITIVE");
+      throw repairError;
+    },
+  }).then(() => null, (error) => error);
+  assert.equal(dispatches, 2, `${name} must not dispatch repair attempt 2`);
+  assert.equal(failure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+}
+
+await assertAmbiguousReportStyleRepairStops(
+  "mixed-known-unknown-failures",
+  Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+    code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+    continuityFailures: ["report_style", "unknown"],
+  }),
+);
+await assertAmbiguousReportStyleRepairStops(
+  "terminal-with-deeper-proof-cause",
+  Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+    code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+    continuityFailures: ["report_style"],
+    cause: Object.assign(new Error("closed review proof is missing"), {
+      code: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
+    }),
+  }),
+);
+
+let reportStyleReadinessNow = 0;
+let reportStyleReadinessProbes = 0;
+let reportStyleReadinessDispatches = 0;
+const reportStyleReadinessFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-report-style-retry-readiness-timeout",
+  generationDeadlineMs: 20,
+  fallbackReviewDeadlineMs: 20,
+  coordinationDependencies: {
+    now: () => reportStyleReadinessNow,
+    wait: async (delayMs) => { reportStyleReadinessNow += delayMs; },
+    probeAvailability: async () => {
+      reportStyleReadinessProbes += 1;
+      return reportStyleReadinessProbes <= 2 ? "ready" : "unavailable";
+    },
+    retryBackoffMs: 20,
+  },
+  closedAIInvoker: async (request) => {
+    reportStyleReadinessDispatches += 1;
+    if (reportStyleReadinessDispatches === 1) {
+      const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        code: "RPG_AI_CONTINUATION_REPETITIVE",
+      });
+      throw Object.assign(new Error("local provider rejected repeated prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: repetitionError,
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      "report-style-before-retry-readiness-timeout",
+      productionReportStyleRepairStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected report-style repair prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    throw new Error("expected the report-style repair to fail application validation");
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  reportStyleReadinessDispatches,
+  2,
+  "retry readiness timeout must not issue a second repair provider request",
+);
+assert.equal(reportStyleReadinessFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(reportStyleReadinessFailure?.reviewFailureCode, "RPG_STORY_AI_TIMEOUT");
+assert.notEqual(
+  reportStyleReadinessFailure?.reviewFailureLeafCode,
+  "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+  "retry readiness timeout must replace the rejected report-style leaf",
+);
+assert.deepEqual(
+  reportStyleReadinessFailure?.reviewContinuityFailures,
+  [],
+  "retry readiness timeout must not retain stale report-style diagnostics",
+);
+assert.deepEqual(reportStyleReadinessFailure?.generationContinuityFailures, ["repetition"]);
 
 let nonRetryableRepairDispatches = 0;
 const nonRetryableRepairFailure = await generateRpgChatTurnCandidate({
@@ -1553,6 +2104,12 @@ for (const blockerCase of [
     nestedCode: "RPG_AI_CONTINUATION_TOO_SHORT",
   },
   {
+    name: "security",
+    outerCode: "CLOSED_AGENT_EVALUATION_BLOCKED",
+    nestedCode: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+    nestedContinuityFailures: ["report_style"],
+  },
+  {
     name: "transport",
     outerCode: "OLLAMA_STREAM_INTERRUPTED",
     nestedCode: "RPG_AI_CONTINUATION_TOO_SHORT",
@@ -1585,6 +2142,9 @@ for (const blockerCase of [
       }
       const nestedContentError = Object.assign(new Error(blockerCase.nestedCode), {
         code: blockerCase.nestedCode,
+        ...(blockerCase.nestedContinuityFailures
+          ? { continuityFailures: blockerCase.nestedContinuityFailures }
+          : {}),
       });
       throw Object.assign(new Error(
         blockerCase.outerMessage ?? `${blockerCase.name} blocks repair retry`,
