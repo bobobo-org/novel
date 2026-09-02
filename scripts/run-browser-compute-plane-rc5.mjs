@@ -164,6 +164,7 @@ import {
   mergeSubstantiveSceneContinuation,
   repairLocalChineseDialogueQuotes,
   repairLocalProseCompletionBoundary,
+  trimSubstantiveSceneLeadingParagraphReplay,
   trimSubstantiveSceneContinuationOverlap,
   resolveLocalOllamaPerformanceBudget,
   SMALL_LOCAL_SUBSTANTIVE_SCENE_FINAL_SUPPLEMENT_MAX_OUTPUT_TOKENS,
@@ -11048,6 +11049,83 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   );
   assert.equal(mergedOverlap.split(replayedTail).length - 1, 1);
   assert.equal(mergedOverlap.split(uniqueContinuation).length - 1, 1);
+  const replayedEarlierParagraph = "沈曜先把星燈移到牆角，逐一核對石階上的濕腳印，再請守塔人守住門邊。";
+  const existingWithEarlierParagraph = [
+    replayedEarlierParagraph,
+    shortScene,
+    replayedTail,
+  ].join("\n\n");
+  const exactLeadingParagraphReplay = trimSubstantiveSceneLeadingParagraphReplay(
+    existingWithEarlierParagraph,
+    `${replayedEarlierParagraph}\n\n${uniqueContinuation}`,
+  );
+  assert.deepEqual(exactLeadingParagraphReplay, {
+    content: uniqueContinuation,
+    repaired: true,
+    replayedParagraphs: 1,
+    replayedCharacters: replayedEarlierParagraph.replace(/\s+/gu, "").length,
+  });
+  const mergedLeadingParagraphReplay = mergeSubstantiveSceneContinuation(
+    existingWithEarlierParagraph,
+    `${replayedEarlierParagraph}\n\n${uniqueContinuation}`,
+  );
+  assert.equal(mergedLeadingParagraphReplay.split(replayedEarlierParagraph).length - 1, 1);
+  assert.equal(mergedLeadingParagraphReplay.split(uniqueContinuation).length - 1, 1);
+  const nfkcExistingParagraph = "Ａ Ｂ Ｃ Ｄ Ｅ Ｆ Ｇ Ｈ Ｉ Ｊ Ｋ Ｌ Ｍ Ｎ Ｏ Ｐ Ｑ Ｒ Ｓ Ｔ Ｕ Ｖ Ｗ Ｘ Ｙ Ｚ １ ２ ３ ４ ５ ６ ７ ８ ９ ０。";
+  const nfkcSupplementParagraph = "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 1 2 3 4 5 6 7 8 9 0。";
+  assert.equal(
+    trimSubstantiveSceneLeadingParagraphReplay(
+      `${nfkcExistingParagraph}\n\n${existingWithEarlierParagraph}`,
+      `${nfkcSupplementParagraph}\n\n${uniqueContinuation}`,
+    ).content,
+    uniqueContinuation,
+  );
+  const spacedEnglishParagraph = "The watchman must turn NOW HERE BEFORE MIDNIGHT to preserve the marked route.";
+  const joinedEnglishParagraph = "The watchman must turn NOWHERE BEFORE MIDNIGHT to preserve the marked route.";
+  assert.deepEqual(
+    trimSubstantiveSceneLeadingParagraphReplay(
+      spacedEnglishParagraph,
+      `${joinedEnglishParagraph}\n\n${uniqueContinuation}`,
+    ),
+    {
+      content: `${joinedEnglishParagraph}\n\n${uniqueContinuation}`,
+      repaired: false,
+      replayedParagraphs: 0,
+      replayedCharacters: 0,
+    },
+    "whitespace normalization must not merge semantically distinct English words",
+  );
+  const approximateLeadingParagraph = replayedEarlierParagraph.replace("濕腳印", "新腳印");
+  assert.deepEqual(
+    trimSubstantiveSceneLeadingParagraphReplay(
+      existingWithEarlierParagraph,
+      `${approximateLeadingParagraph}\n\n${uniqueContinuation}`,
+    ),
+    {
+      content: `${approximateLeadingParagraph}\n\n${uniqueContinuation}`,
+      repaired: false,
+      replayedParagraphs: 0,
+      replayedCharacters: 0,
+    },
+  );
+  const interiorParagraphReplay = `${uniqueContinuation}\n\n${replayedEarlierParagraph}`;
+  assert.deepEqual(
+    trimSubstantiveSceneLeadingParagraphReplay(
+      existingWithEarlierParagraph,
+      interiorParagraphReplay,
+    ),
+    {
+      content: interiorParagraphReplay,
+      repaired: false,
+      replayedParagraphs: 0,
+      replayedCharacters: 0,
+    },
+  );
+  assert.equal(
+    mergeSubstantiveSceneContinuation(existingWithEarlierParagraph, replayedEarlierParagraph),
+    existingWithEarlierParagraph,
+    "a replay-only supplement must contribute no candidate prose",
+  );
   const normalizedExistingTail = "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸ";
   const normalizedSupplementTail = "A B C D E F G H I J K L M N O P Q R S T U V W X";
   const normalizedOverlap = trimSubstantiveSceneContinuationOverlap(

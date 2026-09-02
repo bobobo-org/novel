@@ -111,10 +111,11 @@ export async function rpgLogicalTurnFallbackRepairTaskId(
  * pre-attempt receipts remain replayable, while all new runs carry a distinct,
  * deterministic stage/attempt identity. Product generation dispatches attempt
  * 1 on first dispatch; fallback review has its own identity instead of
- * silently creating a second generation task. Higher attempt values are used
- * only by an explicit author retry after a terminal attempt, preserving the
- * old immutable ledger entry while preventing a failed provider task from
- * being replayed forever.
+ * silently creating a second generation task. Generation-stage attempt values
+ * identify explicit author retries. Fallback stages reserve two deterministic
+ * slots per author attempt (odd primary, even bounded repetition-only retry),
+ * preserving immutable ledger entries without colliding with the next author
+ * retry.
  */
 export async function parseRpgLogicalTurnProviderTaskId(
   logicalTurnId: string,

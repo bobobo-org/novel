@@ -319,16 +319,24 @@ function waitForRpgClosedAIRetry(delayMs: number, signal?: AbortSignal) {
 }
 
 /**
- * Keeps readiness polling and one closed-model dispatch inside one
- * caller-owned deadline.  Loading/unknown/unavailable states never create a
- * provider task.  Once a provider is ready, exactly one request is submitted;
- * failure preserves the remaining visible wait without silently resending.
+ * Keeps readiness polling and closed-model dispatch inside one caller-owned
+ * deadline. Loading/unknown/unavailable states never create a provider task.
+ * The default remains exactly one request. A caller may explicitly authorize
+ * one additional dispatch for a narrowly classified application rejection;
+ * both requests still share the original deadline and strict validators.
  */
 export async function runRpgClosedAIUntilDeadline<T>(input: {
   execute: (attempt: number, signal: AbortSignal) => Promise<T>;
   deadlineMs?: number;
   /** First deterministic provider-attempt number, used when replaying a receipt. */
   startAttempt?: number;
+  /** Defaults to one. Only a reviewed repair path may explicitly authorize two. */
+  maximumDispatches?: 1 | 2;
+  retryAfterDispatch?: (event: {
+    attempt: number;
+    remainingMs: number;
+    error: unknown;
+  }) => boolean;
   signal?: AbortSignal;
   onRetry?: (event: {
     attempt: number;
@@ -356,7 +364,13 @@ export async function runRpgClosedAIUntilDeadline<T>(input: {
       code: "RPG_STORY_AI_ATTEMPT_INVALID",
     });
   }
-  const attempt = startAttempt;
+  const maximumDispatches = input.maximumDispatches ?? 1;
+  if (maximumDispatches !== 1 && maximumDispatches !== 2) {
+    throw Object.assign(new Error("Invalid RPG closed-AI dispatch limit."), {
+      code: "RPG_STORY_AI_DISPATCH_LIMIT_INVALID",
+    });
+  }
+  let attempt = startAttempt;
   let poll = 0;
   let lastError: unknown = null;
   const remaining = () => deadlineMs - (now() - startedAt);
@@ -377,59 +391,70 @@ export async function runRpgClosedAIUntilDeadline<T>(input: {
   };
 
   while (true) {
+    while (true) {
+      if (input.signal?.aborted) throw input.signal.reason ?? lastError;
+      const remainingBeforeProbe = remaining();
+      if (remainingBeforeProbe <= 0) {
+        throw rpgClosedAITimeoutError(attempt, lastError);
+      }
+      let availability: PreCreationProviderAvailability = "unknown";
+      try {
+        availability = await raceRpgClosedAIOperation({
+          operation: probeAvailability,
+          remainingMs: remainingBeforeProbe,
+          callerSignal: input.signal,
+          attempts: attempt,
+        });
+      } catch (probeError) {
+        if (input.signal?.aborted) throw input.signal.reason ?? probeError;
+        if (probeError && typeof probeError === "object" && "code" in probeError
+          && (probeError as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
+          throw probeError;
+        }
+        lastError = probeError;
+      }
+      if (availability === "ready") break;
+      lastError = lastError ?? Object.assign(
+        new Error(`Closed AI provider is not ready (${availability}).`),
+        { code: "RPG_STORY_AI_NOT_READY", availability },
+      );
+      await waitForNextProbe(availability, lastError);
+    }
+
     if (input.signal?.aborted) throw input.signal.reason ?? lastError;
-    const remainingBeforeProbe = remaining();
-    if (remainingBeforeProbe <= 0) {
+    const remainingBeforeAttempt = remaining();
+    if (remainingBeforeAttempt <= 0) {
       throw rpgClosedAITimeoutError(attempt, lastError);
     }
-    let availability: PreCreationProviderAvailability = "unknown";
     try {
-      availability = await raceRpgClosedAIOperation({
-        operation: probeAvailability,
-        remainingMs: remainingBeforeProbe,
-        callerSignal: input.signal,
+      return {
+        value: await raceRpgClosedAIOperation({
+          operation: (signal) => input.execute(attempt, signal),
+          remainingMs: remainingBeforeAttempt,
+          callerSignal: input.signal,
+          attempts: attempt,
+        }),
         attempts: attempt,
-      });
-    } catch (probeError) {
-      if (input.signal?.aborted) throw input.signal.reason ?? probeError;
-      if (probeError && typeof probeError === "object" && "code" in probeError
-        && (probeError as { code?: unknown }).code === "RPG_STORY_AI_TIMEOUT") {
-        throw probeError;
+      };
+    } catch (error) {
+      if (input.signal?.aborted) throw input.signal.reason ?? error;
+      const dispatched = attempt - startAttempt + 1;
+      const remainingMs = remaining();
+      const retryAuthorized = dispatched < maximumDispatches
+        && remainingMs > 0
+        && input.retryAfterDispatch?.({ attempt, remainingMs, error }) === true;
+      if (!retryAuthorized) {
+        // The default single-dispatch contract preserves the original provider
+        // or application error. Extra dispatches are opt-in and bounded above.
+        throw error;
       }
-      lastError = probeError;
+      // The next attempt owns its own readiness diagnosis. Do not let the
+      // rejected prose from the previous dispatch masquerade as a later probe
+      // timeout when no second provider request was actually submitted.
+      lastError = null;
+      attempt += 1;
+      poll = 0;
     }
-    if (availability === "ready") break;
-    lastError = lastError ?? Object.assign(
-      new Error(`Closed AI provider is not ready (${availability}).`),
-      { code: "RPG_STORY_AI_NOT_READY", availability },
-    );
-    await waitForNextProbe(availability, lastError);
-  }
-
-  if (input.signal?.aborted) throw input.signal.reason ?? lastError;
-  const remainingBeforeAttempt = remaining();
-  if (remainingBeforeAttempt <= 0) {
-    throw rpgClosedAITimeoutError(attempt, lastError);
-  }
-  try {
-    return {
-      value: await raceRpgClosedAIOperation({
-        operation: (signal) => input.execute(attempt, signal),
-        remainingMs: remainingBeforeAttempt,
-        callerSignal: input.signal,
-        attempts: attempt,
-      }),
-      attempts: attempt,
-    };
-  } catch (error) {
-    if (input.signal?.aborted) throw input.signal.reason ?? error;
-    // Once the one authorized provider request has returned a failure there is
-    // no state transition in which readiness polling can make that same request
-    // succeed. Preserve the original provider/application error so the caller
-    // can fail closed or enter its independently reviewed fallback immediately.
-    // Pre-dispatch unavailability and a hung in-flight request still consume the
-    // explicit deadline above; no request is silently resubmitted here.
-    throw error;
   }
 }
 
@@ -4221,7 +4246,13 @@ export async function generateRpgChatTurnCandidate(input: {
   const generationStartAttempt = resumeClosedReview
     ? 1
     : logicalAttempt;
-  const fallbackReviewStartAttempt = logicalAttempt;
+  // Each explicit author attempt owns two non-overlapping fallback slots: the
+  // odd slot is the primary review/repair and the following even slot is the
+  // single bounded repetition-only retry. A later author retry therefore
+  // cannot reuse a failed internal repair task id.
+  const fallbackReviewStartAttempt = resumeClosedReview
+    ? logicalAttempt
+    : logicalAttempt * 2 - 1;
   const providerTaskId = async (
     stage: "generation" | "fallback-review" | "fallback-repair",
     attempt: number,
@@ -4522,9 +4553,34 @@ export async function generateRpgChatTurnCandidate(input: {
       const reviewed = await runRpgClosedAIUntilDeadline({
         deadlineMs: reviewDeadlineMs,
         startAttempt: fallbackReviewStartAttempt,
+        maximumDispatches:
+          reviewStage === "fallback-repair"
+          && repairFailures?.length === 1
+          && repairFailures[0] === "repetition"
+          && fallbackReviewStartAttempt % 2 === 1
+            ? 2
+            : 1,
+        retryAfterDispatch: ({ error }) => {
+          if (
+            reviewStage !== "fallback-repair"
+            || repairFailures?.length !== 1
+            || repairFailures[0] !== "repetition"
+          ) return false;
+          const retryFailures = rpgNovelContinuityFailures(error);
+          const retryAuthorized = retryFailures?.length === 1
+            && retryFailures[0] === "repetition";
+          if (retryAuthorized) {
+            // A fresh readiness phase has no application-validation result yet.
+            // Clear the rejected attempt now, before the next execute callback,
+            // so a probe timeout cannot surface stale repetition diagnostics.
+            latestReviewContinuityFailures = null;
+          }
+          return retryAuthorized;
+        },
         signal: input.signal,
         dependencies: input.coordinationDependencies,
         execute: async (attempt, attemptSignal) => {
+          latestReviewContinuityFailures = null;
           let prevalidatedStory = "";
           const reviewTaskId = await providerTaskId(
             reviewStage,

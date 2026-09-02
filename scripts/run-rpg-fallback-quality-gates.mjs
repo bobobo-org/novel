@@ -285,6 +285,89 @@ assert.equal(failedReadyExecutions, 1, "a failed ready provider must not be resu
 assert.equal(failedReadyProbes, 1, "readiness is checked once before the single dispatch");
 assert.equal(failedReadyWaits, 0, "post-dispatch readiness polling cannot recover an already failed request");
 
+const boundedRepairError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+  code: "RPG_AI_CONTINUATION_REPETITIVE",
+});
+const boundedRepairAttempts = [];
+let boundedRepairProbes = 0;
+const boundedRepair = await runRpgClosedAIUntilDeadline({
+  deadlineMs: 3_000,
+  startAttempt: 4,
+  maximumDispatches: 2,
+  retryAfterDispatch: ({ error }) => error === boundedRepairError,
+  execute: async (attempt) => {
+    boundedRepairAttempts.push(attempt);
+    if (attempt === 4) throw boundedRepairError;
+    return "strict-repetition-repair";
+  },
+  dependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => {
+      boundedRepairProbes += 1;
+      return "ready";
+    },
+    retryBackoffMs: 1,
+  },
+});
+assert.equal(boundedRepair.value, "strict-repetition-repair");
+assert.equal(boundedRepair.attempts, 5, "the receipt must bind the repair attempt that succeeded");
+assert.deepEqual(boundedRepairAttempts, [4, 5], "the opt-in repair retry must use a new deterministic attempt");
+assert.equal(boundedRepairProbes, 2, "each authorized dispatch must receive a fresh readiness probe");
+
+const exhaustedRepairErrors = [
+  boundedRepairError,
+  Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+    code: "RPG_AI_CONTINUATION_REPETITIVE",
+  }),
+];
+let exhaustedRepairDispatches = 0;
+await assert.rejects(
+  () => runRpgClosedAIUntilDeadline({
+    deadlineMs: 3_000,
+    maximumDispatches: 2,
+    retryAfterDispatch: ({ error }) => error?.code === "RPG_AI_CONTINUATION_REPETITIVE",
+    execute: async () => {
+      const error = exhaustedRepairErrors[exhaustedRepairDispatches];
+      exhaustedRepairDispatches += 1;
+      throw error;
+    },
+    dependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+  }),
+  (error) => error === exhaustedRepairErrors[1],
+  "a second strict repetition failure must remain fail-closed",
+);
+assert.equal(exhaustedRepairDispatches, 2, "the repair retry must be capped at two dispatches");
+
+let nonRepetitionRepairDispatches = 0;
+const nonRepetitionRepairError = Object.assign(new Error("RPG_CHAT_TURN_PROOF_MISSING"), {
+  code: "RPG_CHAT_TURN_PROOF_MISSING",
+});
+await assert.rejects(
+  () => runRpgClosedAIUntilDeadline({
+    deadlineMs: 3_000,
+    maximumDispatches: 2,
+    retryAfterDispatch: ({ error }) => error?.code === "RPG_AI_CONTINUATION_REPETITIVE",
+    execute: async () => {
+      nonRepetitionRepairDispatches += 1;
+      throw nonRepetitionRepairError;
+    },
+    dependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+  }),
+  (error) => error === nonRepetitionRepairError,
+);
+assert.equal(nonRepetitionRepairDispatches, 1, "proof and non-repetition errors must never be retried");
+
 const hungExecutionStartedAt = Date.now();
 let hungExecutionCalls = 0;
 await assert.rejects(
@@ -686,25 +769,25 @@ const explicitRetryCandidate = await generateRpgChatTurnCandidate({
       });
     }
     const result = closedReviewResult(request, "closed-review-candidate-attempt-3");
-    result.executionReceipt.attempt = 3;
+    result.executionReceipt.attempt = 5;
     return result;
   },
 });
 assert.deepEqual(explicitRetryTaskIds, [
   await rpgLogicalTurnGenerationTaskId(explicitRetryLogicalTurnId, 3),
-  await rpgLogicalTurnFallbackReviewTaskId(explicitRetryLogicalTurnId, 3),
+  await rpgLogicalTurnFallbackReviewTaskId(explicitRetryLogicalTurnId, 5),
 ]);
 assert.equal(
   explicitRetryCandidate.taskId,
-  await rpgLogicalTurnFallbackReviewTaskId(explicitRetryLogicalTurnId, 3),
+  await rpgLogicalTurnFallbackReviewTaskId(explicitRetryLogicalTurnId, 5),
 );
 assert.equal(
   explicitRetryCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
-  3,
+  5,
 );
 assert.equal(
   explicitRetryCandidate.executionReceipt.postFallbackClosedReview?.selectionRewriteEvidence?.attempts,
-  3,
+  5,
 );
 
 const abstractNonSceneParagraphs = [
@@ -888,6 +971,7 @@ const repetitionLeafCases = [
     invalidStory: validStory,
     validateInvalid: (story) => validateRpgContinuationNovelty(story, [validStory]),
     forceLeafBeforeApplicationCallback: true,
+    repetitionRepairFailuresBeforeSuccess: 1,
   },
 ];
 const repetitionLeafRepairResults = [];
@@ -930,7 +1014,14 @@ for (const repetitionCase of repetitionLeafCases) {
       );
       if (!firstDispatch) repairPrompt = request.input;
       try {
-        if (firstDispatch && repetitionCase.forceLeafBeforeApplicationCallback) {
+        const repairDispatch = dispatchedTaskIds.length - 1;
+        if (
+          (firstDispatch && repetitionCase.forceLeafBeforeApplicationCallback)
+          || (
+            !firstDispatch
+            && repairDispatch <= (repetitionCase.repetitionRepairFailuresBeforeSuccess ?? 0)
+          )
+        ) {
           repetitionCase.validateInvalid(content);
         }
         await request.validateBeforePersistence?.(result);
@@ -946,14 +1037,22 @@ for (const repetitionCase of repetitionLeafCases) {
   });
 
   assert.equal(rejectedGenerationLeaf?.message, repetitionCase.leafCode);
-  assert.deepEqual(dispatchedTaskIds, [
+  const expectedTaskIds = [
     await rpgLogicalTurnGenerationTaskId(repetitionCase.logicalTurnId, 1),
     await rpgLogicalTurnFallbackRepairTaskId(
       repetitionCase.logicalTurnId,
       ["repetition"],
       1,
     ),
-  ]);
+  ];
+  if ((repetitionCase.repetitionRepairFailuresBeforeSuccess ?? 0) > 0) {
+    expectedTaskIds.push(await rpgLogicalTurnFallbackRepairTaskId(
+      repetitionCase.logicalTurnId,
+      ["repetition"],
+      2,
+    ));
+  }
+  assert.deepEqual(dispatchedTaskIds, expectedTaskIds);
   assert.match(repairPrompt ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
   assert.match(repairPrompt ?? "", /本次必補:各段事件與句式不得重複/u);
   assert.doesNotMatch(
@@ -970,11 +1069,231 @@ for (const repetitionCase of repetitionLeafCases) {
     repairedCandidate.executionReceipt.postFallbackClosedReview?.passed,
     true,
   );
+  assert.equal(
+    repairedCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+    (repetitionCase.repetitionRepairFailuresBeforeSuccess ?? 0) + 1,
+  );
+  assert.equal(
+    repairedCandidate.executionReceipt.postFallbackClosedReview
+      ?.selectionRewriteEvidence?.taskId,
+    dispatchedTaskIds.at(-1),
+    "the sealed receipt must bind the repair task that actually succeeded",
+  );
+  assert.equal(
+    repairedCandidate.executionReceipt.postFallbackClosedReview
+      ?.selectionRewriteEvidence?.attempts,
+    (repetitionCase.repetitionRepairFailuresBeforeSuccess ?? 0) + 1,
+  );
+  assert.ok(
+    await verifyPostFallbackClosedReviewReceipt({ candidate: repairedCandidate }),
+    "the final repetition-repair receipt must verify after an internal retry",
+  );
   repetitionLeafRepairResults.push({
     leafCode: repetitionCase.leafCode,
-    repairTaskId: dispatchedTaskIds[1],
+    repairTaskId: dispatchedTaskIds.at(-1),
   });
 }
+
+let changedLeafDispatches = 0;
+const changedLeafFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-repetition-repair-proof-failure",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async () => {
+    changedLeafDispatches += 1;
+    if (changedLeafDispatches <= 2) {
+      const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        code: "RPG_AI_CONTINUATION_REPETITIVE",
+      });
+      throw Object.assign(new Error("local provider rejected repeated prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: repetitionError,
+      });
+    }
+    throw Object.assign(new Error("closed review proof is missing"), {
+      code: "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
+    });
+  },
+}).then(() => null, (error) => error);
+assert.equal(changedLeafDispatches, 3, "only one repetition repair retry may be dispatched");
+assert.equal(changedLeafFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  changedLeafFailure?.reviewFailureCode,
+  "RPG_FALLBACK_CLOSED_REVIEW_PROOF_MISSING",
+  "the final repair failure must replace the previous attempt's diagnostic",
+);
+assert.deepEqual(
+  changedLeafFailure?.reviewContinuityFailures,
+  [],
+  "a later proof failure must not be misreported as the first repair's repetition leaf",
+);
+assert.deepEqual(changedLeafFailure?.generationContinuityFailures, ["repetition"]);
+
+let retryReadinessNow = 0;
+let retryReadinessProbes = 0;
+let retryReadinessDispatches = 0;
+const retryReadinessFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-repetition-repair-readiness-timeout",
+  generationDeadlineMs: 20,
+  fallbackReviewDeadlineMs: 20,
+  coordinationDependencies: {
+    now: () => retryReadinessNow,
+    wait: async (delayMs) => { retryReadinessNow += delayMs; },
+    probeAvailability: async () => {
+      retryReadinessProbes += 1;
+      return retryReadinessProbes <= 2 ? "ready" : "unavailable";
+    },
+    retryBackoffMs: 20,
+  },
+  closedAIInvoker: async (request) => {
+    retryReadinessDispatches += 1;
+    if (retryReadinessDispatches === 1) {
+      const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        code: "RPG_AI_CONTINUATION_REPETITIVE",
+      });
+      throw Object.assign(new Error("local provider rejected repeated prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: repetitionError,
+      });
+    }
+    const repeatedReview = closedReviewResult(
+      request,
+      "closed-review-candidate-before-readiness-timeout",
+      `${fullReviewedStory}\n\n${fullReviewedStory}`,
+    );
+    try {
+      await request.validateBeforePersistence?.(repeatedReview);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected repeated repair prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    throw new Error("expected repeated repair prose to fail validation");
+  },
+}).then(() => null, (error) => error);
+assert.equal(retryReadinessDispatches, 2, "unavailable retry readiness must not create a third provider request");
+assert.equal(retryReadinessFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(retryReadinessFailure?.reviewFailureCode, "RPG_STORY_AI_TIMEOUT");
+assert.notEqual(
+  retryReadinessFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_REPETITIVE",
+  "a later readiness timeout must not reuse the rejected prose leaf",
+);
+assert.deepEqual(
+  retryReadinessFailure?.reviewContinuityFailures,
+  [],
+  "readiness timeout before the second repair dispatch has no continuity result",
+);
+assert.deepEqual(retryReadinessFailure?.generationContinuityFailures, ["repetition"]);
+
+const evenRepairResumeLogicalTurnId = "logical-turn-even-repetition-repair-resume";
+const evenRepairResumeTaskId = await rpgLogicalTurnFallbackRepairTaskId(
+  evenRepairResumeLogicalTurnId,
+  ["repetition"],
+  2,
+);
+const evenRepairResumeTaskIds = [];
+const evenRepairResumeFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: evenRepairResumeLogicalTurnId,
+  resumeProviderTaskId: evenRepairResumeTaskId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    evenRepairResumeTaskIds.push(request.taskId);
+    const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+      code: "RPG_AI_CONTINUATION_REPETITIVE",
+    });
+    throw Object.assign(new Error("resumed bounded repair remained repetitive"), {
+      code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+      cause: repetitionError,
+    });
+  },
+}).then(() => null, (error) => error);
+assert.deepEqual(
+  evenRepairResumeTaskIds,
+  [evenRepairResumeTaskId],
+  "resuming an occupied even repair slot must never consume the next author's odd slot",
+);
+assert.equal(evenRepairResumeFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.deepEqual(evenRepairResumeFailure?.reviewContinuityFailures, ["repetition"]);
+
+const nextAuthorRepairLogicalTurnId = "logical-turn-next-author-repetition-repair";
+const nextAuthorRepairTaskIds = [];
+const nextAuthorRepairCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: nextAuthorRepairLogicalTurnId,
+  resumeProviderTaskId: await rpgLogicalTurnGenerationTaskId(
+    nextAuthorRepairLogicalTurnId,
+    2,
+  ),
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    nextAuthorRepairTaskIds.push(request.taskId);
+    if (nextAuthorRepairTaskIds.length <= 2) {
+      const repetitionError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+        code: "RPG_AI_CONTINUATION_REPETITIVE",
+      });
+      throw Object.assign(new Error("author retry prose remained repetitive"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: repetitionError,
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      "closed-review-candidate-author-attempt-2-repair-2",
+    );
+    await request.validateBeforePersistence?.(result);
+    return result;
+  },
+});
+assert.deepEqual(nextAuthorRepairTaskIds, [
+  await rpgLogicalTurnGenerationTaskId(nextAuthorRepairLogicalTurnId, 2),
+  await rpgLogicalTurnFallbackRepairTaskId(
+    nextAuthorRepairLogicalTurnId,
+    ["repetition"],
+    3,
+  ),
+  await rpgLogicalTurnFallbackRepairTaskId(
+    nextAuthorRepairLogicalTurnId,
+    ["repetition"],
+    4,
+  ),
+]);
+assert.equal(nextAuthorRepairCandidate.taskId, nextAuthorRepairTaskIds[2]);
+assert.equal(
+  nextAuthorRepairCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+  4,
+);
+assert.ok(await verifyPostFallbackClosedReviewReceipt({
+  candidate: nextAuthorRepairCandidate,
+}));
 
 const forbiddenRepairCases = [
   {

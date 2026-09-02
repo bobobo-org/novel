@@ -219,6 +219,74 @@ function normalizedSubstantiveSceneOverlapCharacters(value: string) {
   return [...value.normalize("NFKC").replace(/\s+/gu, "")];
 }
 
+function normalizedSubstantiveSceneParagraph(value: string) {
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+}
+
+function normalizedSubstantiveSceneParagraphCharacters(value: string) {
+  return [...value.replace(/\s+/gu, "")].length;
+}
+
+/**
+ * Removes only complete leading supplement paragraphs that exactly replay an
+ * existing paragraph after NFKC and whitespace normalization. Approximate or
+ * interior matches are deliberately left for the unchanged application
+ * validators to reject.
+ */
+export function trimSubstantiveSceneLeadingParagraphReplay(
+  existing: string,
+  supplement: string,
+  minimumParagraphCharacters = 32,
+) {
+  const existingParagraphs = new Set(
+    existing.replace(/\r\n?/gu, "\n")
+      .split(/\n+/u)
+      .map((paragraph) => normalizedSubstantiveSceneParagraph(paragraph))
+      .filter((paragraph) => (
+        normalizedSubstantiveSceneParagraphCharacters(paragraph)
+        >= minimumParagraphCharacters
+      )),
+  );
+  const supplementParagraphs = supplement.replace(/\r\n?/gu, "\n").split(/\n+/u);
+  let replayedParagraphs = 0;
+  let replayedCharacters = 0;
+  let firstRetainedParagraph = 0;
+
+  while (firstRetainedParagraph < supplementParagraphs.length) {
+    const rawParagraph = supplementParagraphs[firstRetainedParagraph] ?? "";
+    const normalizedParagraph = normalizedSubstantiveSceneParagraph(rawParagraph);
+    if (!normalizedParagraph) {
+      firstRetainedParagraph += 1;
+      continue;
+    }
+    if (
+      normalizedSubstantiveSceneParagraphCharacters(normalizedParagraph)
+        < minimumParagraphCharacters
+      || !existingParagraphs.has(normalizedParagraph)
+    ) break;
+    replayedParagraphs += 1;
+    replayedCharacters += normalizedSubstantiveSceneParagraphCharacters(
+      normalizedParagraph,
+    );
+    firstRetainedParagraph += 1;
+  }
+
+  if (!replayedParagraphs) {
+    return {
+      content: supplement,
+      repaired: false,
+      replayedParagraphs: 0,
+      replayedCharacters: 0,
+    };
+  }
+  return {
+    content: supplementParagraphs.slice(firstRetainedParagraph).join("\n").replace(/^\s+/u, ""),
+    repaired: true,
+    replayedParagraphs,
+    replayedCharacters,
+  };
+}
+
 function rawPrefixEndForNormalizedCharacters(value: string, characterCount: number) {
   let rawEnd = 0;
   for (const character of value) {
@@ -299,8 +367,12 @@ export function mergeSubstantiveSceneContinuation(
     original,
     unwrappedSupplement,
   );
+  const paragraphReplayRepair = trimSubstantiveSceneLeadingParagraphReplay(
+    original,
+    overlapRepair.content,
+  );
   const cleaned = trimAtCompleteSentence(
-    overlapRepair.content.trim(),
+    paragraphReplayRepair.content.trim(),
     maximumAdditionalCharacters,
   );
   if (!cleaned) return original;
@@ -920,10 +992,15 @@ export async function runLocalOllama(
       normalizedContent,
       unwrappedSupplement,
     );
-    substantiveOverlapRepaired = substantiveOverlapRepaired
-      || supplementOverlap.repaired;
-    const supplementDialogueQuotes = repairLocalChineseDialogueQuotes(
+    const supplementParagraphReplay = trimSubstantiveSceneLeadingParagraphReplay(
+      normalizedContent,
       supplementOverlap.content,
+    );
+    substantiveOverlapRepaired = substantiveOverlapRepaired
+      || supplementOverlap.repaired
+      || supplementParagraphReplay.repaired;
+    const supplementDialogueQuotes = repairLocalChineseDialogueQuotes(
+      supplementParagraphReplay.content,
     );
     substantiveDialogueQuotesRepaired = substantiveDialogueQuotesRepaired
       || supplementDialogueQuotes.repaired;
