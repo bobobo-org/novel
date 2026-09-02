@@ -1847,6 +1847,12 @@ export async function planRpgChatChoices(input: {
       }),
       sourceChapterId: input.snapshot.chapter.id,
       sourceRevision: input.snapshot.chapter.revision,
+      // A playable A/B/C card claims that this request reached a real closed
+      // model. A verified candidate-cache hit truthfully reports
+      // actualExecutor=not_executed, so it cannot satisfy that claim. Bypass
+      // prompt/candidate caches here and require retries after navigation to
+      // reach the model again; the proof gate below remains fail-closed.
+      ephemeralPrompt: true,
       qualityMode: "fast",
       browserComputePolicy: "balanced",
       generationOptions: {
@@ -1859,22 +1865,17 @@ export async function planRpgChatChoices(input: {
       signal: enhancementController.signal,
       onProgress: input.onProgress,
     });
-    if (
-      !hasVerifiedExecutedStoryOutput(result)
-      || !result.candidateId
-      || !result.modelDigest
-      || result.sourceChapterId !== input.snapshot.chapter.id
-      || result.sourceRevision !== input.snapshot.chapter.revision
-      || result.canonicalMutationCount !== 0
-      || result.externalRequest
-      || result.dataLeftDevice
-    ) {
+    let proof: ReturnType<typeof assertFreshRpgChoiceExecutionProof>;
+    try {
+      proof = assertFreshRpgChoiceExecutionProof({
+        result,
+        chapter: input.snapshot.chapter,
+      });
+    } catch (error) {
       if (result.candidateId) {
         await rejectStudioClosedAgentCandidate(result.candidateId).catch(() => undefined);
       }
-      throw Object.assign(new Error("閉端 AI 選項缺少真實模型或來源章節證明。"), {
-        code: "RPG_CHAT_CHOICE_PROOF_MISSING",
-      });
+      throw error;
     }
     let choices: RpgDirectedChoice[];
     try {
@@ -1883,19 +1884,19 @@ export async function planRpgChatChoices(input: {
         parseRpgChoiceDirectorOutput(result.content),
       );
     } catch (error) {
-      await rejectStudioClosedAgentCandidate(result.candidateId).catch(() => undefined);
+      await rejectStudioClosedAgentCandidate(proof.candidateId).catch(() => undefined);
       throw error;
     }
     return {
       schemaVersion: RPG_CHAT_TURN_SCHEMA_VERSION,
       choices,
       taskId: result.taskId,
-      candidateId: result.candidateId,
+      candidateId: proof.candidateId,
       contentDigest: result.contentDigest,
       model: result.model,
-      modelDigest: result.modelDigest,
+      modelDigest: proof.modelDigest,
       actualExecutor: result.actualExecutor,
-      executionReceipt: withCausalKnowledgeReceipt(result.executionReceipt, input.snapshot),
+      executionReceipt: withCausalKnowledgeReceipt(proof.executionReceipt, input.snapshot),
       contextDigest: input.snapshot.contextDigest,
       contextRevisionDigest: input.snapshot.contextRevisionDigest,
       contextRevisionGuard: structuredClone(input.snapshot.contextRevisionGuard),
@@ -1918,6 +1919,45 @@ export async function planRpgChatChoices(input: {
     clearTimeout(enhancementTimeout);
     input.signal?.removeEventListener("abort", relayAbort);
   }
+}
+
+export function assertFreshRpgChoiceExecutionProof(input: {
+  result: Awaited<ReturnType<typeof runStudioClosedAI>>;
+  chapter: Pick<Chapter, "id" | "revision">;
+}) {
+  const { result } = input;
+  const executionReceipt = result.executionReceipt;
+  if (
+    !hasVerifiedExecutedStoryOutput(result)
+    || result.cache.candidateHit
+    || !result.candidateId
+    || !result.modelDigest
+    || !executionReceipt
+    || executionReceipt.proofState !== "verified"
+    || executionReceipt.taskId !== result.taskId
+    || executionReceipt.backendId !== result.provider
+    || executionReceipt.actualExecutor !== result.provider
+    || executionReceipt.modelId !== result.model
+    || executionReceipt.modelDigest !== result.modelDigest
+    || executionReceipt.contentDigest !== result.contentDigest
+    || executionReceipt.outputCharacters <= 0
+    || executionReceipt.externalRequest
+    || executionReceipt.dataLeftDevice
+    || result.sourceChapterId !== input.chapter.id
+    || result.sourceRevision !== input.chapter.revision
+    || result.canonicalMutationCount !== 0
+    || result.externalRequest
+    || result.dataLeftDevice
+  ) {
+    throw Object.assign(new Error("閉端 AI 選項缺少真實模型或來源章節證明。"), {
+      code: "RPG_CHAT_CHOICE_PROOF_MISSING",
+    });
+  }
+  return {
+    candidateId: result.candidateId,
+    modelDigest: result.modelDigest,
+    executionReceipt,
+  };
 }
 
 export function buildRpgChatCustomAction(input: {

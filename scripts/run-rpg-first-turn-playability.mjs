@@ -15,11 +15,13 @@ import {
 import { buildRpgChoices } from "../lib/novel-ai/game/progression/rpg-progression.ts";
 import {
   approveRpgChatTurn,
+  assertFreshRpgChoiceExecutionProof,
   buildDeterministicRpgChatTurnCandidate,
   buildRpgRuleChoicePlan,
   loadRpgChatSnapshot,
   RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
   RPG_CHAT_STORY_AI_TIMEOUT_MS,
+  rpgChoiceRuleFallbackReason,
 } from "../lib/novel-ai/web/rpg-chat-turn.ts";
 import {
   buildCompactRpgResolutionDirectorPrompt,
@@ -36,6 +38,24 @@ const [rpgTurnSource, conversationRpgSource, rpgWorkspaceSource, closedAgentOsSo
   readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
 ]);
 assert.match(rpgTurnSource, /qualityMode: "fast"[\s\S]{0,120}browserComputePolicy: "quality-first"/u);
+const choicePlannerStart = rpgTurnSource.indexOf("export async function planRpgChatChoices");
+const choicePlannerEnd = rpgTurnSource.indexOf("\nexport ", choicePlannerStart + 1);
+const choicePlannerSource = rpgTurnSource.slice(choicePlannerStart, choicePlannerEnd);
+assert.ok(choicePlannerStart >= 0 && choicePlannerEnd > choicePlannerStart);
+assert.match(
+  choicePlannerSource,
+  /task: "three_choices"[\s\S]{0,800}ephemeralPrompt: true[\s\S]{0,1300}assertFreshRpgChoiceExecutionProof/u,
+  "A/B/C planning retries must bypass candidate caches and still require fresh verified model execution",
+);
+const choiceProofStart = rpgTurnSource.indexOf("export function assertFreshRpgChoiceExecutionProof");
+const choiceProofEnd = rpgTurnSource.indexOf("\nexport ", choiceProofStart + 1);
+const choiceProofSource = rpgTurnSource.slice(choiceProofStart, choiceProofEnd);
+assert.ok(choiceProofStart >= 0 && choiceProofEnd > choiceProofStart);
+assert.match(
+  choiceProofSource,
+  /!hasVerifiedExecutedStoryOutput\(result\)[\s\S]{0,160}result\.cache\.candidateHit[\s\S]{0,700}executionReceipt\.actualExecutor !== result\.provider[\s\S]{0,900}result\.sourceChapterId !== input\.chapter\.id/u,
+  "fresh A/B/C proof must reject cache hits and mismatched receipt or chapter identity",
+);
 assert.match(rpgTurnSource, /RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 360_000/u);
 assert.match(rpgTurnSource, /const generationDeadlineMs = Math\.max\([\s\S]{0,160}input\.generationDeadlineMs \?\? RPG_CHAT_STORY_AI_TIMEOUT_MS/u);
 assert.match(rpgTurnSource, /const reviewDeadlineMs = Math\.min\([\s\S]{0,220}input\.fallbackReviewDeadlineMs \?\? RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS/u);
@@ -60,6 +80,78 @@ assert.match(
   "the workspace safety guard must include the independent 360-second generation and review deadlines",
 );
 assert.doesNotMatch(rpgWorkspaceSource, /300_000|超過 300 秒/u);
+
+const freshChoiceProof = {
+  taskId: "choice-proof-task",
+  candidateId: "choice-proof-candidate",
+  status: "awaiting_approval",
+  provider: "local-ollama",
+  model: "qwen-choice-proof",
+  modelDigest: "a".repeat(64),
+  sourceChapterId: "choice-proof-chapter",
+  sourceRevision: 3,
+  content: "A 守住證據。\nB 交換資源。\nC 直取核心。",
+  contentDigest: "b".repeat(64),
+  actualExecutor: "local-ollama",
+  executionReceipt: {
+    taskId: "choice-proof-task",
+    backendId: "local-ollama",
+    modelId: "qwen-choice-proof",
+    modelDigest: "a".repeat(64),
+    startedAt: "2026-09-02T00:00:00.000Z",
+    completedAt: "2026-09-02T00:00:01.000Z",
+    generatedTokenEvents: 3,
+    outputCharacters: 24,
+    contentDigest: "b".repeat(64),
+    contextDigest: "c".repeat(64),
+    proofState: "verified",
+    dataLeftDevice: false,
+    externalRequest: false,
+    actualExecutor: "local-ollama",
+  },
+  contextDigest: "c".repeat(64),
+  dataLeftDevice: false,
+  externalRequest: false,
+  canonicalMutationCount: 0,
+  warnings: [],
+  toolExecutions: [],
+  ledgerHeadHash: "d".repeat(64),
+  requestContractDigest: "e".repeat(64),
+  applicationValidationBindingDigest: null,
+  regeneration: null,
+  cache: { candidateHit: false, planHit: false, bypassReason: null },
+};
+const freshChoiceChapter = { id: "choice-proof-chapter", revision: 3 };
+assert.equal(
+  assertFreshRpgChoiceExecutionProof({
+    result: freshChoiceProof,
+    chapter: freshChoiceChapter,
+  }).executionReceipt.taskId,
+  freshChoiceProof.taskId,
+);
+for (const mutate of [
+  (value) => { value.cache.candidateHit = true; value.actualExecutor = "not_executed"; value.executionReceipt = null; },
+  (value) => { value.sourceChapterId = "wrong-chapter"; },
+  (value) => { value.sourceRevision += 1; },
+  (value) => { value.executionReceipt.modelDigest = "f".repeat(64); },
+  (value) => { value.executionReceipt.contentDigest = "0".repeat(64); },
+]) {
+  const invalid = structuredClone(freshChoiceProof);
+  mutate(invalid);
+  assert.throws(
+    () => assertFreshRpgChoiceExecutionProof({ result: invalid, chapter: freshChoiceChapter }),
+    (error) => error?.code === "RPG_CHAT_CHOICE_PROOF_MISSING",
+  );
+}
+assert.equal(
+  rpgChoiceRuleFallbackReason({
+    error: Object.assign(new Error("choice proof missing"), {
+      code: "RPG_CHAT_CHOICE_PROOF_MISSING",
+    }),
+  }),
+  null,
+  "a proof failure must remain visible and must never become timeout fallback",
+);
 
 for (const abortReason of ["RPG_STORY_AI_TIMEOUT", "USER_REQUESTED_RULE_FALLBACK"]) {
   let markExecutorStarted;
