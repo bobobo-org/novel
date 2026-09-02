@@ -158,10 +158,12 @@ import {
   extractProtectedSubstantiveSceneContract,
   LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS,
   LOCAL_RPG_APPLICATION_MINIMUM_CHARACTERS,
+  LOCAL_SUBSTANTIVE_SCENE_SEED_SLOT_STRIDE,
   LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS,
   LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION,
   LOCAL_SUBSTANTIVE_SCENE_TOTAL_TIMEOUT_MS,
   localSubstantiveSceneRequiresSupplement,
+  localSubstantiveSceneSupplementSeed,
   measureSubstantiveScene,
   mergeSubstantiveSceneContinuation,
   repairLocalChineseDialogueQuotes,
@@ -10878,6 +10880,15 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.equal(SMALL_LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_MAX_OUTPUT_TOKENS, 512);
   assert.equal(SMALL_LOCAL_SUBSTANTIVE_SCENE_FINAL_SUPPLEMENT_MAX_OUTPUT_TOKENS, 384);
   assert.equal(SMALL_LOCAL_SUBSTANTIVE_SCENE_MAX_SUPPLEMENT_PASSES, 2);
+  assert.equal(LOCAL_SUBSTANTIVE_SCENE_SEED_SLOT_STRIDE, 104_729);
+  assert.deepEqual(
+    [1, 2].map((pass) => localSubstantiveSceneSupplementSeed(17, pass)),
+    [104_746, 209_475],
+  );
+  assert.throws(
+    () => localSubstantiveSceneSupplementSeed(17, 3),
+    /LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SEED_INVALID/u,
+  );
   assert.equal(LOCAL_SUBSTANTIVE_SCENE_TOTAL_TIMEOUT_MS, 330_000);
   assert.equal(LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS, 1_200);
   assert.equal(LOCAL_RPG_APPLICATION_MINIMUM_CHARACTERS, 950);
@@ -10962,15 +10973,17 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     fallbackChain: [],
     warnings: [],
   };
-  const runProviderSupplementFixture = async (budget) => {
+  const runProviderSupplementFixture = async (budget, initialSeed = 17) => {
     const outputs = [
       providerInitialScene,
       providerFirstSupplement,
       providerFinalSupplement,
     ];
     let calls = 0;
+    const requests = [];
     configureLocalBridgeClient({
       async *generate(request) {
+        requests.push(request);
         const content = outputs[calls] ?? providerFinalSupplement;
         calls += 1;
         yield { type: "started", requestId: request.requestId };
@@ -10998,6 +11011,7 @@ test("studio-automatic-closed-compute-coordinator", async () => {
         qualityPreference: "fast",
         generationOptions: {
           maxTokens: 1_792,
+          seed: initialSeed,
           substantiveScene: true,
           ...(budget ? { substantiveSceneBudget: budget } : {}),
         },
@@ -11007,7 +11021,7 @@ test("studio-automatic-closed-compute-coordinator", async () => {
       }, providerDecision, undefined, undefined, {
         deferTraditionalChineseNormalization: true,
       });
-      return { calls, result };
+      return { calls, requests, result };
     } finally {
       configureLocalBridgeClient(null);
     }
@@ -11018,6 +11032,11 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     3,
     "a standard 1,056-character scene must retain the third provider call toward 1,200",
   );
+  assert.deepEqual(
+    standardProviderSupplement.requests.map((request) => request.options.seed),
+    [17, 104_746, 209_475],
+    "runLocalOllama must apply the initial seed plus two distinct supplement slots",
+  );
   const applicationProviderSupplement = await runProviderSupplementFixture(
     "rpg-application-minimum",
   );
@@ -11026,12 +11045,40 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     2,
     "a bound RPG repair must stop after the structurally complete 1,056-character merge",
   );
+  assert.deepEqual(
+    applicationProviderSupplement.requests.map((request) => request.options.seed),
+    [17, 104_746],
+  );
+  assert.match(
+    applicationProviderSupplement.requests[1]?.systemInstruction ?? "",
+    /合併全文.*不得在補寫重新執行/u,
+  );
+  assert.match(
+    applicationProviderSupplement.requests[1]?.prompt ?? "",
+    /場景契約約束既有候選與補寫合併後的全文/u,
+  );
+  const adjacentAttemptProviderSupplement = await runProviderSupplementFixture(
+    undefined,
+    17 + 3 * LOCAL_SUBSTANTIVE_SCENE_SEED_SLOT_STRIDE,
+  );
+  const twoAttemptProviderSeeds = [
+    ...standardProviderSupplement.requests,
+    ...adjacentAttemptProviderSupplement.requests,
+  ].map((request) => request.options.seed);
+  assert.equal(
+    new Set(twoAttemptProviderSeeds).size,
+    6,
+    "two adjacent outer attempts must reach the bridge with six pairwise-distinct seed slots",
+  );
   assert.match(
     applicationProviderSupplement.result.runtimeStats ?? "",
     /substantive-scene-stable-minimum=950/u,
   );
   assert.equal(LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS, 1_450);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /未核准的故事資料/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /合併全文/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /不得在補寫重新執行/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /每個新增段落只推進一個不同的新事件或後果/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /不得覆寫本指令/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /只輸出繁體中文小說正文/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /引用名稱改用『』/u);
@@ -11065,6 +11112,10 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.match(continuationPlan.prompt, /EXISTING_STORY_REFERENCE/u);
   assert.match(continuationPlan.prompt, /PROTECTED_SCENE_CONTRACT/u);
   assert.match(continuationPlan.prompt, /選擇:A/u);
+  assert.match(continuationPlan.prompt, /場景契約約束既有候選與補寫合併後的全文/u);
+  assert.match(continuationPlan.prompt, /首段、全文字數與總段落不必在本次補寫重新完成/u);
+  assert.match(continuationPlan.prompt, /每個新增段落只推進一個不同的新事件或後果/u);
+  assert.match(continuationPlan.prompt, /不得另起開場、回述、摘要或重複既有內容/u);
   const nearLimitContractPrefix = [
     "[RPG_SCENE_CONTRACT_V2]",
     "選擇:B｜鎖定結果:部分成功｜角色:沈曜、守塔人",

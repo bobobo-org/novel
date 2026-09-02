@@ -12,7 +12,10 @@ import {
   extractLastCompleteNarrativeSentences,
   generateRpgChatTurnCandidate,
   approveRpgChatTurn,
+  buildRpgFallbackContinuityRepairPrompt,
   reviewDeterministicRpgFallbackDrafts,
+  RPG_SUBSTANTIVE_SCENE_ATTEMPT_SEED_LANE_WIDTH,
+  rpgSubstantiveSceneAttemptSeed,
   runRpgClosedAIUntilDeadline,
   selectRecentRpgContinuityTexts,
   verifyPostFallbackClosedReviewReceipt,
@@ -22,6 +25,7 @@ import {
   readRpgProgression,
 } from "../lib/novel-ai/game/progression/rpg-progression.ts";
 import {
+  buildCompactRpgResolutionDirectorPrompt,
   validateRpgContinuationNovelty,
   validateRpgStoryTurnContract,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
@@ -30,6 +34,9 @@ import {
   buildClosedAIModelPrompt,
   getClosedAIModelProfile,
 } from "../lib/novel-ai/providers/closed/task-profile.ts";
+import {
+  localSubstantiveSceneSupplementSeed,
+} from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
 
 const paragraphs = [
   "雨勢壓低屋簷，林澄沿泥痕走到廊下，發現封條已被換過。他沒有急著伸手，只讓蘇錦魚守住出口，自己逐一核對證人的說法與燈影位置。窗邊冷風捲起殘紙，對手終於承認搬運路線臨時改動，卻拒絕說出下令的人。",
@@ -51,6 +58,33 @@ const isFallbackSynthesisPrompt = (value) => (
   && value.endsWith("[/RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]")
 );
 validateRpgStoryTurnContract(validStory, "zh-TW");
+
+const nearRestatementStory = Array.from({ length: 18 }, (_, index) => (
+  `林澄推開側門後握住冰冷封條，聽見門外腳步逼近，因此把第${String.fromCharCode(65 + index)}份證詞移到火光下，逐字核對墨痕並轉身警告守門人不要放走送件者。`
+)).join("\n\n");
+const nearRestatementGate = evaluateNovelContinuityGate({
+  prose: nearRestatementStory,
+  language: "zh-TW",
+  minimumHanCharacters: 0,
+  minimumCharacters: 0,
+  minimumParagraphs: 1,
+  minimumDialogueCount: 0,
+  requireForeshadowing: false,
+  requireSerialHook: false,
+});
+assert.equal(
+  nearRestatementGate.metrics.uniqueParagraphRatio,
+  1,
+  "near-restated paragraphs must remain distinct rather than being silently deleted",
+);
+assert.ok(
+  nearRestatementGate.metrics.uniqueShingleRatio < 0.72,
+  "the regression fixture must exercise the unchanged shingle repetition threshold",
+);
+assert.ok(
+  nearRestatementGate.failures.includes("repetition"),
+  "near-restated supplement prose must remain fail-closed at the application gate",
+);
 
 const simplifiedChineseGate = evaluateNovelContinuityGate({
   prose: [
@@ -592,6 +626,92 @@ const fullSnapshot = {
   },
   baseChoices: fullChoices,
 };
+const nearCapRepairContext = {
+  project: {
+    title: "作".repeat(40),
+    narrativeStyle: "風".repeat(36),
+    coreIdea: "核".repeat(44),
+  },
+  currentChapter: {
+    title: "章".repeat(36),
+    recentText: "尾".repeat(180),
+  },
+  storyBible: {
+    theme: "題".repeat(28),
+    forbiddenContradictions: ["禁".repeat(24), "忌".repeat(24)],
+    foreshadowing: ["伏".repeat(24)],
+    unresolvedThreads: ["謎".repeat(24)],
+  },
+  protagonist: {
+    name: "甲".repeat(11),
+    goal: "願".repeat(11),
+    actionMastery: {
+      relation: "可使用",
+      name: "技".repeat(11),
+      era: "現代",
+      limitation: "限".repeat(11),
+    },
+    limitations: ["弱".repeat(11)],
+  },
+  supportingCharacters: ["乙", "丙"].map((prefix) => ({
+    name: prefix.repeat(11),
+    goal: "願".repeat(11),
+    actionMastery: {
+      relation: "可使用",
+      name: "技".repeat(11),
+      era: "現代",
+      limitation: "限".repeat(11),
+    },
+    limitations: ["弱".repeat(11)],
+  })),
+  worldRules: [
+    { title: "規".repeat(16), description: "述".repeat(24) },
+    { title: "則".repeat(16), description: "界".repeat(24) },
+  ],
+  stagedAssets: [{
+    name: "物".repeat(30),
+    function: "用".repeat(36),
+    limitation: "限".repeat(34),
+    holder: "持".repeat(24),
+    controller: "控".repeat(24),
+  }],
+  currentConflict: "衝".repeat(64),
+};
+const nearCapRepairSceneContract = buildCompactRpgResolutionDirectorPrompt({
+  context: nearCapRepairContext,
+  choice: fullChoice,
+  language: "zh-TW",
+  resolution: {
+    outcomeLabel: "成".repeat(32),
+    settlement: ["結".repeat(30), "算".repeat(30), "果".repeat(30)],
+  },
+});
+assert.ok(
+  nearCapRepairSceneContract.length >= 1_450,
+  "the repair budget fixture must exercise a legitimately dense compact contract",
+);
+const nearCapRepairPrompt = buildRpgFallbackContinuityRepairPrompt({
+  sceneContract: nearCapRepairSceneContract,
+  failures: ["repetition"],
+  continuityExcerpt: "尾".repeat(180),
+  activeCharacterNames: ["甲".repeat(11)],
+});
+const nearCapRepairContractStart = nearCapRepairPrompt.indexOf(
+  "[RPG_SCENE_CONTRACT_V2]",
+);
+const nearCapRepairContractEnd = nearCapRepairPrompt.indexOf(
+  "[/RPG_SCENE_CONTRACT_V2]",
+) + "[/RPG_SCENE_CONTRACT_V2]".length;
+const nearCapRepairInnerContract = nearCapRepairPrompt.slice(
+  nearCapRepairContractStart,
+  nearCapRepairContractEnd,
+);
+assert.ok(nearCapRepairInnerContract.length <= 1_600);
+assert.ok(nearCapRepairPrompt.length <= 1_950);
+assert.match(
+  nearCapRepairPrompt,
+  /十段各推進不同事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
+);
 const fullReviewedStory = validStory
   .replace("林澄沿泥痕", `林澄決定${fullChoice.title}，沿泥痕`)
   .replace("雨已經停了", "失敗的換封伎倆雖已拆穿，眾人仍付出代價。雨已經停了");
@@ -1555,13 +1675,18 @@ assert.deepEqual(
 );
 assert.match(adaptiveReportStyleRequests[1]?.input ?? "", /各段事件與句式不得重複/u);
 assert.match(
+  adaptiveReportStyleRequests[1]?.input ?? "",
+  /十段各推進不同事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
+  "a repetition repair must give the small local model an operational anti-restart contract",
+);
+assert.match(
   adaptiveReportStyleRequests[2]?.input ?? "",
   /全篇以人物行動、對話與感官連續推進同一場景/u,
   "the adapted prompt must explicitly demand reader-facing novel prose",
 );
 assert.match(
   adaptiveReportStyleRequests[2]?.input ?? "",
-  /十段都直接描寫人物行動、對話、感官與因果.*自然小說敘事/u,
+  /十段各推進不同事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
 );
 assert.doesNotMatch(
   adaptiveReportStyleRequests[2]?.input ?? "",
@@ -1572,6 +1697,29 @@ assert.equal(adaptiveReportStyleRequests[2]?.ephemeralPrompt, true);
 assert.equal(
   adaptiveReportStyleRequests[2]?.generationOptions?.substantiveSceneBudget,
   "rpg-application-minimum",
+);
+assert.equal(RPG_SUBSTANTIVE_SCENE_ATTEMPT_SEED_LANE_WIDTH, 3 * 104_729);
+const adaptiveRepairInitialSeeds = adaptiveReportStyleRequests.slice(1).map(
+  (request) => request.generationOptions?.seed,
+);
+assert.equal(
+  adaptiveRepairInitialSeeds.every((seed) => Number.isSafeInteger(seed)),
+  true,
+);
+const adaptiveRepairSeedSlots = adaptiveRepairInitialSeeds.flatMap((seed) => [
+  seed,
+  localSubstantiveSceneSupplementSeed(seed, 1),
+  localSubstantiveSceneSupplementSeed(seed, 2),
+]);
+assert.equal(
+  new Set(adaptiveRepairSeedSlots).size,
+  6,
+  "repair#1 and adaptive repair#2 must reserve disjoint initial/supplement seed lanes",
+);
+assert.equal(
+  adaptiveRepairInitialSeeds[1],
+  rpgSubstantiveSceneAttemptSeed(adaptiveRepairInitialSeeds[0], 2),
+  "the adaptive repair initial seed must begin after all three prior provider slots",
 );
 assert.notEqual(
   adaptiveReportStyleRequests[1]?.applicationValidationBindingDigest,
@@ -1837,6 +1985,11 @@ assert.equal(
   firstEvenRepairResume.requests[0]?.applicationValidationBindingDigest,
   secondEvenRepairResume.requests[0]?.applicationValidationBindingDigest,
   "the same authenticated quality-4400 resume must rebuild the same application digest",
+);
+assert.equal(
+  firstEvenRepairResume.requests[0]?.generationOptions?.seed,
+  secondEvenRepairResume.requests[0]?.generationOptions?.seed,
+  "the same authenticated even repair resume must rebuild the same deterministic seed",
 );
 assert.equal(
   firstEvenRepairResume.candidate.executionReceipt.postFallbackClosedReview

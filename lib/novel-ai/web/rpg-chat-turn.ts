@@ -142,6 +142,14 @@ export const RPG_CHAT_STORY_AI_TIMEOUT_MS = 360_000;
 export const RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 360_000;
 export const RPG_CHAT_STORY_AI_RETRY_BACKOFF_MS = 750;
 export const RPG_SHARED_LEARNING_SYNC_WAIT_MS = 350;
+export const RPG_SUBSTANTIVE_SCENE_ATTEMPT_SEED_LANE_WIDTH = 3 * 104_729;
+
+export function rpgSubstantiveSceneAttemptSeed(baseSeed: number, attempt: number) {
+  if (!Number.isSafeInteger(baseSeed) || !Number.isSafeInteger(attempt) || attempt < 1) {
+    throw new Error("RPG_SUBSTANTIVE_SCENE_ATTEMPT_SEED_INVALID");
+  }
+  return (baseSeed + (attempt - 1) * RPG_SUBSTANTIVE_SCENE_ATTEMPT_SEED_LANE_WIDTH) >>> 0;
+}
 
 const RPG_CHOICE_RULE_FALLBACK_TIMEOUT_CODES = new Set([
   "REQUEST_TIMEOUT",
@@ -4027,7 +4035,7 @@ function buildRpgFallbackReviewPrompt(input: {
   return prompt;
 }
 
-function buildRpgFallbackContinuityRepairPrompt(input: {
+export function buildRpgFallbackContinuityRepairPrompt(input: {
   sceneContract: string;
   failures: readonly RpgContinuityRepairFailure[];
   continuityExcerpt: string;
@@ -4071,7 +4079,9 @@ function buildRpgFallbackContinuityRepairPrompt(input: {
     "場景中須自然寫出門外與火光；人物須依次推開、握住並轉身，也須聽見聲響並碰到冰冷物件。",
     `至少一段使用${activeCharacter}說道：「完整對話。」的句型；前因後果中須明寫「因此」，並留下明寫為「線索」的未解事物。`,
     "正文須有10個空行分隔段落；末220字須自然寫出「門外突然傳來聲音」，並以完整小說句號收尾。",
-    "十段都直接描寫人物行動、對話、感官與因果，從第一句到末句保持自然小說敘事。",
+    uniqueFailures.includes("repetition")
+      ? "十段各推進不同事件或後果，不回述前文，不重用段首、主要句式或對話意圖。"
+      : "十段都直接描寫人物行動、對話、感官與因果，從第一句到末句保持自然小說敘事。",
   ];
   const contractLines = input.sceneContract.split("\n");
   const contractEndIndex = contractLines.lastIndexOf("[/RPG_SCENE_CONTRACT_V2]");
@@ -4485,7 +4495,7 @@ export async function generateRpgChatTurnCandidate(input: {
             temperature: attempt === 1 ? 0.72 : 0.66,
             topP: attempt === 1 ? 0.92 : 0.88,
             repetitionPenalty: 1.18,
-            seed: (baseSeed + (attempt - 1) * 104_729) >>> 0,
+            seed: rpgSubstantiveSceneAttemptSeed(baseSeed, attempt),
             substantiveScene: true,
           },
           signal: attemptSignal,
@@ -4767,7 +4777,10 @@ export async function generateRpgChatTurnCandidate(input: {
               temperature: Math.min(0.78, 0.62 + (attempt - 1) * 0.03),
               topP: 0.9,
               repetitionPenalty: 1.2,
-              seed: (baseSeed + 7_919 + (attempt - 1) * 104_729) >>> 0,
+              seed: rpgSubstantiveSceneAttemptSeed(
+                (baseSeed + 7_919) >>> 0,
+                attempt,
+              ),
               substantiveScene: true,
               // This changes only the provider's supplement stop point. The
               // identical digest-bound application validator below remains
