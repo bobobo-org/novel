@@ -2297,9 +2297,10 @@ jobs:
               (cd .release-product && node scripts/verify-public-lounge-browser.mjs)
               cd .release-product
               for origin in https://novel-orcin.vercel.app https://novel-lqtechs-projects.vercel.app; do
-                MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568 \
+                MOBILE_RUNTIME_PHASE=post-cutover-production MOBILE_NEXT_CHUNK_RETRY=exact-once \
+                  MOBILE_BASE_URL="$origin" MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568 \
                   node scripts/run-mobile-consumer-experience.mjs "$origin"
-                MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844 \
+                MOBILE_BASE_URL="$origin" MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844 \
                   node scripts/run-mobile-consumer-experience.mjs "$origin"
               done
             ' 2>&1 | tee "$RUNNER_TEMP/post-cutover-mobile-browser.log"

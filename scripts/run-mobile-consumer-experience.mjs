@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { chromium, webkit } from "@playwright/test";
+import {
+  classifyPostCutoverExactChunkRetry,
+  isExactProductReleaseIdentity,
+  isVerifiedNextStaticScriptResponse,
+} from "./humanized-navigation-diagnostics.mjs";
 
 const baseUrl = String(
   process.env.MOBILE_BASE_URL
@@ -27,8 +32,11 @@ const viewports = requestedViewportTokens.length
 
 const engineName = process.env.MOBILE_BROWSER_ENGINE === "webkit" ? "webkit" : "chromium";
 const browserType = engineName === "webkit" ? webkit : chromium;
+const mobileRuntimePhase = String(process.env.MOBILE_RUNTIME_PHASE || "").trim();
+const mobileNextChunkRetry = String(process.env.MOBILE_NEXT_CHUNK_RETRY || "").trim();
 const results = [];
 const publicRequestTimeoutMs = 30_000;
+const exactChunkRetryBackoffMs = 8_000;
 const expectedProductCommit = String(
   process.env.EXPECTED_PRODUCT_COMMIT || process.env.PRODUCT_COMMIT || "",
 ).trim().toLowerCase();
@@ -54,8 +62,64 @@ const publicVisualAssets = [
   ].map((name) => `/item-icons/${name}.webp`),
 ];
 
-function record(name) {
-  results.push({ name, status: "PASS" });
+function record(target, name) {
+  target.push({ name, status: "PASS" });
+}
+
+function assertNoViewportPageErrors(pageErrors, label) {
+  try {
+    assert.deepEqual(pageErrors, [], `${label} page errors`);
+  } catch (error) {
+    error.mobileViewportPageErrorsAssertion = pageErrors;
+    throw error;
+  }
+}
+
+async function verifyPostCutoverExactChunkRetryPreflight(candidate) {
+  const chunkResponse = await fetch(candidate.chunkUrl, {
+    redirect: "error",
+    signal: AbortSignal.timeout(publicRequestTimeoutMs),
+  });
+  const chunkBody = await chunkResponse.arrayBuffer();
+  const chunkProof = {
+    status: chunkResponse.status,
+    redirected: chunkResponse.redirected,
+    responseUrl: chunkResponse.url,
+    contentType: String(chunkResponse.headers.get("content-type") || ""),
+    cacheControl: String(chunkResponse.headers.get("cache-control") || ""),
+    bodyLength: chunkBody.byteLength,
+  };
+  assert.equal(chunkProof.redirected, false, "exact retry chunk preflight must not redirect");
+  assert.equal(chunkProof.responseUrl, candidate.chunkUrl, "exact retry chunk preflight must keep the requested URL");
+  assert.equal(
+    isVerifiedNextStaticScriptResponse(chunkProof),
+    true,
+    "exact retry chunk preflight must return immutable nonempty JavaScript with HTTP 200",
+  );
+
+  const identityUrl = `${candidate.origin}/api/release/identity`;
+  const identityResponse = await fetch(identityUrl, {
+    redirect: "error",
+    signal: AbortSignal.timeout(publicRequestTimeoutMs),
+  });
+  const identityBody = await identityResponse.text();
+  assert.equal(identityResponse.status, 200, "exact retry release identity preflight must return HTTP 200");
+  assert.equal(identityResponse.redirected, false, "exact retry release identity preflight must not redirect");
+  assert.equal(identityResponse.url, identityUrl, "exact retry release identity preflight must stay on the alias");
+  const identity = JSON.parse(identityBody);
+  assert.equal(
+    isExactProductReleaseIdentity(identity, expectedProductCommit),
+    true,
+    "exact retry alias app and Product identities must match the Product commit",
+  );
+  return {
+    chunk: chunkProof,
+    identity: {
+      url: identityUrl,
+      appCommit: identity.appCommit,
+      releaseProductCommit: identity.releaseProductCommit,
+    },
+  };
 }
 
 async function assertNoClippedControls(page, label) {
@@ -147,10 +211,16 @@ async function seedRememberedCompanionSessions(context) {
   });
 }
 
-try {
-  browser = await browserType.launch({ headless: true });
-  for (const viewport of viewports) {
-    const context = await browser.newContext({
+async function runViewportJourney(viewport, attempt) {
+  const attemptResults = [];
+  const pageErrors = [];
+  const requestedChunkRequests = [];
+  const unexpectedLoopbackRequests = [];
+  const sizeLabel = `${viewport.width}x${viewport.height}`;
+  const journeyOrigin = new URL(baseUrl).origin;
+  let context = null;
+  try {
+    context = await browser.newContext({
       locale: "zh-TW",
       viewport,
       isMobile: true,
@@ -159,10 +229,7 @@ try {
       serviceWorkers: "allow",
     });
     await seedRememberedCompanionSessions(context);
-    const sizeLabel = `${viewport.width}x${viewport.height}`;
     const page = await context.newPage();
-    const pageErrors = [];
-    const unexpectedLoopbackRequests = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("request", (request) => {
       try {
@@ -171,6 +238,22 @@ try {
           ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
           && ["3217", "3227"].includes(url.port)
         ) unexpectedLoopbackRequests.push(request.url());
+        if (
+          request.method() === "GET"
+          && request.resourceType() === "script"
+          && url.origin === journeyOrigin
+          && url.username === ""
+          && url.password === ""
+          && url.search === ""
+          && url.hash === ""
+          && /^\/_next\/static\/chunks\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]{8,64}\.js$/u.test(url.pathname)
+        ) {
+          requestedChunkRequests.push({
+            url: url.href,
+            method: request.method(),
+            resourceType: request.resourceType(),
+          });
+        }
       } catch {
         // Playwright can surface browser-internal URLs that are not parseable
         // as HTTP URLs; they are outside this public Companion regression gate.
@@ -192,8 +275,8 @@ try {
       .filter((source) => /(?:file:|[CD]:\\|localhost)/iu.test(source)));
     assert.deepEqual(forbiddenImages, [], `${sizeLabel}: machine-local image URLs leaked into the public UI`);
     assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public front door must not probe a machine-local Companion`);
-    assert.deepEqual(pageErrors, [], `${sizeLabel}: front door page errors`);
-    record(`${engineName} ${sizeLabel} remembered-session public front door`);
+    assertNoViewportPageErrors(pageErrors, `${sizeLabel}: front door`);
+    record(attemptResults, `${engineName} ${sizeLabel} remembered-session public front door`);
 
     await Promise.all([
       page.waitForURL(/\/professional\?intent=library$/u, { timeout: 60_000 }),
@@ -204,8 +287,8 @@ try {
     await assertNoClippedControls(page, `${sizeLabel} fresh library`);
     await assertTouchTargets(page.getByRole("link", { name: "建立第一部作品" }), `${sizeLabel} fresh library CTA`);
     assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public library journey must not inherit a machine-local Companion probe`);
-    assert.deepEqual(pageErrors, [], `${sizeLabel}: library page errors`);
-    record(`${engineName} ${sizeLabel} remembered-session fresh-user library`);
+    assertNoViewportPageErrors(pageErrors, `${sizeLabel}: library`);
+    record(attemptResults, `${engineName} ${sizeLabel} remembered-session fresh-user library`);
 
     await Promise.all([
       page.waitForURL(/\/studio\/create$/u, { timeout: 60_000 }),
@@ -228,8 +311,8 @@ try {
       `${sizeLabel}: the long preview must start collapsed on mobile`,
     );
     assert.deepEqual(unexpectedLoopbackRequests, [], `${sizeLabel}: public creation journey must not probe a machine-local Companion`);
-    assert.deepEqual(pageErrors, [], `${sizeLabel}: create page errors`);
-    record(`${engineName} ${sizeLabel} creation flow`);
+    assertNoViewportPageErrors(pageErrors, `${sizeLabel}: create`);
+    record(attemptResults, `${engineName} ${sizeLabel} creation flow`);
 
     await page.goto(`${baseUrl}/settings/local-ai`, {
       waitUntil: "domcontentloaded",
@@ -246,8 +329,8 @@ try {
       [],
       `${sizeLabel}: local AI setup must wait for an explicit connection action`,
     );
-    assert.deepEqual(pageErrors, [], `${sizeLabel}: local AI setup page errors`);
-    record(`${engineName} ${sizeLabel} passive local AI setup`);
+    assertNoViewportPageErrors(pageErrors, `${sizeLabel}: local AI setup`);
+    record(attemptResults, `${engineName} ${sizeLabel} passive local AI setup`);
 
     await page.goto(`${baseUrl}/studio/settings/ai`, {
       waitUntil: "domcontentloaded",
@@ -264,10 +347,66 @@ try {
       [],
       `${sizeLabel}: AI settings must wait for an explicit connection action`,
     );
-    assert.deepEqual(pageErrors, [], `${sizeLabel}: AI settings page errors`);
-    record(`${engineName} ${sizeLabel} passive AI settings`);
+    assertNoViewportPageErrors(pageErrors, `${sizeLabel}: AI settings`);
+    record(attemptResults, `${engineName} ${sizeLabel} passive AI settings`);
+    return { results: attemptResults };
+  } catch (error) {
+    error.mobileViewportAttemptDiagnostics = { attempt, pageErrors, requestedChunkRequests };
+    throw error;
+  } finally {
+    await context?.close();
+  }
+}
 
-    await context.close();
+try {
+  browser = await browserType.launch({ headless: true });
+  for (const viewport of viewports) {
+    let completedJourney;
+    try {
+      completedJourney = await runViewportJourney(viewport, 0);
+    } catch (error) {
+      const diagnostics = error?.mobileViewportAttemptDiagnostics;
+      const candidate = classifyPostCutoverExactChunkRetry({
+        runtimePhase: mobileRuntimePhase,
+        retryMode: mobileNextChunkRetry,
+        engineName,
+        viewport,
+        attempt: diagnostics?.attempt,
+        baseUrl,
+        expectedProductCommit,
+        error,
+        pageErrors: diagnostics?.pageErrors,
+        requestedChunkRequests: diagnostics?.requestedChunkRequests,
+      });
+      if (!candidate) throw error;
+
+      const preflight = await verifyPostCutoverExactChunkRetryPreflight(candidate);
+      const retryEvidence = {
+        suite: "POST_CUTOVER_EXACT_CHUNK_RETRY",
+        runtimePhase: mobileRuntimePhase,
+        retryMode: mobileNextChunkRetry,
+        engineName,
+        viewport: `${viewport.width}x${viewport.height}`,
+        failedAttempt: 0,
+        retryAttempt: 1,
+        retryBackoffMs: exactChunkRetryBackoffMs,
+        chunkPath: candidate.chunkPath,
+        chunkUrl: candidate.chunkUrl,
+        requestObserved: true,
+        expectedProductCommit,
+        preflight,
+      };
+      process.stdout.write(`${JSON.stringify({ ...retryEvidence, status: "AUTHORIZED" })}\n`);
+      await new Promise((resolve) => setTimeout(resolve, exactChunkRetryBackoffMs));
+      try {
+        completedJourney = await runViewportJourney(viewport, 1);
+      } catch (retryError) {
+        process.stderr.write(`${JSON.stringify({ ...retryEvidence, status: "FAILED" })}\n`);
+        throw retryError;
+      }
+      process.stdout.write(`${JSON.stringify({ ...retryEvidence, status: "PASS" })}\n`);
+    }
+    results.push(...completedJourney.results);
   }
 
   const releaseIdentityResponse = await fetch(`${baseUrl}/api/release/identity`, {
@@ -423,7 +562,7 @@ try {
   assert.equal(offlineStatus.appCommit, acceptedIdentity.appCommit);
   assert.equal(offlineStatus.assetManifestDigest, acceptedIdentity.assetManifestDigest);
   await assetContext.close();
-  record(`${engineName} public manifest and all optimized visual assets`);
+  record(results, `${engineName} public manifest and all optimized visual assets`);
 
   process.stdout.write(`${JSON.stringify({
     suite: "MOBILE_CONSUMER_EXPERIENCE",

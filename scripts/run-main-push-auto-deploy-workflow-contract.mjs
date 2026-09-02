@@ -432,7 +432,12 @@ function verifyAliasCutover(workflow) {
   const audit = job(workflow, "audit_last_known_good");
   const runtime = job(workflow, "runtime_gates");
   const alias = job(workflow, "alias_cutover");
+  const stagedMobileGate = step(runtime, "Verify complete public mobile journeys on the staged deployment");
   assert.match(runtime, /for engine in webkit chromium/u);
+  assert.doesNotMatch(runtime, /MOBILE_RUNTIME_PHASE/u);
+  assert.doesNotMatch(runtime, /MOBILE_NEXT_CHUNK_RETRY/u);
+  assert.doesNotMatch(stagedMobileGate, /MOBILE_RUNTIME_PHASE/u);
+  assert.doesNotMatch(stagedMobileGate, /MOBILE_NEXT_CHUNK_RETRY/u);
   assert.match(alias, /timeout-minutes:\s*45/u);
   assert.match(audit, /Require cryptographic dynamic Last Known Good metadata for normal main push/u);
   assert.match(alias, /Require latest verified Last Known Good for normal cutover/u);
@@ -449,8 +454,24 @@ function verifyAliasCutover(workflow) {
   assert.match(publicGate, /run-mobile-consumer-experience\.mjs/u);
   assert.match(publicGate, /https:\/\/novel-orcin\.vercel\.app/u);
   assert.match(publicGate, /https:\/\/novel-lqtechs-projects\.vercel\.app/u);
-  assert.match(publicGate, /MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844/u);
-  assert.match(publicGate, /MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568/u);
+  assert.doesNotMatch(publicGate, /STAGED_URL/u);
+  assert.match(
+    publicGate,
+    /for origin in https:\/\/novel-orcin\.vercel\.app https:\/\/novel-lqtechs-projects\.vercel\.app; do/u,
+  );
+  assert.equal((workflow.match(/MOBILE_RUNTIME_PHASE=/gu) || []).length, 1);
+  assert.equal((workflow.match(/MOBILE_NEXT_CHUNK_RETRY=/gu) || []).length, 1);
+  assert.equal((alias.match(/MOBILE_BASE_URL=/gu) || []).length, 2);
+  assert.equal((publicGate.match(/MOBILE_RUNTIME_PHASE=/gu) || []).length, 1);
+  assert.equal((publicGate.match(/MOBILE_NEXT_CHUNK_RETRY=/gu) || []).length, 1);
+  assert.match(
+    publicGate,
+    /MOBILE_RUNTIME_PHASE=post-cutover-production MOBILE_NEXT_CHUNK_RETRY=exact-once \\\s+MOBILE_BASE_URL="\$origin" MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568 \\\s+node scripts\/run-mobile-consumer-experience\.mjs "\$origin"/u,
+  );
+  assert.match(
+    publicGate,
+    /MOBILE_BASE_URL="\$origin" MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844 \\\s+node scripts\/run-mobile-consumer-experience\.mjs "\$origin"/u,
+  );
   assert.ok(
     publicGate.indexOf("MOBILE_BROWSER_ENGINE=webkit MOBILE_VIEWPORTS=320x568")
       < publicGate.indexOf("MOBILE_BROWSER_ENGINE=chromium MOBILE_VIEWPORTS=390x844"),
