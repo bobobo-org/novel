@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   classifyPostCutoverExactChunkRetry,
+  isCompletedStudioExternalProvidersNavigationCancellation,
   isCompletedNextStaticScriptNavigationCancellation,
   isExactProductReleaseIdentity,
+  isVerifiedExternalProvidersStatusResponse,
   isVerifiedNextStaticScriptResponse,
 } from "../scripts/humanized-navigation-diagnostics.mjs";
 
@@ -87,6 +89,146 @@ for (const [label, response] of [
   ["empty response", { ...verifiedResponse, bodyLength: 0 }],
 ]) {
   assert.equal(isVerifiedNextStaticScriptResponse(response), false, label);
+}
+
+const externalProviderFailure = {
+  url: `${baseUrl}/api/ai/external/providers`,
+  errorText: "Load request cancelled",
+  method: "GET",
+  resourceType: "fetch",
+  rscHeader: "",
+  startedAt: 900,
+  observedAt: 1_500,
+};
+const externalProviderProjectId = "11111111-1111-4111-8111-111111111111";
+const externalProviderNavigationProof = {
+  kind: "workspace-reload",
+  sourceUrl: `${baseUrl}/studio/project/${externalProviderProjectId}/chat?mode=play`,
+  startedAt: 1_000,
+  arrivedAt: 2_000,
+  destinationUrl: `${baseUrl}/studio/project/${externalProviderProjectId}/chat?mode=play`,
+  landed: true,
+};
+const acceptsExternalProviderCancellation = (
+  failure = externalProviderFailure,
+  engineName = "webkit",
+  proof = externalProviderNavigationProof,
+  currentUrl = externalProviderNavigationProof.destinationUrl,
+  projectId = externalProviderProjectId,
+) => isCompletedStudioExternalProvidersNavigationCancellation({
+  failure,
+  engineName,
+  baseUrl,
+  currentUrl,
+  projectId,
+  navigationProof: proof,
+});
+
+assert.equal(
+  acceptsExternalProviderCancellation(),
+  true,
+  "WebKit may report the explicitly aborted studio status request during a completed workspace reload",
+);
+for (const [label, failure, engineName = "webkit"] of [
+  ["Chromium cancellation is not admitted by the WebKit-only proof", externalProviderFailure, "chromium"],
+  ["different failure text", { ...externalProviderFailure, errorText: "net::ERR_FAILED" }],
+  ["non-GET request", { ...externalProviderFailure, method: "POST" }],
+  ["non-fetch resource", { ...externalProviderFailure, resourceType: "xhr" }],
+  ["RSC request", { ...externalProviderFailure, rscHeader: "1" }],
+  ["cross-origin endpoint", { ...externalProviderFailure, url: "https://other.example.test/api/ai/external/providers" }],
+  ["credentialed endpoint", { ...externalProviderFailure, url: "https://user@novel.example.test/api/ai/external/providers" }],
+  ["query-bearing endpoint", { ...externalProviderFailure, url: `${externalProviderFailure.url}?probe=1` }],
+  ["fragment-bearing endpoint", { ...externalProviderFailure, url: `${externalProviderFailure.url}#status` }],
+  ["different endpoint", { ...externalProviderFailure, url: `${baseUrl}/api/ai/health` }],
+  ["request began exactly with navigation", { ...externalProviderFailure, startedAt: 1_000 }],
+  ["request began after navigation", { ...externalProviderFailure, startedAt: 1_001 }],
+  ["cancelled before navigation", { ...externalProviderFailure, observedAt: 999 }],
+  ["cancelled after arrival", { ...externalProviderFailure, observedAt: 2_001 }],
+]) {
+  assert.equal(acceptsExternalProviderCancellation(failure, engineName), false, label);
+}
+for (const [label, proof] of [
+  ["wrong proof kind", { ...externalProviderNavigationProof, kind: "create-to-play" }],
+  ["wrong source route", { ...externalProviderNavigationProof, sourceUrl: `${baseUrl}/studio/create` }],
+  ["source query", { ...externalProviderNavigationProof, sourceUrl: `${baseUrl}/studio/project/${externalProviderProjectId}/chat?mode=play&retry=1` }],
+  ["wrong destination project", { ...externalProviderNavigationProof, destinationUrl: `${baseUrl}/studio/project/22222222-2222-4222-8222-222222222222/chat?mode=play` }],
+  ["missing destination mode", { ...externalProviderNavigationProof, destinationUrl: `${baseUrl}/studio/project/${externalProviderProjectId}/chat` }],
+  ["extra destination query", { ...externalProviderNavigationProof, destinationUrl: `${baseUrl}/studio/project/${externalProviderProjectId}/chat?mode=play&retry=1` }],
+  ["destination did not land", { ...externalProviderNavigationProof, landed: false }],
+]) {
+  assert.equal(acceptsExternalProviderCancellation(externalProviderFailure, "webkit", proof, proof.destinationUrl), false, label);
+}
+assert.equal(
+  acceptsExternalProviderCancellation(
+    externalProviderFailure,
+    "webkit",
+    externalProviderNavigationProof,
+    `${baseUrl}/studio/project/${externalProviderProjectId}/chat?mode=edit`,
+  ),
+  false,
+  "settled route must exactly match the proved destination",
+);
+assert.equal(
+  acceptsExternalProviderCancellation(
+    externalProviderFailure,
+    "webkit",
+    externalProviderNavigationProof,
+    externalProviderNavigationProof.destinationUrl,
+    "22222222-2222-4222-8222-222222222222",
+  ),
+  false,
+  "project identity must match the proved destination",
+);
+const timeoutBoundaryReloadProof = {
+  ...externalProviderNavigationProof,
+  startedAt: 9_998,
+  arrivedAt: 11_000,
+};
+assert.equal(
+  acceptsExternalProviderCancellation(
+    { ...externalProviderFailure, startedAt: 1, observedAt: 10_000 },
+    "webkit",
+    timeoutBoundaryReloadProof,
+    timeoutBoundaryReloadProof.destinationUrl,
+  ),
+  true,
+  "a cancellation 9,999ms after request start remains below the request timeout",
+);
+assert.equal(
+  acceptsExternalProviderCancellation(
+    { ...externalProviderFailure, startedAt: 0, observedAt: 10_000 },
+    "webkit",
+    timeoutBoundaryReloadProof,
+    timeoutBoundaryReloadProof.destinationUrl,
+  ),
+  false,
+  "a cancellation at the 10,000ms request timeout stays fail-closed",
+);
+
+const verifiedExternalProvidersResponse = {
+  status: 200,
+  contentType: "application/json; charset=utf-8",
+  cacheControl: "no-store, max-age=0",
+  body: {
+    status: "ready",
+    routeReady: true,
+    credentials: "server-side-only",
+    silentFallback: false,
+    probePerformed: false,
+    verification: "not-probed",
+    providers: [],
+  },
+};
+assert.equal(isVerifiedExternalProvidersStatusResponse(verifiedExternalProvidersResponse), true);
+for (const [label, response] of [
+  ["non-200 response", { ...verifiedExternalProvidersResponse, status: 503 }],
+  ["non-JSON response", { ...verifiedExternalProvidersResponse, contentType: "text/html" }],
+  ["cacheable response", { ...verifiedExternalProvidersResponse, cacheControl: "public, max-age=60" }],
+  ["probe response", { ...verifiedExternalProvidersResponse, body: { ...verifiedExternalProvidersResponse.body, probePerformed: true } }],
+  ["wrong verification", { ...verifiedExternalProvidersResponse, body: { ...verifiedExternalProvidersResponse.body, verification: "verified" } }],
+  ["missing provider list", { ...verifiedExternalProvidersResponse, body: { ...verifiedExternalProvidersResponse.body, providers: null } }],
+]) {
+  assert.equal(isVerifiedExternalProvidersStatusResponse(response), false, label);
 }
 
 const expectedProductCommit = "a".repeat(40);
@@ -210,6 +352,6 @@ for (const [label, overrides] of [
 
 console.log(JSON.stringify({
   suite: "HUMANIZED_NAVIGATION_DIAGNOSTICS",
-  pass: 52,
+  pass: 85,
   fail: 0,
 }, null, 2));

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { chromium, webkit } from "@playwright/test";
 import {
+  isCompletedStudioExternalProvidersNavigationCancellation,
   isCompletedNextStaticScriptNavigationCancellation as isCompletedNextStaticScriptCancellation,
+  isVerifiedExternalProvidersStatusResponse,
   isVerifiedNextStaticScriptResponse,
 } from "./humanized-navigation-diagnostics.mjs";
 
@@ -19,6 +21,8 @@ const pageErrors = [];
 const unexpectedLoopbackRequests = [];
 const expectedNavigationCancellations = [];
 const nextStaticScriptHttpFailures = [];
+const externalProviderHttpFailures = [];
+const requestStartedAt = new WeakMap();
 let page = null;
 
 function attachDiagnostics(targetPage) {
@@ -37,6 +41,7 @@ function attachDiagnostics(targetPage) {
       method: request.method(),
       resourceType: request.resourceType(),
       rscHeader: request.headers().rsc ?? "",
+      startedAt: requestStartedAt.get(request) ?? Number.NaN,
       observedAt: Date.now(),
     });
   });
@@ -45,6 +50,17 @@ function attachDiagnostics(targetPage) {
     const request = response.request();
     try {
       const responseUrl = new URL(response.url());
+      if (
+        responseUrl.origin === new URL(baseUrl).origin
+        && responseUrl.pathname === "/api/ai/external/providers"
+        && request.method() === "GET"
+        && request.resourceType() === "fetch"
+      ) {
+        externalProviderHttpFailures.push({
+          url: response.url(),
+          status: response.status(),
+        });
+      }
       if (
         responseUrl.origin === new URL(baseUrl).origin
         && request.method() === "GET"
@@ -61,6 +77,7 @@ function attachDiagnostics(targetPage) {
     }
   });
   targetPage.on("request", (request) => {
+    requestStartedAt.set(request, Date.now());
     try {
       const url = new URL(request.url());
       if (
@@ -83,6 +100,7 @@ async function openFreshPage(url) {
   pageErrors.length = 0;
   unexpectedLoopbackRequests.length = 0;
   nextStaticScriptHttpFailures.length = 0;
+  externalProviderHttpFailures.length = 0;
   page = await context.newPage();
   attachDiagnostics(page);
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
@@ -189,6 +207,31 @@ async function assertCancelledNextStaticScriptStillAvailable(label, failure) {
     }),
     true,
     `${label}: cancelled Next static script must still be a direct 200 immutable JavaScript response with a non-empty body: ${failure.url}`,
+  );
+}
+
+async function assertCancelledExternalProvidersStillAvailable(label, failure) {
+  const response = await context.request.get(failure.url, {
+    failOnStatusCode: false,
+    maxRedirects: 0,
+    timeout: 60_000,
+  });
+  const headers = response.headers();
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  assert.equal(
+    isVerifiedExternalProvidersStatusResponse({
+      status: response.status(),
+      contentType: headers["content-type"] ?? "",
+      cacheControl: headers["cache-control"] ?? "",
+      body,
+    }),
+    true,
+    `${label}: cancelled external-provider status request must still be a direct healthy non-probing JSON response: ${failure.url}`,
   );
 }
 
@@ -340,6 +383,31 @@ async function assertCleanDiagnostics(label, options = {}) {
       (failure) => !completedStaticScriptCancellations.includes(failure),
     );
     expectedNavigationCancellations.push(...completedStaticScriptCancellations);
+
+    const completedExternalProviderReloadProofs = options.completedExternalProviderReloadProofs ?? [];
+    const completedExternalProviderCancellations = unacceptedRequestFailures.filter((failure) => (
+      completedExternalProviderReloadProofs.some((navigationProof) => (
+        isCompletedStudioExternalProvidersNavigationCancellation({
+          failure,
+          engineName,
+          baseUrl,
+          currentUrl,
+          projectId: workspaceProjectId,
+          navigationProof,
+        })
+      ))
+    ));
+    assert.ok(
+      completedExternalProviderCancellations.length <= 1,
+      `${label}: at most one completed studio external-provider navigation cancellation is allowed: ${JSON.stringify(completedExternalProviderCancellations)}`,
+    );
+    for (const failure of completedExternalProviderCancellations) {
+      await assertCancelledExternalProvidersStillAvailable(label, failure);
+    }
+    unacceptedRequestFailures = unacceptedRequestFailures.filter(
+      (failure) => !completedExternalProviderCancellations.includes(failure),
+    );
+    expectedNavigationCancellations.push(...completedExternalProviderCancellations);
   }
 
   const legacyProjectId = options.allowCompletedLegacyRedirectForProjectId || "";
@@ -452,6 +520,11 @@ async function assertCleanDiagnostics(label, options = {}) {
     `${label}: Next static script HTTP failures: ${JSON.stringify(nextStaticScriptHttpFailures)}`,
   );
   assert.deepEqual(
+    externalProviderHttpFailures,
+    [],
+    `${label}: external-provider status HTTP failures: ${JSON.stringify(externalProviderHttpFailures)}`,
+  );
+  assert.deepEqual(
     unacceptedRequestFailures,
     [],
     `${label}: failed requests: ${JSON.stringify(unacceptedRequestFailures)}`,
@@ -464,6 +537,7 @@ let frontdoorCanonVisitStartedAt = 0;
 let frontdoorCanonEditorArrivedAt = 0;
 const workspaceStaticScriptNavigationProofs = [];
 const readerStaticScriptNavigationProofs = [];
+const workspaceExternalProviderReloadProofs = [];
 async function check(name, work) {
   await work();
   results.push({ name, status: "PASS" });
@@ -914,14 +988,24 @@ try {
   });
 
   await check("stale completed A/B/C is durably abandoned and rebuilt before B can continue", async () => {
+    const reloadSourceUrl = page.url();
     const reloadStartedAt = Date.now();
     await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
     await page.getByTestId("rpg-inline-choices").waitFor({ state: "visible", timeout: 60_000 });
     await waitForTimelineScrollRestore(page);
+    const reloadArrivedAt = Date.now();
     workspaceStaticScriptNavigationProofs.push({
       startedAt: reloadStartedAt,
-      arrivedAt: Date.now(),
+      arrivedAt: reloadArrivedAt,
+      destinationUrl: page.url(),
+      landed: true,
+    });
+    workspaceExternalProviderReloadProofs.push({
+      kind: "workspace-reload",
+      sourceUrl: reloadSourceUrl,
+      startedAt: reloadStartedAt,
+      arrivedAt: reloadArrivedAt,
       destinationUrl: page.url(),
       landed: true,
     });
@@ -1050,9 +1134,19 @@ try {
       }
       await page.getByTestId("rpg-next-choice-recovery").waitFor({ state: "visible", timeout: 10_000 });
 
+      const staleReloadSourceUrl = page.url();
+      const staleReloadStartedAt = Date.now();
       await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
       await page.getByTestId("conversation-first-workspace").waitFor({ state: "visible", timeout: 60_000 });
       await waitForTimelineScrollRestore(page);
+      workspaceExternalProviderReloadProofs.push({
+        kind: "workspace-reload",
+        sourceUrl: staleReloadSourceUrl,
+        startedAt: staleReloadStartedAt,
+        arrivedAt: Date.now(),
+        destinationUrl: page.url(),
+        landed: true,
+      });
       const reloadedOldCard = page.locator(`article[data-message-id="${originalChoiceMessageId}"]`);
       await reloadedOldCard.waitFor({ state: "visible", timeout: 60_000 });
       await reloadedOldCard.getByText("作品版本已變更；這張舊選擇卡已封存，請重新建立三選一。").waitFor({ state: "visible" });
@@ -1169,6 +1263,7 @@ try {
       allowSupersededWorkspacePrefetchesForProjectId: createdProjectId,
       allowBoundedSharedLearningRequest: true,
       completedStaticScriptNavigationProofs: workspaceStaticScriptNavigationProofs,
+      completedExternalProviderReloadProofs: workspaceExternalProviderReloadProofs,
     });
     await openFreshPage(chatUrl);
     await page.setViewportSize(mobileViewport);
