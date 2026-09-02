@@ -219,6 +219,58 @@ function osError(code: string, message = code, details: Record<string, unknown> 
   return Object.assign(new Error(message), { code, ...details });
 }
 
+/**
+ * Makes an abort authoritative at an injected/remote leaf boundary even when
+ * that leaf ignores AbortSignal. The late promise remains observed, but its
+ * value can no longer re-enter normalization, evaluation, cache, ledger, or
+ * candidate persistence after this wrapper has rejected.
+ */
+function settleClosedAgentLeafOnAbort<T>(
+  signal: AbortSignal | undefined,
+  operation: () => T | PromiseLike<T>,
+): Promise<T> {
+  if (!signal) return Promise.resolve(operation());
+  if (signal.aborted) {
+    return Promise.reject(osError("CLOSED_AGENT_TASK_CANCELLED"));
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => {
+      reject(osError("CLOSED_AGENT_TASK_CANCELLED"));
+    });
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    let pending: Promise<T>;
+    try {
+      pending = Promise.resolve(operation());
+    } catch (error) {
+      finish(() => reject(error));
+      return;
+    }
+    pending.then(
+      (value) => {
+        if (settled) return;
+        finish(() => resolve(value));
+      },
+      (error) => {
+        if (settled) return;
+        finish(() => reject(error));
+      },
+    );
+  });
+}
+
 const CLOSED_AGENT_DECISION_FALLBACK_LOCKS = new Map<string, Promise<void>>();
 const CLOSED_AGENT_REJECTION_RECORD_KEYS = [
   "cacheCausationId",
@@ -1464,7 +1516,12 @@ export class ClosedAgentOS {
     const projectId = request.namespace.projectId;
     const previous = this.projectQueues.get(projectId) ?? Promise.resolve();
     this.emitProgress(request, "queued", "工作已進入此作品的安全佇列", 0);
-    const operation = previous.then(() => this.executeInternal(request));
+    const operation = previous.then(() => {
+      if (request.signal?.aborted) {
+        throw osError("CLOSED_AGENT_TASK_CANCELLED");
+      }
+      return this.executeInternal(request);
+    });
     this.projectQueues.set(projectId, operation.catch(() => undefined));
     return operation;
   }
@@ -2627,7 +2684,10 @@ export class ClosedAgentOS {
         // candidate-generated/evaluated, learning, state, or cache writes.  A
         // rejected echo therefore leaves only metadata-only task evidence; no
         // model output or hidden prompt can enter durable storage.
-        await request.validateBeforePersistence(structuredClone(candidate));
+        await settleClosedAgentLeafOnAbort(
+          request.signal,
+          () => request.validateBeforePersistence!(structuredClone(candidate)),
+        );
         if (request.signal?.aborted) {
           throw osError("CLOSED_AGENT_TASK_CANCELLED");
         }
@@ -2652,6 +2712,9 @@ export class ClosedAgentOS {
             },
           });
         }
+      }
+      if (request.signal?.aborted) {
+        throw osError("CLOSED_AGENT_TASK_CANCELLED");
       }
       const candidateGeneratedPayload = retainedCandidateGeneratedPayload(candidate);
       const candidateGeneratedResult = {
@@ -2694,6 +2757,9 @@ export class ClosedAgentOS {
         retainContent: true,
         result: candidateGeneratedResult,
       });
+      if (request.signal?.aborted) {
+        throw osError("CLOSED_AGENT_TASK_CANCELLED");
+      }
       const candidateEvaluatedPayload = retainedCandidateEvaluatedPayload(candidate);
       await appendOrReuseExactLedgerPayload({
         ledger: this.ledger,
@@ -2703,6 +2769,9 @@ export class ClosedAgentOS {
         payload: candidateEvaluatedPayload,
         retainContent: true,
       });
+      if (request.signal?.aborted) {
+        throw osError("CLOSED_AGENT_TASK_CANCELLED");
+      }
       await this.recordOperationalLearningSignal({
         request,
         outcome: "plot_continuity_result",
@@ -2743,9 +2812,13 @@ export class ClosedAgentOS {
       if (!verification.valid || !verification.headHash) {
         throw osError("CLOSED_AGENT_LEDGER_INTEGRITY_FAILED");
       }
+      if (request.signal?.aborted) {
+        throw osError("CLOSED_AGENT_TASK_CANCELLED");
+      }
       await this.state.putMany([candidate, task]);
       if (
-        !candidateCacheHit
+        !request.signal?.aborted
+        && !candidateCacheHit
         && !request.regeneration
         && !request.ephemeralPrompt
         && executionReceipt
@@ -3897,6 +3970,7 @@ export class ClosedAgentOS {
         taskId:
           `${request.taskId}:quality:${qualityPhase}:${passDigest.slice(0, 32)}`,
         onProgress: (event) => {
+          if (request.signal?.aborted) return;
           const ratio = Math.max(0, Math.min(1, event.percent / 100));
           try {
             request.onProgress?.({
@@ -3915,14 +3989,17 @@ export class ClosedAgentOS {
           }
         },
       };
-      const result = await backend.execute({
-        request: passRequest,
-        plan,
-        actorContext,
-        toolResults,
-        qualityPhase,
-        workingMaterials,
-      });
+      const result = await settleClosedAgentLeafOnAbort(
+        request.signal,
+        () => backend.execute({
+          request: passRequest,
+          plan,
+          actorContext,
+          toolResults,
+          qualityPhase,
+          workingMaterials,
+        }),
+      );
       if ((result as ClosedBackendRawExecutionResult & {
         traditionalChineseNormalization?: unknown;
       }).traditionalChineseNormalization) {
@@ -4148,6 +4225,7 @@ export class ClosedAgentOS {
       "backendId" | "generatedCharacters" | "cacheHit"
     >> = {},
   ) {
+    if (request.signal?.aborted) return;
     try {
       request.onProgress?.({
         taskId: request.taskId,
@@ -4224,15 +4302,18 @@ export class ClosedAgentOS {
           contextDigest,
         }));
         const startedAt = this.now().toISOString();
-        const executeTool = () => tool.execute({
-          namespace: request.namespace,
-          taskId: request.taskId,
-          taskType: request.taskType,
-          objective: request.objective,
-          approvedContext,
-          payload: { taskType: request.taskType },
-          signal: request.signal,
-        });
+        const executeTool = () => settleClosedAgentLeafOnAbort(
+          request.signal,
+          () => tool.execute({
+            namespace: request.namespace,
+            taskId: request.taskId,
+            taskType: request.taskType,
+            objective: request.objective,
+            approvedContext,
+            payload: { taskType: request.taskType },
+            signal: request.signal,
+          }),
+        );
         // acceptance-checklist can contain strict rules excerpted from the
         // objective. A hidden fallback review therefore executes tools only in
         // memory so no draft sentence can reach the tool-result cache.

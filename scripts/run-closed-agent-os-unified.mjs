@@ -227,6 +227,47 @@ function errorCode(code) {
   return (error) => error?.code === code;
 }
 
+function deferred() {
+  let resolvePromise;
+  let rejectPromise;
+  let settled = false;
+  const promise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  return {
+    promise,
+    resolve(value) {
+      if (settled) return;
+      settled = true;
+      resolvePromise(value);
+    },
+    reject(error) {
+      if (settled) return;
+      settled = true;
+      rejectPromise(error);
+    },
+  };
+}
+
+async function promiseOutcomeWithin(promise, timeoutMs = 250) {
+  let timeout = null;
+  const deadline = new Promise((resolve) => {
+    timeout = setTimeout(() => resolve({ status: "timeout" }), timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve(promise).then(
+        (value) => ({ status: "fulfilled", value }),
+        (reason) => ({ status: "rejected", reason }),
+      ),
+      deadline,
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function verifiedRuntimeTruth(id, ready) {
   const source = {
     "browser-ai": "browser-runtime-generation",
@@ -311,7 +352,7 @@ class MockBackend {
       : modelDigestForBackend(this.id);
     const content = this.options.contentByPhase?.[input.qualityPhase]
       ?? `這是由 ${this.id} 產生的安全候選內容，包含足夠長度以供評估與人工核准。`;
-    return {
+    const result = {
       backendId: this.id,
       modelId,
       modelDigest,
@@ -324,6 +365,10 @@ class MockBackend {
         ? { contextAttestation: "not_required" }
         : {}),
     };
+    if (this.options.executeSeam) {
+      return this.options.executeSeam(input, () => structuredClone(result));
+    }
+    return result;
   }
 }
 
@@ -797,6 +842,314 @@ test("policy-aware light, quality-first standard and heavy routing use the three
     "private-ai-hub",
     "private-ai-hub",
   ]);
+});
+
+test("closed-agent queue releases an active backend that ignores AbortSignal", async () => {
+  const firstStarted = deferred();
+  const firstRelease = deferred();
+  const secondStarted = deferred();
+  const projectId = "project-queue-active-abort";
+  const queueNamespace = {
+    projectId,
+    storyId: "story-queue-active-abort",
+    canonId: "canon-queue-active-abort",
+  };
+  const firstTaskId = "task-queue-active-abort-first";
+  const secondTaskId = "task-queue-active-abort-second";
+  const controller = new AbortController();
+  const { os, calls } = createMockOS({
+    browser: {
+      executeSeam: async (input, defaultResult) => {
+        if (input.request.taskId.startsWith(firstTaskId)) {
+          firstStarted.resolve();
+          await firstRelease.promise;
+          return defaultResult();
+        }
+        if (input.request.taskId.startsWith(secondTaskId)) secondStarted.resolve();
+        return defaultResult();
+      },
+    },
+  });
+  let firstExecution;
+  let secondExecution;
+  let firstStartOutcome;
+  let firstPreStartOutcome;
+  let firstOutcome;
+  let secondStartOutcome;
+  try {
+    firstExecution = os.execute(request(
+      firstTaskId,
+      "story.summary",
+      "light",
+      {
+        namespace: queueNamespace,
+        preferredBackend: "browser-ai",
+        browserComputePolicy: "browser-first",
+        qualityMode: "fast",
+        signal: controller.signal,
+      },
+    ));
+    [firstStartOutcome, firstPreStartOutcome] = await Promise.all([
+      promiseOutcomeWithin(firstStarted.promise, 1_000),
+      promiseOutcomeWithin(firstExecution, 1_000),
+    ]);
+    assert.equal(
+      firstStartOutcome.status,
+      "fulfilled",
+      `the first mock backend did not start; execution=${firstPreStartOutcome.status}; code=${String(firstPreStartOutcome.reason?.code ?? "none")}; calls=${JSON.stringify(calls)}`,
+    );
+    controller.abort(Object.assign(new Error("queue test deadline"), {
+      code: "RPG_STORY_AI_TIMEOUT",
+    }));
+    secondExecution = os.execute(request(
+      secondTaskId,
+      "story.summary",
+      "light",
+      {
+        namespace: queueNamespace,
+        preferredBackend: "browser-ai",
+        browserComputePolicy: "browser-first",
+        qualityMode: "fast",
+      },
+    ));
+    [firstOutcome, secondStartOutcome] = await Promise.all([
+      promiseOutcomeWithin(firstExecution),
+      promiseOutcomeWithin(secondStarted.promise),
+    ]);
+  } finally {
+    firstRelease.resolve();
+    await Promise.allSettled([firstExecution, secondExecution].filter(Boolean));
+  }
+  assert.equal(firstOutcome?.status, "rejected", "an active ignored abort must settle the OS caller");
+  assert.ok(
+    ["CLOSED_AGENT_TASK_CANCELLED", "RPG_STORY_AI_TIMEOUT"].includes(
+      String(firstOutcome?.reason?.code ?? ""),
+    ),
+    "the first task must reject with a bounded cancellation reason",
+  );
+  assert.equal(
+    secondStartOutcome?.status,
+    "fulfilled",
+    "the next same-project backend must start without waiting for the ignored late result",
+  );
+  assert.equal((await os.state.get(firstTaskId))?.state, "cancelled");
+  assert.equal((await os.state.get(secondTaskId))?.state, "awaiting-approval");
+});
+
+test("aborted queued request does not bypass active predecessor", async () => {
+  const firstStarted = deferred();
+  const firstRelease = deferred();
+  const thirdStarted = deferred();
+  const backendTaskIds = [];
+  const projectId = "project-queue-queued-abort";
+  const queueNamespace = {
+    projectId,
+    storyId: "story-queue-queued-abort",
+    canonId: "canon-queue-queued-abort",
+  };
+  const firstTaskId = "task-queue-queued-abort-first";
+  const secondTaskId = "task-queue-queued-abort-second";
+  const thirdTaskId = "task-queue-queued-abort-third";
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+  const { os, calls } = createMockOS({
+    browser: {
+      executeSeam: async (input, defaultResult) => {
+        backendTaskIds.push(input.request.taskId);
+        if (input.request.taskId.startsWith(firstTaskId)) {
+          firstStarted.resolve();
+          await firstRelease.promise;
+        }
+        if (input.request.taskId.startsWith(thirdTaskId)) thirdStarted.resolve();
+        return defaultResult();
+      },
+    },
+  });
+  const queueRequest = (taskId, signal) => request(
+    taskId,
+    "story.summary",
+    "light",
+    {
+      namespace: queueNamespace,
+      preferredBackend: "browser-ai",
+      browserComputePolicy: "browser-first",
+      qualityMode: "fast",
+      ...(signal ? { signal } : {}),
+    },
+  );
+  let firstExecution;
+  let secondExecution;
+  let thirdExecution;
+  let firstStartOutcome;
+  let firstPreStartOutcome;
+  let thirdBeforeFirstAbort;
+  let thirdAfterFirstAbort;
+  try {
+    firstExecution = os.execute(queueRequest(firstTaskId, firstController.signal));
+    [firstStartOutcome, firstPreStartOutcome] = await Promise.all([
+      promiseOutcomeWithin(firstStarted.promise, 1_000),
+      promiseOutcomeWithin(firstExecution, 1_000),
+    ]);
+    assert.equal(
+      firstStartOutcome.status,
+      "fulfilled",
+      `the queued-order predecessor did not start; execution=${firstPreStartOutcome.status}; code=${String(firstPreStartOutcome.reason?.code ?? "none")}; calls=${JSON.stringify(calls)}`,
+    );
+    secondExecution = os.execute(queueRequest(secondTaskId, secondController.signal));
+    secondController.abort(Object.assign(new Error("cancel while queued"), {
+      code: "CONVERSATION_CANCELLED",
+    }));
+    thirdExecution = os.execute(queueRequest(thirdTaskId));
+    thirdBeforeFirstAbort = await promiseOutcomeWithin(thirdStarted.promise, 75);
+    firstController.abort(Object.assign(new Error("release active predecessor"), {
+      code: "RPG_STORY_AI_TIMEOUT",
+    }));
+    thirdAfterFirstAbort = await promiseOutcomeWithin(thirdStarted.promise);
+  } finally {
+    firstRelease.resolve();
+    await Promise.allSettled(
+      [firstExecution, secondExecution, thirdExecution].filter(Boolean),
+    );
+  }
+  assert.equal(
+    thirdBeforeFirstAbort?.status,
+    "timeout",
+    "a queued cancellation must not let later work overlap the active predecessor",
+  );
+  assert.equal(
+    thirdAfterFirstAbort?.status,
+    "fulfilled",
+    "later work must start after the active predecessor is cancelled",
+  );
+  assert.equal(
+    backendTaskIds.some((taskId) => taskId.startsWith(secondTaskId)),
+    false,
+    "a request cancelled while queued must never reach the backend",
+  );
+  assert.equal((await os.state.get(thirdTaskId))?.state, "awaiting-approval");
+});
+
+test("late aborted backend result cannot persist generated output", async () => {
+  const firstStarted = deferred();
+  const firstRelease = deferred();
+  const secondStarted = deferred();
+  const projectId = "project-queue-late-output";
+  const queueNamespace = {
+    projectId,
+    storyId: "story-queue-late-output",
+    canonId: "canon-queue-late-output",
+  };
+  const firstTaskId = "task-queue-late-output-first";
+  const secondTaskId = "task-queue-late-output-second";
+  const lateContent = "這段延遲完成的模型正文不得成為候選、快取、學習或候選證據。";
+  const controller = new AbortController();
+  const { os, calls } = createMockOS({
+    browser: {
+      executeSeam: async (input, defaultResult) => {
+        if (input.request.taskId.startsWith(firstTaskId)) {
+          firstStarted.resolve();
+          await firstRelease.promise;
+          return { ...defaultResult(), content: lateContent };
+        }
+        if (input.request.taskId.startsWith(secondTaskId)) secondStarted.resolve();
+        return defaultResult();
+      },
+    },
+  });
+  const queueRequest = (taskId, signal) => request(
+    taskId,
+    "story.summary",
+    "light",
+    {
+      namespace: queueNamespace,
+      preferredBackend: "browser-ai",
+      browserComputePolicy: "browser-first",
+      qualityMode: "fast",
+      ...(signal ? { signal } : {}),
+    },
+  );
+  let firstExecution;
+  let secondExecution;
+  let firstStartOutcome;
+  let firstPreStartOutcome;
+  let secondStartOutcome;
+  let secondOutcome;
+  try {
+    firstExecution = os.execute(queueRequest(firstTaskId, controller.signal));
+    [firstStartOutcome, firstPreStartOutcome] = await Promise.all([
+      promiseOutcomeWithin(firstStarted.promise, 1_000),
+      promiseOutcomeWithin(firstExecution, 1_000),
+    ]);
+    assert.equal(
+      firstStartOutcome.status,
+      "fulfilled",
+      `the late-output predecessor did not start; execution=${firstPreStartOutcome.status}; code=${String(firstPreStartOutcome.reason?.code ?? "none")}; calls=${JSON.stringify(calls)}`,
+    );
+    controller.abort(Object.assign(new Error("late output deadline"), {
+      code: "RPG_STORY_AI_TIMEOUT",
+    }));
+    secondExecution = os.execute(queueRequest(secondTaskId));
+    secondStartOutcome = await promiseOutcomeWithin(secondStarted.promise);
+    if (secondStartOutcome.status === "fulfilled") {
+      secondOutcome = await promiseOutcomeWithin(secondExecution, 1_000);
+    }
+  } finally {
+    firstRelease.resolve();
+    await Promise.allSettled([firstExecution, secondExecution].filter(Boolean));
+  }
+  assert.equal(
+    secondStartOutcome?.status,
+    "fulfilled",
+    "a late ignored result must not retain the same-project queue lease",
+  );
+  assert.equal(secondOutcome?.status, "fulfilled", "the successor must complete before the late result is released");
+  const firstTask = await os.state.get(firstTaskId);
+  const candidates = await os.state.list(projectId, "candidate");
+  const firstLedger = await os.ledger.repository.list(
+    `closed-agent:${projectId}:${firstTaskId}`,
+  );
+  const cacheEntries = await os.cache.repository.list();
+  const learningEntries = await os.learning.repository.list(projectId, "experience");
+  const lateDigest = await sha256Hex(lateContent);
+  const firstDurableOutput = JSON.stringify({
+    candidates: candidates.filter((candidate) => candidate.taskId === firstTaskId),
+    candidateBlocks: firstLedger.filter((block) => (
+      block.eventType === "candidate-generated"
+      || block.eventType === "candidate-evaluated"
+    )),
+    candidateCache: cacheEntries.filter((entry) => (
+      entry.tags.includes("closed-agent-candidate")
+      || entry.tags.includes("closed-agent-semantic-candidate")
+    ) && JSON.stringify(entry).includes(firstTaskId)),
+    learning: learningEntries.filter((entry) => JSON.stringify(entry).includes(firstTaskId)),
+  });
+  assert.equal(firstTask?.state, "cancelled");
+  assert.equal(candidates.some((candidate) => candidate.taskId === firstTaskId), false);
+  assert.deepEqual(
+    firstLedger.filter((block) => (
+      block.eventType === "candidate-generated"
+      || block.eventType === "candidate-evaluated"
+    )),
+    [],
+  );
+  assert.equal(firstDurableOutput.includes(lateContent), false);
+  assert.equal(firstDurableOutput.includes(lateDigest), false);
+  assert.equal(
+    cacheEntries.some((entry) => (
+      (entry.tags.includes("closed-agent-candidate")
+        || entry.tags.includes("closed-agent-semantic-candidate"))
+      && JSON.stringify(entry).includes(firstTaskId)
+    )),
+    false,
+  );
+  assert.equal(
+    learningEntries.some((entry) => JSON.stringify(entry).includes(firstTaskId)),
+    false,
+  );
+  assert.equal(
+    candidates.reduce((sum, candidate) => sum + candidate.canonicalMutationCount, 0),
+    0,
+  );
 });
 
 test("fresh Browser Closed receipts are exact and cannot downgrade context attestation", async () => {
