@@ -135,6 +135,55 @@ function isCompletedLegacyRedirectCancellation(failure, projectId) {
   }
 }
 
+function isCompletedNextStaticScriptNavigationCancellation(failure) {
+  if (
+    engineName !== "webkit"
+    || failure.errorText !== "Load request cancelled"
+    || failure.method !== "GET"
+    || failure.resourceType !== "script"
+    || failure.rscHeader
+  ) return false;
+
+  try {
+    const requestUrl = new URL(failure.url);
+    return requestUrl.origin === new URL(baseUrl).origin
+      && requestUrl.username === ""
+      && requestUrl.password === ""
+      && requestUrl.search === ""
+      && requestUrl.hash === ""
+      && /^\/_next\/static\/chunks\/[A-Za-z0-9_-]{8,64}\.js$/u.test(requestUrl.pathname);
+  } catch {
+    return false;
+  }
+}
+
+async function assertCancelledNextStaticScriptStillAvailable(label, failure) {
+  const response = await context.request.get(failure.url, {
+    failOnStatusCode: false,
+    timeout: 60_000,
+  });
+  assert.equal(
+    response.status(),
+    200,
+    `${label}: cancelled Next static script must remain available: ${failure.url}`,
+  );
+  const headers = response.headers();
+  assert.match(
+    headers["content-type"] ?? "",
+    /^(?:application|text)\/javascript(?:;|$)/iu,
+    `${label}: cancelled Next static script must remain JavaScript: ${failure.url}`,
+  );
+  assert.match(
+    headers["cache-control"] ?? "",
+    /(?:^|,)\s*(?:public\s*,\s*)?max-age=\d+\s*,\s*immutable(?:,|$)/iu,
+    `${label}: cancelled Next static script must remain immutable: ${failure.url}`,
+  );
+  assert.ok(
+    (await response.body()).byteLength > 0,
+    `${label}: cancelled Next static script must not be empty: ${failure.url}`,
+  );
+}
+
 function isSupersededHealthCancellation(failure) {
   try {
     const requestUrl = new URL(failure.url);
@@ -262,6 +311,21 @@ async function assertCleanDiagnostics(label, options = {}) {
     assert.ok(accepted.length <= 2, `${label}: at most two superseded Next RSC prefetches are allowed`);
     unacceptedRequestFailures = requestFailures.filter((failure) => !accepted.includes(failure));
     expectedNavigationCancellations.push(...accepted);
+
+    const completedStaticScriptCancellations = unacceptedRequestFailures.filter(
+      isCompletedNextStaticScriptNavigationCancellation,
+    );
+    assert.ok(
+      completedStaticScriptCancellations.length <= 1,
+      `${label}: at most one completed Next static script navigation cancellation is allowed: ${JSON.stringify(completedStaticScriptCancellations)}`,
+    );
+    for (const failure of completedStaticScriptCancellations) {
+      await assertCancelledNextStaticScriptStillAvailable(label, failure);
+    }
+    unacceptedRequestFailures = unacceptedRequestFailures.filter(
+      (failure) => !completedStaticScriptCancellations.includes(failure),
+    );
+    expectedNavigationCancellations.push(...completedStaticScriptCancellations);
   }
 
   const legacyProjectId = options.allowCompletedLegacyRedirectForProjectId || "";
