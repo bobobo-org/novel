@@ -52,7 +52,10 @@ import {
 } from "../components/conversation-presentation";
 import type { DrawerPayload, RpgChoiceEnvelope } from "../components/conversation-types";
 import { toExecutionReceipt } from "./use-conversation-operation";
-import { friendlyConversationExecutionError } from "../components/execution-trace-model";
+import {
+  friendlyConversationExecutionError,
+  safeConversationRpgFailureDiagnostics,
+} from "../components/execution-trace-model";
 import { findRpgChoiceRecoveryTarget } from "../conversation-workspace-support";
 import {
   assertRpgExecutionSourceCanGenerate,
@@ -121,18 +124,26 @@ export function rpgSafeContinuityFailures(error: unknown) {
       continuityFailures?: unknown;
       cause?: unknown;
     };
-    for (const rawFailures of [
-      source.reviewContinuityFailures,
-      source.generationContinuityFailures,
-      source.continuityFailures,
-    ]) {
+    const normalizedFailures = (rawFailures: unknown) => (
+      Array.isArray(rawFailures)
+      && rawFailures.every((failure) => (
+        typeof failure === "string" && /^[a-z_]{1,40}$/u.test(failure)
+      ))
+        ? [...new Set(rawFailures)] as string[]
+        : null
+    );
+    if (Object.prototype.hasOwnProperty.call(source, "reviewContinuityFailures")) {
+      // The fallback wrapper owns the final review result. An empty array means
+      // that review ended before an application-quality result existed; do not
+      // misreport an older generation failure as the final review diagnosis.
+      return normalizedFailures(source.reviewContinuityFailures) ?? [];
+    }
+    for (const rawFailures of [source.generationContinuityFailures, source.continuityFailures]) {
+      const failures = normalizedFailures(rawFailures);
       if (
-        Array.isArray(rawFailures)
-        && rawFailures.length
-        && rawFailures.every((failure) => (
-          typeof failure === "string" && /^[a-z_]{1,40}$/u.test(failure)
-        ))
-      ) return [...new Set(rawFailures)] as string[];
+        failures
+        && failures.length
+      ) return failures;
     }
     current = source.cause;
   }
@@ -386,7 +397,12 @@ export function useConversationRpgController({
   setRetryLabel: (value: string) => void;
   setCancellable: (value: boolean) => void;
   setBusy: (value: boolean) => void;
-  setSafeError: (error: { code: string; message: string } | null) => void;
+  setSafeError: (error: {
+    code: string;
+    message: string;
+    leafCode?: string;
+    continuityFailures?: string[];
+  } | null) => void;
   setProgress: (message: string) => void;
   setDrawer: (value: DrawerPayload) => void;
   onRpgGenerationStarted: () => void;
@@ -1272,27 +1288,38 @@ export function useConversationRpgController({
             && durableCandidateArtifact.status === "candidate",
           );
           const currentAssistant = await repository.get<ConversationMessage>("conversationMessages", assistant.id);
+          let terminalAssistant: ConversationMessage | null = currentAssistant
+            && ["failed", "cancelled"].includes(currentAssistant.status)
+            ? currentAssistant
+            : null;
           if (
             currentAssistant
             && !durableCompletion
             && !hasDurableCandidateArtifact
             && ["pending", "streaming"].includes(currentAssistant.status)
           ) {
-            await conversation.updateMessageStatus({
+            terminalAssistant = await conversation.updateMessageStatus({
               projectId,
               sessionId: input.sessionId,
               messageId: currentAssistant.id,
               expectedRevision: currentAssistant.revision,
               status: input.signal.aborted ? "cancelled" : "failed",
               content: `${friendlyError.title}。${friendlyError.message}`,
-            }).catch(() => undefined);
+            }).catch(() => null);
           }
+          if (terminalAssistant) {
+            projectMessageIntoActiveSession(input.sessionId, terminalAssistant);
+          }
+          let terminalInvocation: ConversationToolInvocation | null = durableInvocation
+            && ["failed", "cancelled"].includes(durableInvocation.status)
+            ? durableInvocation
+            : null;
           if (
             durableInvocation
             && !hasDurableCandidateArtifact
             && ["pending", "running"].includes(durableInvocation.status)
           ) {
-            await conversation.updateToolInvocationStatus({
+            terminalInvocation = await conversation.updateToolInvocationStatus({
               projectId,
               sessionId: input.sessionId,
               invocationId: durableInvocation.id,
@@ -1307,7 +1334,10 @@ export function useConversationRpgController({
                     message: `連貫性安全檢查缺項：${safeContinuityFailures.join("、")}`,
                   }
                 : undefined,
-            }).catch(() => undefined);
+            }).catch(() => null);
+          }
+          if (terminalInvocation) {
+            projectInvocationIntoActiveSession(input.sessionId, terminalInvocation);
           }
           throw error;
         }
@@ -1434,7 +1464,15 @@ export function useConversationRpgController({
         setRetryAvailable(true);
         setRetryLabel("重新建立三選一");
       }
-      setSafeError({ code: rpgErrorCode(error), message: rpgErrorMessage(error) });
+      const safeFailure = safeConversationRpgFailureDiagnostics({
+        leafCode: rpgLeafErrorCode(error),
+        continuityFailures: rpgSafeContinuityFailures(error),
+      });
+      setSafeError({
+        code: rpgErrorCode(error),
+        message: rpgErrorMessage(error),
+        ...(safeFailure ?? {}),
+      });
     } finally {
       operationLockRef.current = false;
       releaseLease();

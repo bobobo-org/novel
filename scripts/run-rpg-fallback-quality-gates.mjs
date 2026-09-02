@@ -709,9 +709,18 @@ const nearCapRepairSceneContract = buildCompactRpgResolutionDirectorPrompt({
   },
 });
 assert.match(nearCapRepairSceneContract, /回應第一字須為〈/u);
-assert.match(
+assert.doesNotMatch(
   nearCapRepairSceneContract,
-  /不得複誦契約、標記、冒號欄位、條列或驗收文字/u,
+  /(?:分析報告|工程報告|檢核|驗收|欄位|格式要求|狀態面板|工程說明|清單|行動建議|場景資訊|角色資料)/u,
+  "the protected contract must not teach a small model the same report-style vocabulary rejected from prose",
+);
+assert.equal(
+  nearCapRepairSceneContract
+    .split("\n")
+    .filter((line) => !/^\[\/?RPG_SCENE_CONTRACT_V2\]$/u.test(line))
+    .some((line) => /^\s*[^。！？!?\n]{1,16}[：:]\s*\S/u.test(line)),
+  false,
+  "the protected contract must describe facts as prose instead of short label-colon examples",
 );
 assert.ok(
   nearCapRepairSceneContract.length >= 1_450,
@@ -740,7 +749,11 @@ assert.match(
   /每段只推進一個不同的新事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
 );
 assert.match(nearCapRepairPrompt, /回應第一個字必須是〈/u);
-assert.match(nearCapRepairPrompt, /不得複誦契約、中括號標記或冒號欄位/u);
+assert.match(nearCapRepairPrompt, /從人物正在進行的動作或當下感官開始/u);
+assert.doesNotMatch(
+  nearCapRepairPrompt,
+  /(?:分析報告|工程報告|檢核|驗收|欄位|格式要求|狀態面板|工程說明|清單|行動建議|場景資訊|角色資料)/u,
+);
 assert.doesNotMatch(nearCapRepairPrompt, /正文須有10個空行分隔段落/u);
 assert.doesNotMatch(nearCapRepairPrompt, /門外突然傳來聲音/u);
 const fullReviewedStory = validStory
@@ -884,8 +897,8 @@ assert.equal(
 assert.equal(fullReviewRequest?.applicationValidationBindingDigest?.length, 64);
 assert.doesNotMatch(fullReviewPayload?.prompt ?? "", /draft-[1-3]=[a-f0-9]{64}/u, "lineage digests stay application-bound and must not consume the small-model prompt budget");
 assert.match(fullReviewPayload.prompt, new RegExp(fullChoice.title.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-assert.match(fullReviewPayload.prompt, /鎖定結果:/u);
-assert.match(fullReviewPayload.prompt, /主角:林澄/u);
+assert.match(fullReviewPayload.prompt, /這回合的鎖定結果為/u);
+assert.match(fullReviewPayload.prompt, /主角是「林澄」/u);
 const localFallbackProfile = {
   ...getClosedAIModelProfile("chapter.continue", "local-ollama"),
   maxInputCharacters: 2_600,
@@ -1121,7 +1134,7 @@ assert.equal(
   "only the digest-bound fallback repair may use the application completion floor",
 );
 assert.match(continuityRepairPrompt ?? "", /RPG_SCENE_CONTRACT_V2/u);
-assert.match(continuityRepairPrompt ?? "", /本次重寫只需特別修正以下缺項/u);
+assert.match(continuityRepairPrompt ?? "", /這次重新寫成完整場景時，要特別做到/u);
 assert.match(continuityRepairPrompt ?? "", /首段自然逐字承接「沿泥痕追查換封者」/u);
 assert.match(continuityRepairPrompt ?? "", /符合當下世界的具體環境細節/u);
 assert.match(continuityRepairPrompt ?? "", /至少三個符合當下情境、真正改變局勢的具體動作/u);
@@ -1243,7 +1256,7 @@ for (const generationLeafCase of generationApplicationLeafCases) {
     repairRequest?.input ?? "",
     new RegExp(fullChoice.title.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"),
   );
-  assert.match(repairRequest?.input ?? "", /鎖定結果:/u);
+  assert.match(repairRequest?.input ?? "", /這回合的鎖定結果為/u);
   assert.doesNotMatch(
     repairRequest?.input ?? "",
     /discarded-generation-prose-marker/u,
@@ -1517,7 +1530,7 @@ for (const repetitionCase of repetitionLeafCases) {
   assert.match(repairPrompt ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
   assert.match(
     repairPrompt ?? "",
-    /本次重寫只需特別修正以下缺項.*每段只推進一個不同的新事件或後果/u,
+    /這次重新寫成完整場景時，要特別做到.*每段只推進一個不同的新事件或後果/u,
   );
   assert.doesNotMatch(
     repairPrompt ?? "",
@@ -1669,6 +1682,30 @@ assert.deepEqual(
 );
 assert.equal(productionReportStyleGate.metrics.labelLineCount, 3);
 
+const dialogueLabelStyleStory = productionReportStyleSegments.map((segment, index) => {
+  if (index === 1) return `林澄：「先別碰那道門。」${segment}`;
+  if (index === 2) return `廖羽明：「我去看窗邊。」${segment}`;
+  if (index === 3) return `廖阡璇：「腳步聲又近了。」${segment}`;
+  return segment;
+}).join("\n\n");
+const dialogueLabelStyleGate = evaluateNovelContinuityGate({
+  prose: dialogueLabelStyleStory,
+  language: "zh-TW",
+  minimumHanCharacters: 760,
+  minimumCharacters: 900,
+  minimumParagraphs: 8,
+  minimumDialogueCount: 1,
+  activeCharacterNames: ["林澄", "廖羽明", "廖阡璇"],
+  offstageCharacterNames: [],
+  requireForeshadowing: true,
+  requireSerialHook: true,
+});
+assert.equal(dialogueLabelStyleGate.metrics.labelLineCount, 3);
+assert.ok(
+  dialogueLabelStyleGate.failures.includes("report_style"),
+  "three name-colon dialogue rows must remain rejected after prompt-only remediation",
+);
+
 const adaptiveReportStyleLogicalTurnId = "logical-turn-adaptive-report-style-repair";
 const adaptiveReportStyleRequests = [];
 let adaptiveReportStyleFailure = null;
@@ -1740,7 +1777,7 @@ assert.match(
 );
 assert.match(
   adaptiveReportStyleRequests[2]?.input ?? "",
-  /只用人物行動、對話與感官連續寫同一場景.*移除報告、清單、欄位與解釋口吻/u,
+  /每一段都直接呈現人物動作、具名對話或現場感官.*故事外不加前言、結語或寫作解釋/u,
   "the adapted prompt must explicitly demand reader-facing novel prose",
 );
 assert.match(
@@ -1964,7 +2001,7 @@ assert.equal(
 );
 assert.match(
   scrambledInitialRepair.requests[1]?.input ?? "",
-  /本次重寫只需特別修正以下缺項.*不灌水、不重述，補足到契約規定的字數範圍；只用人物行動、對話與感官連續寫同一場景/u,
+  /這次重新寫成完整場景時，要特別做到.*不灌水、不重述，補足到契約規定的字數範圍；每一段都直接呈現人物動作、具名對話或現場感官/u,
 );
 assert.equal(
   scrambledInitialRepair.requests[1]?.applicationValidationBindingDigest,
@@ -2027,7 +2064,7 @@ for (const resumed of [firstEvenRepairResume, secondEvenRepairResume]) {
   assert.equal(resumed.requests[0]?.taskId, resumed.resumeProviderTaskId);
   assert.match(
     resumed.requests[0]?.input ?? "",
-    /本次重寫只需特別修正以下缺項.*只用人物行動、對話與感官連續寫同一場景.*每段只推進一個不同的新事件或後果/u,
+    /這次重新寫成完整場景時，要特別做到.*每一段都直接呈現人物動作、具名對話或現場感官.*每段只推進一個不同的新事件或後果/u,
   );
   assert.equal(
     resumed.candidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,

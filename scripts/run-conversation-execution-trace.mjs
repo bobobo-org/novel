@@ -4,6 +4,7 @@ import {
   buildConversationExecutionTrace,
   friendlyConversationExecutionError,
   friendlyFailedAssistantContent,
+  safeConversationRpgFailureDiagnostics,
 } from "../app/studio/project/[projectId]/chat/components/execution-trace-model.ts";
 import {
   rpgLeafErrorCode,
@@ -107,6 +108,23 @@ assert.deepEqual(
   rpgSafeContinuityFailures(wrappedRpgFailure),
   ["report_style", "action_progression"],
 );
+assert.deepEqual(
+  safeConversationRpgFailureDiagnostics({
+    leafCode: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+    continuityFailures: ["report_style", "action_progression", "report_style"],
+  }),
+  {
+    leafCode: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+    continuityFailures: ["report_style", "action_progression"],
+  },
+);
+assert.equal(
+  safeConversationRpgFailureDiagnostics({
+    leafCode: "prompt text must not escape",
+    continuityFailures: ["report_style"],
+  }),
+  null,
+);
 
 const unavailableReviewFailure = Object.assign(new Error("closed review unavailable"), {
   code: "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
@@ -121,6 +139,11 @@ assert.equal(
   rpgLeafErrorCode(unavailableReviewFailure),
   "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
   "an unavailable final review must not be misreported as an older generation leaf",
+);
+assert.deepEqual(
+  rpgSafeContinuityFailures(unavailableReviewFailure),
+  [],
+  "an empty final review result must not fall back to stale generation continuity failures",
 );
 
 const choices = buildConversationExecutionTrace([invocation({
@@ -168,10 +191,11 @@ assert.doesNotMatch(
   /RPG_CHAT_/u,
 );
 
-const [rowSource, timelineSource, traceSource] = await Promise.all([
+const [rowSource, timelineSource, traceSource, rpgHookSource] = await Promise.all([
   readFile("app/studio/project/[projectId]/chat/components/message-row.tsx", "utf8"),
   readFile("app/studio/project/[projectId]/chat/components/message-timeline.tsx", "utf8"),
   readFile("app/studio/project/[projectId]/chat/components/execution-trace.tsx", "utf8"),
+  readFile("app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", "utf8"),
 ]);
 assert.match(rowSource, /<ConversationExecutionTrace/u);
 assert.match(timelineSource, /friendlyConversationExecutionError/u);
@@ -179,6 +203,11 @@ assert.match(traceSource, /查看本機技術收據/u);
 assert.match(traceSource, /data-safe-failure-leaf/u);
 assert.match(traceSource, /data-safe-continuity-failures/u);
 assert.doesNotMatch(traceSource, /safeProgress\?\.message/u);
+assert.match(timelineSource, /data-safe-failure-leaf/u);
+assert.match(timelineSource, /data-safe-continuity-failures/u);
+assert.doesNotMatch(timelineSource, /data-safe-failure-leaf=\{safeError\.message\}/u);
+assert.match(rpgHookSource, /projectMessageIntoActiveSession\(input\.sessionId, terminalAssistant\)/u);
+assert.match(rpgHookSource, /projectInvocationIntoActiveSession\(input\.sessionId, terminalInvocation\)/u);
 
 console.log(JSON.stringify({
   suite: "conversation-execution-trace",

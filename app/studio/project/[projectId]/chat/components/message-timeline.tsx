@@ -36,7 +36,10 @@ import type { ConversationMessageActions } from "./conversation-types";
 import { parseRpgChoices } from "./conversation-presentation";
 import { MessageRow } from "./message-row";
 import { ToolProgressCard } from "./tool-progress-card";
-import { friendlyConversationExecutionError } from "./execution-trace-model";
+import {
+  friendlyConversationExecutionError,
+  safeConversationRpgFailureDiagnostics,
+} from "./execution-trace-model";
 import styles from "../conversation.module.css";
 
 function progressionMode(playMode: StoryPlayModeId): RpgMode {
@@ -514,7 +517,12 @@ export function MessageTimeline({
   canStop: boolean;
   stopLabel: string;
   progress: string;
-  safeError: { code: string; message: string } | null;
+  safeError: {
+    code: string;
+    message: string;
+    leafCode?: string;
+    continuityFailures?: string[];
+  } | null;
   retryAvailable: boolean;
   retryLabel: string;
   branchPendingMessageIds: ReadonlySet<string>;
@@ -662,7 +670,16 @@ export function MessageTimeline({
         {busy ? <ToolProgressCard progress={progress} canStop={canStop} onStop={actions.stopGeneration} label={stopLabel} /> : null}
         {safeError ? (() => {
           const friendly = friendlyConversationExecutionError(safeError.code, safeError.message);
-          return <section className={styles.resultCard} role="alert"><strong>{friendly.title}</strong><p>{friendly.message}</p>{retryAvailable ? <button type="button" disabled={busy} onClick={onRetry}>{retryLabel}</button> : null}</section>;
+          const safeFailure = safeConversationRpgFailureDiagnostics({
+            leafCode: safeError.leafCode,
+            continuityFailures: safeError.continuityFailures,
+          });
+          return <section
+            className={styles.resultCard}
+            role="alert"
+            data-safe-failure-leaf={safeFailure?.leafCode}
+            data-safe-continuity-failures={safeFailure?.continuityFailures.join(",") || undefined}
+          ><strong>{friendly.title}</strong><p>{friendly.message}</p>{retryAvailable ? <button type="button" disabled={busy} onClick={onRetry}>{retryLabel}</button> : null}</section>;
         })() : null}
         <div data-testid="conversation-timeline-end" />
       </div>

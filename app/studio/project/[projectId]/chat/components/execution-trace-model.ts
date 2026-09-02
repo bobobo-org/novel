@@ -86,6 +86,23 @@ const ERROR_COPY: Record<string, FriendlyConversationError> = {
 const INTERNAL_CODE = /\b(?:RPG|CONVERSATION|CLOSED_AI|CLOSED_AGENT|STUDIO)_[A-Z0-9_]+\b/u;
 const SAFE_RPG_FAILURE_CODE = /^RPG_[A-Z0-9_]{1,100}$/u;
 const SAFE_RPG_CONTINUITY_PROGRESS = /^連貫性安全檢查缺項：([a-z_]{1,40}(?:、[a-z_]{1,40})*)$/u;
+const SAFE_RPG_CONTINUITY_FAILURES = new Set([
+  "length",
+  "paragraphs",
+  "dialogue",
+  "dialogue_attribution",
+  "continuity_anchor",
+  "active_character",
+  "offstage_character",
+  "narrative_scene",
+  "action_progression",
+  "sensory_detail",
+  "report_style",
+  "causality",
+  "foreshadowing",
+  "serial_hook",
+  "repetition",
+]);
 
 function invocationStatus(invocation: ConversationToolInvocation) {
   if (invocation.status === "completed") return "complete" as const;
@@ -130,19 +147,34 @@ function selectTraceInvocation(invocations: readonly ConversationToolInvocation[
   return null;
 }
 
+export function safeConversationRpgFailureDiagnostics(input: {
+  leafCode: unknown;
+  continuityFailures: unknown;
+}) {
+  const leafCode = typeof input.leafCode === "string" ? input.leafCode.trim() : "";
+  if (!SAFE_RPG_FAILURE_CODE.test(leafCode)) return null;
+  const continuityFailures = Array.isArray(input.continuityFailures)
+    && input.continuityFailures.length <= SAFE_RPG_CONTINUITY_FAILURES.size
+    && input.continuityFailures.every((failure) => (
+      typeof failure === "string" && SAFE_RPG_CONTINUITY_FAILURES.has(failure)
+    ))
+    ? [...new Set(input.continuityFailures)] as string[]
+    : [];
+  return {
+    leafCode,
+    continuityFailures,
+  };
+}
+
 function safeRpgFailure(invocation: ConversationToolInvocation) {
   if (!["failed", "cancelled"].includes(invocation.status)) return null;
-  const leafCode = invocation.safeErrorCode?.trim() ?? "";
-  if (!SAFE_RPG_FAILURE_CODE.test(leafCode)) return null;
   const continuityMatch = invocation.safeProgress?.stage === "failed-quality"
     ? invocation.safeProgress.message.match(SAFE_RPG_CONTINUITY_PROGRESS)
     : null;
-  return {
-    leafCode,
-    continuityFailures: continuityMatch
-      ? [...new Set(continuityMatch[1]!.split("、"))]
-      : [],
-  };
+  return safeConversationRpgFailureDiagnostics({
+    leafCode: invocation.safeErrorCode,
+    continuityFailures: continuityMatch ? continuityMatch[1]!.split("、") : [],
+  });
 }
 
 function safeVisibleMessage(message: string | undefined) {

@@ -4067,13 +4067,13 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
     narrative_scene: "用至少兩個符合當下世界的具體環境細節建立場景",
     action_progression: "讓人物完成至少三個符合當下情境、真正改變局勢的具體動作",
     sensory_detail: "加入至少兩種與現場物件相連的具體感官",
-    report_style: "只用人物行動、對話與感官連續寫同一場景，移除報告、清單、欄位與解釋口吻",
+    report_style: "每一段都直接呈現人物動作、具名對話或現場感官；故事外不加前言、結語或寫作解釋",
     causality: "用自然因果連接選定行動、阻力、代價與鎖定結果",
     foreshadowing: "以現場可觀察的異樣或未解事物留下伏筆",
     serial_hook: "最後以本次行動造成的新危機、聲音或迫近事件形成自然鉤子",
     repetition: "每段只推進一個不同的新事件或後果，不回述前文，不重用段首、主要句式或對話意圖",
   };
-  const repairLine = `本次重寫只需特別修正以下缺項，並同時遵守其餘契約要求。${uniqueFailures.map((failure) => (
+  const repairLine = `這次重新寫成完整場景時，要特別做到${uniqueFailures.map((failure) => (
     requirementLabels[failure]
   )).join("；")}`;
   const contractLines = input.sceneContract.split("\n");
@@ -4085,7 +4085,12 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   }
   contractLines.splice(contractEndIndex, 0, repairLine);
   let repairSceneContract = contractLines.join("\n");
-  for (const optionalPrefix of ["既有資產:", "作品:", "場景:"]) {
+  for (const optionalPrefix of [
+    "本回合可使用的既有資產",
+    "本回合沒有可用的既有資產",
+    "作品名為",
+    "目前章節是",
+  ]) {
     if (repairSceneContract.length <= 1_600) break;
     const optionalIndex = contractLines.findIndex((line) => line.startsWith(optionalPrefix));
     if (optionalIndex >= 0) contractLines.splice(optionalIndex, 1);
@@ -4100,8 +4105,8 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   }
   const prompt = [
     "[RPG_FALLBACK_CONTINUITY_REPAIR_V1]",
-    "前一份模型正文未通過連貫性檢查，已丟棄且不會提供。只依下列受保護契約重寫；回應第一個字必須是〈，只輸出單一標題與自然小說段落。",
-    "不得複誦契約、中括號標記或冒號欄位，不得列清單、編號或驗收說明；契約末行的修正提示只供內部執行，不得抄進正文。",
+    "請依下方已有情節重新寫出一個完整場景。回應第一個字必須是〈，接著只寫一個具體標題與連續的小說段落。",
+    "從人物正在進行的動作或當下感官開始，讓所有約束只影響故事如何發生；成稿不提及這些內部文字，也不加故事外的前言或結語。",
     repairSceneContract,
     "[/RPG_FALLBACK_CONTINUITY_REPAIR_V1]",
   ].join("\n");

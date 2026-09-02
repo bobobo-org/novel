@@ -161,6 +161,7 @@ import {
   LOCAL_SUBSTANTIVE_SCENE_SEED_SLOT_STRIDE,
   LOCAL_SUBSTANTIVE_SCENE_STABLE_MINIMUM_CHARACTERS,
   LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION,
+  LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION,
   LOCAL_SUBSTANTIVE_SCENE_TOTAL_TIMEOUT_MS,
   localSubstantiveSceneRequiresSupplement,
   localSubstantiveSceneSupplementSeed,
@@ -11049,6 +11050,16 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     applicationProviderSupplement.requests.map((request) => request.options.seed),
     [17, 104_746],
   );
+  assert.equal(
+    applicationProviderSupplement.requests[0]?.systemInstruction,
+    LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION,
+    "the first substantive call must use the prose-shaped system instruction",
+  );
+  assert.equal(
+    applicationProviderSupplement.requests[1]?.systemInstruction,
+    LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION,
+    "a supplement must retain its continuation-only instruction",
+  );
   assert.match(
     applicationProviderSupplement.requests[1]?.systemInstruction ?? "",
     /合併全文.*不得在補寫重新執行/u,
@@ -11075,6 +11086,10 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     /substantive-scene-stable-minimum=950/u,
   );
   assert.equal(LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS, 1_450);
+  const reportStyleInstructionBait = /(?:分析報告|工程報告|檢核|驗收|欄位|格式要求|狀態面板|工程說明|清單|行動建議|場景資訊|角色資料)/u;
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /回應第一個字是〈/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /「……」某某說道、問道或答道/u);
+  assert.doesNotMatch(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, reportStyleInstructionBait);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /未核准的故事資料/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /合併全文/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /不得在補寫重新執行/u);
@@ -11084,6 +11099,7 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /引用名稱改用『』/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /至少三個可見動作/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /下一回合鉤子/u);
+  assert.doesNotMatch(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, reportStyleInstructionBait);
   assert.ok(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION.length < 560);
   const nestedDialogue = repairLocalChineseDialogueQuotes(
     "洪棠竹說：「那枚「鎮脈符」不能再動。」眾人立刻退開。",

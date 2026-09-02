@@ -516,8 +516,8 @@ for (const scenario of scenarios) {
     snapshot.baseChoices[0].title.normalize("NFKC").replace(/\s+/gu, " ").trim(),
   ).slice(0, 32).join("");
   assert.match(compactSceneContract, new RegExp(protectedChoiceTitle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-  assert.match(compactSceneContract, /最近正式正文尾/u);
-  assert.match(compactSceneContract, /Canon:/u);
+  assert.match(compactSceneContract, /開場必須緊接這段最近的正式正文/u);
+  assert.match(compactSceneContract, /既有 Canon 包含/u);
   assert.match(compactSceneContract, /1100–1500/u);
   assert.match(compactSceneContract, /首段須(?:自然且逐字放入|承接)/u);
   assert.match(compactSceneContract, /具名說話/u);
@@ -611,11 +611,11 @@ for (const scenario of scenarios) {
     });
     assert.ok(saturatedContract.length <= 1_600);
     assert.match(saturatedContract, new RegExp(latestFormalTail, "u"));
-    assert.match(saturatedContract, /主角:飽和主角姓名/u);
-    assert.match(saturatedContract, /配角1:飽和配角甲/u);
-    assert.match(saturatedContract, /配角2:飽和配角乙/u);
-    assert.match(saturatedContract, /時代=修真古代/u);
-    assert.match(saturatedContract, /禁則=/u);
+    assert.match(saturatedContract, /主角是「飽和主角姓名」/u);
+    assert.match(saturatedContract, /配角1是「飽和配角甲」/u);
+    assert.match(saturatedContract, /配角2是「飽和配角乙」/u);
+    assert.match(saturatedContract, /能力所屬時代為修真古代/u);
+    assert.match(saturatedContract, /不可違反/u);
     assert.equal(saturatedContract.match(/\[\/RPG_SCENE_CONTRACT_V2\]/gu)?.length, 1);
     assert.match(saturatedContract, /［\/RPG_SCENE_CONTRACT_V2］/u);
   }

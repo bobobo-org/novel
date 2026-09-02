@@ -118,7 +118,12 @@ export default function ConversationWorkspace({
   const [busy, setBusy] = useState(false);
   const [cancellable, setCancellable] = useState(false);
   const [progress, setProgress] = useState("正在讀取作品對話。");
-  const [safeError, setSafeError] = useState<{ code: string; message: string } | null>(null);
+  const [safeError, setSafeError] = useState<{
+    code: string;
+    message: string;
+    leafCode?: string;
+    continuityFailures?: string[];
+  } | null>(null);
   const [retryAvailable, setRetryAvailable] = useState(false);
   const [retryLabel, setRetryLabel] = useState("重試");
   const [sidebarOpen, setSidebarOpen] = useState(false);

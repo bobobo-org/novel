@@ -754,6 +754,10 @@ function compactRpgPromptField(value: unknown, maximumCharacters: number) {
       "[": "［",
       "]": "］",
     })[character] ?? character)
+    // The compact prompt is prose-shaped on purpose. Small local models copy
+    // label punctuation very literally, and three copied `name:value` rows are
+    // correctly rejected by the unchanged report-style quality gate.
+    .replace(/[：:=]/gu, "為")
     .replace(/\s+/gu, " ")
     .trim();
   if (normalized.length <= maximumCharacters) return normalized;
@@ -808,17 +812,19 @@ function compactRpgCharacterLine(value: unknown, role: string) {
     ? [
         compactRpgPromptField(mastery.relation, 8),
         compactRpgPromptField(mastery.name, 24),
-        `時代=${masteryEra}`,
+        `能力所屬時代為${masteryEra}`,
         compactRpgPromptField(mastery.limitation, 18),
       ].filter(Boolean).join("/")
-    : "能力=未提供；只能用普通行動";
+    : "未提供特殊能力，只能用普通行動";
+  const name = compactRpgPromptField(character.name, 24) || "未具名";
+  const goal = compactRpgPromptField(character.goal, 26);
   const limitations = compactRpgPromptList(character.limitations, 1, 18);
   return [
-    `${role}:${compactRpgPromptField(character.name, 24) || "未具名"}`,
-    compactRpgPromptField(character.goal, 26),
-    masteryLine,
-    limitations.length ? `限制=${limitations.join("、")}` : "",
-  ].filter(Boolean).join("｜");
+    `${role}是「${name}」`,
+    goal ? `此人想要${goal}` : "",
+    `可採取的方式是${masteryLine}`,
+    limitations.length ? `自身限制為${limitations.join("、")}` : "",
+  ].filter(Boolean).join("；") + "。";
 }
 
 const RPG_COMPACT_SCENE_CONTRACT_MAX_CHARACTERS = 1_600;
@@ -853,10 +859,11 @@ export function buildCompactRpgResolutionDirectorPrompt(input: {
   const worldRules = Array.isArray(context.worldRules)
     ? context.worldRules.slice(0, 2).map((value) => {
         const rule = compactRpgPromptRecord(value);
-        return [
-          compactRpgPromptField(rule.title, 16),
-          compactRpgPromptField(rule.description, 24),
-        ].filter(Boolean).join(":");
+        const title = compactRpgPromptField(rule.title, 16);
+        const description = compactRpgPromptField(rule.description, 24);
+        return title && description
+          ? `「${title}」表示${description}`
+          : title || description;
       }).filter(Boolean)
     : [];
   const forbidden = compactRpgPromptList(
@@ -891,33 +898,33 @@ export function buildCompactRpgResolutionDirectorPrompt(input: {
     : "首段須承接「最近正式正文尾」的兩個具體錨點與緊接動作。";
   const protectedLines = [
     "[RPG_SCENE_CONTRACT_V2]",
-    `語言:${outputLanguage}。回應第一字須為〈；只輸出〈具體標題〉與正文；1100–1500 字、8–16 段、至少 12 句。${openingContinuityInstruction}`,
+    `全文使用${outputLanguage}。回應第一字須為〈；只輸出〈具體標題〉與正文；1100–1500 字、8–16 段、至少 12 句。${openingContinuityInstruction}`,
     `選定行動須落地、受阻、付代價並產生鎖定結果；須有三個可見動作、具名說話的「」對話、兩種感官、自然因果與未解線索，並以突然出現的新危機或聲音收尾。${supportingCharacterInstruction}`,
-    "只能用列出的人物、能力、時代、物件、所有權與 Canon；不足時用普通行動、求助或失敗。對話「」須閉合，內引改『』。禁分析、規則、數值表、JSON、Markdown、選項與介面字；不得複誦契約、標記、冒號欄位、條列或驗收文字。",
-    `選擇:${compactRpgPromptField(choice.key, 8)}｜${compactRpgPromptField(choice.title, 32)}｜${compactRpgPromptField(choice.description, 42)}｜阻力=${compactRpgPromptField(storySignals.complication, 28)}｜代價=${compactRpgPromptField(choice.consequenceTeaser, 28)}`,
-    `鎖定結果:${compactRpgPromptField(input.resolution.outcomeLabel, 32)}｜${settlement.join("；")}`,
-    `最近正式正文尾:${compactRpgPromptTailField(chapter.recentText, 180)}`,
+    "只能用下文已有的人物、能力、時代、物件、所有權與 Canon；不足時讓人物採取普通行動、求助或失敗。人物說話要寫成「……」某某說道、問道或答道，且引號須閉合，內引改『』。成稿每一段只呈現故事內正在發生的事，不加入故事外文字。",
+    `讀者選了 ${compactRpgPromptField(choice.key, 8)}，也就是《${compactRpgPromptField(choice.title, 32)}》；其具體行動是${compactRpgPromptField(choice.description, 42)}；眼前阻力為${compactRpgPromptField(storySignals.complication, 28)}；必須付出的代價為${compactRpgPromptField(choice.consequenceTeaser, 28)}。`,
+    `這回合的鎖定結果為${compactRpgPromptField(input.resolution.outcomeLabel, 32)}；正式結算包含${settlement.join("；")}。`,
+    `開場必須緊接這段最近的正式正文【${compactRpgPromptTailField(chapter.recentText, 180)}】。`,
     [
       compactRpgCharacterLine(protagonist, "主角"),
       ...supporting.map((character, index) => compactRpgCharacterLine(
         character,
         `配角${index + 1}`,
       )),
-    ].join("；"),
-    `Canon:${[
+    ].join(""),
+    `既有 Canon 包含${[
       compactRpgPromptField(storyBible.theme, 28),
-      ...forbidden.map((value) => `禁則=${value}`),
-      ...worldRules.map((value) => `世界規則=${value}`),
-      ...foreshadowing.map((value) => `伏筆=${value}`),
-      ...unresolvedThreads.map((value) => `未解=${value}`),
-    ].filter(Boolean).join("；")}`,
+      ...forbidden.map((value) => `不可違反${value}`),
+      ...worldRules.map((value) => `世界中${value}`),
+      ...foreshadowing.map((value) => `尚待回收的伏筆是${value}`),
+      ...unresolvedThreads.map((value) => `仍未解開的是${value}`),
+    ].filter(Boolean).join("；")}。`,
   ];
   const optionalLines = [
-    `作品:${compactRpgPromptField(project.title, 40)}｜風格=${compactRpgPromptField(project.narrativeStyle, 36)}｜核心=${compactRpgPromptField(project.coreIdea, 44)}`,
-    `場景:${compactRpgPromptField(chapter.title, 36)}｜衝突=${compactRpgPromptField(context.currentConflict, 64)}`,
+    `作品名為《${compactRpgPromptField(project.title, 40)}》，採用${compactRpgPromptField(project.narrativeStyle, 36)}風格，核心是${compactRpgPromptField(project.coreIdea, 44)}。`,
+    `目前章節是《${compactRpgPromptField(chapter.title, 36)}》，眼前衝突為${compactRpgPromptField(context.currentConflict, 64)}。`,
     Object.keys(stagedAsset).length
-      ? `既有資產:${compactRpgPromptField(stagedAsset.name, 30)}｜用途=${compactRpgPromptField(stagedAsset.function, 36)}｜限制=${compactRpgPromptField(stagedAsset.limitation, 34)}｜持有人=${compactRpgPromptField(stagedAsset.holder, 24)}｜控制=${compactRpgPromptField(stagedAsset.controller, 24)}`
-      : "既有資產:無；不得臨時發明。",
+      ? `本回合可使用的既有資產是「${compactRpgPromptField(stagedAsset.name, 30)}」，用途為${compactRpgPromptField(stagedAsset.function, 36)}，限制為${compactRpgPromptField(stagedAsset.limitation, 34)}，持有人是${compactRpgPromptField(stagedAsset.holder, 24)}，控制者是${compactRpgPromptField(stagedAsset.controller, 24)}。`
+      : "本回合沒有可用的既有資產，不得臨時發明。",
   ];
   const closing = "[/RPG_SCENE_CONTRACT_V2]";
   const includedOptionalLines = [...optionalLines];
