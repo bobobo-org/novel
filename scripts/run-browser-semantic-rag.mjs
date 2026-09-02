@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import { composeProjectContext } from "../lib/novel-ai/web/project-context-composer.ts";
+import { shouldRunStudioProjectSemanticRanking } from "../lib/novel-ai/web/closed-agent-os-service.ts";
 import { BROWSER_SEMANTIC_MODEL } from "../lib/novel-ai/providers/browser-ai/browser-semantic-model-registry.ts";
 
 const projectId = "browser-semantic-rag-project";
@@ -11,6 +12,13 @@ await repository.put("projects", {
   id: projectId,
   projectId,
   title: "語意檢索測試作品",
+  creationMode: "blank",
+  genrePackId: null,
+  genreId: null,
+  subgenreId: null,
+  coreIdea: { value: "主角追查帳冊與失蹤證人", status: "user_defined", source: "user", updatedAt: now },
+  narrativeStyle: { value: "懸疑", status: "user_defined", source: "user", updatedAt: now },
+  adultMode: false,
   activeChapterId: null,
   storyBibleId: null,
   storyStateId: null,
@@ -89,6 +97,80 @@ assert.equal(
 );
 assert.ok(fallback.context.length > 0, "priority fallback must keep the local writing flow usable");
 
+let deadlineSignalAborted = false;
+const deadlineStartedAt = performance.now();
+const deadlineFallback = await composeProjectContext({
+  ...baseInput,
+  semanticRankingDeadlineMs: 10,
+  semanticRanker: ({ signal }) => new Promise(() => {
+    signal?.addEventListener("abort", () => {
+      deadlineSignalAborted = true;
+    }, { once: true });
+  }),
+});
+const deadlineElapsedMs = performance.now() - deadlineStartedAt;
+assert.equal(deadlineSignalAborted, true);
+assert.ok(deadlineElapsedMs < 250, "a hung optional semantic ranker must not block project context");
+assert.equal(deadlineFallback.contextSourceSummary.ranking.mode, "priority");
+assert.equal(
+  deadlineFallback.contextSourceSummary.ranking.fallbackReason,
+  "PROJECT_CONTEXT_SEMANTIC_RANKING_TIMEOUT",
+);
+assert.ok(
+  deadlineFallback.context.length > 0,
+  "semantic deadline fallback must preserve priority-ranked project context",
+);
+assert.equal(
+  deadlineFallback.contextDigest.length,
+  semantic.contextDigest.length,
+  "deadline fallback must retain a complete digest identity",
+);
+assert.equal(
+  shouldRunStudioProjectSemanticRanking({
+    applicationValidationBindingDigest: "a".repeat(64),
+  }),
+  false,
+  "application-gated prose must enter deterministic context without optional semantic ranking",
+);
+assert.equal(
+  shouldRunStudioProjectSemanticRanking({}),
+  true,
+  "non-application-gated Studio work keeps bounded optional semantic ranking",
+);
+const applicationPriorityContext = await composeProjectContext({
+  ...baseInput,
+  semanticRankingDisabledReason: "application_validation_priority_context",
+});
+assert.equal(
+  applicationPriorityContext.contextSourceSummary.ranking.fallbackReason,
+  "application_validation_priority_context",
+  "execution receipts must distinguish an intentional prose priority path from a missing model",
+);
+
+const callerAbortController = new AbortController();
+let resolveCallerRankerStarted;
+const callerRankerStarted = new Promise((resolve) => {
+  resolveCallerRankerStarted = resolve;
+});
+const callerAbortedContext = composeProjectContext({
+  ...baseInput,
+  signal: callerAbortController.signal,
+  semanticRankingDeadlineMs: 1_000,
+  semanticRanker: () => new Promise(() => {
+    resolveCallerRankerStarted();
+  }),
+});
+await callerRankerStarted;
+const callerAbortError = Object.assign(new Error("caller cancelled"), {
+  code: "TEST_CALLER_ABORT",
+});
+callerAbortController.abort(callerAbortError);
+await assert.rejects(
+  callerAbortedContext,
+  (error) => error === callerAbortError,
+  "caller cancellation must not be swallowed as an ordinary priority fallback",
+);
+
 assert.equal(BROWSER_SEMANTIC_MODEL.sourceRevision.length, 40);
 assert.equal(BROWSER_SEMANTIC_MODEL.files.length, 4);
 assert.ok(BROWSER_SEMANTIC_MODEL.files.every((file) => /^[a-f0-9]{64}$/u.test(file.sha256)));
@@ -132,6 +214,14 @@ assert.match(runtimeSource, /candidateOnly:\s*true/u);
 assert.match(runtimeSource, /canonicalMutation:\s*false/u);
 assert.match(runtimeSource, /namespace:\s*input\.namespace/u);
 assert.match(runtimeSource, /invalidateBrowserSemanticCache/u);
+assert.match(
+  runtimeSource,
+  /if \(pending\.size > 0\)[\s\S]*?BROWSER_SEMANTIC_BUSY/u,
+  "semantic worker admission must remain single-flight before a deadline can terminate it",
+);
+assert.match(runtimeSource, /runExclusiveSemanticOperation\("install"/u);
+assert.match(runtimeSource, /runExclusiveSemanticOperation\("embed"/u);
+assert.match(runtimeSource, /runExclusiveSemanticOperation\("rank"/u);
 
 console.log(JSON.stringify({
   status: "PASS",
@@ -140,6 +230,8 @@ console.log(JSON.stringify({
   integrityFiles: BROWSER_SEMANTIC_MODEL.files.length,
   layeredRag: true,
   priorityFallback: true,
+  boundedSemanticRanking: true,
+  applicationGatedPriorityContext: true,
   dataLeftDevice: false,
   rawTextStored: false,
 }, null, 2));

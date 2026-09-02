@@ -202,6 +202,15 @@ export type ExecuteStudioClosedAgentInput = {
   onProgress?: (event: ClosedAIProgressEvent) => void;
 };
 
+export function shouldRunStudioProjectSemanticRanking(
+  input: Pick<ExecuteStudioClosedAgentInput, "applicationValidationBindingDigest">,
+) {
+  // Application-gated prose already carries a complete deterministic context
+  // and validation binding. Optional Browser semantic ranking must never spend
+  // the prose-generation deadline before the selected local model can start.
+  return !input.applicationValidationBindingDigest;
+}
+
 const SELECTED_ATTACHMENT_SUMMARY_CHARACTER_LIMIT = 24_000;
 const SELECTED_ATTACHMENT_LIMIT = 12;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/u;
@@ -451,9 +460,14 @@ export async function executeStudioClosedAgent(
       selectedAttachmentSummaries,
       supplementalContext,
       semanticQuery: input.objective,
+      signal: input.signal,
+      semanticRankingDisabledReason: input.applicationValidationBindingDigest
+        ? "application_validation_priority_context"
+        : undefined,
       semanticRanker: typeof window === "undefined"
+        || !shouldRunStudioProjectSemanticRanking(input)
         ? undefined
-        : async ({ query, items }) => {
+        : async ({ query, items, signal }) => {
           const { rankWithBrowserSemanticModel } = await import(
             "../providers/browser-ai/browser-semantic-runtime"
           );
@@ -461,10 +475,14 @@ export async function executeStudioClosedAgent(
             namespace,
             query,
             items,
-            signal: input.signal,
+            signal,
           });
         },
     });
+
+    if (input.signal?.aborted) {
+      throw input.signal.reason ?? new DOMException("操作已取消。", "AbortError");
+    }
 
     const result = await os.execute({
       taskId,

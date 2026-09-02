@@ -37,6 +37,8 @@ import { sanitizeRetrievedKnowledge } from "../security/retrieval-content-saniti
 export const PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION =
   "project-context-composer-v2" as const;
 
+export const PROJECT_CONTEXT_SEMANTIC_RANKING_DEADLINE_MS = 3_000;
+
 const PROJECT_CONVERSATION_SUMMARY_LIMIT = 4;
 const CONVERSATION_SUMMARY_CHARACTER_LIMIT = 6_000;
 const CONVERSATION_SUMMARY_SOURCE_ID_LIMIT = 64;
@@ -127,11 +129,15 @@ export type ProjectContextComposerInput = {
   supplementalContext?: ClosedAIContextItem[];
   semanticQuery?: string;
   semanticRanker?: ProjectContextSemanticRanker;
+  semanticRankingDisabledReason?: string;
+  semanticRankingDeadlineMs?: number;
+  signal?: AbortSignal;
 };
 
 export type ProjectContextSemanticRanker = (input: {
   query: string;
   items: Array<{ id: string; text: string; priority: number }>;
+  signal?: AbortSignal;
 }) => Promise<{
   scores: Array<{ id: string; score: number }>;
   modelId: string;
@@ -139,6 +145,51 @@ export type ProjectContextSemanticRanker = (input: {
   cacheHit: boolean;
   dataLeftDevice: false;
 }>;
+
+function semanticRankingWithinDeadline<T>(input: {
+  deadlineMs: number;
+  signal?: AbortSignal;
+  execute: (signal: AbortSignal) => Promise<T>;
+}) {
+  if (input.signal?.aborted) {
+    return Promise.reject(
+      input.signal.reason ?? new DOMException("操作已取消。", "AbortError"),
+    );
+  }
+  const controller = new AbortController();
+  const deadlineError = Object.assign(
+    new Error("Project context semantic ranking exceeded its optional deadline."),
+    { code: "PROJECT_CONTEXT_SEMANTIC_RANKING_TIMEOUT" },
+  );
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const abortFromCaller = () => abort(
+      input.signal?.reason ?? new DOMException("操作已取消。", "AbortError"),
+    );
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeoutId);
+      input.signal?.removeEventListener("abort", abortFromCaller);
+      callback();
+    };
+    const abort = (reason: unknown) => {
+      if (!controller.signal.aborted) controller.abort(reason);
+      finish(() => reject(reason));
+    };
+    const timeoutId = globalThis.setTimeout(
+      () => abort(deadlineError),
+      Math.max(1, input.deadlineMs),
+    );
+    input.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    Promise.resolve()
+      .then(() => input.execute(controller.signal))
+      .then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error)),
+      );
+  });
+}
 
 export type ProjectContextSourceSummary = {
   schemaVersion: typeof PROJECT_CONTEXT_COMPOSER_SCHEMA_VERSION;
@@ -1437,18 +1488,26 @@ export async function composeProjectContext(
     modelDigest: null,
     cacheHit: null,
     dataLeftDevice: false,
-    fallbackReason: input.semanticRanker ? "semantic_ranker_not_run" : "semantic_model_not_configured",
+    fallbackReason: input.semanticRanker
+      ? "semantic_ranker_not_run"
+      : input.semanticRankingDisabledReason ?? "semantic_model_not_configured",
   };
   const semanticQuery = input.semanticQuery?.trim();
   if (input.semanticRanker && semanticQuery && entries.length) {
     try {
-      const result = await input.semanticRanker({
-        query: semanticQuery,
-        items: entries.map((entry) => ({
-          id: entry.item.id,
-          text: entry.item.text,
-          priority: entry.priority,
-        })),
+      const result = await semanticRankingWithinDeadline({
+        deadlineMs: input.semanticRankingDeadlineMs
+          ?? PROJECT_CONTEXT_SEMANTIC_RANKING_DEADLINE_MS,
+        signal: input.signal,
+        execute: (signal) => input.semanticRanker!({
+          query: semanticQuery,
+          items: entries.map((entry) => ({
+            id: entry.item.id,
+            text: entry.item.text,
+            priority: entry.priority,
+          })),
+          signal,
+        }),
       });
       const scores = new Map(result.scores.map((score) => [score.id, score.score]));
       for (const entry of entries) {
@@ -1466,6 +1525,9 @@ export async function composeProjectContext(
         fallbackReason: null,
       };
     } catch (error) {
+      if (input.signal?.aborted) {
+        throw input.signal.reason ?? error;
+      }
       ranking = {
         ...ranking,
         fallbackReason: typeof error === "object" && error && "code" in error

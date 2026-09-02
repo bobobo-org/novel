@@ -146,9 +146,28 @@ let currentProgress: BrowserSemanticProgress | null = null;
 let lastRanking: BrowserSemanticRuntimeSnapshot["lastRanking"] = null;
 const pending = new Map<string, WorkerPending>();
 const progressListeners = new Set<(progress: BrowserSemanticProgress) => void>();
+let activeSemanticOperation: "install" | "embed" | "rank" | null = null;
 
 function runtimeError(code: string, message: string, cause?: unknown) {
   return Object.assign(new Error(message), { code, retryable: true, cause });
+}
+
+function runExclusiveSemanticOperation<T>(
+  operation: NonNullable<typeof activeSemanticOperation>,
+  execute: () => Promise<T>,
+) {
+  if (activeSemanticOperation) {
+    return Promise.reject(runtimeError(
+      "BROWSER_SEMANTIC_BUSY",
+      `Browser AI 語意模型正在執行 ${activeSemanticOperation}，本次改用優先序內容。`,
+    ));
+  }
+  activeSemanticOperation = operation;
+  return Promise.resolve()
+    .then(execute)
+    .finally(() => {
+      activeSemanticOperation = null;
+    });
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -341,11 +360,20 @@ function requestWorker(
   if (options.signal?.aborted) {
     return Promise.reject(new DOMException("操作已取消。", "AbortError"));
   }
+  if (pending.size > 0) {
+    return Promise.reject(runtimeError(
+      "BROWSER_SEMANTIC_BUSY",
+      "Browser AI 語意模型已有工作進行中，本次改用優先序內容。",
+    ));
+  }
   const worker = ensureWorker(device);
   const id = crypto.randomUUID();
   return new Promise<Record<string, unknown>>((resolve, reject) => {
     const abort = () => {
       pending.delete(id);
+      // Admission is single-flight, so this release can only terminate the
+      // cancelled request. Concurrent callers already received BUSY and use
+      // deterministic priority context instead of sharing mutable worker state.
       releaseWorker("BROWSER_SEMANTIC_ABORTED");
       reject(new DOMException("操作已取消。", "AbortError"));
     };
@@ -626,6 +654,7 @@ export async function installBrowserSemanticModel(options: {
   signal?: AbortSignal;
   onProgress?: (progress: BrowserSemanticProgress) => void;
 } = {}) {
+  return runExclusiveSemanticOperation("install", async () => {
   const device = await detectBrowserSemanticDevice();
   if (!device.supported || !device.device) {
     throw runtimeError(
@@ -790,6 +819,7 @@ export async function installBrowserSemanticModel(options: {
     });
     throw runtimeError("BROWSER_SEMANTIC_INSTALL_FAILED", message, error);
   }
+  });
 }
 
 export async function repairStaleBrowserSemanticRuntime(options: {
@@ -850,6 +880,7 @@ export async function embedWithBrowserSemanticModel(
   texts: string[],
   signal?: AbortSignal,
 ): Promise<BrowserSemanticEmbeddingResult> {
+  return runExclusiveSemanticOperation("embed", async () => {
   const normalized = texts.map((text) => text.trim()).filter(Boolean);
   if (!normalized.length) {
     throw runtimeError("BROWSER_SEMANTIC_INPUT_EMPTY", "語意向量工作缺少內容。");
@@ -884,11 +915,13 @@ export async function embedWithBrowserSemanticModel(
     dataLeftDevice: false,
     rawTextStored: false,
   };
+  });
 }
 
 export async function rankWithBrowserSemanticModel(
   input: BrowserSemanticRankInput,
 ): Promise<BrowserSemanticRankResult> {
+  return runExclusiveSemanticOperation("rank", async () => {
   const started = performance.now();
   const query = input.query.trim();
   const items = input.items.filter((item) => item.id && item.text.trim());
@@ -1002,6 +1035,7 @@ export async function rankWithBrowserSemanticModel(
     rawTextStored: false,
     canonicalMutation: false,
   };
+  });
 }
 
 export async function invalidateBrowserSemanticCache(
