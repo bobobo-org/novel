@@ -518,8 +518,8 @@ let fullReviewPayload = null;
 let fullReviewRequest = null;
 const fullGenerationTaskIds = [];
 const reviewedModelDigest = "a".repeat(64);
-const closedReviewResult = (request, candidateId) => {
-  const contentDigest = digestStory(fullReviewedStory);
+const closedReviewResult = (request, candidateId, content = fullReviewedStory) => {
+  const contentDigest = digestStory(content);
   return {
     taskId: request.taskId,
     candidateId,
@@ -529,7 +529,7 @@ const closedReviewResult = (request, candidateId) => {
     modelDigest: reviewedModelDigest,
     sourceChapterId: "chapter-fallback-review",
     sourceRevision: 1,
-    content: fullReviewedStory,
+    content,
     contentDigest,
     actualExecutor: "local-ollama",
     executionReceipt: {
@@ -868,6 +868,101 @@ assert.equal(
   continuityCandidate.executionReceipt.postFallbackClosedReview?.reviewStage,
   "fallback-repair",
 );
+
+const repetitionLeafCases = [
+  {
+    leafCode: "RPG_AI_CONTINUATION_WHOLE_SCENE_LOOP",
+    logicalTurnId: "logical-turn-whole-scene-loop-repair",
+    invalidStory: validStory.replace(paragraphs[0], `${paragraphs[0]}${paragraphs[0]}`),
+  },
+  {
+    leafCode: "RPG_AI_CONTINUATION_INTERNAL_PARAGRAPH_LOOP",
+    logicalTurnId: "logical-turn-internal-paragraph-loop-repair",
+    invalidStory: validStory.replace(paragraphs[4], paragraphs[3]),
+  },
+];
+const repetitionLeafRepairResults = [];
+for (const repetitionCase of repetitionLeafCases) {
+  let directValidationError = null;
+  try {
+    validateRpgStoryTurnContract(repetitionCase.invalidStory, "zh-TW");
+  } catch (error) {
+    directValidationError = error;
+  }
+  assert.equal(
+    directValidationError?.message,
+    repetitionCase.leafCode,
+    "the regression fixture must exercise the intended strict repetition validator",
+  );
+
+  const dispatchedTaskIds = [];
+  let repairPrompt = null;
+  let rejectedGenerationLeaf = null;
+  const repairedCandidate = await generateRpgChatTurnCandidate({
+    snapshot: fullSnapshot,
+    choice: fullChoice,
+    logicalTurnId: repetitionCase.logicalTurnId,
+    generationDeadlineMs: 100,
+    fallbackReviewDeadlineMs: 100,
+    coordinationDependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+    closedAIInvoker: async (request) => {
+      dispatchedTaskIds.push(request.taskId);
+      const firstDispatch = dispatchedTaskIds.length === 1;
+      const content = firstDispatch ? repetitionCase.invalidStory : fullReviewedStory;
+      const result = closedReviewResult(
+        request,
+        `${repetitionCase.leafCode.toLowerCase()}-${dispatchedTaskIds.length}`,
+        content,
+      );
+      if (!firstDispatch) repairPrompt = request.input;
+      try {
+        await request.validateBeforePersistence?.(result);
+      } catch (error) {
+        rejectedGenerationLeaf = error;
+        throw Object.assign(new Error("local provider rejected repeated prose"), {
+          code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+          cause: error,
+        });
+      }
+      return result;
+    },
+  });
+
+  assert.equal(rejectedGenerationLeaf?.message, repetitionCase.leafCode);
+  assert.deepEqual(dispatchedTaskIds, [
+    await rpgLogicalTurnGenerationTaskId(repetitionCase.logicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      repetitionCase.logicalTurnId,
+      ["repetition"],
+      1,
+    ),
+  ]);
+  assert.match(repairPrompt ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
+  assert.match(repairPrompt ?? "", /本次必補:各段事件與句式不得重複/u);
+  assert.doesNotMatch(
+    repairPrompt ?? "",
+    /海銅殘片收進證物袋/u,
+    "rejected repeated prose must not enter the repair prompt",
+  );
+  assert.equal(repairedCandidate.story, fullReviewedStory);
+  assert.equal(
+    repairedCandidate.executionReceipt.postFallbackClosedReview?.reviewStage,
+    "fallback-repair",
+  );
+  assert.equal(
+    repairedCandidate.executionReceipt.postFallbackClosedReview?.passed,
+    true,
+  );
+  repetitionLeafRepairResults.push({
+    leafCode: repetitionCase.leafCode,
+    repairTaskId: dispatchedTaskIds[1],
+  });
+}
 const fullReviewReceipt = fullReviewedCandidate.executionReceipt.postFallbackClosedReview;
 assert.equal(fullReviewReceipt?.passed, true);
 assert.equal(fullReviewReceipt?.draftCount, 3);
@@ -1198,6 +1293,7 @@ console.log(JSON.stringify({
       continuityAttempt === 2
       && !invalidCandidatePersisted
       && continuityCandidate.executionReceipt.postFallbackClosedReview?.passed === true,
+    repetitionLeafRepairs: repetitionLeafRepairResults,
   },
   independentDeadlineContract: {
     generationDeadlineMs: 180_000,

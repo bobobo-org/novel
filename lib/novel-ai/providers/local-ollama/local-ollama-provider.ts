@@ -215,6 +215,71 @@ function splitSupplementParagraphs(value: string, desired: number) {
   return rows.map((row) => row.join("")).filter(Boolean);
 }
 
+function normalizedSubstantiveSceneOverlapCharacters(value: string) {
+  return [...value.normalize("NFKC").replace(/\s+/gu, "")];
+}
+
+function rawPrefixEndForNormalizedCharacters(value: string, characterCount: number) {
+  let rawEnd = 0;
+  for (const character of value) {
+    rawEnd += character.length;
+    if (
+      normalizedSubstantiveSceneOverlapCharacters(value.slice(0, rawEnd)).length
+      >= characterCount
+    ) return rawEnd;
+  }
+  return value.length;
+}
+
+/**
+ * Removes only a supplement prefix that exactly replays the existing scene's
+ * suffix after NFKC and whitespace normalization. It never removes an interior
+ * or approximate match, and the final application validators remain unchanged.
+ */
+export function trimSubstantiveSceneContinuationOverlap(
+  existing: string,
+  supplement: string,
+  minimumOverlapCharacters = 24,
+) {
+  const existingCharacters = normalizedSubstantiveSceneOverlapCharacters(existing);
+  const supplementCharacters = normalizedSubstantiveSceneOverlapCharacters(supplement);
+  const maximumOverlap = Math.min(existingCharacters.length, supplementCharacters.length);
+  let overlapCharacters = 0;
+
+  overlapSearch:
+  for (
+    let length = maximumOverlap;
+    length >= minimumOverlapCharacters;
+    length -= 1
+  ) {
+    const existingStart = existingCharacters.length - length;
+    for (let index = 0; index < length; index += 1) {
+      if (existingCharacters[existingStart + index] !== supplementCharacters[index]) {
+        continue overlapSearch;
+      }
+    }
+    overlapCharacters = length;
+    break;
+  }
+
+  if (!overlapCharacters) {
+    return {
+      content: supplement,
+      repaired: false,
+      overlapCharacters: 0,
+    };
+  }
+  const rawPrefixEnd = rawPrefixEndForNormalizedCharacters(
+    supplement,
+    overlapCharacters,
+  );
+  return {
+    content: supplement.slice(rawPrefixEnd).replace(/^\s+/u, ""),
+    repaired: true,
+    overlapCharacters,
+  };
+}
+
 export function mergeSubstantiveSceneContinuation(
   existing: string,
   supplement: string,
@@ -226,11 +291,16 @@ export function mergeSubstantiveSceneContinuation(
     LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS - metrics.narrativeLength,
   );
   if (!maximumAdditionalCharacters) return original;
+  const unwrappedSupplement = supplement
+    .replace(/^\s*```(?:text|markdown)?\s*/iu, "")
+    .replace(/\s*```\s*$/iu, "")
+    .trim();
+  const overlapRepair = trimSubstantiveSceneContinuationOverlap(
+    original,
+    unwrappedSupplement,
+  );
   const cleaned = trimAtCompleteSentence(
-    supplement
-      .replace(/^\s*```(?:text|markdown)?\s*/iu, "")
-      .replace(/\s*```\s*$/iu, "")
-      .trim(),
+    overlapRepair.content.trim(),
     maximumAdditionalCharacters,
   );
   if (!cleaned) return original;
@@ -718,6 +788,7 @@ export async function runLocalOllama(
   let substantiveSupplementPasses = 0;
   let substantiveInitialBoundaryRepaired = false;
   let substantiveDialogueQuotesRepaired = false;
+  let substantiveOverlapRepaired = false;
   if (request.generationOptions?.substantiveScene) {
     // A bounded first pass commonly stops at its token ceiling. Repair its
     // model-authored incomplete tail before measuring it or embedding it as
@@ -792,6 +863,10 @@ export async function runLocalOllama(
           substantiveSupplementPasses === 1 ? 0.66 : 0.6,
         ),
         top_p: Math.min(requestedTopP, 0.88),
+        repeat_penalty: Math.max(
+          effectiveProfile.options.repeat_penalty,
+          substantiveSupplementPasses === 1 ? 1.24 : 1.28,
+        ),
         seed: ((request.generationOptions?.seed ?? 0)
           + substantiveSupplementPasses * 104_729) >>> 0,
       },
@@ -837,8 +912,18 @@ export async function runLocalOllama(
       [request.input, normalizedContent].join("\n"),
     );
     assertSafeLocalSelectedOutput(normalizedSupplement);
+    const unwrappedSupplement = normalizedSupplement
+      .replace(/^\s*```(?:text|markdown)?\s*/iu, "")
+      .replace(/\s*```\s*$/iu, "")
+      .trim();
+    const supplementOverlap = trimSubstantiveSceneContinuationOverlap(
+      normalizedContent,
+      unwrappedSupplement,
+    );
+    substantiveOverlapRepaired = substantiveOverlapRepaired
+      || supplementOverlap.repaired;
     const supplementDialogueQuotes = repairLocalChineseDialogueQuotes(
-      normalizedSupplement,
+      supplementOverlap.content,
     );
     substantiveDialogueQuotesRepaired = substantiveDialogueQuotesRepaired
       || supplementDialogueQuotes.repaired;
@@ -887,6 +972,8 @@ export async function runLocalOllama(
         ? ":completion-boundary-repaired"
         : ""
     }${
+      substantiveOverlapRepaired ? ":substantive-overlap-repaired" : ""
+    }${
       runtimeOptions?.boundedQualityRepair ? ":bounded-quality-repair" : ""
     }${
       request.generationOptions?.substantiveScene ? ":substantive-scene" : ""
@@ -906,6 +993,7 @@ export async function runLocalOllama(
         || substantiveDialogueQuotesRepaired
         ? "completion-boundary-repaired=1"
         : null,
+      substantiveOverlapRepaired ? "substantive-overlap-repaired=1" : null,
       substantiveSupplementRunId
         ? `substantive-supplement-provider-run-id=${substantiveSupplementRunId}`
         : null,

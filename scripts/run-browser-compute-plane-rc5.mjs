@@ -164,6 +164,7 @@ import {
   mergeSubstantiveSceneContinuation,
   repairLocalChineseDialogueQuotes,
   repairLocalProseCompletionBoundary,
+  trimSubstantiveSceneContinuationOverlap,
   resolveLocalOllamaPerformanceBudget,
   SMALL_LOCAL_SUBSTANTIVE_SCENE_FINAL_SUPPLEMENT_MAX_OUTPUT_TOKENS,
   SMALL_LOCAL_SUBSTANTIVE_SCENE_INITIAL_MAX_OUTPUT_TOKENS,
@@ -11031,6 +11032,61 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.ok(mergedMetrics.narrativeLength > continuationPlan.metrics.narrativeLength);
   assert.equal(mergedMetrics.paragraphCount, 8);
   assert.ok(mergedMetrics.narrativeLength <= 1_450);
+  const replayedTail = "沈曜收緊濕透的繩結，聽見石門後第三次敲擊，才示意守塔人退到燈影之外。";
+  const uniqueContinuation = "他沒有重述剛才的動作，而是沿排水槽找到一枚新鮮的青銅碎屑。";
+  const existingWithTail = `${shortScene}\n\n${replayedTail}`;
+  const exactOverlap = trimSubstantiveSceneContinuationOverlap(
+    existingWithTail,
+    `${replayedTail}\n\n${uniqueContinuation}`,
+  );
+  assert.equal(exactOverlap.repaired, true);
+  assert.ok(exactOverlap.overlapCharacters >= 24);
+  assert.equal(exactOverlap.content, uniqueContinuation);
+  const mergedOverlap = mergeSubstantiveSceneContinuation(
+    existingWithTail,
+    `${replayedTail}\n\n${uniqueContinuation}`,
+  );
+  assert.equal(mergedOverlap.split(replayedTail).length - 1, 1);
+  assert.equal(mergedOverlap.split(uniqueContinuation).length - 1, 1);
+  const normalizedExistingTail = "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸ";
+  const normalizedSupplementTail = "A B C D E F G H I J K L M N O P Q R S T U V W X";
+  const normalizedOverlap = trimSubstantiveSceneContinuationOverlap(
+    `前文。${normalizedExistingTail}`,
+    `${normalizedSupplementTail}\n${uniqueContinuation}`,
+  );
+  assert.equal(normalizedOverlap.repaired, true);
+  assert.equal(normalizedOverlap.overlapCharacters, 24);
+  assert.equal(normalizedOverlap.content, uniqueContinuation);
+  const belowThreshold = "甲".repeat(23);
+  assert.deepEqual(
+    trimSubstantiveSceneContinuationOverlap(
+      `前文。${belowThreshold}`,
+      `${belowThreshold}${uniqueContinuation}`,
+    ),
+    {
+      content: `${belowThreshold}${uniqueContinuation}`,
+      repaired: false,
+      overlapCharacters: 0,
+    },
+  );
+  const interiorReplay = `不同開端。${replayedTail}${uniqueContinuation}`;
+  assert.deepEqual(
+    trimSubstantiveSceneContinuationOverlap(existingWithTail, interiorReplay),
+    {
+      content: interiorReplay,
+      repaired: false,
+      overlapCharacters: 0,
+    },
+  );
+  const punctuationMismatch = `${replayedTail.replace(/。$/u, "，")}${uniqueContinuation}`;
+  assert.deepEqual(
+    trimSubstantiveSceneContinuationOverlap(existingWithTail, punctuationMismatch),
+    {
+      content: punctuationMismatch,
+      repaired: false,
+      overlapCharacters: 0,
+    },
+  );
   assert.equal(resolveLocalOllamaPerformanceBudget({
     taskType: "chapter.continue",
     modelId: "qwen2.5:3b",

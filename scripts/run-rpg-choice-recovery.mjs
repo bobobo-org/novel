@@ -29,6 +29,7 @@ import {
 import {
   inspectRpgChoiceTurn,
   resolveRpgExecutionRecoveryMode,
+  rpgSafeContinuityFailures,
   rpgChoiceUserContent,
   rpgUserMessageMatchesChoice,
   useConversationRpgController,
@@ -47,6 +48,46 @@ import {
 
 const projectId = "project-rpg-recovery";
 const sessionId = "session-rpg-recovery";
+
+assert.deepEqual(
+  rpgSafeContinuityFailures({
+    reviewContinuityFailures: ["review_failure", "review_failure"],
+    generationContinuityFailures: ["generation_failure"],
+    continuityFailures: ["direct_failure"],
+  }),
+  ["review_failure"],
+  "non-empty review failures must take precedence and remain deduplicated",
+);
+assert.deepEqual(
+  rpgSafeContinuityFailures({
+    reviewContinuityFailures: [],
+    generationContinuityFailures: ["generation_failure"],
+    continuityFailures: ["direct_failure"],
+  }),
+  ["generation_failure"],
+  "an empty review failure list must not hide generation failures",
+);
+assert.deepEqual(
+  rpgSafeContinuityFailures({
+    reviewContinuityFailures: [],
+    generationContinuityFailures: [],
+    continuityFailures: ["direct_failure"],
+  }),
+  ["direct_failure"],
+  "empty review and generation failure lists must not hide direct failures",
+);
+assert.deepEqual(
+  rpgSafeContinuityFailures({
+    reviewContinuityFailures: [],
+    generationContinuityFailures: [],
+    continuityFailures: [],
+    cause: {
+      generationContinuityFailures: ["nested_generation_failure"],
+    },
+  }),
+  ["nested_generation_failure"],
+  "empty failure lists must not stop safe cause traversal",
+);
 
 assert.equal(
   rpgChoiceRuleFallbackReason({

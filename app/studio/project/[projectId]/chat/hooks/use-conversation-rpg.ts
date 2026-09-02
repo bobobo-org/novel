@@ -96,24 +96,28 @@ function rpgLeafErrorCode(error: unknown) {
   return leaf ?? rpgErrorCode(error);
 }
 
-function rpgSafeContinuityFailures(error: unknown) {
+export function rpgSafeContinuityFailures(error: unknown) {
   let current = error;
   for (let depth = 0; depth < 12 && current && typeof current === "object"; depth += 1) {
     const source = current as {
       reviewContinuityFailures?: unknown;
+      generationContinuityFailures?: unknown;
       continuityFailures?: unknown;
       cause?: unknown;
     };
-    const rawFailures = Array.isArray(source.reviewContinuityFailures)
-      ? source.reviewContinuityFailures
-      : source.continuityFailures;
-    if (
-      Array.isArray(rawFailures)
-      && rawFailures.length
-      && rawFailures.every((failure) => (
-        typeof failure === "string" && /^[a-z_]{1,40}$/u.test(failure)
-      ))
-    ) return [...new Set(rawFailures)] as string[];
+    for (const rawFailures of [
+      source.reviewContinuityFailures,
+      source.generationContinuityFailures,
+      source.continuityFailures,
+    ]) {
+      if (
+        Array.isArray(rawFailures)
+        && rawFailures.length
+        && rawFailures.every((failure) => (
+          typeof failure === "string" && /^[a-z_]{1,40}$/u.test(failure)
+        ))
+      ) return [...new Set(rawFailures)] as string[];
+    }
     current = source.cause;
   }
   return [];

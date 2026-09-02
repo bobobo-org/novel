@@ -213,6 +213,11 @@ const RPG_NOVEL_CONTINUITY_FAILURES = new Set<NovelContinuityGateFailure>([
   "repetition",
 ]);
 
+const RPG_NOVEL_REPETITION_LEAF_CODES = new Set([
+  "RPG_AI_CONTINUATION_WHOLE_SCENE_LOOP",
+  "RPG_AI_CONTINUATION_INTERNAL_PARAGRAPH_LOOP",
+]);
+
 function rpgNovelContinuityFailures(error: unknown) {
   let current = error;
   for (let depth = 0; depth < 6 && current && typeof current === "object"; depth += 1) {
@@ -233,6 +238,9 @@ function rpgNovelContinuityFailures(error: unknown) {
       return [...new Set(candidate.continuityFailures)] as NovelContinuityGateFailure[];
     }
     current = candidate.cause;
+  }
+  if (RPG_NOVEL_REPETITION_LEAF_CODES.has(safeRpgFailureLeafCode(error) ?? "")) {
+    return ["repetition"] satisfies NovelContinuityGateFailure[];
   }
   return null;
 }
