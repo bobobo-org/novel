@@ -891,9 +891,9 @@ export function buildCompactRpgResolutionDirectorPrompt(input: {
     : "首段須承接「最近正式正文尾」的兩個具體錨點與緊接動作。";
   const protectedLines = [
     "[RPG_SCENE_CONTRACT_V2]",
-    `語言:${outputLanguage}。只輸出〈具體標題〉與正文；1100–1500 字、8–16 段、至少 12 句。${openingContinuityInstruction}`,
+    `語言:${outputLanguage}。回應第一字須為〈；只輸出〈具體標題〉與正文；1100–1500 字、8–16 段、至少 12 句。${openingContinuityInstruction}`,
     `選定行動須落地、受阻、付代價並產生鎖定結果；須有三個可見動作、具名說話的「」對話、兩種感官、自然因果與未解線索，並以突然出現的新危機或聲音收尾。${supportingCharacterInstruction}`,
-    "只能用列出的人物、能力、時代、物件、所有權與 Canon；不足時用普通行動、求助或失敗。對話「」須閉合，內引改『』。禁分析、規則、數值表、JSON、Markdown、選項與介面字。",
+    "只能用列出的人物、能力、時代、物件、所有權與 Canon；不足時用普通行動、求助或失敗。對話「」須閉合，內引改『』。禁分析、規則、數值表、JSON、Markdown、選項與介面字；不得複誦契約、標記、冒號欄位、條列或驗收文字。",
     `選擇:${compactRpgPromptField(choice.key, 8)}｜${compactRpgPromptField(choice.title, 32)}｜${compactRpgPromptField(choice.description, 42)}｜阻力=${compactRpgPromptField(storySignals.complication, 28)}｜代價=${compactRpgPromptField(choice.consequenceTeaser, 28)}`,
     `鎖定結果:${compactRpgPromptField(input.resolution.outcomeLabel, 32)}｜${settlement.join("；")}`,
     `最近正式正文尾:${compactRpgPromptTailField(chapter.recentText, 180)}`,

@@ -86,6 +86,28 @@ assert.ok(
   "near-restated supplement prose must remain fail-closed at the application gate",
 );
 
+const invitationActionGate = evaluateNovelContinuityGate({
+  prose: [
+    "廊下風聲漸低，林澄邀請親友同行，蘇錦魚應允後招手讓眾人靠攏。",
+    "他們前往渡口時並肩護住證物，冷雨貼過掌心，因此誰也沒有落單。",
+  ].join("\n\n"),
+  language: "zh-TW",
+  minimumHanCharacters: 0,
+  minimumCharacters: 0,
+  minimumParagraphs: 1,
+  minimumDialogueCount: 0,
+  requireForeshadowing: false,
+  requireSerialHook: false,
+});
+assert.ok(
+  invitationActionGate.metrics.narrativeActionCueCount >= 3,
+  "inviting companions and visibly moving together must count as concrete story progression",
+);
+assert.ok(
+  !invitationActionGate.failures.includes("action_progression"),
+  "a companion-invitation scene must not fail only because its concrete verbs were absent from the cue lexicon",
+);
+
 const simplifiedChineseGate = evaluateNovelContinuityGate({
   prose: [
     "雨水打在门外的石阶上，沈岚推开侧门，踏进黑暗的走廊。她听见窗边传来脚步声，潮湿纸页的气味贴在袖口。",
@@ -686,6 +708,11 @@ const nearCapRepairSceneContract = buildCompactRpgResolutionDirectorPrompt({
     settlement: ["結".repeat(30), "算".repeat(30), "果".repeat(30)],
   },
 });
+assert.match(nearCapRepairSceneContract, /回應第一字須為〈/u);
+assert.match(
+  nearCapRepairSceneContract,
+  /不得複誦契約、標記、冒號欄位、條列或驗收文字/u,
+);
 assert.ok(
   nearCapRepairSceneContract.length >= 1_450,
   "the repair budget fixture must exercise a legitimately dense compact contract",
@@ -710,8 +737,12 @@ assert.ok(nearCapRepairInnerContract.length <= 1_600);
 assert.ok(nearCapRepairPrompt.length <= 1_950);
 assert.match(
   nearCapRepairPrompt,
-  /十段各推進不同事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
+  /每段只推進一個不同的新事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
 );
+assert.match(nearCapRepairPrompt, /回應第一個字必須是〈/u);
+assert.match(nearCapRepairPrompt, /不得複誦契約、中括號標記或冒號欄位/u);
+assert.doesNotMatch(nearCapRepairPrompt, /正文須有10個空行分隔段落/u);
+assert.doesNotMatch(nearCapRepairPrompt, /門外突然傳來聲音/u);
 const fullReviewedStory = validStory
   .replace("林澄沿泥痕", `林澄決定${fullChoice.title}，沿泥痕`)
   .replace("雨已經停了", "失敗的換封伎倆雖已拆穿，眾人仍付出代價。雨已經停了");
@@ -957,11 +988,13 @@ let continuityRepairPrompt = null;
 let continuityRepairBudget = null;
 let invalidCandidatePersisted = false;
 let continuityFailure = null;
+const continuityProgress = [];
 const continuityCandidate = await generateRpgChatTurnCandidate({
   snapshot: continuitySnapshot,
   choice: fullChoice,
   logicalTurnId: "logical-turn-continuity-fallback-review",
   generationDeadlineMs: 100,
+  onProgress: (event) => continuityProgress.push(structuredClone(event)),
   coordinationDependencies: {
     now: () => continuityClock,
     wait: async (delayMs) => {
@@ -977,6 +1010,15 @@ const continuityCandidate = await generateRpgChatTurnCandidate({
   closedAIInvoker: async (request) => {
     continuityAttempt += 1;
     continuityTaskIds.push(request.taskId);
+    request.onProgress?.({
+      taskId: request.taskId,
+      phase: "generating",
+      label: continuityAttempt === 1 ? "直接正文生成" : "底層模型串流",
+      percent: 50,
+      occurredAt: "2026-09-03T00:00:00.000Z",
+      generatedCharacters: continuityAttempt === 1 ? 1_126 : 87,
+      generatedTokenEvents: continuityAttempt === 1 ? 448 : 32,
+    });
     if (continuityAttempt === 2) {
       continuityRepairPrompt = request.input;
       continuityRepairBudget = request.generationOptions?.substantiveSceneBudget ?? null;
@@ -1049,6 +1091,18 @@ assert.equal(continuityClock, 0, "a continuity rejection must enter independent 
 assert.equal(continuityWaits, 0, "neither dispatched stage may enter readiness polling after completion");
 assert.equal(continuityProbes, 2, "generation and fallback repair each perform one pre-dispatch readiness check");
 assert.deepEqual(
+  continuityProgress.map((event) => ({
+    label: event.label,
+    generatedCharacters: event.generatedCharacters,
+  })),
+  [
+    { label: "直接正文生成", generatedCharacters: 1_126 },
+    { label: "隱藏複核修正", generatedCharacters: 0 },
+    { label: "隱藏複核修正", generatedCharacters: 87 },
+  ],
+  "fallback repair must reset the visible count and relabel every repair stream update",
+);
+assert.deepEqual(
   continuityTaskIds,
   [
     await rpgLogicalTurnGenerationTaskId("logical-turn-continuity-fallback-review", 1),
@@ -1067,12 +1121,14 @@ assert.equal(
   "only the digest-bound fallback repair may use the application completion floor",
 );
 assert.match(continuityRepairPrompt ?? "", /RPG_SCENE_CONTRACT_V2/u);
-assert.match(continuityRepairPrompt ?? "", /本次必補:/u);
-assert.match(continuityRepairPrompt ?? "", /正文第一段須自然且逐字放入「沿泥痕追查換封者」與「林澄」/u);
-assert.match(continuityRepairPrompt ?? "", /場景詞含門外與火光/u);
-assert.match(continuityRepairPrompt ?? "", /動作詞含推開、握住、轉身/u);
-assert.match(continuityRepairPrompt ?? "", /正文明寫因此形成因果/u);
-assert.match(continuityRepairPrompt ?? "", /末220字須自然寫出「門外突然傳來聲音」/u);
+assert.match(continuityRepairPrompt ?? "", /本次重寫只需特別修正以下缺項/u);
+assert.match(continuityRepairPrompt ?? "", /首段自然逐字承接「沿泥痕追查換封者」/u);
+assert.match(continuityRepairPrompt ?? "", /符合當下世界的具體環境細節/u);
+assert.match(continuityRepairPrompt ?? "", /至少三個符合當下情境、真正改變局勢的具體動作/u);
+assert.match(continuityRepairPrompt ?? "", /自然因果連接選定行動、阻力、代價與鎖定結果/u);
+assert.doesNotMatch(continuityRepairPrompt ?? "", /動作詞含推開、握住、轉身/u);
+assert.doesNotMatch(continuityRepairPrompt ?? "", /門外突然傳來聲音/u);
+assert.doesNotMatch(continuityRepairPrompt ?? "", /完整對話。/u);
 assert.ok((continuityRepairPrompt?.length ?? Infinity) <= 1_950);
 assert.doesNotMatch(continuityRepairPrompt ?? "", /抽象概念的排列/u, "the rejected prose must never enter its repair prompt");
 assert.equal(continuityCandidate.story, fullReviewedStory);
@@ -1459,7 +1515,10 @@ for (const repetitionCase of repetitionLeafCases) {
     "generation retains the standard target while every bounded repair uses the application floor",
   );
   assert.match(repairPrompt ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
-  assert.match(repairPrompt ?? "", /本次必補:各段事件與句式不得重複/u);
+  assert.match(
+    repairPrompt ?? "",
+    /本次重寫只需特別修正以下缺項.*每段只推進一個不同的新事件或後果/u,
+  );
   assert.doesNotMatch(
     repairPrompt ?? "",
     /海銅殘片收進證物袋/u,
@@ -1673,20 +1732,20 @@ assert.deepEqual(
   ],
   "the second repair must receive a fresh task identity bound to its actual report-style leaf",
 );
-assert.match(adaptiveReportStyleRequests[1]?.input ?? "", /各段事件與句式不得重複/u);
+assert.match(adaptiveReportStyleRequests[1]?.input ?? "", /每段只推進一個不同的新事件或後果/u);
 assert.match(
   adaptiveReportStyleRequests[1]?.input ?? "",
-  /十段各推進不同事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
+  /每段只推進一個不同的新事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
   "a repetition repair must give the small local model an operational anti-restart contract",
 );
 assert.match(
   adaptiveReportStyleRequests[2]?.input ?? "",
-  /全篇以人物行動、對話與感官連續推進同一場景/u,
+  /只用人物行動、對話與感官連續寫同一場景.*移除報告、清單、欄位與解釋口吻/u,
   "the adapted prompt must explicitly demand reader-facing novel prose",
 );
 assert.match(
   adaptiveReportStyleRequests[2]?.input ?? "",
-  /十段各推進不同事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
+  /每段只推進一個不同的新事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
 );
 assert.doesNotMatch(
   adaptiveReportStyleRequests[2]?.input ?? "",
@@ -1905,7 +1964,7 @@ assert.equal(
 );
 assert.match(
   scrambledInitialRepair.requests[1]?.input ?? "",
-  /本次必補:1200–1450字；全篇以人物行動、對話與感官連續推進同一場景/u,
+  /本次重寫只需特別修正以下缺項.*不灌水、不重述，補足到契約規定的字數範圍；只用人物行動、對話與感官連續寫同一場景/u,
 );
 assert.equal(
   scrambledInitialRepair.requests[1]?.applicationValidationBindingDigest,
@@ -1968,7 +2027,7 @@ for (const resumed of [firstEvenRepairResume, secondEvenRepairResume]) {
   assert.equal(resumed.requests[0]?.taskId, resumed.resumeProviderTaskId);
   assert.match(
     resumed.requests[0]?.input ?? "",
-    /本次必補:全篇以人物行動、對話與感官連續推進同一場景；各段事件與句式不得重複/u,
+    /本次重寫只需特別修正以下缺項.*只用人物行動、對話與感官連續寫同一場景.*每段只推進一個不同的新事件或後果/u,
   );
   assert.equal(
     resumed.candidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,

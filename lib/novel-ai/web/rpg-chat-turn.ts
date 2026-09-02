@@ -4041,23 +4041,6 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   continuityExcerpt: string;
   activeCharacterNames: readonly string[];
 }) {
-  const requirementLabels: Record<RpgContinuityRepairFailure, string> = {
-    length: "1200–1450字",
-    paragraphs: "正文10個空行分隔段落",
-    dialogue: "至少兩句完整「」對話",
-    dialogue_attribution: "對話同段用具名人物說道／問道／答道",
-    continuity_anchor: "首段逐字重用指定承接短句",
-    active_character: "正文明寫指定主角名",
-    offstage_character: "只用契約列出的人物",
-    narrative_scene: "場景詞含門外與火光",
-    action_progression: "動作詞含推開、握住、轉身",
-    sensory_detail: "感官詞含聽見與冰冷",
-    report_style: "全篇以人物行動、對話與感官連續推進同一場景",
-    causality: "正文明寫因此形成因果",
-    foreshadowing: "正文明寫線索",
-    serial_hook: "末220字含門外突然傳來聲音",
-    repetition: "各段事件與句式不得重複",
-  };
   const uniqueFailures = [...new Set(input.failures)];
   if (!uniqueFailures.length || uniqueFailures.some((failure) => (
     !RPG_CONTINUITY_REPAIR_FAILURE_ORDER.includes(failure)
@@ -4071,18 +4054,28 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   const continuityAnchor = Array.from(anchorSource).slice(-8).join("");
   const activeCharacter = input.activeCharacterNames.find((name) => name.trim().length >= 2)?.trim()
     ?? "主角";
-  const repairLine = `本次必補:${uniqueFailures.map((failure) => (
+  const requirementLabels: Record<RpgContinuityRepairFailure, string> = {
+    length: "不灌水、不重述，補足到契約規定的字數範圍",
+    paragraphs: "依動作與反應的自然節奏寫足契約要求的完整段落",
+    dialogue: "加入能改變局勢的完整「」對話",
+    dialogue_attribution: "至少一處用具名人物的說道、問道或答道自然標明說話者",
+    continuity_anchor: continuityAnchor
+      ? `首段自然逐字承接「${continuityAnchor}」，隨即用新動作繼續`
+      : "首段自然承接最近正式正文尾的兩個具體錨點，隨即用新動作繼續",
+    active_character: `讓「${activeCharacter}」具名登場並實際推動局勢`,
+    offstage_character: "只使用場景契約列出或允許的人物",
+    narrative_scene: "用至少兩個符合當下世界的具體環境細節建立場景",
+    action_progression: "讓人物完成至少三個符合當下情境、真正改變局勢的具體動作",
+    sensory_detail: "加入至少兩種與現場物件相連的具體感官",
+    report_style: "只用人物行動、對話與感官連續寫同一場景，移除報告、清單、欄位與解釋口吻",
+    causality: "用自然因果連接選定行動、阻力、代價與鎖定結果",
+    foreshadowing: "以現場可觀察的異樣或未解事物留下伏筆",
+    serial_hook: "最後以本次行動造成的新危機、聲音或迫近事件形成自然鉤子",
+    repetition: "每段只推進一個不同的新事件或後果，不回述前文，不重用段首、主要句式或對話意圖",
+  };
+  const repairLine = `本次重寫只需特別修正以下缺項，並同時遵守其餘契約要求。${uniqueFailures.map((failure) => (
     requirementLabels[failure]
   )).join("；")}`;
-  const visibleEvidenceLines = [
-    `正文第一段須自然且逐字放入「${continuityAnchor || "最近正式正文尾"}」與「${activeCharacter}」。`,
-    "場景中須自然寫出門外與火光；人物須依次推開、握住並轉身，也須聽見聲響並碰到冰冷物件。",
-    `至少一段使用${activeCharacter}說道：「完整對話。」的句型；前因後果中須明寫「因此」，並留下明寫為「線索」的未解事物。`,
-    "正文須有10個空行分隔段落；末220字須自然寫出「門外突然傳來聲音」，並以完整小說句號收尾。",
-    uniqueFailures.includes("repetition")
-      ? "十段各推進不同事件或後果，不回述前文，不重用段首、主要句式或對話意圖。"
-      : "十段都直接描寫人物行動、對話、感官與因果，從第一句到末句保持自然小說敘事。",
-  ];
   const contractLines = input.sceneContract.split("\n");
   const contractEndIndex = contractLines.lastIndexOf("[/RPG_SCENE_CONTRACT_V2]");
   if (contractEndIndex < 0) {
@@ -4090,7 +4083,7 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
       code: "RPG_FALLBACK_REPAIR_SCENE_CONTRACT_INVALID",
     });
   }
-  contractLines.splice(contractEndIndex, 0, repairLine, ...visibleEvidenceLines);
+  contractLines.splice(contractEndIndex, 0, repairLine);
   let repairSceneContract = contractLines.join("\n");
   for (const optionalPrefix of ["既有資產:", "作品:", "場景:"]) {
     if (repairSceneContract.length <= 1_600) break;
@@ -4107,8 +4100,8 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   }
   const prompt = [
     "[RPG_FALLBACK_CONTINUITY_REPAIR_V1]",
-    "前一份模型正文未通過連貫性檢查，已丟棄且不會提供。只依下列受保護契約重新獨立寫出全新場景。",
-    "契約末行列出本次實際缺項；每一項都必須在正文中可直接辨認。只輸出標題與小說正文。",
+    "前一份模型正文未通過連貫性檢查，已丟棄且不會提供。只依下列受保護契約重寫；回應第一個字必須是〈，只輸出單一標題與自然小說段落。",
+    "不得複誦契約、中括號標記或冒號欄位，不得列清單、編號或驗收說明；契約末行的修正提示只供內部執行，不得抄進正文。",
     repairSceneContract,
     "[/RPG_FALLBACK_CONTINUITY_REPAIR_V1]",
   ].join("\n");
@@ -4716,6 +4709,21 @@ export async function generateRpgChatTurnCandidate(input: {
             attempt,
             effectiveRepairFailures ?? undefined,
           );
+          if (reviewStage === "fallback-repair") {
+            try {
+              input.onProgress?.({
+                taskId: reviewTaskId,
+                phase: "revising",
+                label: "隱藏複核修正",
+                percent: 0,
+                occurredAt: new Date().toISOString(),
+                generatedCharacters: 0,
+                generatedTokenEvents: 0,
+              });
+            } catch {
+              // Progress is observational and cannot alter the repair transaction.
+            }
+          }
           const reviewResult = await invokeClosedAI({
             projectId: input.snapshot.project.id,
             task: "branch_choice",
@@ -4790,7 +4798,18 @@ export async function generateRpgChatTurnCandidate(input: {
                 : {}),
             },
             signal: attemptSignal,
-            onProgress: input.onProgress,
+            onProgress: reviewStage === "fallback-repair"
+              ? (event) => {
+                  try {
+                    input.onProgress?.({
+                      ...event,
+                      label: "隱藏複核修正",
+                    });
+                  } catch {
+                    // Progress is observational and cannot alter the repair transaction.
+                  }
+                }
+              : input.onProgress,
           });
           try {
             if (

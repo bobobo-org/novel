@@ -5,6 +5,10 @@ import {
   friendlyConversationExecutionError,
   friendlyFailedAssistantContent,
 } from "../app/studio/project/[projectId]/chat/components/execution-trace-model.ts";
+import {
+  rpgLeafErrorCode,
+  rpgSafeContinuityFailures,
+} from "../app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts";
 
 function invocation(overrides = {}) {
   return {
@@ -55,6 +59,69 @@ assert.equal(ai.stages[2].state, "complete");
 assert.match(ai.stages[2].description, /本機 Ollama/u);
 assert.equal(ai.stages[3].state, "skipped");
 assert.match(ai.stages[3].description, /沒有使用規則後備/u);
+
+const failedParent = invocation({
+  id: "rpg-parent-failed",
+  status: "failed",
+  safeErrorCode: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+  safeProgress: {
+    stage: "failed-quality",
+    percent: 100,
+    message: "連貫性安全檢查缺項：action_progression、report_style",
+  },
+});
+const completedNested = invocation({
+  id: "nested-closed-ai-completed",
+  toolId: "closed-agent-os:conversation-plan",
+  actualExecutor: "local-ollama",
+  modelId: "qwen-local",
+});
+const failedParentTrace = buildConversationExecutionTrace([
+  failedParent,
+  completedNested,
+]);
+assert.ok(failedParentTrace);
+assert.equal(failedParentTrace.invocation.id, failedParent.id);
+assert.equal(failedParentTrace.summary, "這次操作暫時沒有完成");
+assert.equal(failedParentTrace.badge, "未完成");
+assert.deepEqual(failedParentTrace.safeFailure, {
+  leafCode: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+  continuityFailures: ["action_progression", "report_style"],
+});
+
+const wrappedRpgFailure = Object.assign(new Error("closed review failed"), {
+  code: "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
+  reviewFailureLeafCode: "RPG_AI_CONTINUATION_REPETITIVE",
+  generationFailureLeafCode: "RPG_AI_CONTINUATION_TOO_SHORT",
+  reviewContinuityFailures: ["report_style", "action_progression"],
+  cause: Object.assign(new Error("RPG_AI_CONTINUATION_TOO_SHORT"), {
+    code: "RPG_AI_CONTINUATION_TOO_SHORT",
+  }),
+});
+assert.equal(
+  rpgLeafErrorCode(wrappedRpgFailure),
+  "RPG_AI_CONTINUATION_REPETITIVE",
+  "the preserved final review leaf must outrank the earlier generation cause",
+);
+assert.deepEqual(
+  rpgSafeContinuityFailures(wrappedRpgFailure),
+  ["report_style", "action_progression"],
+);
+
+const unavailableReviewFailure = Object.assign(new Error("closed review unavailable"), {
+  code: "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
+  reviewFailureLeafCode: null,
+  generationFailureLeafCode: "RPG_AI_CONTINUATION_REPETITIVE",
+  reviewFailureCode: "MODEL_UNAVAILABLE",
+  cause: Object.assign(new Error("model unavailable"), {
+    code: "MODEL_UNAVAILABLE",
+  }),
+});
+assert.equal(
+  rpgLeafErrorCode(unavailableReviewFailure),
+  "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
+  "an unavailable final review must not be misreported as an older generation leaf",
+);
 
 const choices = buildConversationExecutionTrace([invocation({
   toolId: "closed-agent-os:rpg-choice-plan",
@@ -109,7 +176,9 @@ const [rowSource, timelineSource, traceSource] = await Promise.all([
 assert.match(rowSource, /<ConversationExecutionTrace/u);
 assert.match(timelineSource, /friendlyConversationExecutionError/u);
 assert.match(traceSource, /查看本機技術收據/u);
-assert.doesNotMatch(traceSource, /safeErrorCode/u);
+assert.match(traceSource, /data-safe-failure-leaf/u);
+assert.match(traceSource, /data-safe-continuity-failures/u);
+assert.doesNotMatch(traceSource, /safeProgress\?\.message/u);
 
 console.log(JSON.stringify({
   suite: "conversation-execution-trace",

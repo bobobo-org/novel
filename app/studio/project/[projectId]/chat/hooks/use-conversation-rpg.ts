@@ -81,17 +81,33 @@ function rpgErrorCode(error: unknown) {
   return "CONVERSATION_RPG_FAILED";
 }
 
-function rpgLeafErrorCode(error: unknown) {
+const SAFE_RPG_ERROR_CODE = /^RPG_[A-Z0-9_]{1,100}$/u;
+
+function safeRpgErrorCode(value: unknown) {
+  return typeof value === "string" && SAFE_RPG_ERROR_CODE.test(value)
+    ? value
+    : null;
+}
+
+export function rpgLeafErrorCode(error: unknown) {
   let current = error;
   let leaf: string | null = null;
   for (let depth = 0; depth < 5 && current && typeof current === "object"; depth += 1) {
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === "string" && /^RPG_[A-Z0-9_]{1,100}$/u.test(code)) {
-      leaf = code;
-    }
+    const source = current as {
+      code?: unknown;
+      reviewFailureLeafCode?: unknown;
+      cause?: unknown;
+    };
+    // The fallback wrapper explicitly preserves the final review leaf. Prefer
+    // it over a deeper generation cause, because it is the actual gate that
+    // prevented this parent RPG turn from producing a candidate.
+    const preservedLeaf = safeRpgErrorCode(source.reviewFailureLeafCode);
+    if (preservedLeaf) return preservedLeaf;
+    const code = safeRpgErrorCode(source.code);
+    if (code) leaf = code;
     const message = current instanceof Error ? current.message.trim() : "";
-    if (/^RPG_[A-Z0-9_]{1,100}$/u.test(message)) leaf = message;
-    current = (current as { cause?: unknown }).cause;
+    if (SAFE_RPG_ERROR_CODE.test(message)) leaf = message;
+    current = source.cause;
   }
   return leaf ?? rpgErrorCode(error);
 }

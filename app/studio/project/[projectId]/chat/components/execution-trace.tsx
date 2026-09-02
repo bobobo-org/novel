@@ -24,6 +24,8 @@ export function ConversationExecutionTrace({
       aria-label="本回合閉端執行路徑"
       data-testid="conversation-execution-trace"
       data-trace-state={trace.invocation.status}
+      data-safe-failure-leaf={trace.safeFailure?.leafCode}
+      data-safe-continuity-failures={trace.safeFailure?.continuityFailures.join(",") || undefined}
     >
       <header className={styles.executionTraceHeading}>
         <div><small>本回合執行路徑</small><strong>{trace.summary}</strong></div>

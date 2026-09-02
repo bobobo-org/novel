@@ -16,6 +16,10 @@ export type ConversationExecutionTraceModel = {
   summary: string;
   badge: string;
   stages: ExecutionTraceStage[];
+  safeFailure: {
+    leafCode: string;
+    continuityFailures: string[];
+  } | null;
   executorLabel: string;
   modelLabel: string;
   boundaryLabel: string;
@@ -80,6 +84,8 @@ const ERROR_COPY: Record<string, FriendlyConversationError> = {
 };
 
 const INTERNAL_CODE = /\b(?:RPG|CONVERSATION|CLOSED_AI|CLOSED_AGENT|STUDIO)_[A-Z0-9_]+\b/u;
+const SAFE_RPG_FAILURE_CODE = /^RPG_[A-Z0-9_]{1,100}$/u;
+const SAFE_RPG_CONTINUITY_PROGRESS = /^連貫性安全檢查缺項：([a-z_]{1,40}(?:、[a-z_]{1,40})*)$/u;
 
 function invocationStatus(invocation: ConversationToolInvocation) {
   if (invocation.status === "completed") return "complete" as const;
@@ -109,11 +115,34 @@ function executorLabel(actualExecutor: string | null) {
 }
 
 function selectTraceInvocation(invocations: readonly ConversationToolInvocation[]) {
+  // The RPG turn invocation is the parent execution truth for a story turn.
+  // A nested closed-AI invocation may complete successfully while the parent
+  // later fails its application/continuity gate, so array recency must never
+  // allow that nested completion to overwrite the failed parent in the UI.
+  for (let index = invocations.length - 1; index >= 0; index -= 1) {
+    const invocation = invocations[index];
+    if (invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn) return invocation;
+  }
   for (let index = invocations.length - 1; index >= 0; index -= 1) {
     const invocation = invocations[index];
     if (TRACE_TOOL_IDS.has(invocation.toolId)) return invocation;
   }
   return null;
+}
+
+function safeRpgFailure(invocation: ConversationToolInvocation) {
+  if (!["failed", "cancelled"].includes(invocation.status)) return null;
+  const leafCode = invocation.safeErrorCode?.trim() ?? "";
+  if (!SAFE_RPG_FAILURE_CODE.test(leafCode)) return null;
+  const continuityMatch = invocation.safeProgress?.stage === "failed-quality"
+    ? invocation.safeProgress.message.match(SAFE_RPG_CONTINUITY_PROGRESS)
+    : null;
+  return {
+    leafCode,
+    continuityFailures: continuityMatch
+      ? [...new Set(continuityMatch[1]!.split("、"))]
+      : [],
+  };
 }
 
 function safeVisibleMessage(message: string | undefined) {
@@ -283,6 +312,7 @@ export function buildConversationExecutionTrace(
                 ? "閉端 AI"
                 : "本機工具",
     stages,
+    safeFailure: safeRpgFailure(invocation),
     executorLabel: selectedExecutorLabel,
     modelLabel: (aiExecuted || externalExecuted) && invocation.modelId
       ? invocation.modelId
