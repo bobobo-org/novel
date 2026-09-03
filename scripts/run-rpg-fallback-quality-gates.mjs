@@ -3183,6 +3183,150 @@ assert.ok(
   await verifyPostFallbackClosedReviewReceipt({ candidate: malformedQuoteRepairCandidate }),
 );
 
+const crossLeafMalformedQuoteLogicalTurnId =
+  "logical-turn-cross-leaf-malformed-quote-repair";
+const crossLeafMalformedQuoteRequests = [];
+const crossLeafMalformedQuoteAcceptedContents = [];
+const crossLeafMalformedQuoteCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: crossLeafMalformedQuoteLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    crossLeafMalformedQuoteRequests.push(request);
+    if (crossLeafMalformedQuoteRequests.length === 1) {
+      throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+        code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+        continuityFailures: ["length", "paragraphs"],
+      });
+    }
+    const content = crossLeafMalformedQuoteRequests.length === 2
+      ? malformedDialogueQuoteStory
+      : fullReviewedStory;
+    const result = closedReviewResult(
+      request,
+      `cross-leaf-malformed-quote-${crossLeafMalformedQuoteRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected malformed dialogue quotes"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    crossLeafMalformedQuoteAcceptedContents.push(content);
+    return result;
+  },
+});
+assert.deepEqual(
+  crossLeafMalformedQuoteRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(crossLeafMalformedQuoteLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      crossLeafMalformedQuoteLogicalTurnId,
+      ["length", "paragraphs"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      crossLeafMalformedQuoteLogicalTurnId,
+      ["length", "paragraphs", "dialogue"],
+      2,
+    ),
+  ],
+  "malformed quotes introduced by another repair target receive the existing second repair slot",
+);
+for (const request of crossLeafMalformedQuoteRequests.slice(1)) {
+  assert.equal(request.ephemeralPrompt, true);
+  assert.doesNotMatch(
+    request.input ?? "",
+    /先守住「出口」/u,
+    "a rejected cross-leaf repair must not enter the next hidden prompt",
+  );
+}
+assert.match(
+  crossLeafMalformedQuoteRequests.at(-1)?.input ?? "",
+  /每個「都必須在同一段對應一個」/u,
+  "the second repair must add the dialogue-quote requirement",
+);
+assert.deepEqual(
+  crossLeafMalformedQuoteAcceptedContents,
+  [fullReviewedStory],
+  "only the validator-approved replacement may cross the provider boundary",
+);
+assert.equal(crossLeafMalformedQuoteCandidate.story, fullReviewedStory);
+assert.equal(crossLeafMalformedQuoteCandidate.canonicalMutationCount, 0);
+assert.equal(
+  crossLeafMalformedQuoteCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+  2,
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({ candidate: crossLeafMalformedQuoteCandidate }),
+);
+
+const crossLeafMalformedQuoteTerminalLogicalTurnId =
+  "logical-turn-cross-leaf-malformed-quote-stops-after-two-repairs";
+const crossLeafMalformedQuoteTerminalRequests = [];
+const crossLeafMalformedQuoteTerminalFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: crossLeafMalformedQuoteTerminalLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    crossLeafMalformedQuoteTerminalRequests.push(request);
+    if (crossLeafMalformedQuoteTerminalRequests.length === 1) {
+      throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+        code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+        continuityFailures: ["length", "paragraphs"],
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      `cross-leaf-malformed-terminal-${crossLeafMalformedQuoteTerminalRequests.length}`,
+      malformedDialogueQuoteStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected malformed dialogue quotes"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    throw new Error("expected malformed dialogue quotes to remain rejected");
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  crossLeafMalformedQuoteTerminalRequests.length,
+  3,
+  "a cross-leaf malformed-quote repair must stop after the existing second slot",
+);
+assert.equal(
+  crossLeafMalformedQuoteTerminalFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
+);
+for (const forbiddenKey of ["candidateId", "story", "draft", "draftDigests"]) {
+  assert.equal(
+    Object.hasOwn(crossLeafMalformedQuoteTerminalFailure ?? {}, forbiddenKey),
+    false,
+  );
+}
+
 const malformedQuoteThenForeshadowingLogicalTurnId =
   "logical-turn-malformed-quote-then-foreshadowing-repair";
 const malformedQuoteThenForeshadowingRequests = [];

@@ -4423,8 +4423,9 @@ export async function generateRpgChatTurnCandidate(input: {
   // odd slot is the primary review/repair and the following even slot is the
   // single bounded strict-content retry. It is used only for the explicit
   // repetition/character-voice/dialogue-quote leaves and the exact singleton
-  // foreshadowing continuity miss below, including one exposed by a quote
-  // repair. A later author
+  // foreshadowing continuity miss below. A malformed-quote leaf introduced by
+  // any first repair may use the same second slot; the unchanged application
+  // validator still rejects both attempts before persistence. A later author
   // retry therefore cannot reuse a failed internal repair task id.
   const fallbackReviewStartAttempt = resumeClosedReview
     ? logicalAttempt
@@ -4775,21 +4776,18 @@ export async function generateRpgChatTurnCandidate(input: {
             retryableForeshadowingRepair
             && malformedDialogueQuoteTriggeredRepair
             && startedAsDialogueQuoteRepair;
-          const retryableStrictContentLeaf = uiLabelTriggeredRepair
-            ? (
-              startedAsReportStyleRepair
-              && applicationRepair.failureCode
-                === "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE"
-            )
-            : (
-              applicationRepair.failureCode
-                === "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED"
-              || (
-                startedAsDialogueQuoteRepair
+          const malformedDialogueQuoteRepair =
+            applicationRepair.failureCode
+              === "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES";
+          const retryableStrictContentLeaf = malformedDialogueQuoteRepair
+            || (uiLabelTriggeredRepair
+              ? (
+                startedAsReportStyleRepair
                 && applicationRepair.failureCode
-                  === "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES"
+                  === "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE"
               )
-            );
+              : applicationRepair.failureCode
+                  === "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED");
           if (
             !retryableRepetitionRepair
             && !retryableStrictContentLeaf
