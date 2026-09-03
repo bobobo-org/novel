@@ -1,6 +1,6 @@
 # 小說交誼廳 producer 錯誤碼與發布面板對照 v1
 
-狀態：`CONTRACT_FROZEN`
+狀態：`V5_SCOPE_APPROVED`
 
 基準：`e20baa0366cfe0fd494c3808ac04ddaef3144131`
 
@@ -58,7 +58,8 @@
 | `ATTESTATION_EXPIRED` | 410 | 是 | `可信簽章已逾時；請重新執行本輪簽章。` | 重新評鑑／簽發，不重用舊票 |
 | `ATTESTATION_WRONG_ENV` | 403 | 否 | `可信簽章不屬於目前環境；沒有發布。` | Preview/Production 金鑰隔離 |
 | `ATTESTATION_WRONG_REVISION` | 409 | 否 | `作品在評鑑後已改動；請針對目前版本重新評鑑。` | 重算 completion fingerprint |
-| `ATTESTATION_REPLAY` | 409 | 否 | `這份一次性資格已使用；公開內容未重複寫入。` | 目標行為；既有 v4 尚無 attestation nonce ledger，不得誤報已具備 |
+| `ATTESTATION_REPLAY` | 409 | 否 | `這份一次性資格已使用；公開內容未重複寫入。` | v5 ledger unique conflict；不新增第二張 ticket |
+| `ATTESTATION_VERSION_UNSUPPORTED` | 403 | 否 | `這份可信簽章版本不能用於公開發布；請由目前的 Private AI Hub 重新簽發。` | v4 不得進入 publish/overwrite 換票，也不得 fallback |
 | `PRODUCER_TIMEOUT` | 504 | 是 | `Private AI Hub 評鑑或簽章逾時；沒有發布。` | 可明確重試，不得降級為假簽章 |
 | `PRODUCER_INTERNAL_ERROR` | 500 | 是 | `Private AI Hub 無法完成可信簽章；沒有發布。` | 對 UI 隱藏內部細節，伺服器 log 也不得含正文／私鑰 |
 
@@ -70,8 +71,10 @@ Producer code 在跨入現有 Vercel eligibility/publication API 後，依下表
 | --- | --- | --- |
 | producer 沒有可驗證 trust root | `PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED` | 不可發布；明示 producer unavailable |
 | attestation 格式、簽章、key ID、內容 digest、錯環境或錯 revision | `PUBLIC_LOUNGE_ELIGIBILITY_INVALID` | 不可發布；公開列不變 |
+| v4 或其他非 v5 attestation 進入公開換票 | `PUBLIC_LOUNGE_ATTESTATION_VERSION_UNSUPPORTED` | 不可發布；不得 fallback |
 | attestation 或 ticket 已逾時 | `PUBLIC_LOUNGE_ELIGIBILITY_EXPIRED` | 不可發布；要求重簽 |
-| eligibility ticket 重放或衝突 | `PUBLIC_LOUNGE_ELIGIBILITY_REPLAYED` | 不新增第二筆；這不是 attestation 本身的重放保護 |
+| v5 attestation ID 重放 | `PUBLIC_LOUNGE_ATTESTATION_REPLAYED` | 不鑄新 ticket；不自動重試 |
+| eligibility ticket 重放或衝突 | `PUBLIC_LOUNGE_ELIGIBILITY_REPLAYED` | 不新增第二筆；保留第二層保護 |
 | 分數未達門檻 | `PUBLIC_LOUNGE_SCORE_NOT_QUALIFIED` | 不可發布 |
 | 公開同意缺失 | `PUBLIC_LOUNGE_CONSENT_REQUIRED` | 不可發布 |
 | 權利聲明缺失 | `PUBLIC_LOUNGE_RIGHTS_DECLARATION_REQUIRED` | 不可發布 |
@@ -90,8 +93,11 @@ idle
       -> reviewing-and-signing
           -> rejected (stable producer code)
           -> attested
-              -> requesting-single-use-ticket
-                  -> rejected/expired/replayed
+              -> requesting-single-use-ticket (exactly once; no automatic retry)
+                  -> v5-verified
+                      -> atomically-consuming-attestation-id
+                          -> rejected/expired/replayed/unknown (fail closed)
+                          -> ticket-issued
                   -> publishing-or-overwriting
                       -> published
                       -> recovery-required
@@ -116,6 +122,8 @@ UI 不得只顯示模糊的「不可用」。至少分開顯示：
 | 動作 | 公開列 | 私人 work/revision | Canon mutation | eligibility consumption |
 | --- | --- | --- | ---: | --- |
 | producer 拒絕 | 不變 | 保留 | 0 | 0 |
+| v4／v5 驗證失敗 | 不變 | 保留 | 0 | 0 |
+| v5 驗證成功但 ledger replay/unknown | 不變 | 保留 | 0 | 0；不鑄票 |
 | 首次發布成功 | 0 -> 1 | 保留 | 0 | 1 |
 | 同一請求重試 | 維持 1，回同一結果 | 保留 | 0 | 不新增 |
 | 覆寫成功 | 維持 1，version +1 | 保留 | 0 | 1 個新 ticket |
