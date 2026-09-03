@@ -837,6 +837,11 @@ assert.match(
   /每一句引號內台詞只能出現一次.*不同人物的措辭、句長與態度必須不同/u,
   "the compact scene contract must prevent duplicated character voice before validation",
 );
+assert.match(
+  nearCapRepairSceneContract,
+  /正文與人物台詞不得照抄或念出代號、標題或畫面文字/u,
+  "the compact scene contract must bind the choice without teaching the model to recite its UI label",
+);
 assert.ok(
   nearCapRepairSceneContract.length >= 1_450,
   "the repair budget fixture must exercise a legitimately dense compact contract",
@@ -1312,6 +1317,11 @@ const generationApplicationLeafCases = [
     leafCode: "RPG_AI_CONTINUATION_FRAGMENT_VISIBLE",
     repairFailures: ["dialogue", "continuity_anchor"],
     wrapped: false,
+  },
+  {
+    leafCode: "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+    repairFailures: ["report_style"],
+    wrapped: true,
   },
   {
     leafCode: "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
@@ -1892,6 +1902,370 @@ assert.equal(
   malformedDialogueQuoteFailure?.message,
   "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
   "the production regression fixture must exercise balanced-count same-level nested quotes",
+);
+
+const uiLabelVisibleStory = fullReviewedStory.replace(
+  `林澄決定${fullChoice.title}，沿泥痕`,
+  `主角說出「B｜${fullChoice.title}」後立刻動手。林澄沿泥痕`,
+);
+assert.notEqual(
+  uiLabelVisibleStory,
+  fullReviewedStory,
+  "the production UI-label fixture must alter the accepted story",
+);
+assert.ok(
+  Array.from(uiLabelVisibleStory).length >= 1_000,
+  "the UI-label regression must exercise a complete production-sized scene",
+);
+const uiLabelVisibleFailure = (() => {
+  try {
+    validateRpgStoryTurnContract(uiLabelVisibleStory, "zh-TW");
+    return null;
+  } catch (error) {
+    return error;
+  }
+})();
+assert.equal(
+  uiLabelVisibleFailure?.message,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+  "the exact production-shaped choice-card recitation must remain rejected",
+);
+
+const uiLabelRepairLogicalTurnId = "logical-turn-ui-label-repair";
+const uiLabelRepairRequests = [];
+const uiLabelAcceptedContents = [];
+const uiLabelRepairCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: uiLabelRepairLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    uiLabelRepairRequests.push(request);
+    const content = uiLabelRepairRequests.length <= 2
+      ? uiLabelVisibleStory
+      : fullReviewedStory;
+    const result = closedReviewResult(
+      request,
+      `ui-label-repair-${uiLabelRepairRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected visible choice-card prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    uiLabelAcceptedContents.push(content);
+    return result;
+  },
+});
+assert.deepEqual(
+  uiLabelRepairRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(uiLabelRepairLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      uiLabelRepairLogicalTurnId,
+      ["report_style"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      uiLabelRepairLogicalTurnId,
+      ["report_style"],
+      2,
+    ),
+  ],
+  "a repeated UI-label rejection receives one additional separately bounded repair and then succeeds",
+);
+for (const request of uiLabelRepairRequests.slice(1)) {
+  assert.equal(request.ephemeralPrompt, true);
+  assert.equal(
+    request.generationOptions?.substantiveSceneBudget,
+    "rpg-application-minimum",
+  );
+  assert.match(request.input ?? "", /RPG_FALLBACK_CONTINUITY_REPAIR_V1/u);
+  assert.match(
+    request.input ?? "",
+    /正文與人物台詞不得照抄或念出代號、標題或畫面文字/u,
+  );
+  assert.match(
+    request.input ?? "",
+    /故事外不加前言、結語或寫作解釋；正文與人物台詞不得照抄或念出代號、標題或畫面文字/u,
+  );
+  assert.doesNotMatch(
+    request.input ?? "",
+    /主角說出「/u,
+    "the rejected UI-labelled prose must not enter either hidden repair prompt",
+  );
+}
+assert.deepEqual(
+  uiLabelAcceptedContents,
+  [fullReviewedStory],
+  "only the validator-approved replacement may cross the provider boundary",
+);
+assert.equal(uiLabelRepairCandidate.story, fullReviewedStory);
+assert.equal(uiLabelRepairCandidate.canonicalMutationCount, 0);
+assert.doesNotMatch(
+  JSON.stringify(uiLabelRepairCandidate),
+  /主角說出「/u,
+  "the returned candidate and receipt must not expose the rejected UI-labelled prose",
+);
+assert.equal(
+  uiLabelRepairCandidate.executionReceipt.postFallbackClosedReview?.reviewStage,
+  "fallback-repair",
+);
+assert.equal(
+  uiLabelRepairCandidate.executionReceipt.postFallbackClosedReview?.triggerReason,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+);
+assert.equal(
+  uiLabelRepairCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+  2,
+);
+assert.equal(
+  uiLabelRepairCandidate.executionReceipt.postFallbackClosedReview
+    ?.selectionRewriteEvidence?.taskId,
+  uiLabelRepairRequests.at(-1)?.taskId,
+);
+assert.equal(
+  uiLabelRepairCandidate.executionReceipt.postFallbackClosedReview
+    ?.selectionRewriteEvidence?.candidateContentDigest,
+  digestStory(fullReviewedStory),
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({ candidate: uiLabelRepairCandidate }),
+  "the valid UI-label repair must retain a verified sealed receipt",
+);
+
+const repeatedUiLabelLogicalTurnId =
+  "logical-turn-ui-label-stops-after-two-repairs";
+const repeatedUiLabelRequests = [];
+let repeatedUiLabelAcceptedCandidates = 0;
+const repeatedUiLabelFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: repeatedUiLabelLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    repeatedUiLabelRequests.push(request);
+    const result = closedReviewResult(
+      request,
+      `repeated-ui-label-${repeatedUiLabelRequests.length}`,
+      uiLabelVisibleStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider repeated visible choice-card prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    repeatedUiLabelAcceptedCandidates += 1;
+    return result;
+  },
+}).then(() => null, (error) => error);
+assert.deepEqual(
+  repeatedUiLabelRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(repeatedUiLabelLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      repeatedUiLabelLogicalTurnId,
+      ["report_style"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      repeatedUiLabelLogicalTurnId,
+      ["report_style"],
+      2,
+    ),
+  ],
+  "UI-label prose may authorize only two hidden repairs and never a fourth dispatch",
+);
+assert.equal(repeatedUiLabelAcceptedCandidates, 0);
+assert.equal(repeatedUiLabelFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  repeatedUiLabelFailure?.generationFailureLeafCode,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+);
+assert.equal(
+  repeatedUiLabelFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+);
+for (const forbiddenKey of ["candidateId", "story", "draft", "draftDigests"]) {
+  assert.equal(Object.hasOwn(repeatedUiLabelFailure ?? {}, forbiddenKey), false);
+}
+assert.doesNotMatch(
+  JSON.stringify(repeatedUiLabelFailure),
+  /主角說出「|internalDraft|規則草稿/u,
+  "terminal UI-label failure must not expose rejected prose or hidden drafts",
+);
+
+const unrelatedReportStyleToUiLabelRequests = [];
+const unrelatedReportStyleToUiLabelFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-report-style-does-not-broaden-ui-label-retry",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    unrelatedReportStyleToUiLabelRequests.push(request);
+    if (unrelatedReportStyleToUiLabelRequests.length === 1) {
+      throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+        code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+        continuityFailures: ["report_style"],
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      "unrelated-report-style-to-ui-label",
+      uiLabelVisibleStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider introduced an unrelated UI label"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  unrelatedReportStyleToUiLabelRequests.length,
+  2,
+  "an unrelated report-style trigger must not receive the UI-label-specific second repair",
+);
+assert.equal(
+  unrelatedReportStyleToUiLabelFailure?.generationFailureLeafCode,
+  "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+);
+assert.equal(
+  unrelatedReportStyleToUiLabelFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+);
+
+const repetitionToUiLabelRequests = [];
+const repetitionToUiLabelFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-repetition-does-not-broaden-ui-label-retry",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    repetitionToUiLabelRequests.push(request);
+    if (repetitionToUiLabelRequests.length === 1) {
+      throw Object.assign(new Error("local provider rejected repeated prose"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: Object.assign(new Error("RPG_AI_CONTINUATION_REPETITIVE"), {
+          code: "RPG_AI_CONTINUATION_REPETITIVE",
+        }),
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      "repetition-to-ui-label",
+      uiLabelVisibleStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider introduced an unrelated UI label"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  repetitionToUiLabelRequests.length,
+  2,
+  "a repetition trigger must not receive the UI-label-specific second repair",
+);
+assert.equal(
+  repetitionToUiLabelFailure?.generationFailureLeafCode,
+  "RPG_AI_CONTINUATION_REPETITIVE",
+);
+assert.equal(
+  repetitionToUiLabelFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+);
+
+const uiLabelToDuplicatedVoiceRequests = [];
+const uiLabelToDuplicatedVoiceFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-ui-label-does-not-broaden-voice-retry",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    uiLabelToDuplicatedVoiceRequests.push(request);
+    const content = uiLabelToDuplicatedVoiceRequests.length === 1
+      ? uiLabelVisibleStory
+      : duplicatedVoiceStory;
+    const result = closedReviewResult(
+      request,
+      `ui-label-to-duplicated-voice-${uiLabelToDuplicatedVoiceRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider changed to a different strict leaf"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  uiLabelToDuplicatedVoiceRequests.length,
+  2,
+  "a UI-label trigger must not borrow the unrelated duplicated-voice retry lane",
+);
+assert.equal(
+  uiLabelToDuplicatedVoiceFailure?.generationFailureLeafCode,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+);
+assert.equal(
+  uiLabelToDuplicatedVoiceFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED",
 );
 
 const malformedQuoteRepairLogicalTurnId = "logical-turn-malformed-quote-repair";

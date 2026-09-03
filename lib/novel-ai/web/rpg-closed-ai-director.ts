@@ -901,7 +901,7 @@ export function buildCompactRpgResolutionDirectorPrompt(input: {
     `全文使用${outputLanguage}。回應第一字須為〈；只輸出〈具體標題〉與正文；1100–1500 字、8–16 段、至少 12 句。${openingContinuityInstruction}`,
     `選定行動須落地、受阻、付代價並產生鎖定結果；須有三個可見動作、具名說話的「」對話、兩種感官、自然因果與未解線索，並以突然出現的新危機或聲音收尾。${supportingCharacterInstruction}`,
     "只能用下文已有的人物、能力、時代、物件、所有權與 Canon；不足時讓人物採取普通行動、求助或失敗。人物說話要寫成「……」某某說道、問道或答道，且引號須閉合，內引改『』。每一句引號內台詞只能出現一次；不同人物的措辭、句長與態度必須不同。成稿每一段只呈現故事內正在發生的事，不加入故事外文字。",
-    `讀者選了 ${compactRpgPromptField(choice.key, 8)}，也就是《${compactRpgPromptField(choice.title, 32)}》；其具體行動是${compactRpgPromptField(choice.description, 42)}；眼前阻力為${compactRpgPromptField(storySignals.complication, 28)}；必須付出的代價為${compactRpgPromptField(choice.consequenceTeaser, 28)}。`,
+    `本回合綁定 ${compactRpgPromptField(choice.key, 8)}《${compactRpgPromptField(choice.title, 32)}》，只供行動；正文與人物台詞不得照抄或念出代號、標題或畫面文字。具體行動是${compactRpgPromptField(choice.description, 42)}；眼前阻力為${compactRpgPromptField(storySignals.complication, 28)}；必須付出的代價為${compactRpgPromptField(choice.consequenceTeaser, 28)}。`,
     `這回合的鎖定結果為${compactRpgPromptField(input.resolution.outcomeLabel, 32)}；正式結算包含${settlement.join("；")}。`,
     `開場必須緊接這段最近的正式正文【${compactRpgPromptTailField(chapter.recentText, 180)}】。`,
     [

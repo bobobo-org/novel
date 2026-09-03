@@ -265,6 +265,7 @@ function rpgNovelContinuityFailures(error: unknown) {
  */
 const RPG_RETRYABLE_CLOSED_REPAIR_CONTENT_LEAF_CODES = new Set([
   "RPG_AI_CONTINUATION_FRAGMENT_VISIBLE",
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
   "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
   "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED",
   "RPG_AI_CONTINUATION_TOO_SHORT",
@@ -275,6 +276,7 @@ const RPG_RETRYABLE_CLOSED_REPAIR_CONTENT_LEAF_CODES = new Set([
 
 const RPG_GENERATION_CONTENT_REPAIR_FAILURES = {
   RPG_AI_CONTINUATION_FRAGMENT_VISIBLE: ["dialogue", "continuity_anchor"],
+  RPG_AI_CONTINUATION_UI_LABEL_VISIBLE: ["report_style"],
   RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES: ["dialogue"],
   RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED: ["repetition"],
   RPG_AI_CONTINUATION_TOO_SHORT: ["length", "paragraphs"],
@@ -4083,7 +4085,7 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
     narrative_scene: "用至少兩個符合當下世界的具體環境細節建立場景",
     action_progression: "讓人物完成至少三個符合當下情境、真正改變局勢的具體動作",
     sensory_detail: "加入至少兩種與現場物件相連的具體感官",
-    report_style: "每一段都直接呈現人物動作、具名對話或現場感官；故事外不加前言、結語或寫作解釋",
+    report_style: "每一段都直接呈現人物動作、具名對話或現場感官；故事外不加前言、結語或寫作解釋；正文與人物台詞不得照抄或念出代號、標題或畫面文字",
     causality: "用自然因果連接選定行動、阻力、代價與鎖定結果",
     foreshadowing: "以現場可觀察的異樣或未解事物留下伏筆",
     serial_hook: "最後以本次行動造成的新危機、聲音或迫近事件形成自然鉤子",
@@ -4700,16 +4702,32 @@ export async function generateRpgChatTurnCandidate(input: {
           const startedAsDialogueQuoteRepair =
             initialReviewRepairFailures.length === 1
             && initialReviewRepairFailures[0] === "dialogue";
-          const retryableStrictContentLeaf =
-            applicationRepair.failureCode
-              === "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED"
-            || (
-              startedAsDialogueQuoteRepair
+          const startedAsReportStyleRepair =
+            initialReviewRepairFailures.length === 1
+            && initialReviewRepairFailures[0] === "report_style";
+          const retryableRepetitionRepair =
+            startedAsRepetitionRepair
+            && applicationRepair.failureCode
+              !== "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE";
+          const uiLabelTriggeredRepair =
+            triggerReason === "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE";
+          const retryableStrictContentLeaf = uiLabelTriggeredRepair
+            ? (
+              startedAsReportStyleRepair
               && applicationRepair.failureCode
-                === "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES"
+                === "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE"
+            )
+            : (
+              applicationRepair.failureCode
+                === "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED"
+              || (
+                startedAsDialogueQuoteRepair
+                && applicationRepair.failureCode
+                  === "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES"
+              )
             );
           if (
-            !startedAsRepetitionRepair
+            !retryableRepetitionRepair
             && !retryableStrictContentLeaf
           ) return false;
           pendingReviewRepairFailures = mergeRpgContinuityRepairFailures(

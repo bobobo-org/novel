@@ -531,6 +531,10 @@ for (const scenario of scenarios) {
     snapshot.baseChoices[0].title.normalize("NFKC").replace(/\s+/gu, " ").trim(),
   ).slice(0, 32).join("");
   assert.match(compactSceneContract, new RegExp(protectedChoiceTitle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(
+    compactSceneContract,
+    /正文與人物台詞不得照抄或念出代號、標題或畫面文字/u,
+  );
   assert.match(compactSceneContract, /開場必須緊接這段最近的正式正文/u);
   assert.match(compactSceneContract, /既有 Canon 包含/u);
   assert.match(compactSceneContract, /1100–1500/u);
