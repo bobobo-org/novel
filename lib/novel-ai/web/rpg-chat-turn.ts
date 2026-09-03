@@ -4070,8 +4070,10 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   const anchorRuns = input.continuityExcerpt.match(/[\p{Script=Han}]{4,}/gu) ?? [];
   const anchorSource = anchorRuns.at(-1) ?? "";
   const continuityAnchor = Array.from(anchorSource).slice(-8).join("");
-  const activeCharacter = input.activeCharacterNames.find((name) => name.trim().length >= 2)?.trim()
+  const activeCharacterSource = input.activeCharacterNames.find((name) => name.trim().length >= 2)?.trim()
     ?? "主角";
+  const activeCharacter = activeCharacterSource.replace(/[「」『』《》]/gu, "").trim()
+    || "主角";
   const requirementLabels: Record<RpgContinuityRepairFailure, string> = {
     length: "不灌水、不重述，補足到契約規定的字數範圍",
     paragraphs: "依動作與反應的自然節奏寫足契約要求的完整段落",
@@ -4085,7 +4087,7 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
     narrative_scene: "用至少兩個符合當下世界的具體環境細節建立場景",
     action_progression: "讓人物完成至少三個符合當下情境、真正改變局勢的具體動作",
     sensory_detail: "加入至少兩種與現場物件相連的具體感官",
-    report_style: "每一段都直接呈現人物動作、具名對話或現場感官；故事外不加前言、結語或寫作解釋；正文與人物台詞不得照抄或念出代號、標題或畫面文字",
+    report_style: "每一段都直接呈現人物動作、具名對話或現場感官；故事外不加前言、結語或寫作解釋；正文與人物台詞不得照抄或念出代號、標題或畫面文字；每個「都必須在同一段對應一個」，不得巢狀使用「」，對話內引用名稱改用『』",
     causality: "用自然因果連接選定行動、阻力、代價與鎖定結果",
     foreshadowing: "以現場可觀察的異樣或未解事物留下伏筆",
     serial_hook: "最後以本次行動造成的新危機、聲音或迫近事件形成自然鉤子",

@@ -57,6 +57,42 @@ const isFallbackSynthesisPrompt = (value) => (
   value.startsWith(FALLBACK_SYNTHESIS_MARKER)
   && value.endsWith("[/RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]")
 );
+const assertChineseDelimitersBalancedByLine = (text, label) => {
+  const expectedClosing = new Map([
+    ["「", "」"],
+    ["『", "』"],
+    ["《", "》"],
+  ]);
+  const openingForClosing = new Map(
+    [...expectedClosing].map(([opening, closing]) => [closing, opening]),
+  );
+  for (const [lineIndex, line] of text.split("\n").entries()) {
+    const stack = [];
+    for (const character of line) {
+      if (expectedClosing.has(character)) {
+        assert.notEqual(
+          stack.at(-1),
+          character,
+          `${label}: line ${lineIndex + 1} has same-level nested ${character}`,
+        );
+        stack.push(character);
+        continue;
+      }
+      const expectedOpening = openingForClosing.get(character);
+      if (!expectedOpening) continue;
+      assert.equal(
+        stack.pop(),
+        expectedOpening,
+        `${label}: line ${lineIndex + 1} has an orphaned or cross-nested ${character}`,
+      );
+    }
+    assert.deepEqual(
+      stack,
+      [],
+      `${label}: line ${lineIndex + 1} has unclosed Chinese delimiters`,
+    );
+  }
+};
 validateRpgStoryTurnContract(validStory, "zh-TW");
 
 const nearRestatementStory = Array.from({ length: 18 }, (_, index) => (
@@ -880,6 +916,74 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(nearCapRepairPrompt, /正文須有10個空行分隔段落/u);
 assert.doesNotMatch(nearCapRepairPrompt, /門外突然傳來聲音/u);
+
+const quoteTailAnchor = "最後錨點仍在石門旁";
+const quoteBoundaryRepairChoice = {
+  ...fullChoice,
+  title: `邀請《${"親友".repeat(20)}》`,
+  description: `廖承信高聲說「${"同行".repeat(40)}」再出發`,
+  consequenceTeaser: `代價是『${"承諾".repeat(30)}』`,
+  encounter: {
+    ...fullChoice.encounter,
+    complication: `阻力是「${"封鎖".repeat(30)}」`,
+  },
+};
+const quoteBoundaryRepairSceneContract = buildCompactRpgResolutionDirectorPrompt({
+  context: {
+    ...fullSnapshot.directorContext,
+    project: {
+      title: "《雨夜》追查",
+      narrativeStyle: "人物說「真話」的懸疑敘事",
+      coreIdea: "守住『承諾』",
+    },
+    currentChapter: {
+      title: "《石門》前的抉擇",
+      recentText: `前文「${"過往".repeat(140)}${quoteTailAnchor}」`,
+    },
+    storyBible: {
+      theme: "查明『真相』",
+      forbiddenContradictions: ["不可離開《雨夜》"],
+      foreshadowing: ["有人說「別回頭」"],
+      unresolvedThreads: ["《封條》由誰替換"],
+    },
+    protagonist: { name: "林「澄」", goal: "保住『證人』" },
+  },
+  choice: quoteBoundaryRepairChoice,
+  language: "zh-TW",
+  resolution: {
+    outcomeLabel: "保住『同行承諾』並繼續前進",
+    settlement: ["廖承信說「同行」", "親友守住《石門》"],
+  },
+});
+const quoteBoundaryRepairPrompt = buildRpgFallbackContinuityRepairPrompt({
+  sceneContract: quoteBoundaryRepairSceneContract,
+  failures: ["dialogue", "active_character"],
+  continuityExcerpt: "前文仍在石門旁等待回應。",
+  activeCharacterNames: ["廖「承信」"],
+});
+const quoteBoundaryRepairContractStart = quoteBoundaryRepairPrompt.indexOf(
+  "[RPG_SCENE_CONTRACT_V2]",
+);
+const quoteBoundaryRepairContractEnd = quoteBoundaryRepairPrompt.indexOf(
+  "[/RPG_SCENE_CONTRACT_V2]",
+) + "[/RPG_SCENE_CONTRACT_V2]".length;
+assert.ok(
+  quoteBoundaryRepairPrompt.slice(
+    quoteBoundaryRepairContractStart,
+    quoteBoundaryRepairContractEnd,
+  ).length <= 1_600,
+);
+assert.ok(quoteBoundaryRepairPrompt.length <= 1_950);
+assert.match(quoteBoundaryRepairPrompt, /邀請親友親友/u);
+assert.match(quoteBoundaryRepairPrompt, /廖承信高聲說同行/u);
+assert.match(quoteBoundaryRepairPrompt, /廖承信說同行/u);
+assert.match(quoteBoundaryRepairPrompt, /讓「廖承信」具名登場/u);
+assert.match(quoteBoundaryRepairPrompt, new RegExp(quoteTailAnchor, "u"));
+assert.doesNotMatch(quoteBoundaryRepairPrompt, /高聲說「同行|最後錨點仍在石門旁」/u);
+assertChineseDelimitersBalancedByLine(
+  quoteBoundaryRepairPrompt,
+  "quote-boundary repair prompt",
+);
 const fullReviewedStory = validStory
   .replace("林澄沿泥痕", `林澄決定${fullChoice.title}，沿泥痕`)
   .replace("雨已經停了", "失敗的換封伎倆雖已拆穿，眾人仍付出代價。雨已經停了");
@@ -1998,8 +2102,9 @@ for (const request of uiLabelRepairRequests.slice(1)) {
   );
   assert.match(
     request.input ?? "",
-    /故事外不加前言、結語或寫作解釋；正文與人物台詞不得照抄或念出代號、標題或畫面文字/u,
+    /故事外不加前言、結語或寫作解釋；正文與人物台詞不得照抄或念出代號、標題或畫面文字.*每個「都必須在同一段對應一個」.*不得巢狀使用「」.*對話內引用名稱改用『』/u,
   );
+  assert.ok((request.input?.length ?? Infinity) <= 1_950);
   assert.doesNotMatch(
     request.input ?? "",
     /主角說出「/u,
@@ -2114,6 +2219,86 @@ assert.doesNotMatch(
   JSON.stringify(repeatedUiLabelFailure),
   /主角說出「|internalDraft|規則草稿/u,
   "terminal UI-label failure must not expose rejected prose or hidden drafts",
+);
+
+const uiLabelThenMalformedLogicalTurnId =
+  "logical-turn-ui-label-then-malformed-quote-stops";
+const uiLabelThenMalformedQuoteRequests = [];
+const uiLabelThenMalformedQuoteFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: uiLabelThenMalformedLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    uiLabelThenMalformedQuoteRequests.push(request);
+    const content = uiLabelThenMalformedQuoteRequests.length <= 2
+      ? uiLabelVisibleStory
+      : malformedDialogueQuoteStory;
+    const result = closedReviewResult(
+      request,
+      `ui-label-then-malformed-${uiLabelThenMalformedQuoteRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider ended with malformed dialogue quotes"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+}).then(() => null, (error) => error);
+assert.deepEqual(
+  uiLabelThenMalformedQuoteRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(uiLabelThenMalformedLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      uiLabelThenMalformedLogicalTurnId,
+      ["report_style"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      uiLabelThenMalformedLogicalTurnId,
+      ["report_style"],
+      2,
+    ),
+  ],
+  "a final malformed-quote leaf must stop after the existing two UI-label repairs",
+);
+for (const request of uiLabelThenMalformedQuoteRequests.slice(1)) {
+  assert.match(
+    request.input ?? "",
+    /每個「都必須在同一段對應一個」.*不得巢狀使用「」.*對話內引用名稱改用『』/u,
+  );
+}
+assert.equal(
+  uiLabelThenMalformedQuoteFailure?.code,
+  "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED",
+);
+assert.equal(
+  uiLabelThenMalformedQuoteFailure?.generationFailureLeafCode,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+);
+assert.equal(
+  uiLabelThenMalformedQuoteFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
+);
+for (const forbiddenKey of ["candidateId", "story", "draft", "draftDigests"]) {
+  assert.equal(Object.hasOwn(uiLabelThenMalformedQuoteFailure ?? {}, forbiddenKey), false);
+}
+assert.doesNotMatch(
+  JSON.stringify(uiLabelThenMalformedQuoteFailure),
+  /主角說出「|先守住「出口」|internalDraft|規則草稿/u,
+  "a mixed terminal failure must not expose either rejected repair draft",
 );
 
 const unrelatedReportStyleToUiLabelRequests = [];

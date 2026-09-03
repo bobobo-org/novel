@@ -34,6 +34,43 @@ import { runStudioClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
 assert.equal(RPG_CHAT_STORY_AI_TIMEOUT_MS, 360_000);
 assert.equal(RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS, 360_000);
 assert.equal(RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS, 360_000);
+
+const assertChineseDelimitersBalancedByLine = (text, label) => {
+  const expectedClosing = new Map([
+    ["「", "」"],
+    ["『", "』"],
+    ["《", "》"],
+  ]);
+  const openingForClosing = new Map(
+    [...expectedClosing].map(([opening, closing]) => [closing, opening]),
+  );
+  for (const [lineIndex, line] of text.split("\n").entries()) {
+    const stack = [];
+    for (const character of line) {
+      if (expectedClosing.has(character)) {
+        assert.notEqual(
+          stack.at(-1),
+          character,
+          `${label}: line ${lineIndex + 1} has same-level nested ${character}`,
+        );
+        stack.push(character);
+        continue;
+      }
+      const expectedOpening = openingForClosing.get(character);
+      if (!expectedOpening) continue;
+      assert.equal(
+        stack.pop(),
+        expectedOpening,
+        `${label}: line ${lineIndex + 1} has an orphaned or cross-nested ${character}`,
+      );
+    }
+    assert.deepEqual(
+      stack,
+      [],
+      `${label}: line ${lineIndex + 1} has unclosed Chinese delimiters`,
+    );
+  }
+};
 const [
   rpgTurnSource,
   conversationRpgSource,
@@ -528,7 +565,11 @@ for (const scenario of scenarios) {
   assert.ok(compactSceneContract.length <= 1_600);
   assert.match(compactSceneContract, /RPG_SCENE_CONTRACT_V2/u);
   const protectedChoiceTitle = Array.from(
-    snapshot.baseChoices[0].title.normalize("NFKC").replace(/\s+/gu, " ").trim(),
+    snapshot.baseChoices[0].title
+      .normalize("NFKC")
+      .replace(/[「」『』《》]/gu, "")
+      .replace(/\s+/gu, " ")
+      .trim(),
   ).slice(0, 32).join("");
   assert.match(compactSceneContract, new RegExp(protectedChoiceTitle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.match(
@@ -637,6 +678,43 @@ for (const scenario of scenarios) {
     assert.match(saturatedContract, /不可違反/u);
     assert.equal(saturatedContract.match(/\[\/RPG_SCENE_CONTRACT_V2\]/gu)?.length, 1);
     assert.match(saturatedContract, /［\/RPG_SCENE_CONTRACT_V2］/u);
+
+    const quoteTailAnchor = "最後錨點仍在石門旁";
+    const quoteBoundaryChoice = {
+      ...snapshot.baseChoices[0],
+      title: `邀請《${"親友".repeat(20)}》`,
+      description: `廖承信高聲說「${"同行".repeat(40)}」再出發`,
+      consequenceTeaser: `代價是『${"承諾".repeat(30)}』`,
+      encounter: {
+        ...snapshot.baseChoices[0].encounter,
+        complication: `阻力是「${"封鎖".repeat(30)}」`,
+      },
+    };
+    const quoteBoundaryContract = buildCompactRpgResolutionDirectorPrompt({
+      context: {
+        ...snapshot.directorContext,
+        currentChapter: {
+          ...snapshot.directorContext.currentChapter,
+          recentText: `前文「${"過往".repeat(140)}${quoteTailAnchor}」`,
+        },
+      },
+      choice: quoteBoundaryChoice,
+      language: snapshot.language,
+      resolution: {
+        outcomeLabel: "保住『同行承諾』並繼續前進",
+        settlement: ["廖承信說「同行」", "親友守住《石門》"],
+      },
+    });
+    assert.ok(quoteBoundaryContract.length <= 1_600);
+    assert.match(quoteBoundaryContract, /邀請親友親友/u);
+    assert.match(quoteBoundaryContract, /廖承信高聲說同行/u);
+    assert.match(quoteBoundaryContract, /代價是承諾/u);
+    assert.match(quoteBoundaryContract, new RegExp(quoteTailAnchor, "u"));
+    assert.doesNotMatch(quoteBoundaryContract, /高聲說「同行|最後錨點仍在石門旁」/u);
+    assertChineseDelimitersBalancedByLine(
+      quoteBoundaryContract,
+      "quote-boundary compact contract",
+    );
   }
   assertMeaningfullyDistinctChoiceSet(snapshot.baseChoices, `${scenario.playMode}: initial turn`);
   assert.equal(new Set(snapshot.baseChoices.map((choice) => choice.consequenceTeaser)).size, 3);

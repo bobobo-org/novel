@@ -754,6 +754,10 @@ function compactRpgPromptField(value: unknown, maximumCharacters: number) {
       "[": "［",
       "]": "］",
     })[character] ?? character)
+    // Dynamic values are bounded below. Removing their quote delimiters before
+    // slicing prevents a clipped field from unbalancing the app-owned wrappers;
+    // the complete original values remain bound by the director contract digest.
+    .replace(/[「」『』《》]/gu, "")
     // The compact prompt is prose-shaped on purpose. Small local models copy
     // label punctuation very literally, and three copied `name:value` rows are
     // correctly rejected by the unchanged report-style quality gate.
@@ -778,6 +782,7 @@ function compactRpgPromptTailField(value: unknown, maximumCharacters: number) {
       "[": "［",
       "]": "］",
     })[character] ?? character)
+    .replace(/[「」『』《》]/gu, "")
     .replace(/\s+/gu, " ")
     .trim();
   if (normalized.length <= maximumCharacters) return normalized;
