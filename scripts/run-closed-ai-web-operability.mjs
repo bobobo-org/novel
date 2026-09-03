@@ -1073,8 +1073,9 @@ await test("official production UI connects local runtimes on demand and exposes
     assert.ok(companionReleaseSource.includes(origin), origin);
   }
   assert.ok(companionReleaseSource.includes("evaluateLocalAIRuntimeVersion"));
-  assert.ok(companionReleaseSource.includes('version: "1.4.6"'));
-  assert.ok(companionReleaseSource.includes('recommendedBridgeVersion: "1.2.3"'));
+  assert.ok(companionReleaseSource.includes('version: "1.4.7"'));
+  assert.ok(companionReleaseSource.includes('minimumBridgeVersion: "1.2.4"'));
+  assert.ok(companionReleaseSource.includes('recommendedBridgeVersion: "1.2.4"'));
   for (const marker of [
     "runtimeCoordinator.connectAutomatically()",
     'data-testid="pair-auto-retry"',

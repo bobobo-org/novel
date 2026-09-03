@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import {
-  BRIDGE_PROTOCOL, ERROR_CODES, PairingStore, RequestLedger, WorkLimiter, buildOriginAllowlist, normalizeOllamaEndpoint, sanitizeLog, validateHostHeader, validateLoopbackHost,
+  BRIDGE_PROTOCOL, BRIDGE_VERSION, ERROR_CODES, PairingStore, RequestLedger, WorkLimiter, buildOriginAllowlist, normalizeOllamaEndpoint, sanitizeLog, validateHostHeader, validateLoopbackHost,
 } from "../local-ai/bridge/bridge-core.mjs";
 import { createBridgeServer } from "../local-ai/bridge/server.mjs";
 
 const results = [];
+assert.equal(BRIDGE_VERSION, "1.2.4-stream-completion-handoff");
 async function test(name, work) { const started = performance.now(); try { await work(); results.push({ name, status: "PASS", elapsedMs: Math.round(performance.now() - started) }); } catch (error) { results.push({ name, status: "FAIL", elapsedMs: Math.round(performance.now() - started), error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }); } }
 
 const origin = "http://127.0.0.1:3000";
@@ -17,7 +18,7 @@ const headers = (extra = {}) => ({ Origin: origin, "X-Bridge-Protocol": BRIDGE_P
 const json = async (response) => ({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.json().catch(() => ({})) });
 
 try {
-  await test("protocol health handshake", async () => { const result = await json(await fetch(`${base}/health`, { headers: headers() })); assert.equal(result.status, 200); assert.equal(result.body.protocolVersion, BRIDGE_PROTOCOL); assert.equal(result.body.bridgeProcessAlive, true); assert.equal(result.body.automaticSessionSupported, true); });
+  await test("protocol health handshake", async () => { const result = await json(await fetch(`${base}/health`, { headers: headers() })); assert.equal(result.status, 200); assert.equal(result.body.protocolVersion, BRIDGE_PROTOCOL); assert.equal(result.body.bridgeVersion, BRIDGE_VERSION); assert.equal(result.body.bridgeProcessAlive, true); assert.equal(result.body.automaticSessionSupported, true); });
   await test("protocol version mismatch", async () => { const result = await json(await fetch(`${base}/health`, { headers: headers({ "X-Bridge-Protocol": "novel-local-bridge/v0" }) })); assert.equal(result.body.errorCode, "BRIDGE_PROTOCOL_INCOMPATIBLE"); });
   await test("origin allowlist accepts configured origins", async () => assert.equal(buildOriginAllowlist().has(origin), true));
   await test("unauthorized origin rejected", async () => { const result = await json(await fetch(`${base}/health`, { headers: { Origin: "https://evil.example", "X-Bridge-Protocol": BRIDGE_PROTOCOL } })); assert.equal(result.body.errorCode, "BRIDGE_ORIGIN_NOT_ALLOWED"); });

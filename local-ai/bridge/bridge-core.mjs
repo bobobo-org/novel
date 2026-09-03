@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { isIP } from "node:net";
 
 export const BRIDGE_PROTOCOL = "novel-local-bridge/v1";
-export const BRIDGE_VERSION = "1.2.3-model-verification-lifecycle";
+export const BRIDGE_VERSION = "1.2.4-stream-completion-handoff";
 export const TRUSTED_AUTO_SESSION_ORIGINS = Object.freeze([
   "https://novel-orcin.vercel.app",
   "https://novel-lqtechs-projects.vercel.app",
