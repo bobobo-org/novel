@@ -978,6 +978,14 @@ jobs:
           node scripts/verify-production-main-head-cas.mjs
           node scripts/apply-public-lounge-control-plane-migration.mjs --required
 
+      - name: Apply and verify Public Lounge v5 attestation nonce ledger
+        if: github.event_name == 'push'
+        env:
+          EXPECTED_MAIN_HEAD_COMMIT: ${{ github.sha }}
+        run: |
+          node scripts/verify-production-main-head-cas.mjs
+          node scripts/apply-public-lounge-attestation-ledger-migration.mjs --required
+
       - name: Upload sanitized Public Lounge runtime preparation receipt
         if: always() && github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

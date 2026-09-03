@@ -20,13 +20,17 @@ import {
   loadPublicLoungeWorkPublicationReference,
   publishPublicLoungePost,
   PublicLoungeClientError,
+  requestPublicLoungeEligibilityProof,
   removePublicLoungeWorkPublicationReference,
   resolvePublicLoungeManagementRecovery,
   savePublicLoungeWorkPublicationReference,
 } from "../lib/novel-ai/public-lounge/client.ts";
 import {
   createEd25519PublicLoungeEligibilityReviewer,
+  createEd25519PublicLoungeEligibilityReviewerV5,
   publicLoungeServerReviewAttestationPayload,
+  publicLoungeServerReviewAttestationV5Payload,
+  resolvePublicLoungeAttestationEnvironment,
 } from "../lib/novel-ai/public-lounge/eligibility-signature.ts";
 import { PublicLoungeService } from "../lib/novel-ai/public-lounge/service.ts";
 import { stableStringify } from "../lib/novel-ai/closed-ai-cache/index.ts";
@@ -38,11 +42,14 @@ import {
   PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES,
   PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
   PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION,
   PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION,
   PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PRIOR_INDEX_ENTRY_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PRIOR_POST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_PRIOR_STORED_ELIGIBILITY_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PRIOR_STORED_POST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PUBLISHED_VERSION_SCHEMA_VERSION,
   PUBLIC_LOUNGE_STORED_POST_SCHEMA_VERSION,
@@ -59,12 +66,17 @@ const NOW = "2026-08-29T03:00:00.000Z";
 const COMPLETION_FINGERPRINT = "c".repeat(64);
 const MODEL_DIGEST = "d".repeat(64);
 const KEY_ID = "private-ai-hub-production-2026-08";
+const WORK_ID = "work_public_lounge_contract_0001";
+const V5_ENVIRONMENT = "preview";
+const V5_AUDIENCE = "novel-public-lounge-preview";
+const V5_PRODUCER_VERSION = "private-ai-hub-attestation-producer-v1";
 const TEST_ACTOR_ID = "11111111-1111-4111-8111-111111111111";
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
 const tests = [];
 let attestationCounter = 0;
 let idempotencyCounter = 0;
+let serviceTokenCounter = 0;
 const DEFAULT_TAXONOMY = normalizePublicLoungeTopicIds(["classic-topic-002"]);
 
 function test(name, run) { tests.push({ name, run }); }
@@ -164,7 +176,7 @@ function unsignedPublicationFromRequest(request, score = 86, breakdown = quality
   };
 }
 
-function signedEligibilityRequest(overrides = {}, attestationOverrides = {}) {
+function signedV4EligibilityRequest(overrides = {}, attestationOverrides = {}) {
   attestationCounter += 1;
   const base = validPublication(overrides);
   const request = {
@@ -226,6 +238,91 @@ function signedEligibilityRequest(overrides = {}, attestationOverrides = {}) {
   return { ...request, serverAttestation: attestation };
 }
 
+function signedEligibilityRequest(
+  overrides = {},
+  attestationOverrides = {},
+  operationOverrides = {},
+) {
+  attestationCounter += 1;
+  const base = validPublication(overrides);
+  const operation = {
+    intent: "publish",
+    targetPublicationId: null,
+    expectedTargetVersionId: null,
+    expectedTargetPublicationDigest: null,
+    ...operationOverrides,
+  };
+  const request = {
+    schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
+    completionFingerprint: COMPLETION_FINGERPRINT,
+    workId: WORK_ID,
+    revisionId: COMPLETION_FINGERPRINT,
+    title: base.title,
+    authorByline: base.authorByline,
+    storyLibrarySchemaVersion: base.storyLibrarySchemaVersion,
+    shelfId: base.shelfId,
+    primaryTopicId: base.primaryTopicId,
+    topicIds: base.topicIds,
+    completionStatus: "completed",
+    chapterCount: base.chapterCount,
+    wordCount: base.wordCount,
+    completedAt: base.completedAt,
+    fullSynopsis: base.fullSynopsis,
+    publicChapters: base.publicChapters,
+    explicitConsent: true,
+    authorRightsDeclaration: true,
+    workCompleted: true,
+    trustedServerReviewConsent: true,
+    ...operation,
+  };
+  const score = attestationOverrides.qualityScore ?? 86;
+  const breakdown = attestationOverrides.qualityBreakdown ?? qualityBreakdown(score);
+  const publication = unsignedPublicationFromRequest(request, score, breakdown);
+  const attestation = {
+    schemaVersion: PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION,
+    issuer: "private-ai-hub",
+    keyId: KEY_ID,
+    attestationId: `attestation${String(attestationCounter).padStart(18, "0")}`,
+    ...operation,
+    workId: request.workId,
+    revisionId: request.revisionId,
+    environment: V5_ENVIRONMENT,
+    audience: V5_AUDIENCE,
+    producerVersion: V5_PRODUCER_VERSION,
+    rubricVersion: PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
+    issuedAt: "2026-08-29T02:55:00.000Z",
+    expiresAt: "2026-08-29T03:10:00.000Z",
+    completionFingerprint: COMPLETION_FINGERPRINT,
+    contentDigest: hash(JSON.stringify(request.publicChapters)),
+    publicationDigest: hash(publicLoungeEligibilityBinding(
+      publication,
+      COMPLETION_FINGERPRINT,
+    )),
+    qualityScore: score,
+    qualityBreakdown: breakdown,
+    workCompleted: true,
+    fullCoverage: true,
+    hardGatePassed: true,
+    compliancePassed: true,
+    criticalDimensionsPassed: true,
+    hiddenDraftResidueDetected: false,
+    multiJudgeSummary: attestationOverrides.multiJudgeSummary
+      ?? multiJudgeSummary(breakdown, base.chapterCount),
+    backendId: "private-ai-hub",
+    modelId: "closed-reviewer-v1",
+    modelDigest: MODEL_DIGEST,
+    rawContentStored: false,
+    signature: "",
+    ...attestationOverrides,
+  };
+  attestation.signature = sign(
+    null,
+    Buffer.from(publicLoungeServerReviewAttestationV5Payload(attestation), "utf8"),
+    privateKey,
+  ).toString("base64url");
+  return { ...request, serverAttestation: attestation };
+}
+
 function expectCode(run, code) {
   assert.throws(run, (error) => error instanceof PublicLoungeError && error.code === code);
 }
@@ -240,6 +337,8 @@ class MemoryLoungeGateway {
     this.catalog = new Map();
     this.catalogCalls = [];
     this.rateBuckets = new Map();
+    this.attestationLedger = new Map();
+    this.attestationLedgerCalls = [];
     this.listOffsets = [];
     this.activeReads = 0;
     this.maxActiveReads = 0;
@@ -253,6 +352,18 @@ class MemoryLoungeGateway {
       catalogReady: true,
       rateReady: true,
     };
+  }
+  async attestationNonceLedgerStatus() {
+    return {
+      migrationVersion: "public_lounge_attestation_nonce_ledger_029",
+      ledgerReady: true,
+    };
+  }
+  async consumeAttestationNonceV5(input) {
+    this.attestationLedgerCalls.push(structuredClone(input));
+    if (this.attestationLedger.has(input.attestationIdHash)) return "replayed";
+    this.attestationLedger.set(input.attestationIdHash, structuredClone(input));
+    return "consumed";
   }
   async readJson(path) {
     this.readPaths.push(path);
@@ -367,6 +478,22 @@ class BarrierEligibilityConsumptionGateway extends MemoryLoungeGateway {
   }
 }
 
+class BarrierAttestationNonceGateway extends MemoryLoungeGateway {
+  constructor() {
+    super();
+    this.attestationArrivals = 0;
+    this.attestationBarrier = new Promise((resolve) => { this.releaseAttestationBarrier = resolve; });
+  }
+  async consumeAttestationNonceV5(input) {
+    if (!this.attestationLedger.has(input.attestationIdHash)) {
+      this.attestationArrivals += 1;
+      if (this.attestationArrivals === 1) await this.attestationBarrier;
+      else if (this.attestationArrivals === 2) this.releaseAttestationBarrier();
+    }
+    return super.consumeAttestationNonceV5(input);
+  }
+}
+
 class MemoryDeviceStorage {
   constructor({ failOnSetCall = 0 } = {}) {
     this.failOnSetCall = failOnSetCall;
@@ -384,17 +511,24 @@ class MemoryDeviceStorage {
 
 function serviceFixture(
   gateway = new MemoryLoungeGateway(),
-  eligibilityReviewer = createEd25519PublicLoungeEligibilityReviewer({ publicKeyPem, keyId: KEY_ID, now: () => NOW }),
+  eligibilityReviewer = createEd25519PublicLoungeEligibilityReviewerV5({
+    publicKeyPem,
+    keyId: KEY_ID,
+    environment: V5_ENVIRONMENT,
+    audience: V5_AUDIENCE,
+    producerVersion: V5_PRODUCER_VERSION,
+    rubricVersion: PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
+    now: () => NOW,
+  }),
 ) {
-  let tokenCounter = 0;
   let publicIdCounter = 0;
   const sealKey = Buffer.from(hash("public-lounge-contract-seal-key"), "hex");
   const service = new PublicLoungeService({
     gateway,
     tokenCodec: {
       issue() {
-        tokenCounter += 1;
-        const token = `token-${String(tokenCounter).padStart(6, "0")}`.padEnd(43, "x");
+        serviceTokenCounter += 1;
+        const token = `token-${String(serviceTokenCounter).padStart(6, "0")}`.padEnd(43, "x");
         return { token, hash: hash(token) };
       },
       matches: (candidate, expected) => hash(candidate) === expected,
@@ -434,14 +568,60 @@ function serviceFixture(
   return { gateway, service };
 }
 
-async function authorizedPublication(fixture, overrides = {}) {
-  const proof = await fixture.service.issueEligibility(signedEligibilityRequest(overrides));
+async function authorizedPublication(fixture, overrides = {}, operation = {}) {
+  const proof = await fixture.service.issueEligibility(signedEligibilityRequest(overrides, {}, operation));
   return validPublication({
     ...overrides,
     qualityScore: proof.qualityScore,
     qualityBreakdown: proof.qualityBreakdown,
     eligibilityTicket: proof.eligibilityTicket,
   });
+}
+
+function publishedVersionDigest(post) {
+  return hash(stableStringify(post));
+}
+
+async function currentOverwriteOperation(fixture, publicId) {
+  const current = await fixture.service.get(publicId);
+  return {
+    intent: "overwrite",
+    targetPublicationId: publicId,
+    expectedTargetVersionId: current.versionId,
+    expectedTargetPublicationDigest: publishedVersionDigest(current),
+  };
+}
+
+async function authorizedOverwritePublication(fixture, publicId, overrides = {}) {
+  return authorizedPublication(
+    fixture,
+    overrides,
+    await currentOverwriteOperation(fixture, publicId),
+  );
+}
+
+function replaceStoredEligibilityWithV4(fixture, eligibilityTicket) {
+  const ticketHash = hash(eligibilityTicket);
+  const path = `public-lounge-v1/eligibility/issued/${ticketHash}.json`;
+  const stored = fixture.gateway.objects.get(path);
+  assert.ok(stored);
+  fixture.gateway.objects.set(path, {
+    schemaVersion: PUBLIC_LOUNGE_PRIOR_STORED_ELIGIBILITY_SCHEMA_VERSION,
+    state: "issued",
+    ticketHash: stored.ticketHash,
+    completionFingerprint: stored.completionFingerprint,
+    publicationDigest: stored.publicationDigest,
+    authorizedOwnerIdHash: stored.authorizedOwnerIdHash,
+    backendId: stored.backendId,
+    modelId: stored.modelId,
+    modelDigest: stored.modelDigest,
+    qualityScore: stored.qualityScore,
+    qualityBreakdown: stored.qualityBreakdown,
+    qualityAssurance: stored.qualityAssurance,
+    issuedAt: stored.issuedAt,
+    expiresAt: stored.expiresAt,
+  });
+  return { path, ticketHash };
 }
 
 let authorDeviceNonceCounter = 0;
@@ -552,6 +732,19 @@ test("contract accepts an explicit completed rights-cleared integer 80+ publicat
   assert.equal(parsed.fullSynopsis, "第一行\n第二行");
 });
 
+test("Vercel Preview and Production reject a mismatched attestation trust domain", () => {
+  assert.equal(resolvePublicLoungeAttestationEnvironment("preview", "preview"), "preview");
+  assert.equal(resolvePublicLoungeAttestationEnvironment("production", "production"), "production");
+  assert.equal(
+    resolvePublicLoungeAttestationEnvironment("preview", "production"),
+    "deployment-environment-mismatch",
+  );
+  assert.equal(
+    resolvePublicLoungeAttestationEnvironment("production", "preview"),
+    "deployment-environment-mismatch",
+  );
+});
+
 test("v2 taxonomy is canonical, shelf is primary-topic derived, and legacy v1 never guesses", () => {
   expectCode(() => validatePublicLoungePublicationInput(validPublication({
     shelfId: "group-1",
@@ -624,7 +817,34 @@ test("forged caller-reported 100 score without stored eligibility is rejected", 
   })), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
 });
 
-test("trusted Ed25519 attestation issues one bound ticket and legal publish succeeds", async () => {
+test("the original v4 verifier remains independently usable while public ticket issuance rejects v4", async () => {
+  const request = signedV4EligibilityRequest();
+  const reviewer = createEd25519PublicLoungeEligibilityReviewer({
+    publicKeyPem,
+    keyId: KEY_ID,
+    now: () => NOW,
+  });
+  const reviewed = await reviewer.review(request);
+  assert.equal(reviewed.qualityScore, 86);
+  assert.equal(reviewed.completionFingerprint, COMPLETION_FINGERPRINT);
+  const frozenPayload = JSON.parse(publicLoungeServerReviewAttestationPayload(request.serverAttestation));
+  assert.equal(frozenPayload.schemaVersion, PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION);
+  assert.equal(Object.hasOwn(frozenPayload, "intent"), false);
+
+  const tampered = signedV4EligibilityRequest();
+  tampered.title = "簽章後竄改的 v4 標題";
+  await expectAsyncCode(() => reviewer.review(tampered), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+
+  const fixture = serviceFixture();
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(request),
+    "PUBLIC_LOUNGE_ATTESTATION_VERSION_UNSUPPORTED",
+  );
+  assert.equal(fixture.gateway.attestationLedgerCalls.length, 0);
+  assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/eligibility/issued/")), false);
+});
+
+test("trusted v5 Ed25519 attestation issues one bound ticket and legal publish succeeds", async () => {
   const fixture = serviceFixture();
   const proof = await fixture.service.issueEligibility(signedEligibilityRequest());
   assert.equal(proof.schemaVersion, PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION);
@@ -663,7 +883,7 @@ test("real server service completes signed eligibility publish read overwrite an
   const published = await publish(fixture.service, initial);
   assert.equal((await fixture.service.list({ limit: 24 })).items[0].publicId, published.post.publicId);
   assert.equal((await fixture.service.get(published.post.publicId)).versionNumber, 1);
-  const revision = await authorizedPublication(fixture, {
+  const revision = await authorizedOverwritePublication(fixture, published.post.publicId, {
     title: "《霧港歸航・作者修訂版》",
     fullSynopsis: "作者重新撰寫的公開摘要。",
   });
@@ -677,6 +897,81 @@ test("real server service completes signed eligibility publish read overwrite an
   await fixture.service.retract(published.post.publicId, published.managementToken);
   await expectAsyncCode(() => fixture.service.get(published.post.publicId), "PUBLIC_LOUNGE_NOT_FOUND");
   assert.equal((await fixture.service.list({ limit: 24 })).items.length, 0);
+});
+
+test("v5 eligibility binds publish and overwrite intent to the exact current target", async () => {
+  const fixture = serviceFixture();
+  const published = await publish(fixture.service, await authorizedPublication(fixture));
+  const publishOnly = await authorizedPublication(fixture, { title: "不得拿發布票覆寫" });
+  await expectAsyncCode(
+    () => fixture.service.overwrite(
+      published.post.publicId,
+      published.managementToken,
+      publishOnly,
+    ),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+
+  const currentOperation = await currentOverwriteOperation(fixture, published.post.publicId);
+  const overwriteOnly = await authorizedPublication(
+    fixture,
+    { title: "不得拿覆寫票另建公開作品" },
+    currentOperation,
+  );
+  await expectAsyncCode(
+    () => publish(fixture.service, overwriteOnly),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(signedEligibilityRequest(
+      { title: "錯誤目標作品" },
+      {},
+      {
+        ...currentOperation,
+        targetPublicationId: "novel_wrongtarget0001",
+      },
+    )),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(signedEligibilityRequest(
+      { title: "錯誤既有版本 digest" },
+      {},
+      {
+        ...currentOperation,
+        expectedTargetPublicationDigest: "e".repeat(64),
+      },
+    )),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+
+  const firstAgainstV1 = await authorizedPublication(
+    fixture,
+    { title: "第一張 V1 覆寫票" },
+    currentOperation,
+  );
+  const staleAgainstV1 = await authorizedPublication(
+    fixture,
+    { title: "第二張已過時的 V1 覆寫票" },
+    currentOperation,
+  );
+  const version2 = await fixture.service.overwrite(
+    published.post.publicId,
+    published.managementToken,
+    firstAgainstV1,
+  );
+  assert.equal(version2.versionNumber, 2);
+  await expectAsyncCode(
+    () => fixture.service.overwrite(
+      published.post.publicId,
+      published.managementToken,
+      staleAgainstV1,
+    ),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+  assert.equal((await fixture.service.get(published.post.publicId)).versionNumber, 2);
 });
 
 test("publish and overwrite expose only the current immutable PublishedVersion while retaining history", async () => {
@@ -695,7 +990,11 @@ test("publish and overwrite expose only the current immutable PublishedVersion w
   const version1Snapshot = structuredClone(fixture.gateway.objects.get(version1Path));
   assert.equal(version1Snapshot.publicPost.title, "《霧港歸航》");
 
-  const revision = await authorizedPublication(fixture, { title: "《霧港歸航・第二版》" });
+  const revision = await authorizedOverwritePublication(
+    fixture,
+    published.post.publicId,
+    { title: "《霧港歸航・第二版》" },
+  );
   const version2 = await fixture.service.overwrite(
     published.post.publicId,
     published.managementToken,
@@ -737,8 +1036,16 @@ test("one immutable claim wins concurrent overwrites without pointer index diver
   const fixture = serviceFixture(gateway);
   const peer = serviceFixture(gateway);
   const published = await publish(fixture.service, await authorizedPublication(fixture));
-  const firstRevision = await authorizedPublication(fixture, { title: "第一個並行修訂" });
-  const secondRevision = await authorizedPublication(peer, { title: "第二個並行修訂" });
+  const firstRevision = await authorizedOverwritePublication(
+    fixture,
+    published.post.publicId,
+    { title: "第一個並行修訂" },
+  );
+  const secondRevision = await authorizedOverwritePublication(
+    peer,
+    published.post.publicId,
+    { title: "第二個並行修訂" },
+  );
 
   const settled = await Promise.allSettled([
     fixture.service.overwrite(
@@ -778,7 +1085,7 @@ test("one immutable claim wins concurrent overwrites without pointer index diver
   const version3 = await peer.service.overwrite(
     published.post.publicId,
     published.managementToken,
-    await authorizedPublication(peer, { title: "第三個後續修訂" }),
+    await authorizedOverwritePublication(peer, published.post.publicId, { title: "第三個後續修訂" }),
   );
   assert.equal(version3.versionNumber, 3);
   assert.equal((await peer.service.get(published.post.publicId)).versionId, version3.versionId);
@@ -822,13 +1129,21 @@ test("an out-of-order checkpoint can regress without hiding a later committed cl
   const first = fixture.service.overwrite(
     published.post.publicId,
     published.managementToken,
-    await authorizedPublication(fixture, { title: "先提交但晚寫 checkpoint" }),
+    await authorizedOverwritePublication(
+      fixture,
+      published.post.publicId,
+      { title: "先提交但晚寫 checkpoint" },
+    ),
   );
   await gateway.firstCheckpointArrived;
   const second = await peer.service.overwrite(
     published.post.publicId,
     published.managementToken,
-    await authorizedPublication(peer, { title: "後提交但先寫 checkpoint" }),
+    await authorizedOverwritePublication(
+      peer,
+      published.post.publicId,
+      { title: "後提交但先寫 checkpoint" },
+    ),
   );
   gateway.release();
   await first;
@@ -845,7 +1160,11 @@ test("retract wins an overwrite race atomically and the stale body cannot resurr
   const fixture = serviceFixture(gateway);
   const peer = serviceFixture(gateway);
   const published = await publish(fixture.service, await authorizedPublication(fixture));
-  const staleRevision = await authorizedPublication(peer, { title: "不得復活的修訂" });
+  const staleRevision = await authorizedOverwritePublication(
+    peer,
+    published.post.publicId,
+    { title: "不得復活的修訂" },
+  );
 
   const staleOverwrite = peer.service.overwrite(
     published.post.publicId,
@@ -890,14 +1209,18 @@ test("durable per-work mutation slots cap sequential serverless abuse without re
     await actor.service.overwrite(
       published.post.publicId,
       published.managementToken,
-      await authorizedPublication(actor, { title: `耐久限流修訂 ${attempt + 1}` }),
+      await authorizedOverwritePublication(
+        actor,
+        published.post.publicId,
+        { title: `耐久限流修訂 ${attempt + 1}` },
+      ),
     );
   }
   await expectAsyncCode(
     async () => peer.service.overwrite(
       published.post.publicId,
       published.managementToken,
-      await authorizedPublication(peer, { title: "第七次應被限流" }),
+      await authorizedOverwritePublication(peer, published.post.publicId, { title: "第七次應被限流" }),
     ),
     "PUBLIC_LOUNGE_MUTATION_RATE_LIMITED",
   );
@@ -964,12 +1287,12 @@ test("invalid management tokens do not amplify reads across immutable history", 
   await fixture.service.overwrite(
     published.post.publicId,
     published.managementToken,
-    await authorizedPublication(fixture, { title: "歷史修訂一" }),
+    await authorizedOverwritePublication(fixture, published.post.publicId, { title: "歷史修訂一" }),
   );
   await fixture.service.overwrite(
     published.post.publicId,
     published.managementToken,
-    await authorizedPublication(fixture, { title: "歷史修訂二" }),
+    await authorizedOverwritePublication(fixture, published.post.publicId, { title: "歷史修訂二" }),
   );
 
   gateway.readPaths = [];
@@ -987,7 +1310,7 @@ test("catalog list replays compact claims without downloading immutable chapter 
   const updated = await fixture.service.overwrite(
     published.post.publicId,
     published.managementToken,
-    await authorizedPublication(fixture, { title: "清單摘要修訂" }),
+    await authorizedOverwritePublication(fixture, published.post.publicId, { title: "清單摘要修訂" }),
   );
 
   gateway.readPaths = [];
@@ -1015,7 +1338,7 @@ test("public reads hide weak legacy reviews and strong records without a bound h
   assert.equal((await fixture.service.get(strong.publicId)).publicId, strong.publicId);
 });
 
-test("first overwrite of a legacy v2 post preserves its old public body as immutable version 1", async () => {
+test("a legacy v2 post cannot mint a v5 overwrite ticket and remains unchanged", async () => {
   const fixture = serviceFixture();
   const publicId = "novel_legacyversion001";
   const managementToken = "legacy-management-token";
@@ -1046,18 +1369,28 @@ test("first overwrite of a legacy v2 post preserves its old public body as immut
   });
   fixture.gateway.objects.set(`public-lounge-v1/index/${publicId}.json`, priorIndex);
 
-  const revision = await authorizedPublication(fixture, { title: "新版正文" });
-  const updated = await fixture.service.overwrite(publicId, managementToken, revision);
-  assert.equal(updated.versionNumber, 2);
-  const versions = [...fixture.gateway.objects.entries()]
-    .filter(([path]) => path.includes(`/versions/${publicId}/`))
-    .map(([, value]) => value)
-    .sort((left, right) => left.versionNumber - right.versionNumber);
-  assert.equal(versions.length, 2);
-  assert.equal(versions[0].versionNumber, 1);
-  assert.equal(versions[0].publicPost.title, "舊版正文");
-  assert.equal(versions[1].versionNumber, 2);
-  assert.equal(versions[1].publicPost.title, "新版正文");
+  const storedHead = structuredClone(fixture.gateway.objects.get(`public-lounge-v1/posts/${publicId}.json`));
+  const storedIndex = structuredClone(fixture.gateway.objects.get(`public-lounge-v1/index/${publicId}.json`));
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(signedEligibilityRequest(
+      { title: "新版正文" },
+      {},
+      {
+        intent: "overwrite",
+        targetPublicationId: publicId,
+        expectedTargetVersionId: "version_temporarylegacy001",
+        expectedTargetPublicationDigest: hash(stableStringify(priorPost)),
+      },
+    )),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+  assert.deepEqual(fixture.gateway.objects.get(`public-lounge-v1/posts/${publicId}.json`), storedHead);
+  assert.deepEqual(fixture.gateway.objects.get(`public-lounge-v1/index/${publicId}.json`), storedIndex);
+  assert.equal(
+    [...fixture.gateway.objects.keys()].some((path) => path.includes(`/versions/${publicId}/`)),
+    false,
+  );
+  assert.equal(fixture.gateway.attestationLedger.size, 0);
 });
 
 test("storage path allowlist accepts immutable versions and rejects traversal or malformed ids", () => {
@@ -1150,11 +1483,14 @@ test("eligibility request is an exact exclusive union and every device-shaped pa
     ...authorRequest,
     serverAttestation: serverRequest.serverAttestation,
     trustedServerReviewConsent: true,
-  }), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+  }), "PUBLIC_LOUNGE_PAYLOAD_INVALID");
   const neither = structuredClone(authorRequest);
   delete neither.authorDeviceReview;
   delete neither.authorDeviceReviewConsent;
-  await expectAsyncCode(() => fixture.service.issueEligibility(neither), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(neither),
+    "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED",
+  );
   const privateField = structuredClone(authorRequest);
   privateField.authorDeviceReview.projectId = "must-not-leave-device";
   await expectAsyncCode(
@@ -1249,6 +1585,56 @@ test("all legacy v2 tickets fail closed, including unexpired strong-labelled tic
   }
 });
 
+test("stored v4 eligibility tickets are rejected for both publish and overwrite", async () => {
+  const publishFixture = serviceFixture();
+  const v4Publish = await authorizedPublication(publishFixture, { title: "v4 票不得發布" });
+  const v4PublishTicket = replaceStoredEligibilityWithV4(
+    publishFixture,
+    v4Publish.eligibilityTicket,
+  );
+  await expectAsyncCode(
+    () => publish(publishFixture.service, v4Publish),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+  assert.equal((await publishFixture.service.list()).items.length, 0);
+  assert.equal(
+    publishFixture.gateway.objects.has(
+      `public-lounge-v1/eligibility/consumed/${v4PublishTicket.ticketHash}.json`,
+    ),
+    false,
+  );
+
+  const overwriteFixture = serviceFixture();
+  const published = await publish(
+    overwriteFixture.service,
+    await authorizedPublication(overwriteFixture),
+  );
+  const v4Overwrite = await authorizedOverwritePublication(
+    overwriteFixture,
+    published.post.publicId,
+    { title: "v4 票不得覆寫" },
+  );
+  const v4OverwriteTicket = replaceStoredEligibilityWithV4(
+    overwriteFixture,
+    v4Overwrite.eligibilityTicket,
+  );
+  await expectAsyncCode(
+    () => overwriteFixture.service.overwrite(
+      published.post.publicId,
+      published.managementToken,
+      v4Overwrite,
+    ),
+    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+  );
+  assert.equal((await overwriteFixture.service.get(published.post.publicId)).versionNumber, 1);
+  assert.equal(
+    overwriteFixture.gateway.objects.has(
+      `public-lounge-v1/eligibility/consumed/${v4OverwriteTicket.ticketHash}.json`,
+    ),
+    false,
+  );
+});
+
 test("ticket replay and public-field tampering are rejected", async () => {
   const replayFixture = serviceFixture();
   const publication = await authorizedPublication(replayFixture);
@@ -1259,20 +1645,172 @@ test("ticket replay and public-field tampering are rejected", async () => {
   await expectAsyncCode(() => publish(tamperFixture.service, { ...bound, title: "竄改後標題" }), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
 });
 
-test("attestation tampering is rejected while an issuance retry returns a fresh bound ticket", async () => {
+test("v5 attestation tampering is rejected before the nonce ledger is touched", async () => {
   const tamperFixture = serviceFixture();
   const request = signedEligibilityRequest();
   request.title = "簽章後竄改";
   await expectAsyncCode(() => tamperFixture.service.issueEligibility(request), "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+  assert.equal(tamperFixture.gateway.attestationLedgerCalls.length, 0);
+  assert.equal(tamperFixture.gateway.attestationLedger.size, 0);
+  assert.equal(
+    [...tamperFixture.gateway.objects.keys()].some((path) => path.includes("/eligibility/issued/")),
+    false,
+  );
+});
+
+test("v5 work revision and validity-window mismatches fail before nonce consumption", async () => {
+  const cases = [
+    () => ({ ...signedEligibilityRequest(), workId: "work_other" }),
+    () => ({ ...signedEligibilityRequest(), revisionId: "f".repeat(64) }),
+    () => signedEligibilityRequest({}, {
+      issuedAt: "2026-08-29T03:06:00.000Z",
+      expiresAt: "2026-08-29T03:20:00.000Z",
+    }),
+    () => signedEligibilityRequest({}, {
+      issuedAt: "2026-08-29T02:30:00.000Z",
+      expiresAt: "2026-08-29T02:50:00.000Z",
+    }),
+  ];
+  for (const build of cases) {
+    const fixture = serviceFixture();
+    await expectAsyncCode(
+      () => fixture.service.issueEligibility(build()),
+      "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+    );
+    assert.equal(fixture.gateway.attestationLedgerCalls.length, 0);
+    assert.equal([...fixture.gateway.objects.keys()].some((path) => path.includes("/eligibility/issued/")), false);
+  }
+});
+
+test("the same valid v5 attestation can mint exactly one eligibility ticket", async () => {
   const replayFixture = serviceFixture();
   const replayRequest = signedEligibilityRequest();
   const first = await replayFixture.service.issueEligibility(replayRequest);
-  const retry = await replayFixture.service.issueEligibility(replayRequest);
-  assert.notEqual(retry.eligibilityTicket, first.eligibilityTicket);
-  assert.equal(
-    [...replayFixture.gateway.objects.keys()].some((path) => path.includes("/eligibility/consumed/")),
-    false,
+  await expectAsyncCode(
+    () => replayFixture.service.issueEligibility(replayRequest),
+    "PUBLIC_LOUNGE_ATTESTATION_REPLAYED",
   );
+  assert.match(first.eligibilityTicket, /^[A-Za-z0-9_-]{43}$/u);
+  assert.equal(replayFixture.gateway.attestationLedger.size, 1);
+  assert.equal(replayFixture.gateway.attestationLedgerCalls.length, 2);
+  assert.equal(
+    [...replayFixture.gateway.objects.keys()].filter((path) => path.includes("/eligibility/issued/")).length,
+    1,
+  );
+});
+
+test("an eligibility ticket cannot cross verifier environment audience producer rubric or key domains", async () => {
+  const gateway = new MemoryLoungeGateway();
+  const preview = serviceFixture(gateway);
+  const publication = await authorizedPublication(preview);
+  const mismatches = [
+    { environment: "production" },
+    { audience: "another-public-lounge" },
+    { producerVersion: "private-ai-hub-attestation-producer-v2" },
+    { rubricVersion: "public-lounge-rubric-v2" },
+    { keyId: "preview-attestation-key-other" },
+  ];
+  for (const mismatch of mismatches) {
+    const otherDomain = serviceFixture(gateway, createEd25519PublicLoungeEligibilityReviewerV5({
+      publicKeyPem,
+      keyId: KEY_ID,
+      environment: V5_ENVIRONMENT,
+      audience: V5_AUDIENCE,
+      producerVersion: V5_PRODUCER_VERSION,
+      rubricVersion: PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
+      now: () => NOW,
+      ...mismatch,
+    }));
+    await expectAsyncCode(
+      () => publish(otherDomain.service, publication),
+      "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+    );
+  }
+  assert.equal([...gateway.objects.keys()].some((path) => path.includes("/posts/")), false);
+});
+
+test("concurrent serverless v5 issuance consumes one attestation exactly once", async () => {
+  const gateway = new BarrierAttestationNonceGateway();
+  const first = serviceFixture(gateway);
+  const second = serviceFixture(gateway);
+  const request = signedEligibilityRequest();
+  const settled = await Promise.allSettled([
+    first.service.issueEligibility(request),
+    second.service.issueEligibility(request),
+  ]);
+  const fulfilled = settled.filter((result) => result.status === "fulfilled");
+  const rejected = settled.filter((result) => result.status === "rejected");
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].reason?.code, "PUBLIC_LOUNGE_ATTESTATION_REPLAYED");
+  assert.equal(gateway.attestationLedger.size, 1);
+  assert.equal(gateway.attestationLedgerCalls.length, 2);
+  assert.equal(
+    [...gateway.objects.keys()].filter((path) => path.includes("/eligibility/issued/")).length,
+    1,
+  );
+});
+
+test("an ambiguous database response after nonce commit fails closed and burns the attestation", async () => {
+  class CommitThenRejectAttestationLedgerGateway extends MemoryLoungeGateway {
+    constructor() {
+      super();
+      this.rejectAfterCommit = true;
+    }
+    async consumeAttestationNonceV5(input) {
+      const result = await super.consumeAttestationNonceV5(input);
+      if (this.rejectAfterCommit && result === "consumed") {
+        this.rejectAfterCommit = false;
+        throw new Error("ATTESTATION_LEDGER_RESPONSE_LOST_AFTER_COMMIT");
+      }
+      return result;
+    }
+  }
+  const gateway = new CommitThenRejectAttestationLedgerGateway();
+  const fixture = serviceFixture(gateway);
+  const request = signedEligibilityRequest();
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(request),
+    "PUBLIC_LOUNGE_ATTESTATION_STATE_UNKNOWN",
+  );
+  assert.equal(gateway.attestationLedger.size, 1);
+  assert.equal([...gateway.objects.keys()].some((path) => path.includes("/eligibility/issued/")), false);
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(request),
+    "PUBLIC_LOUNGE_ATTESTATION_REPLAYED",
+  );
+  assert.equal([...gateway.objects.keys()].some((path) => path.includes("/eligibility/issued/")), false);
+});
+
+test("ticket storage failure after nonce consumption cannot mint a replacement from the same attestation", async () => {
+  class RejectIssuedTicketStorageGateway extends MemoryLoungeGateway {
+    constructor() {
+      super();
+      this.issuedWriteAttempts = 0;
+    }
+    async writeJson(path, value, options) {
+      if (path.includes("/eligibility/issued/")) {
+        this.issuedWriteAttempts += 1;
+        throw new Error("ELIGIBILITY_STORAGE_UNAVAILABLE_AFTER_LEDGER_COMMIT");
+      }
+      return super.writeJson(path, value, options);
+    }
+  }
+  const gateway = new RejectIssuedTicketStorageGateway();
+  const fixture = serviceFixture(gateway);
+  const request = signedEligibilityRequest();
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(request),
+    "PUBLIC_LOUNGE_ATTESTATION_STATE_UNKNOWN",
+  );
+  assert.equal(gateway.attestationLedger.size, 1);
+  assert.equal(gateway.issuedWriteAttempts, 1);
+  assert.equal([...gateway.objects.keys()].some((path) => path.includes("/eligibility/issued/")), false);
+  await expectAsyncCode(
+    () => fixture.service.issueEligibility(request),
+    "PUBLIC_LOUNGE_ATTESTATION_REPLAYED",
+  );
+  assert.equal(gateway.issuedWriteAttempts, 1);
 });
 
 test("signed server attestation hard gates are bound and critical scores are recomputed", async () => {
@@ -1363,14 +1901,22 @@ test("signed server attestation hard gates are bound and critical scores are rec
   legacyAttestation.serverAttestation.schemaVersion = "public-lounge-server-review-attestation-v2";
   await expectAsyncCode(
     () => legacyAttestationFixture.service.issueEligibility(legacyAttestation),
-    "PUBLIC_LOUNGE_ELIGIBILITY_INVALID",
+    "PUBLIC_LOUNGE_ATTESTATION_VERSION_UNSUPPORTED",
   );
 });
 
 test("missing trusted verifier is reported honestly and cannot issue eligibility", async () => {
   const fixture = serviceFixture(
     new MemoryLoungeGateway(),
-    createEd25519PublicLoungeEligibilityReviewer({ publicKeyPem: "", keyId: "", now: () => NOW }),
+    createEd25519PublicLoungeEligibilityReviewerV5({
+      publicKeyPem: "",
+      keyId: "",
+      environment: V5_ENVIRONMENT,
+      audience: V5_AUDIENCE,
+      producerVersion: V5_PRODUCER_VERSION,
+      rubricVersion: PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
+      now: () => NOW,
+    }),
   );
   const health = await fixture.service.health();
   assert.equal(health.trustedEligibilityVerifierConnected, false);
@@ -1465,7 +2011,11 @@ test("management token gates mutations and retract removes its catalog anchor", 
     () => fixture.service.overwrite(published.post.publicId, "B".repeat(43), validPublication()),
     "PUBLIC_LOUNGE_MANAGEMENT_TOKEN_INVALID",
   );
-  const revision = await authorizedPublication(fixture, { title: "霧港歸航・修訂版" });
+  const revision = await authorizedOverwritePublication(
+    fixture,
+    published.post.publicId,
+    { title: "霧港歸航・修訂版" },
+  );
   const overwritten = await fixture.service.overwrite(published.post.publicId, published.managementToken, revision);
   assert.equal(overwritten.title, "霧港歸航・修訂版");
   await fixture.service.retract(published.post.publicId, published.managementToken);
@@ -1506,7 +2056,7 @@ test("an ambiguous claim response is accepted only when the immutable receipt ex
   const oldPost = structuredClone(gateway.objects.get(postPath));
   const oldIndex = structuredClone(gateway.objects.get(indexPath));
   const newTitle = "霧港歸航・已提交修訂";
-  const revision = await authorizedPublication(fixture, { title: newTitle });
+  const revision = await authorizedOverwritePublication(fixture, published.post.publicId, { title: newTitle });
   gateway.arm();
 
   const updated = await fixture.service.overwrite(
@@ -1542,7 +2092,7 @@ test("a failed claim create leaves its immutable version orphaned but cannot exp
   const fixture = serviceFixture(gateway);
   const published = await publish(fixture.service, await authorizedPublication(fixture));
   const newTitle = "霧港歸航・不可曝光修訂";
-  const revision = await authorizedPublication(fixture, { title: newTitle });
+  const revision = await authorizedOverwritePublication(fixture, published.post.publicId, { title: newTitle });
   gateway.arm();
 
   await expectAsyncCode(
@@ -1560,7 +2110,11 @@ test("a failed claim create leaves its immutable version orphaned but cannot exp
   const recovered = await fixture.service.overwrite(
     published.post.publicId,
     published.managementToken,
-    await authorizedPublication(fixture, { title: "霧港歸航・安全重試" }),
+    await authorizedOverwritePublication(
+      fixture,
+      published.post.publicId,
+      { title: "霧港歸航・安全重試" },
+    ),
   );
   assert.equal(recovered.versionNumber, 2);
   assert.equal((await fixture.service.list()).items[0].title, "霧港歸航・安全重試");
@@ -1712,6 +2266,46 @@ test("client preflights device storage and recovers failed credential persistenc
     );
     const reference = await resolvePublicLoungeManagementRecovery(recovery, "persist", { storage });
     assert.equal(reference.publicId, published.post.publicId);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("eligibility exchange never auto-retries replay ambiguous or network failures", async () => {
+  const previousFetch = globalThis.fetch;
+  try {
+    const cases = [
+      {
+        expectedCode: "PUBLIC_LOUNGE_ATTESTATION_REPLAYED",
+        response: () => Response.json({
+          error: { code: "PUBLIC_LOUNGE_ATTESTATION_REPLAYED" },
+        }, { status: 409 }),
+      },
+      {
+        expectedCode: "PUBLIC_LOUNGE_ATTESTATION_STATE_UNKNOWN",
+        response: () => Response.json({
+          error: { code: "PUBLIC_LOUNGE_ATTESTATION_STATE_UNKNOWN" },
+        }, { status: 503 }),
+      },
+      {
+        expectedCode: "NETWORK_FAILURE",
+        response: () => { throw Object.assign(new Error("NETWORK_FAILURE"), { code: "NETWORK_FAILURE" }); },
+      },
+    ];
+    for (const item of cases) {
+      let calls = 0;
+      globalThis.fetch = async () => {
+        calls += 1;
+        return item.response();
+      };
+      await assert.rejects(
+        () => requestPublicLoungeEligibilityProof(signedEligibilityRequest(), {
+          accessToken: "access." + "N".repeat(64),
+        }),
+        (error) => error?.code === item.expectedCode || error?.message === item.expectedCode,
+      );
+      assert.equal(calls, 1, `${item.expectedCode} must not trigger a second eligibility exchange`);
+    }
   } finally {
     globalThis.fetch = previousFetch;
   }

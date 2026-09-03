@@ -8,7 +8,7 @@ import {
   sanitizeStoredPublicLoungeIndexEntry,
   sanitizeStoredPublicLoungePost,
   validatePublicLoungePublicationInput,
-  validatePublicLoungeEligibilityRequest,
+  validatePublicLoungeServerEligibilityRequestV5,
   validatePublicLoungeQuality,
 } from "./contract";
 import { evaluatePublicLoungePublicContentGate } from "./public-content-hard-gate";
@@ -18,7 +18,10 @@ import {
   PUBLIC_LOUNGE_PRIOR_STORED_POST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PUBLISHED_VERSION_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
   PUBLIC_LOUNGE_QUALITY_THRESHOLD,
+  PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION,
   PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION,
   PUBLIC_LOUNGE_STORED_POST_SCHEMA_VERSION,
   type PublicLoungeServerEligibilityRequest,
@@ -29,7 +32,6 @@ import {
   type PublicLoungePostSummary,
   type PublicLoungePublishResult,
   type PublicLoungeQualityDimensionKey,
-  type PublicLoungeQualityAssurance,
   type PublicLoungeServiceApi,
 } from "./types";
 import {
@@ -38,6 +40,7 @@ import {
   publicLoungeTopicDisplayNames,
 } from "./taxonomy";
 import {
+  PUBLIC_LOUNGE_ATTESTATION_NONCE_LEDGER_MIGRATION_VERSION,
   PUBLIC_LOUNGE_STORAGE_BUCKET,
   publicLoungeEligibilityConsumedPath,
   publicLoungeEligibilityPath,
@@ -58,6 +61,10 @@ import {
   type StoredPublicLoungeEligibility,
   type StoredPublicLoungeTombstone,
 } from "./storage";
+import type {
+  PublicLoungeEligibilityReviewerV5,
+  PublicLoungeEligibilityReviewV5Result,
+} from "./eligibility-signature";
 import { stableStringify } from "../closed-ai-cache";
 
 export type PublicLoungeTokenCodec = {
@@ -73,7 +80,7 @@ export type PublicLoungeServiceDependencies = {
   createPublicId(): string;
   now(): string;
   digest(value: string): string;
-  eligibilityReviewer: PublicLoungeEligibilityReviewer;
+  eligibilityReviewer: PublicLoungeEligibilityReviewerV5;
 };
 
 export type PublicLoungeEligibilityReviewer = {
@@ -89,18 +96,19 @@ export type PublicLoungeEligibilityReviewer = {
   }>;
 };
 
-type PublicLoungeEligibilityReviewResult = {
-  backendId: "private-ai-hub" | "browser-ai" | "local-ollama";
-  modelId: string;
-  modelDigest: string;
-  completionFingerprint: string;
-  qualityScore: number;
-  qualityBreakdown: Record<PublicLoungeQualityDimensionKey, number>;
-  qualityAssurance: PublicLoungeQualityAssurance;
+type PublicLoungeEligibilityReviewResult = PublicLoungeEligibilityReviewV5Result & {
+  qualityAssurance: "private_ai_hub_verified";
 };
 
 function notConnected(): PublicLoungeError {
   return new PublicLoungeError("PUBLIC_LOUNGE_NOT_CONNECTED", 503, true);
+}
+
+function attestationStateUnknown(): PublicLoungeError {
+  // A caller must obtain a newly signed attestation after this failure.  The
+  // database may already have consumed the old one, so marking it retryable
+  // would encourage an unsafe automatic replay.
+  return new PublicLoungeError("PUBLIC_LOUNGE_ATTESTATION_STATE_UNKNOWN", 503, false);
 }
 
 function assertPublicLoungeActorId(value: string) {
@@ -128,6 +136,7 @@ const MAX_RESULT_LIMIT = 48;
 const MAX_CURSOR_LENGTH = 1_024;
 const CATALOG_FILTER_BATCH_SIZE = 64;
 const MAX_CATALOG_CANDIDATES_PER_REQUEST = 256;
+const ATTESTATION_NONCE_RPC_TIMEOUT_MS = 5_000;
 const MAX_MUTATION_SEQUENCE = 10_000;
 
 type NormalizedListQuery = {
@@ -570,7 +579,7 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
   private readonly createPublicId: () => string;
   private readonly now: () => string;
   private readonly digest: (value: string) => string;
-  private readonly eligibilityReviewer: PublicLoungeEligibilityReviewer;
+  private readonly eligibilityReviewer: PublicLoungeEligibilityReviewerV5;
 
   constructor(dependencies: PublicLoungeServiceDependencies) {
     this.gateway = dependencies.gateway;
@@ -592,6 +601,43 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
     } catch (error) {
       if (error instanceof PublicLoungeError) throw error;
       throw notConnected();
+    }
+  }
+
+  private async ensureAttestationNonceLedgerReady() {
+    try {
+      const status = await this.gateway.attestationNonceLedgerStatus();
+      if (
+        status.migrationVersion !== PUBLIC_LOUNGE_ATTESTATION_NONCE_LEDGER_MIGRATION_VERSION
+        || status.ledgerReady !== true
+      ) {
+        throw attestationStateUnknown();
+      }
+    } catch (error) {
+      if (
+        error instanceof PublicLoungeError
+        && error.code === "PUBLIC_LOUNGE_ATTESTATION_STATE_UNKNOWN"
+      ) {
+        throw error;
+      }
+      throw attestationStateUnknown();
+    }
+  }
+
+  private async consumeAttestationNonceWithinDeadline(
+    input: Parameters<PublicLoungeStorageGateway["consumeAttestationNonceV5"]>[0],
+  ) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => reject(attestationStateUnknown()), ATTESTATION_NONCE_RPC_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([
+        this.gateway.consumeAttestationNonceV5(input),
+        deadline,
+      ]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
     }
   }
 
@@ -758,6 +804,31 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
       managementTokenHash: head.managementTokenHash,
       updatedAt: head.updatedAt,
     };
+  }
+
+  private targetPublicationDigest(post: PublicLoungePost) {
+    // This digest is intentionally calculated from the exact public payload,
+    // not from its private Storage pointer/version envelope.  The producer can
+    // therefore bind an overwrite to what it actually reviewed.
+    return this.digest(stableStringify(post));
+  }
+
+  private async assertCurrentAttestationTarget(binding: {
+    publicId: string;
+    versionId: string;
+    publicationDigest: string;
+  }) {
+    const current = await this.readStored(assertPublicLoungeId(binding.publicId));
+    if (
+      !current
+      || current.state !== "active"
+      || !this.isTrustedPublicPost(current)
+      || current.post.versionId !== binding.versionId
+      || this.targetPublicationDigest(current.post) !== binding.publicationDigest
+    ) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+    }
+    return current;
   }
 
   private async storageWrite<T>(action: () => Promise<T>): Promise<T> {
@@ -1125,7 +1196,31 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
   }
 
   async issueEligibility(input: unknown, actorId: string) {
-    const request = validatePublicLoungeEligibilityRequest(input);
+    const rawRequest = input && typeof input === "object" && !Array.isArray(input)
+      ? input as Record<string, unknown>
+      : null;
+    const rawAttestation = rawRequest?.serverAttestation;
+    if (rawAttestation === undefined) {
+      // Author-device declarations remain editing metadata only.  Public
+      // publication never falls back to them when the trusted producer is
+      // absent.
+      throw new PublicLoungeError("PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED", 503, true);
+    }
+    if (!rawAttestation || typeof rawAttestation !== "object" || Array.isArray(rawAttestation)) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+    }
+    const attestationSchemaVersion = (rawAttestation as Record<string, unknown>).schemaVersion;
+    if (
+      attestationSchemaVersion === PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION
+      || (typeof attestationSchemaVersion === "string"
+        && attestationSchemaVersion !== PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION)
+    ) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ATTESTATION_VERSION_UNSUPPORTED", 403);
+    }
+    if (attestationSchemaVersion !== PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+    }
+    const request = validatePublicLoungeServerEligibilityRequestV5(input);
     const authorizedOwnerIdHash = this.digest(assertPublicLoungeActorId(actorId));
     await this.ensureConnected();
     const publicContent = {
@@ -1134,45 +1229,44 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
       publicChapters: request.publicChapters,
       fullSynopsis: request.fullSynopsis,
     };
-    // A digest produced on the author's device is integrity metadata, not a
-    // trust boundary: the caller can recompute it after changing every score.
-    // Keep local reviews available for editing, but never mint a public ticket
-    // without a server-verifiable Private AI Hub attestation.
-    if (request.serverAttestation === undefined) {
+    if (!evaluatePublicLoungePublicContentGate(publicContent).passed) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+    }
+    let serverReview: Awaited<ReturnType<PublicLoungeEligibilityReviewerV5["review"]>>;
+    try {
+      serverReview = await this.eligibilityReviewer.review(request);
+    } catch (error) {
+      if (error instanceof PublicLoungeError) throw error;
       throw new PublicLoungeError("PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED", 503, true);
     }
-    let reviewed: PublicLoungeEligibilityReviewResult;
-    {
-      if (!evaluatePublicLoungePublicContentGate(publicContent).passed) {
-        throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
-      }
-      let serverReview: Awaited<ReturnType<PublicLoungeEligibilityReviewer["review"]>>;
-      try {
-        serverReview = await this.eligibilityReviewer.review(request);
-      } catch (error) {
-        if (error instanceof PublicLoungeError) throw error;
-        throw new PublicLoungeError("PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED", 503, true);
-      }
-      if (
-        serverReview.backendId !== "private-ai-hub"
-        || serverReview.completionFingerprint !== request.completionFingerprint
-        || typeof serverReview.modelId !== "string"
-        || !serverReview.modelId.trim()
-        || !/^[a-f0-9]{64}$/u.test(serverReview.modelDigest)
-        || !/^[a-f0-9]{64}$/u.test(serverReview.attestationDigest)
-      ) {
-        throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 502);
-      }
-      // The signed review is not consumed at ticket issuance. Authentication,
-      // author-device storage, or a network request may still fail after this
-      // point. Each ticket remains short-lived, actor-bound, content-bound, and
-      // single-use at publish/overwrite, so retries cannot turn into a replay
-      // dead end and another account cannot front-run a captured ticket.
-      reviewed = {
-        ...serverReview,
-        qualityAssurance: "private_ai_hub_verified",
-      };
+    if (
+      serverReview.backendId !== "private-ai-hub"
+      || serverReview.completionFingerprint !== request.completionFingerprint
+      || serverReview.attestationId !== request.serverAttestation.attestationId
+      || serverReview.intent !== request.intent
+      || serverReview.workId !== request.workId
+      || serverReview.revisionId !== request.revisionId
+      || serverReview.targetPublicationId !== request.targetPublicationId
+      || serverReview.expectedTargetVersionId !== request.expectedTargetVersionId
+      || serverReview.expectedTargetPublicationDigest !== request.expectedTargetPublicationDigest
+      || serverReview.environment !== request.serverAttestation.environment
+      || serverReview.audience !== request.serverAttestation.audience
+      || serverReview.producerVersion !== request.serverAttestation.producerVersion
+      || serverReview.rubricVersion !== PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION
+      || serverReview.keyId !== request.serverAttestation.keyId
+      || typeof serverReview.modelId !== "string"
+      || !serverReview.modelId.trim()
+      || !/^[A-Za-z0-9_-]{22,128}$/u.test(serverReview.attestationId)
+      || !/^[a-f0-9]{64}$/u.test(serverReview.modelDigest)
+      || !/^[a-f0-9]{64}$/u.test(serverReview.bindingDigest)
+      || !/^[a-f0-9]{64}$/u.test(serverReview.attestationDigest)
+    ) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 502);
     }
+    const reviewed: PublicLoungeEligibilityReviewResult = {
+      ...serverReview,
+      qualityAssurance: "private_ai_hub_verified",
+    };
     if (
       reviewed.completionFingerprint !== request.completionFingerprint
       || typeof reviewed.modelId !== "string"
@@ -1206,51 +1300,119 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
       publication,
       request.completionFingerprint,
     ));
+    if (publicationDigest !== request.serverAttestation.publicationDigest) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+    }
+    if (request.intent === "overwrite") {
+      await this.assertCurrentAttestationTarget({
+        publicId: request.targetPublicationId,
+        versionId: request.expectedTargetVersionId,
+        publicationDigest: request.expectedTargetPublicationDigest,
+      });
+    }
+    // Migration 029 gates only attestation exchange.  Reads, retracts and all
+    // other fail-closed operations continue to use the existing control plane.
+    await this.ensureAttestationNonceLedgerReady();
     const issuedAt = this.now();
-    const expiresAt = new Date(Date.parse(issuedAt) + 15 * 60_000).toISOString();
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const issued = this.tokenCodec.issue();
-      if (!/^[a-f0-9]{64}$/u.test(issued.hash)) throw notConnected();
-      const stored: StoredPublicLoungeEligibility = {
-        schemaVersion: PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION,
-        state: "issued",
-        ticketHash: issued.hash,
-        completionFingerprint: request.completionFingerprint,
-        publicationDigest,
+    if (!isCanonicalIsoTime(issuedAt)) throw attestationStateUnknown();
+    const expiresAtMs = Math.min(
+      Date.parse(issuedAt) + 15 * 60_000,
+      Date.parse(request.serverAttestation.expiresAt),
+    );
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.parse(issuedAt)) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_EXPIRED", 410);
+    }
+    const expiresAt = new Date(expiresAtMs).toISOString();
+    const issued = this.tokenCodec.issue();
+    const attestationIdHash = this.digest(reviewed.attestationId);
+    if (
+      !/^[a-f0-9]{64}$/u.test(issued.hash)
+      || !/^[a-f0-9]{64}$/u.test(attestationIdHash)
+      || !/^[a-f0-9]{64}$/u.test(authorizedOwnerIdHash)
+    ) {
+      throw attestationStateUnknown();
+    }
+    let nonceResult: "consumed" | "replayed";
+    try {
+      nonceResult = await this.consumeAttestationNonceWithinDeadline({
+        attestationIdHash,
+        attestationDigest: reviewed.attestationDigest,
+        bindingDigest: reviewed.bindingDigest,
+        eligibilityTicketHash: issued.hash,
         authorizedOwnerIdHash,
-        backendId: reviewed.backendId,
-        modelId: reviewed.modelId.trim().slice(0, 160),
-        modelDigest: reviewed.modelDigest,
-        qualityScore: quality.qualityScore,
-        qualityBreakdown: quality.qualityBreakdown,
-        qualityAssurance: reviewed.qualityAssurance,
-        issuedAt,
-        expiresAt,
-      };
-      const result = await this.storageWrite(() => this.gateway.writeJson(
+        environment: reviewed.environment,
+        intent: reviewed.intent,
+        expiresAt: request.serverAttestation.expiresAt,
+      });
+    } catch {
+      // Timeout and commit-then-error are indistinguishable here.  Never issue
+      // a ticket or retry the same attestation after an ambiguous result.
+      throw attestationStateUnknown();
+    }
+    if (nonceResult === "replayed") {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ATTESTATION_REPLAYED", 409, false);
+    }
+    if (nonceResult !== "consumed") throw attestationStateUnknown();
+    const stored: StoredPublicLoungeEligibility = {
+      schemaVersion: PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION,
+      state: "issued",
+      ticketHash: issued.hash,
+      attestationIdHash,
+      attestationDigest: reviewed.attestationDigest,
+      bindingDigest: reviewed.bindingDigest,
+      intent: reviewed.intent,
+      workId: reviewed.workId,
+      revisionId: reviewed.revisionId,
+      targetPublicationId: reviewed.targetPublicationId,
+      expectedTargetVersionId: reviewed.expectedTargetVersionId,
+      expectedTargetPublicationDigest: reviewed.expectedTargetPublicationDigest,
+      environment: reviewed.environment,
+      audience: reviewed.audience,
+      producerVersion: reviewed.producerVersion,
+      rubricVersion: reviewed.rubricVersion,
+      keyId: reviewed.keyId,
+      completionFingerprint: request.completionFingerprint,
+      publicationDigest,
+      authorizedOwnerIdHash,
+      backendId: reviewed.backendId,
+      modelId: reviewed.modelId.trim().slice(0, 160),
+      modelDigest: reviewed.modelDigest,
+      qualityScore: quality.qualityScore,
+      qualityBreakdown: quality.qualityBreakdown,
+      qualityAssurance: reviewed.qualityAssurance,
+      issuedAt,
+      expiresAt,
+    };
+    let storedResult: "stored" | "exists";
+    try {
+      storedResult = await this.gateway.writeJson(
         publicLoungeEligibilityPath(issued.hash),
         stored,
         { upsert: false },
-      ));
-      if (result === "exists") continue;
-      return {
-        schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION,
-        eligibilityTicket: issued.token,
-        expiresAt,
-        backendId: stored.backendId,
-        modelId: stored.modelId,
-        qualityAssurance: stored.qualityAssurance,
-        completionFingerprint: stored.completionFingerprint,
-        qualityScore: stored.qualityScore,
-        qualityBreakdown: stored.qualityBreakdown,
-      };
+      );
+    } catch {
+      throw attestationStateUnknown();
     }
-    throw notConnected();
+    // The ledger is already committed.  A collision or malformed Storage
+    // response burns this attestation and must not trigger another token loop.
+    if (storedResult !== "stored") throw attestationStateUnknown();
+    return {
+      schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION,
+      eligibilityTicket: issued.token,
+      expiresAt,
+      backendId: stored.backendId,
+      modelId: stored.modelId,
+      qualityAssurance: stored.qualityAssurance,
+      completionFingerprint: stored.completionFingerprint,
+      qualityScore: stored.qualityScore,
+      qualityBreakdown: stored.qualityBreakdown,
+    };
   }
 
   private async validateEligibility(
     publication: ReturnType<typeof validatePublicLoungePublicationInput>,
     actorId: string,
+    use: { intent: "publish" } | { intent: "overwrite"; publicId: string },
     allowExpired = false,
   ) {
     const { eligibilityTicket, ...boundPublication } = publication;
@@ -1263,12 +1425,53 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
       || stored.state !== "issued"
       || stored.ticketHash !== ticketHash
       || stored.authorizedOwnerIdHash !== this.digest(assertPublicLoungeActorId(actorId))
+      || !/^[a-f0-9]{64}$/u.test(stored.attestationIdHash)
+      || !/^[a-f0-9]{64}$/u.test(stored.attestationDigest)
+      || !/^[a-f0-9]{64}$/u.test(stored.bindingDigest)
       || !/^[a-f0-9]{64}$/u.test(stored.completionFingerprint)
+      || stored.revisionId !== stored.completionFingerprint
+      || !/^[A-Za-z0-9_-]{1,160}$/u.test(stored.workId)
+      || (stored.environment !== "preview" && stored.environment !== "production")
+      || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/u.test(stored.audience)
+      || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/u.test(stored.producerVersion)
+      || stored.rubricVersion !== PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION
+      || !/^[A-Za-z0-9._-]{1,120}$/u.test(stored.keyId)
+      || !/^[a-f0-9]{64}$/u.test(stored.publicationDigest)
       || !/^[a-f0-9]{64}$/u.test(stored.modelDigest)
+      || typeof stored.modelId !== "string"
+      || !stored.modelId.trim()
+      || stored.modelId.length > 160
       || stored.qualityAssurance !== "private_ai_hub_verified"
       || stored.backendId !== "private-ai-hub"
-      || !Number.isFinite(Date.parse(stored.expiresAt))
+      || this.eligibilityReviewer.configured !== true
+      || this.eligibilityReviewer.expectedEnvironment === null
+      || stored.environment !== this.eligibilityReviewer.expectedEnvironment
+      || stored.audience !== this.eligibilityReviewer.expectedAudience
+      || stored.producerVersion !== this.eligibilityReviewer.expectedProducerVersion
+      || stored.rubricVersion !== this.eligibilityReviewer.expectedRubricVersion
+      || stored.keyId !== this.eligibilityReviewer.expectedKeyId
+      || stored.intent !== use.intent
+      || !isCanonicalIsoTime(stored.issuedAt)
+      || !isCanonicalIsoTime(stored.expiresAt)
+      || Date.parse(stored.expiresAt) <= Date.parse(stored.issuedAt)
+      || (use.intent === "publish" && (
+        stored.targetPublicationId !== null
+        || stored.expectedTargetVersionId !== null
+        || stored.expectedTargetPublicationDigest !== null
+      ))
+      || (use.intent === "overwrite" && (
+        stored.targetPublicationId !== use.publicId
+        || typeof stored.expectedTargetVersionId !== "string"
+        || !/^version_[a-z0-9_-]{12,96}$/u.test(stored.expectedTargetVersionId)
+        || typeof stored.expectedTargetPublicationDigest !== "string"
+        || !/^[a-f0-9]{64}$/u.test(stored.expectedTargetPublicationDigest)
+      ))
     ) {
+      throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+    }
+    try {
+      validatePublicLoungeQuality(stored);
+    } catch {
       throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
     }
     if (!allowExpired && Date.parse(stored.expiresAt) <= Date.parse(this.now())) {
@@ -1281,14 +1484,24 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
     if (actualDigest !== stored.publicationDigest) {
       throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
     }
+    if (use.intent === "overwrite") {
+      // Re-read at ticket consumption, not only at attestation issuance.  A
+      // newer public version invalidates this overwrite authorization.
+      await this.assertCurrentAttestationTarget({
+        publicId: use.publicId,
+        versionId: stored.expectedTargetVersionId as string,
+        publicationDigest: stored.expectedTargetPublicationDigest as string,
+      });
+    }
     return { stored, ticketHash };
   }
 
   private async consumeEligibility(
     publication: ReturnType<typeof validatePublicLoungePublicationInput>,
     actorId: string,
+    use: { intent: "overwrite"; publicId: string },
   ) {
-    const { stored, ticketHash } = await this.validateEligibility(publication, actorId);
+    const { stored, ticketHash } = await this.validateEligibility(publication, actorId, use);
     const consumed = await this.storageWrite(() => this.gateway.writeJson(
       publicLoungeEligibilityConsumedPath(ticketHash),
       {
@@ -1320,7 +1533,12 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
         throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_REPLAYED", 409);
       }
     }
-    const { stored, ticketHash } = await this.validateEligibility(publication, actorId, exactExisting !== null);
+    const { stored, ticketHash } = await this.validateEligibility(
+      publication,
+      actorId,
+      { intent: "publish" },
+      exactExisting !== null,
+    );
     if (ticketHash !== claim.eligibilityTicketHash) {
       throw new PublicLoungeError("PUBLIC_LOUNGE_IDEMPOTENCY_CONFLICT", 409);
     }
@@ -1499,11 +1717,18 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
     const claimIdHash = this.issueMutationIdentity();
     const claimedAt = this.now();
     if (!isCanonicalIsoTime(claimedAt)) throw notConnected();
+    const eligibility = await this.consumeEligibility(
+      publication,
+      actorId,
+      { intent: "overwrite", publicId },
+    );
+    // A stale or mismatched v5 ticket must fail before writing even the rate
+    // reservation.  Once the ticket is consumed, subsequent failures remain
+    // fail-closed and require a newly signed overwrite attestation.
     await this.reserveDurableMutationSlot(
       publicId,
       claimedAt,
     );
-    const eligibility = await this.consumeEligibility(publication, actorId);
     if (existing.snapshot.schemaVersion !== PUBLIC_LOUNGE_STORED_POST_SCHEMA_VERSION) {
       await this.writeImmutableVersion(existing.post);
     }

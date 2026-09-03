@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import {
   PUBLIC_LOUNGE_MAX_REQUEST_BYTES,
   PublicLoungeError,
+  publicLoungeEligibilityBinding,
   validatePublicLoungeEligibilityRequest,
+  validatePublicLoungeServerEligibilityRequestV5,
 } from "../lib/novel-ai/public-lounge/contract.ts";
+import {
+  createEd25519PublicLoungeEligibilityReviewer,
+  createEd25519PublicLoungeEligibilityReviewerV5,
+  publicLoungeServerReviewAttestationPayload,
+  publicLoungeServerReviewAttestationV5Payload,
+} from "../lib/novel-ai/public-lounge/eligibility-signature.ts";
 import {
   createPublicLoungeHttpHandlers,
   PublicLoungeRateLimiter,
@@ -17,7 +26,10 @@ import {
   PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
   PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES,
+  PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
   PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
+  PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION,
 } from "../lib/novel-ai/public-lounge/types.ts";
 
 const ORIGIN = "https://novel.example";
@@ -25,6 +37,14 @@ const PUBLIC_ID = "novel_abcdefghijklmnop";
 const TOKEN = "A".repeat(43);
 const ACCESS_TOKEN = "access." + "B".repeat(64);
 const IDEMPOTENCY_KEY = "I".repeat(32);
+const CUTOVER_NOW = "2026-08-29T03:00:00.000Z";
+const COMPLETION_FINGERPRINT = "c".repeat(64);
+const WORK_ID = "a0009e4d-570c-4691-a610-5393b2bb331e";
+const V5_KEY_ID = "private-ai-hub-preview-2026-08";
+const V5_AUDIENCE = "public-lounge-eligibility";
+const V5_PRODUCER_VERSION = "private-ai-hub-1.5.0";
+const { privateKey: cutoverPrivateKey, publicKey: cutoverPublicKey } = generateKeyPairSync("ed25519");
+const cutoverPublicKeyPem = cutoverPublicKey.export({ format: "pem", type: "spki" }).toString();
 process.env.PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY = Buffer.alloc(32, 17).toString("base64url");
 
 function eligibilityBreakdown(score = 86) {
@@ -39,11 +59,15 @@ function eligibilityBreakdown(score = 86) {
   ].map((key) => [key, score]));
 }
 
-function apiEligibilityRequest(attestationSchemaVersion) {
+function sha256(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function apiEligibilityRequestBase() {
   const taxonomy = normalizePublicLoungeTopicIds(["classic-topic-002"]);
   return {
     schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
-    completionFingerprint: "c".repeat(64),
+    completionFingerprint: COMPLETION_FINGERPRINT,
     title: "霧港歸航",
     authorByline: "林舟",
     ...taxonomy,
@@ -62,47 +86,153 @@ function apiEligibilityRequest(attestationSchemaVersion) {
     authorRightsDeclaration: true,
     workCompleted: true,
     trustedServerReviewConsent: true,
-    serverAttestation: {
-      schemaVersion: attestationSchemaVersion,
-      issuer: "private-ai-hub",
-      keyId: "private-ai-hub-test",
-      nonce: "api-cutover-nonce-000001",
-      issuedAt: "2026-08-29T02:55:00.000Z",
-      expiresAt: "2026-08-29T03:10:00.000Z",
-      completionFingerprint: "c".repeat(64),
-      publicationDigest: "a".repeat(64),
-      qualityScore: 86,
-      qualityBreakdown: eligibilityBreakdown(),
-      workCompleted: true,
+  };
+}
+
+function apiMultiJudgeSummary() {
+  return {
+    schemaVersion: PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
+    primaryJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+    primaryJudgeCount: 3,
+    judges: PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES.map((judgeRole) => ({
+      judgeRole,
+      totalScore: 86,
+      dimensionScores: eligibilityBreakdown(),
       fullCoverage: true,
-      hardGatePassed: true,
-      compliancePassed: true,
-      criticalDimensionsPassed: true,
-      hiddenDraftResidueDetected: false,
-      multiJudgeSummary: {
-        schemaVersion: PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION,
-        primaryJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
-        primaryJudgeCount: 3,
-        judges: PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES.map((judgeRole) => ({
-          judgeRole,
-          totalScore: 86,
-          dimensionScores: eligibilityBreakdown(),
-          fullCoverage: true,
-        })),
-        aggregationMethod: "per-dimension-median",
-        primaryScoreSpread: 0,
-        selectedJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
-        arbitrationRequired: false,
-        arbitrationPerformed: false,
-        fullCoverageJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
-        reviewedChapterCount: 1,
-        reviewedChunkCount: 1,
-      },
-      backendId: "private-ai-hub",
-      modelId: "closed-reviewer-v3",
-      modelDigest: "d".repeat(64),
-      rawContentStored: false,
-      signature: "A".repeat(86),
+    })),
+    aggregationMethod: "per-dimension-median",
+    primaryScoreSpread: 0,
+    selectedJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+    arbitrationRequired: false,
+    arbitrationPerformed: false,
+    fullCoverageJudgeRoles: [...PUBLIC_LOUNGE_PRIMARY_JUDGE_ROLES],
+    reviewedChapterCount: 1,
+    reviewedChunkCount: 1,
+  };
+}
+
+function apiPublication(request) {
+  return {
+    schemaVersion: PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
+    title: request.title,
+    authorByline: request.authorByline,
+    storyLibrarySchemaVersion: request.storyLibrarySchemaVersion,
+    shelfId: request.shelfId,
+    primaryTopicId: request.primaryTopicId,
+    topicIds: request.topicIds,
+    completionStatus: "completed",
+    chapterCount: request.chapterCount,
+    wordCount: request.wordCount,
+    completedAt: request.completedAt,
+    qualityScore: 86,
+    qualityBreakdown: eligibilityBreakdown(),
+    fullSynopsis: request.fullSynopsis,
+    publicChapters: request.publicChapters,
+    explicitConsent: true,
+    authorRightsDeclaration: true,
+    workCompleted: true,
+  };
+}
+
+function apiEligibilityRequestV4() {
+  const request = apiEligibilityRequestBase();
+  const unsignedAttestation = {
+    schemaVersion: PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION,
+    issuer: "private-ai-hub",
+    keyId: V5_KEY_ID,
+    nonce: "api-cutover-nonce-000001",
+    issuedAt: "2026-08-29T02:55:00.000Z",
+    expiresAt: "2026-08-29T03:10:00.000Z",
+    completionFingerprint: COMPLETION_FINGERPRINT,
+    publicationDigest: sha256(publicLoungeEligibilityBinding(
+      apiPublication(request),
+      COMPLETION_FINGERPRINT,
+    )),
+    qualityScore: 86,
+    qualityBreakdown: eligibilityBreakdown(),
+    workCompleted: true,
+    fullCoverage: true,
+    hardGatePassed: true,
+    compliancePassed: true,
+    criticalDimensionsPassed: true,
+    hiddenDraftResidueDetected: false,
+    multiJudgeSummary: apiMultiJudgeSummary(),
+    backendId: "private-ai-hub",
+    modelId: "closed-reviewer-v4",
+    modelDigest: "d".repeat(64),
+    rawContentStored: false,
+    signature: "A".repeat(86),
+  };
+  return {
+    ...request,
+    serverAttestation: {
+      ...unsignedAttestation,
+      signature: sign(
+        null,
+        Buffer.from(publicLoungeServerReviewAttestationPayload(unsignedAttestation), "utf8"),
+        cutoverPrivateKey,
+      ).toString("base64url"),
+    },
+  };
+}
+
+function apiEligibilityRequestV5() {
+  const request = {
+    ...apiEligibilityRequestBase(),
+    workId: WORK_ID,
+    revisionId: COMPLETION_FINGERPRINT,
+    intent: "publish",
+    targetPublicationId: null,
+    expectedTargetVersionId: null,
+    expectedTargetPublicationDigest: null,
+  };
+  const unsignedAttestation = {
+    schemaVersion: PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION,
+    issuer: "private-ai-hub",
+    keyId: V5_KEY_ID,
+    attestationId: "api-cutover-v5-id-0001",
+    intent: request.intent,
+    workId: request.workId,
+    revisionId: request.revisionId,
+    targetPublicationId: request.targetPublicationId,
+    expectedTargetVersionId: request.expectedTargetVersionId,
+    expectedTargetPublicationDigest: request.expectedTargetPublicationDigest,
+    environment: "preview",
+    audience: V5_AUDIENCE,
+    producerVersion: V5_PRODUCER_VERSION,
+    rubricVersion: PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
+    issuedAt: "2026-08-29T02:55:00.000Z",
+    expiresAt: "2026-08-29T03:10:00.000Z",
+    completionFingerprint: COMPLETION_FINGERPRINT,
+    contentDigest: sha256(JSON.stringify(request.publicChapters)),
+    publicationDigest: sha256(publicLoungeEligibilityBinding(
+      apiPublication(request),
+      COMPLETION_FINGERPRINT,
+    )),
+    qualityScore: 86,
+    qualityBreakdown: eligibilityBreakdown(),
+    workCompleted: true,
+    fullCoverage: true,
+    hardGatePassed: true,
+    compliancePassed: true,
+    criticalDimensionsPassed: true,
+    hiddenDraftResidueDetected: false,
+    multiJudgeSummary: apiMultiJudgeSummary(),
+    backendId: "private-ai-hub",
+    modelId: "closed-reviewer-v5",
+    modelDigest: "d".repeat(64),
+    rawContentStored: false,
+    signature: "A".repeat(86),
+  };
+  return {
+    ...request,
+    serverAttestation: {
+      ...unsignedAttestation,
+      signature: sign(
+        null,
+        Buffer.from(publicLoungeServerReviewAttestationV5Payload(unsignedAttestation), "utf8"),
+        cutoverPrivateKey,
+      ).toString("base64url"),
     },
   };
 }
@@ -318,9 +448,35 @@ const handlers = createPublicLoungeHttpHandlers(
 }
 
 {
+  const v4Request = apiEligibilityRequestV4();
+  const v4Reviewer = createEd25519PublicLoungeEligibilityReviewer({
+    publicKeyPem: cutoverPublicKeyPem,
+    keyId: V5_KEY_ID,
+    now: () => CUTOVER_NOW,
+  });
+  await v4Reviewer.review(validatePublicLoungeEligibilityRequest(v4Request));
+
+  const v5Reviewer = createEd25519PublicLoungeEligibilityReviewerV5({
+    publicKeyPem: cutoverPublicKeyPem,
+    keyId: V5_KEY_ID,
+    environment: "preview",
+    audience: V5_AUDIENCE,
+    producerVersion: V5_PRODUCER_VERSION,
+    rubricVersion: PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
+    now: () => CUTOVER_NOW,
+  });
+  let v5ReviewCalls = 0;
   const cutoverService = fakeService({
     issueEligibility: async (input) => {
-      validatePublicLoungeEligibilityRequest(input);
+      if (
+        input?.serverAttestation?.schemaVersion
+        !== PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION
+      ) {
+        throw new PublicLoungeError("PUBLIC_LOUNGE_ATTESTATION_VERSION_UNSUPPORTED", 403);
+      }
+      const parsed = validatePublicLoungeServerEligibilityRequestV5(input);
+      v5ReviewCalls += 1;
+      await v5Reviewer.review(parsed);
       return {
         schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION,
         eligibilityTicket: TOKEN,
@@ -337,19 +493,21 @@ const handlers = createPublicLoungeHttpHandlers(
     method: "POST",
     origin: ORIGIN,
     sameOriginFetch: true,
-    json: apiEligibilityRequest("public-lounge-server-review-attestation-v2"),
+    json: v4Request,
   }));
   assert.equal(rejected.status, 403);
-  assert.equal((await rejected.json()).error.code, "PUBLIC_LOUNGE_ELIGIBILITY_INVALID");
+  assert.equal((await rejected.json()).error.code, "PUBLIC_LOUNGE_ATTESTATION_VERSION_UNSUPPORTED");
+  assert.equal(v5ReviewCalls, 0);
 
   const current = await cutoverHandlers.eligibility(request("/api/lounge/eligibility", {
     method: "POST",
     origin: ORIGIN,
     sameOriginFetch: true,
-    json: apiEligibilityRequest(PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION),
+    json: apiEligibilityRequestV5(),
   }));
   assert.equal(current.status, 201);
   assert.equal((await current.json()).proof.schemaVersion, PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION);
+  assert.equal(v5ReviewCalls, 1);
 }
 
 {

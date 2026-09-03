@@ -13,9 +13,12 @@ export const PUBLIC_LOUNGE_LEGACY_POST_SCHEMA_VERSION = "public-lounge-post-v1" 
 export const PUBLIC_LOUNGE_LEGACY_INDEX_ENTRY_SCHEMA_VERSION = "public-lounge-index-entry-v1" as const;
 export const PUBLIC_LOUNGE_LEGACY_STORED_POST_SCHEMA_VERSION = "public-lounge-stored-post-v1" as const;
 export const PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION = "public-lounge-eligibility-proof-v3" as const;
-export const PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION = "public-lounge-stored-eligibility-v4" as const;
+export const PUBLIC_LOUNGE_PRIOR_STORED_ELIGIBILITY_SCHEMA_VERSION = "public-lounge-stored-eligibility-v4" as const;
+export const PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION = "public-lounge-stored-eligibility-v5" as const;
 export const PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_SCHEMA_VERSION = "public-lounge-server-review-attestation-v4" as const;
+export const PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION = "public-lounge-server-review-attestation-v5" as const;
 export const PUBLIC_LOUNGE_MULTI_JUDGE_SUMMARY_SCHEMA_VERSION = "public-lounge-multi-judge-summary-v1" as const;
+export const PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION = "public-lounge-rubric-v1" as const;
 export const PUBLIC_LOUNGE_PUBLISHED_VERSION_SCHEMA_VERSION = "public-lounge-published-version-v1" as const;
 export const PUBLIC_LOUNGE_QUALITY_THRESHOLD = 80;
 export const PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS = 140;
@@ -174,6 +177,77 @@ export type PublicLoungeServerReviewAttestation = {
   rawContentStored: false;
   signature: string;
 };
+
+export type PublicLoungeServerReviewAttestationV5Intent = "publish" | "overwrite";
+export type PublicLoungeServerReviewAttestationV5Environment = "preview" | "production";
+
+type PublicLoungeServerReviewAttestationV5Base = {
+  schemaVersion: typeof PUBLIC_LOUNGE_SERVER_REVIEW_ATTESTATION_V5_SCHEMA_VERSION;
+  issuer: "private-ai-hub";
+  keyId: string;
+  attestationId: string;
+  workId: string;
+  revisionId: string;
+  environment: PublicLoungeServerReviewAttestationV5Environment;
+  audience: string;
+  producerVersion: string;
+  rubricVersion: typeof PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION;
+  issuedAt: string;
+  expiresAt: string;
+  completionFingerprint: string;
+  contentDigest: string;
+  publicationDigest: string;
+  qualityScore: number;
+  qualityBreakdown: Record<PublicLoungeQualityDimensionKey, number>;
+  workCompleted: true;
+  fullCoverage: true;
+  hardGatePassed: true;
+  compliancePassed: true;
+  criticalDimensionsPassed: true;
+  hiddenDraftResidueDetected: false;
+  multiJudgeSummary: PublicLoungeMultiJudgeSummary;
+  backendId: "private-ai-hub";
+  modelId: string;
+  modelDigest: string;
+  rawContentStored: false;
+  signature: string;
+};
+
+export type PublicLoungeServerReviewAttestationV5 =
+  | (PublicLoungeServerReviewAttestationV5Base & {
+    intent: "publish";
+    targetPublicationId: null;
+    expectedTargetVersionId: null;
+    expectedTargetPublicationDigest: null;
+  })
+  | (PublicLoungeServerReviewAttestationV5Base & {
+    intent: "overwrite";
+    targetPublicationId: string;
+    expectedTargetVersionId: string;
+    expectedTargetPublicationDigest: string;
+  });
+
+type PublicLoungeServerEligibilityRequestV5Base =
+  Omit<PublicLoungeServerEligibilityRequest, "serverAttestation"> & {
+    workId: string;
+    revisionId: string;
+  };
+
+export type PublicLoungeServerEligibilityRequestV5 =
+  | (PublicLoungeServerEligibilityRequestV5Base & {
+    intent: "publish";
+    targetPublicationId: null;
+    expectedTargetVersionId: null;
+    expectedTargetPublicationDigest: null;
+    serverAttestation: Extract<PublicLoungeServerReviewAttestationV5, { intent: "publish" }>;
+  })
+  | (PublicLoungeServerEligibilityRequestV5Base & {
+    intent: "overwrite";
+    targetPublicationId: string;
+    expectedTargetVersionId: string;
+    expectedTargetPublicationDigest: string;
+    serverAttestation: Extract<PublicLoungeServerReviewAttestationV5, { intent: "overwrite" }>;
+  });
 
 export type PublicLoungeEligibilityProof = {
   schemaVersion: typeof PUBLIC_LOUNGE_ELIGIBILITY_PROOF_SCHEMA_VERSION;

@@ -9,7 +9,11 @@ import {
 import { createSupabasePublicLoungeStorageGateway } from "../storage/supabase/public-lounge-storage-gateway";
 import { PublicLoungeService, type PublicLoungeTokenCodec } from "./service";
 import type { PublicLoungeStorageGateway } from "./storage";
-import { createEd25519PublicLoungeEligibilityReviewer } from "./eligibility-signature";
+import {
+  createEd25519PublicLoungeEligibilityReviewerV5,
+  resolvePublicLoungeAttestationEnvironment,
+} from "./eligibility-signature";
+import { PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION } from "./types";
 
 function sha256(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -79,6 +83,8 @@ function storageGateway(): PublicLoungeStorageGateway {
     return {
       bucketStatus: unavailable,
       controlPlaneStatus: unavailable,
+      attestationNonceLedgerStatus: unavailable,
+      consumeAttestationNonceV5: unavailable,
       readJson: unavailable,
       writeJson: unavailable,
       deleteJson: unavailable,
@@ -102,9 +108,19 @@ export function getPublicLoungeServerService() {
       createPublicId: () => `novel_${randomBytes(18).toString("base64url").toLowerCase()}`,
       now: () => new Date().toISOString(),
       digest: sha256,
-      eligibilityReviewer: createEd25519PublicLoungeEligibilityReviewer({
+      eligibilityReviewer: createEd25519PublicLoungeEligibilityReviewerV5({
         publicKeyPem: process.env.PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY?.trim() ?? "",
         keyId: process.env.PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID?.trim() ?? "",
+        // A Vercel Production deployment cannot silently adopt a Preview
+        // trust root (or vice versa). A mismatch leaves the reviewer
+        // unconfigured and the eligibility path fail closed.
+        environment: resolvePublicLoungeAttestationEnvironment(
+          process.env.PUBLIC_LOUNGE_ATTESTATION_ENVIRONMENT,
+          process.env.VERCEL_ENV,
+        ),
+        audience: process.env.PUBLIC_LOUNGE_ATTESTATION_AUDIENCE?.trim() ?? "",
+        producerVersion: process.env.PUBLIC_LOUNGE_ATTESTATION_PRODUCER_VERSION?.trim() ?? "",
+        rubricVersion: PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
       }),
     });
   }

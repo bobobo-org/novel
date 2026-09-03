@@ -2,12 +2,15 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type {
   PublicLoungeCatalogCandidatePage,
+  PublicLoungeAttestationNonceConsumption,
+  PublicLoungeAttestationNonceLedgerStatus,
   PublicLoungeControlPlaneStatus,
   PublicLoungeRateReservation,
   PublicLoungeStorageGateway,
 } from "../../public-lounge/storage";
 import {
   PUBLIC_LOUNGE_CONTROL_PLANE_MIGRATION_VERSION,
+  PUBLIC_LOUNGE_ATTESTATION_NONCE_LEDGER_MIGRATION_VERSION,
   PUBLIC_LOUNGE_STORAGE_BUCKET,
   PUBLIC_LOUNGE_STORAGE_MARKER_PATH,
   PUBLIC_LOUNGE_STORAGE_MIGRATION_VERSION,
@@ -192,6 +195,68 @@ export class SupabasePublicLoungeStorageGateway implements PublicLoungeStorageGa
       catalogReady: true,
       rateReady: true,
     };
+  }
+
+  async attestationNonceLedgerStatus(): Promise<PublicLoungeAttestationNonceLedgerStatus> {
+    const row = singleRpcRow(await this.rpc(
+      "novel_public_lounge_attestation_ledger_status",
+      {},
+    )) as Record<string, unknown> | null;
+    if (
+      row?.migration_version !== PUBLIC_LOUNGE_ATTESTATION_NONCE_LEDGER_MIGRATION_VERSION
+      || row.ledger_ready !== true
+    ) {
+      throw Object.assign(new Error("PUBLIC_LOUNGE_ATTESTATION_LEDGER_NOT_READY"), {
+        code: "PUBLIC_LOUNGE_ATTESTATION_LEDGER_NOT_READY",
+        status: 503,
+      });
+    }
+    return {
+      migrationVersion: PUBLIC_LOUNGE_ATTESTATION_NONCE_LEDGER_MIGRATION_VERSION,
+      ledgerReady: true,
+    };
+  }
+
+  async consumeAttestationNonceV5(
+    input: PublicLoungeAttestationNonceConsumption,
+  ): Promise<"consumed" | "replayed"> {
+    for (const hash of [
+      input.attestationIdHash,
+      input.attestationDigest,
+      input.bindingDigest,
+      input.eligibilityTicketHash,
+      input.authorizedOwnerIdHash,
+    ]) {
+      if (!SHA256_PATTERN.test(hash)) {
+        throw Object.assign(new Error("PUBLIC_LOUNGE_ATTESTATION_CONSUMPTION_INVALID"), {
+          code: "PUBLIC_LOUNGE_ATTESTATION_CONSUMPTION_INVALID",
+          status: 500,
+        });
+      }
+    }
+    if (
+      !["preview", "production"].includes(input.environment)
+      || !["publish", "overwrite"].includes(input.intent)
+      || canonicalIsoTime(input.expiresAt) !== input.expiresAt
+    ) {
+      throw Object.assign(new Error("PUBLIC_LOUNGE_ATTESTATION_CONSUMPTION_INVALID"), {
+        code: "PUBLIC_LOUNGE_ATTESTATION_CONSUMPTION_INVALID",
+        status: 500,
+      });
+    }
+    const result = await this.rpc("novel_public_lounge_consume_attestation_v5", {
+      p_attestation_id_hash: input.attestationIdHash,
+      p_attestation_digest: input.attestationDigest,
+      p_binding_digest: input.bindingDigest,
+      p_eligibility_ticket_hash: input.eligibilityTicketHash,
+      p_authorized_owner_id_hash: input.authorizedOwnerIdHash,
+      p_environment: input.environment,
+      p_intent: input.intent,
+      p_expires_at: input.expiresAt,
+    });
+    if (result === true) return "consumed";
+    if (result === false) return "replayed";
+    throwEmptyStorageResponse();
   }
 
   async listCatalogCandidates(options: {

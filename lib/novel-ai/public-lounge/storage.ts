@@ -4,6 +4,8 @@ import type {
   PublicLoungeQualityDimensionKey,
   PublicLoungeQualityAssurance,
   PublicLoungeAbuseRateScope,
+  PublicLoungeServerReviewAttestationV5Environment,
+  PublicLoungeServerReviewAttestationV5Intent,
 } from "./types";
 import {
   PUBLIC_LOUNGE_LEGACY_STORED_POST_SCHEMA_VERSION,
@@ -19,6 +21,7 @@ export const PUBLIC_LOUNGE_STORAGE_SCHEMA_VERSION = "novel-public-lounge-storage
 export const PUBLIC_LOUNGE_STORAGE_MIGRATION_VERSION = "public_lounge_storage_001";
 export const PUBLIC_LOUNGE_STORAGE_MARKER_PATH = `_system/${PUBLIC_LOUNGE_STORAGE_MIGRATION_VERSION}.json`;
 export const PUBLIC_LOUNGE_CONTROL_PLANE_MIGRATION_VERSION = "public_lounge_control_plane_028";
+export const PUBLIC_LOUNGE_ATTESTATION_NONCE_LEDGER_MIGRATION_VERSION = "public_lounge_attestation_nonce_ledger_029";
 export const PUBLIC_LOUNGE_MUTATION_RATE_SLOT_COUNT = 6;
 export const PUBLIC_LOUNGE_ABUSE_RATE_SLOT_COUNT = 6;
 export const PUBLIC_LOUNGE_READ_RATE_SLOT_COUNT = 30;
@@ -41,6 +44,22 @@ export type PublicLoungeControlPlaneStatus = {
   rateReady: true;
 };
 
+export type PublicLoungeAttestationNonceLedgerStatus = {
+  migrationVersion: typeof PUBLIC_LOUNGE_ATTESTATION_NONCE_LEDGER_MIGRATION_VERSION;
+  ledgerReady: true;
+};
+
+export type PublicLoungeAttestationNonceConsumption = {
+  attestationIdHash: string;
+  attestationDigest: string;
+  bindingDigest: string;
+  eligibilityTicketHash: string;
+  authorizedOwnerIdHash: string;
+  environment: "preview" | "production";
+  intent: "publish" | "overwrite";
+  expiresAt: string;
+};
+
 export type PublicLoungeRateScope = PublicLoungeAbuseRateScope | "work_mutation";
 
 export type PublicLoungeRateReservation = {
@@ -53,6 +72,10 @@ export type PublicLoungeRateReservation = {
 export interface PublicLoungeStorageGateway {
   bucketStatus(): Promise<{ exists: boolean; public: boolean; provisioned: boolean }>;
   controlPlaneStatus(): Promise<PublicLoungeControlPlaneStatus>;
+  attestationNonceLedgerStatus(): Promise<PublicLoungeAttestationNonceLedgerStatus>;
+  consumeAttestationNonceV5(
+    input: PublicLoungeAttestationNonceConsumption,
+  ): Promise<"consumed" | "replayed">;
   readJson<T>(path: string): Promise<T | null>;
   writeJson(path: string, value: unknown, options: { upsert: boolean }): Promise<"stored" | "exists">;
   deleteJson(paths: string[]): Promise<void>;
@@ -124,6 +147,20 @@ export type StoredPublicLoungeEligibility = {
   schemaVersion: typeof PUBLIC_LOUNGE_STORED_ELIGIBILITY_SCHEMA_VERSION;
   state: "issued";
   ticketHash: string;
+  attestationIdHash: string;
+  attestationDigest: string;
+  bindingDigest: string;
+  intent: PublicLoungeServerReviewAttestationV5Intent;
+  workId: string;
+  revisionId: string;
+  targetPublicationId: string | null;
+  expectedTargetVersionId: string | null;
+  expectedTargetPublicationDigest: string | null;
+  environment: PublicLoungeServerReviewAttestationV5Environment;
+  audience: string;
+  producerVersion: string;
+  rubricVersion: string;
+  keyId: string;
   completionFingerprint: string;
   publicationDigest: string;
   authorizedOwnerIdHash: string;
