@@ -14,6 +14,7 @@ import {
   assertConversationClosedAgentApprovalBinding,
   buildConversationClosedAgentApprovalBindingProof,
 } from "../lib/novel-ai/conversation/closed-agent-approval.ts";
+import { rpgLogicalTurnGenerationTaskId } from "../lib/novel-ai/conversation/rpg-logical-turn.ts";
 import { ConversationRepositoryService } from "../lib/novel-ai/conversation/repository.ts";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "../lib/novel-ai/conversation/tool-registry.ts";
 import { buildProjectBundle, createDraft } from "../lib/novel-ai/domain/creation.ts";
@@ -34,6 +35,7 @@ import {
   VerifiableLedger,
 } from "../lib/novel-ai/verifiable-ledger/index.ts";
 import {
+  approveRpgChatTurn,
   buildDeterministicRpgTurnStory,
   buildRpgRuleChoicePlan,
   loadRpgChatSnapshot,
@@ -42,6 +44,7 @@ import { settleApprovedRpgTurnClosedAgent } from "../lib/novel-ai/web/rpg-approv
 import { initializeMingtanPreset } from "../lib/novel-ai/web/rpg-preset.ts";
 import {
   RPG_CHOICES_PREFIX,
+  rpgCandidateApprovalState,
   serializeRpgChoices,
 } from "../app/studio/project/[projectId]/chat/components/conversation-presentation.ts";
 import { findRpgChoiceRecoveryTarget } from "../app/studio/project/[projectId]/chat/conversation-workspace-support.ts";
@@ -201,6 +204,8 @@ async function buildFixture(label, faultPoint) {
     choice,
     resolution,
   });
+  const logicalUserMessageId = `rpg-settlement-user:${label}`;
+  const providerTaskId = await rpgLogicalTurnGenerationTaskId(logicalUserMessageId);
 
   let stateFaultEnabled = faultPoint === "before-state-put-many";
   const state = new MemoryClosedAgentStateRepository({
@@ -213,8 +218,9 @@ async function buildFixture(label, faultPoint) {
       }
     },
   });
+  const backend = new FixedStoryBackend(story);
   const os = new ClosedAgentOS({
-    backends: [new FixedStoryBackend(story)],
+    backends: [backend],
     cache: new ClosedAICache({
       repository: new MemoryClosedAICacheRepository(),
     }),
@@ -225,7 +231,7 @@ async function buildFixture(label, faultPoint) {
     state,
   });
   const generated = await os.execute({
-    taskId: `rpg-settlement-task:${label}`,
+    taskId: providerTaskId,
     namespace: closedNamespace(bundle.project.id),
     taskType: "chapter.continue",
     objective: "依照既定 RPG 結果續寫一個完整小說回合。",
@@ -245,6 +251,11 @@ async function buildFixture(label, faultPoint) {
     sourceRevision: snapshot.chapter.revision,
   });
   assert.equal(generated.candidate.status, "awaiting-approval");
+  assert.notEqual(
+    generated.candidate.contextDigest,
+    snapshot.contextDigest,
+    "the provider/ClosedAgent context digest must remain distinct from the RPG snapshot digest",
+  );
   const approvedStory = generated.candidate.content;
   assert.equal(
     await sha256Hex(approvedStory),
@@ -262,6 +273,7 @@ async function buildFixture(label, faultPoint) {
     actualExecutor: generated.candidate.actualExecutor,
     executionReceipt: {
       ...generated.candidate.executionReceipt,
+      upstreamContextDigest: generated.candidate.contextDigest,
       rpgContextDigest: snapshot.contextDigest,
       rpgContextRevisionDigest: snapshot.contextRevisionDigest,
     },
@@ -284,38 +296,57 @@ async function buildFixture(label, faultPoint) {
     title: `核准故障 ${label}`,
     activeChapterId: snapshot.chapter.id,
   });
+  const logicalUserMessage = await conversation.appendMessage({
+    projectId: bundle.project.id,
+    sessionId: session.id,
+    messageId: logicalUserMessageId,
+    role: "user",
+    content: `選擇 ${choice.key}｜${choice.title}｜${choice.description}`,
+    status: "completed",
+  });
   const message = await conversation.appendMessage({
     projectId: bundle.project.id,
     sessionId: session.id,
     role: "assistant",
     content: approvedStory,
     status: "completed",
+    parentMessageId: logicalUserMessage.id,
   });
-  const contextDigest = await sha256Hex(`rpg-settlement-context:${label}`);
-  const invocation = await conversation.saveToolInvocation({
+  const modernReceipt = (contextDigest, receiptId) => ({
+    receiptId,
+    modelId: candidate.model,
+    modelDigest: candidate.modelDigest,
+    providerRunId: candidate.taskId,
+    contextDigest,
+    outputDigest: candidate.candidateDigest,
+    externalRequest: false,
+    dataLeftDevice: false,
+    latencyMs: 1,
+    closedAgentSchemaVersion: generated.candidate.schemaVersion,
+    closedAgentBackendId: generated.candidate.backendId,
+    normalizationReceiptId:
+      generated.candidate.traditionalChineseNormalization.receiptId,
+    traditionalChineseNormalizerVersion:
+      generated.candidate.traditionalChineseNormalization.normalizerVersion,
+  });
+  const wrongInvocation = await conversation.saveToolInvocation({
     projectId: bundle.project.id,
     sessionId: session.id,
     messageId: message.id,
-    taskId: `conversation-rpg-settlement:${label}`,
+    invocationId: `conversation-rpg-settlement:${label}:wrong-context`,
+    taskId: `conversation-rpg-turn-task:${session.id}:${logicalUserMessage.id}`,
     toolId: CONVERSATION_LOCAL_TOOL_IDS.rpgTurn,
     taskType: "chapter.continue",
     inputDigest: await sha256Hex(`rpg-settlement-input:${label}`),
-    contextDigest,
+    contextDigest: snapshot.contextDigest,
     status: "completed",
     actualExecutor: candidate.actualExecutor,
     modelId: candidate.model,
     modelDigest: candidate.modelDigest,
-    executionReceipt: {
-      receiptId: `conversation-rpg-settlement-receipt:${label}`,
-      modelId: candidate.model,
-      modelDigest: candidate.modelDigest,
-      providerRunId: candidate.taskId,
-      contextDigest,
-      outputDigest: candidate.candidateDigest,
-      externalRequest: false,
-      dataLeftDevice: false,
-      latencyMs: 1,
-    },
+    executionReceipt: modernReceipt(
+      snapshot.contextDigest,
+      `conversation-rpg-settlement-receipt:${label}:wrong-context`,
+    ),
     externalRequest: false,
     dataLeftDevice: false,
     canonicalMutationCount: 0,
@@ -335,7 +366,7 @@ async function buildFixture(label, faultPoint) {
   });
   const artifactLinkedMessage = await repository.get("conversationMessages", message.id);
   assert.ok(artifactLinkedMessage);
-  const approvalMessage = await repository.put("conversationMessages", {
+  const wrongApprovalMessage = await repository.put("conversationMessages", {
     ...artifactLinkedMessage,
     candidateIds: [...new Set([
       ...artifactLinkedMessage.candidateIds,
@@ -343,6 +374,190 @@ async function buildFixture(label, faultPoint) {
       generated.candidate.id,
     ])],
   }, artifactLinkedMessage.revision);
+  const [wrongApprovalSession, wrongApprovalArtifact, wrongApprovalTarget] = await Promise.all([
+    repository.get("conversationSessions", session.id),
+    repository.get("conversationArtifacts", artifact.id),
+    repository.get("chapters", snapshot.chapter.id),
+  ]);
+  assert.ok(wrongApprovalSession && wrongApprovalArtifact && wrongApprovalTarget);
+  assert.equal(
+    rpgCandidateApprovalState(wrongApprovalArtifact, [wrongInvocation]),
+    "settling",
+    "an RPG-snapshot digest must not make a modern provider receipt approval-ready",
+  );
+  await assert.rejects(
+    assertConversationClosedAgentApprovalBinding({
+      projectId: bundle.project.id,
+      sessionId: session.id,
+      session: wrongApprovalSession,
+      sourceMessage: wrongApprovalMessage,
+      artifact: wrongApprovalArtifact,
+      sourceMessageCandidateArtifacts: [wrongApprovalArtifact],
+      invocations: [wrongInvocation],
+      targetRecord: wrongApprovalTarget,
+      candidate: generated.candidate,
+      candidateIntegrityVerified: await os.verifyCandidateIntegrity(generated.candidate.id),
+    }),
+    (error) => error?.code === "CONVERSATION_CLOSED_CANDIDATE_BINDING_INVALID",
+    "a completed modern receipt with the wrong provider context must fail closed",
+  );
+
+  const repairInvocationId = [
+    "conversation-rpg-evidence-repair",
+    session.id,
+    message.id,
+    candidate.candidateDigest.slice(0, 16),
+  ].join(":");
+  const modelCallsBeforeRepair = backend.calls;
+  const repairInvocationInput = {
+    projectId: bundle.project.id,
+    sessionId: session.id,
+    messageId: message.id,
+    invocationId: repairInvocationId,
+    taskId: candidate.taskId,
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.rpgTurn,
+    taskType: "chapter.continue.evidence-repair",
+    inputDigest: wrongInvocation.inputDigest,
+    contextDigest: generated.candidate.contextDigest,
+    status: "completed",
+    actualExecutor: candidate.actualExecutor,
+    modelId: candidate.model,
+    modelDigest: candidate.modelDigest,
+    executionReceipt: modernReceipt(
+      generated.candidate.contextDigest,
+      `${repairInvocationId}:receipt`,
+    ),
+    externalRequest: false,
+    dataLeftDevice: false,
+    canonicalMutationCount: 0,
+    safeProgress: {
+      stage: "candidate-evidence-repair",
+      percent: 100,
+      message: "既有 RPG 候選的閉端執行收據已安全重新綁定",
+    },
+  };
+  const invocation = await conversation.saveRpgEvidenceRepairInvocation(
+    repairInvocationInput,
+  );
+  assert.equal(
+    backend.calls,
+    modelCallsBeforeRepair,
+    "repairing Conversation evidence must not execute the story model again",
+  );
+  assert.equal(
+    (await repository.get("conversationToolInvocations", wrongInvocation.id)).status,
+    "completed",
+    "the immutable completed receipt with the wrong context must be retained",
+  );
+  const linkedAfterRepair = await repository.get("conversationMessages", message.id);
+  assert.ok(linkedAfterRepair?.toolInvocationIds.includes(wrongInvocation.id));
+  assert.ok(linkedAfterRepair?.toolInvocationIds.includes(invocation.id));
+  const invocationCountAfterRepair = (
+    await repository.list("conversationToolInvocations", bundle.project.id)
+  ).length;
+  await repository.put("conversationMessages", {
+    ...linkedAfterRepair,
+    toolInvocationIds: linkedAfterRepair.toolInvocationIds.filter((id) => (
+      id !== invocation.id
+    )),
+  }, linkedAfterRepair.revision);
+  const crashGapMessage = await repository.get("conversationMessages", message.id);
+  assert.ok(crashGapMessage?.toolInvocationIds.includes(wrongInvocation.id));
+  assert.equal(crashGapMessage?.toolInvocationIds.includes(invocation.id), false);
+  const replayedRepair = await conversation.saveRpgEvidenceRepairInvocation(
+    repairInvocationInput,
+  );
+  assert.equal(replayedRepair.id, invocation.id);
+  assert.equal(replayedRepair.revision, invocation.revision);
+  const approvalMessage = await repository.get("conversationMessages", message.id);
+  assert.ok(approvalMessage?.toolInvocationIds.includes(wrongInvocation.id));
+  assert.ok(approvalMessage?.toolInvocationIds.includes(invocation.id));
+  assert.equal(
+    (await repository.list("conversationToolInvocations", bundle.project.id)).length,
+    invocationCountAfterRepair,
+    "repair replay must restore only the missing backlink, not add another invocation",
+  );
+  assert.equal(
+    backend.calls,
+    modelCallsBeforeRepair,
+    "repair crash-gap replay must not execute the story model",
+  );
+  await assert.rejects(
+    conversation.saveRpgEvidenceRepairInvocation({
+      ...repairInvocationInput,
+      inputDigest: repairInvocationInput.inputDigest === "a".repeat(64)
+        ? "b".repeat(64)
+        : "a".repeat(64),
+    }),
+    (error) => error?.code === "CONVERSATION_RPG_EVIDENCE_REPAIR_IDEMPOTENCY_MISMATCH",
+    "changing any non-context replay identity field must fail idempotently",
+  );
+  assert.equal(
+    rpgCandidateApprovalState(artifact, [wrongInvocation, invocation]),
+    "ready",
+    "the exact deterministic repair receipt must make the existing candidate ready",
+  );
+  const tamperedProviderInvocation = {
+    ...invocation,
+    executionReceipt: {
+      ...invocation.executionReceipt,
+      contextDigest: "f".repeat(64),
+    },
+  };
+  assert.equal(
+    rpgCandidateApprovalState(artifact, [tamperedProviderInvocation]),
+    "settling",
+    "tampering the provider digest must remove approval readiness",
+  );
+  await assert.rejects(
+    assertConversationClosedAgentApprovalBinding({
+      projectId: bundle.project.id,
+      sessionId: session.id,
+      session: wrongApprovalSession,
+      sourceMessage: approvalMessage,
+      artifact: wrongApprovalArtifact,
+      sourceMessageCandidateArtifacts: [wrongApprovalArtifact],
+      invocations: [tamperedProviderInvocation],
+      targetRecord: wrongApprovalTarget,
+      candidate: generated.candidate,
+      candidateIntegrityVerified: await os.verifyCandidateIntegrity(generated.candidate.id),
+    }),
+    (error) => error?.code === "CONVERSATION_CLOSED_CANDIDATE_BINDING_INVALID",
+    "tampering the repaired provider digest must fail closed before Canon",
+  );
+  for (const tamperedCandidate of [
+    {
+      ...candidate,
+      contextDigest: "e".repeat(64),
+    },
+    {
+      ...candidate,
+      executionReceipt: {
+        ...candidate.executionReceipt,
+        rpgContextDigest: "e".repeat(64),
+      },
+    },
+  ]) {
+    await assert.rejects(
+      approveRpgChatTurn({
+        repository,
+        snapshot,
+        candidate: tamperedCandidate,
+      }),
+      (error) => error?.code === "RPG_CHAT_TURN_SOURCE_STALE",
+      "tampering either RPG snapshot digest must fail closed before any Canon mutation",
+    );
+  }
+  assert.equal(
+    (await repository.get("chapters", snapshot.chapter.id)).revision,
+    snapshot.chapter.revision,
+    "digest tamper probes must leave Canon unchanged",
+  );
+  assert.equal(
+    backend.calls,
+    modelCallsBeforeRepair,
+    "digest tamper probes must not execute the model",
+  );
   const saved = await persistStudioChoiceCandidate(
     repository,
     projectSeed(snapshot),
@@ -373,7 +588,7 @@ async function buildFixture(label, faultPoint) {
       sourceMessage: approvalMessage,
       artifact: approvalArtifact,
       sourceMessageCandidateArtifacts: [approvalArtifact],
-      invocations: [invocation],
+      invocations: [wrongInvocation, invocation],
       targetRecord: approvalTarget,
       candidate: generated.candidate,
       candidateIntegrityVerified: await os.verifyCandidateIntegrity(generated.candidate.id),
@@ -412,27 +627,45 @@ async function buildFixture(label, faultPoint) {
     return { commitId: transaction.acceptedChoice.effectOperationId };
   };
 
-  await assert.rejects(
-    os.approveCandidate({
+  const cleanApproval = faultPoint === "none";
+  const approvalRequest = {
       candidateId: generated.candidate.id,
       approvedBy: "local-author",
       humanApproved: true,
       canonicalCommit,
-    }),
-    (error) => faultPoint === "after-canon-before-ledger"
-      ? error?.code === "TEST_AFTER_CANON_BEFORE_LEDGER"
-      : error?.code === "CLOSED_AGENT_APPROVAL_STATE_COMMIT_FAILED_RECOVERABLE",
-  );
+  };
+  if (cleanApproval) {
+    await os.approveCandidate(approvalRequest);
+  } else {
+    await assert.rejects(
+      os.approveCandidate(approvalRequest),
+      (error) => faultPoint === "after-canon-before-ledger"
+        ? error?.code === "TEST_AFTER_CANON_BEFORE_LEDGER"
+        : error?.code === "CLOSED_AGENT_APPROVAL_STATE_COMMIT_FAILED_RECOVERABLE",
+    );
+  }
   const chapterAfterFault = await repository.get("chapters", snapshot.chapter.id);
   const artifactAfterFault = await repository.get("conversationArtifacts", artifact.id);
   const receiptsAfterFault = await repository.list("rpgTurnReceipts", bundle.project.id);
   assert.equal(chapterAfterFault.revision, snapshot.chapter.revision + 1);
   assert.equal(artifactAfterFault.status, "approved");
   assert.equal(receiptsAfterFault.length, 1);
-  assert.equal((await state.get(generated.candidate.id)).status, "awaiting-approval");
-  assert.equal((await state.get(generated.candidate.taskId)).state, "awaiting-approval");
-  assert.equal(await state.get(`closed-agent-approval:${generated.candidate.id}`), null);
-  assert.equal(await state.get(`closed-agent-memory:${generated.candidate.id}`), null);
+  assert.equal(
+    (await state.get(generated.candidate.id)).status,
+    cleanApproval ? "committed" : "awaiting-approval",
+  );
+  assert.equal(
+    (await state.get(generated.candidate.taskId)).state,
+    cleanApproval ? "completed" : "awaiting-approval",
+  );
+  assert.equal(
+    Boolean(await state.get(`closed-agent-approval:${generated.candidate.id}`)),
+    cleanApproval,
+  );
+  assert.equal(
+    Boolean(await state.get(`closed-agent-memory:${generated.candidate.id}`)),
+    cleanApproval,
+  );
 
   const settlement = await settleApprovedRpgTurnClosedAgent({
     repository,
@@ -442,13 +675,21 @@ async function buildFixture(label, faultPoint) {
     closedAgentOS: os,
   });
   assert.equal(settlement.applicable, true);
-  assert.equal(settlement.alreadySettled, false);
-  assert.equal(settlement.canonicalReplayed, true);
-  assert.equal(canonicalCommitCalls, 1, "the helper owns the replay callback after the injected fault");
+  assert.equal(settlement.alreadySettled, cleanApproval);
+  assert.equal(settlement.canonicalReplayed, !cleanApproval);
+  assert.equal(
+    canonicalCommitCalls,
+    1,
+    cleanApproval
+      ? "one repaired Production-shaped approval must cross Canon exactly once"
+      : "the helper owns the replay callback after the injected fault",
+  );
   assert.equal(
     (await repository.get("chapters", snapshot.chapter.id)).revision,
     chapterAfterFault.revision,
-    "settlement recovery must not commit Canon twice",
+    cleanApproval
+      ? "an already-settled retry must not commit Canon twice"
+      : "settlement recovery must not commit Canon twice",
   );
   assert.equal((await repository.get("conversationArtifacts", artifact.id)).status, "approved");
   assert.equal((await repository.list("rpgTurnReceipts", bundle.project.id)).length, 1);
@@ -528,7 +769,7 @@ async function buildFixture(label, faultPoint) {
 }
 
 const results = [];
-for (const faultPoint of ["after-canon-before-ledger", "before-state-put-many"]) {
+for (const faultPoint of ["none", "after-canon-before-ledger", "before-state-put-many"]) {
   results.push(await buildFixture(faultPoint, faultPoint));
 }
 

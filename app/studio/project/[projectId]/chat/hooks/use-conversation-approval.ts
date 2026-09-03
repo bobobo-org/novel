@@ -48,11 +48,15 @@ import {
   assertConversationExternalCandidateLineage,
   CONVERSATION_EXTERNAL_AI_TOOL_ID,
 } from "../external-ai";
+import { safeConversationErrorCode } from "../components/execution-trace-model";
 
 function approvalErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
-    return String((error as { code?: unknown }).code ?? "CONVERSATION_APPROVAL_FAILED");
+    const objectCode = safeConversationErrorCode((error as { code?: unknown }).code);
+    if (objectCode) return objectCode;
   }
+  const messageCode = safeConversationErrorCode(error instanceof Error ? error.message : null);
+  if (messageCode) return messageCode;
   return "CONVERSATION_APPROVAL_FAILED";
 }
 

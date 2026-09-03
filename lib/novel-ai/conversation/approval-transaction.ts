@@ -18,6 +18,10 @@ import type {
 import { RepositoryOperationError } from "../repository/contracts";
 import { hasValidConversationClosedAgentCacheOriginProof } from "./closed-agent-cache-origin-proof";
 import { isConversationClosedAgentInvocation } from "./closed-agent-lineage";
+import {
+  inspectRpgCandidateReceiptContexts,
+  isModernRpgConversationReceiptContextBound,
+} from "./rpg-receipt-context";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "./tool-registry";
 
 export type ConversationArtifactApprovalInput =
@@ -459,9 +463,11 @@ function assertConversationClosedAgentApprovalBindingProof(
   const approvalInvocations = artifact.artifactType === "rpg"
     ? rpgClosedInvocations
     : closedPlanInvocations;
-  const invocation = approvalInvocations.length === 1
-    ? approvalInvocations[0]
-    : null;
+  const invocation = proof
+    ? approvalInvocations.find((item) => item.id === proof.invocationId) ?? null
+    : approvalInvocations.length === 1
+      ? approvalInvocations[0]
+      : null;
   const receipt = invocation?.executionReceipt;
   const cacheOrigin = receipt?.closedAgentCacheOrigin;
   const candidateTaskVerified = artifact.artifactType === "rpg"
@@ -577,6 +583,7 @@ function hasValidApprovalExecutionTruth(
     taskId?: unknown;
     candidateDigest?: unknown;
     contextDigest?: unknown;
+    executionReceipt?: unknown;
   };
   let rpgCandidate: RpgExecutionCandidate | null = null;
   if (artifact.artifactType === "rpg") {
@@ -592,7 +599,10 @@ function hasValidApprovalExecutionTruth(
       rpgCandidate = null;
     }
   }
-  const rpgReceiptBindingVerified = Boolean(
+  const rpgContextEvidence = rpgCandidate
+    ? inspectRpgCandidateReceiptContexts(rpgCandidate)
+    : null;
+  const causalRpgReceiptBindingVerified = Boolean(
     artifact.artifactType === "rpg"
     && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
     && receipt
@@ -600,6 +610,18 @@ function hasValidApprovalExecutionTruth(
     && receipt?.providerRunId === rpgCandidate.taskId
     && typeof rpgCandidate.candidateDigest === "string"
     && receipt.outputDigest === rpgCandidate.candidateDigest
+    && isModernRpgConversationReceiptContextBound(rpgCandidate, receipt),
+  );
+  const preCausalModernRpgReceiptBindingVerified = Boolean(
+    artifact.artifactType === "rpg"
+    && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+    && receipt?.closedAgentSchemaVersion === "closed-agent-os-v2"
+    && typeof rpgCandidate?.taskId === "string"
+    && receipt.providerRunId === rpgCandidate.taskId
+    && typeof rpgCandidate.candidateDigest === "string"
+    && receipt.outputDigest === rpgCandidate.candidateDigest
+    && rpgContextEvidence
+    && !rpgContextEvidence.hasCausalContextBinding
     && typeof rpgCandidate.contextDigest === "string"
     && receipt.contextDigest === rpgCandidate.contextDigest,
   );
@@ -619,8 +641,8 @@ function hasValidApprovalExecutionTruth(
     && receipt.closedAgentCacheOrigin === undefined,
   );
   const expectedReceiptContextDigest = artifact.artifactType === "rpg"
-    ? legacyRpgReceiptBindingVerified
-      ? invocation.contextDigest
+    ? causalRpgReceiptBindingVerified
+      ? rpgContextEvidence?.providerContextDigest
       : rpgCandidate?.contextDigest
     : invocation.contextDigest;
   const verifiedClosedCacheHit = Boolean(
@@ -654,7 +676,9 @@ function hasValidApprovalExecutionTruth(
     && (
       invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
         ? receipt.providerRunId === invocation.taskId
-        : rpgReceiptBindingVerified || legacyRpgReceiptBindingVerified
+        : causalRpgReceiptBindingVerified
+          || preCausalModernRpgReceiptBindingVerified
+          || legacyRpgReceiptBindingVerified
     )
     && receipt.closedAgentSchemaVersion === "closed-agent-os-v2"
     && invocation.actualExecutor === receipt.closedAgentBackendId

@@ -5,6 +5,7 @@ import type {
 } from "@/lib/novel-ai/domain";
 import type { RpgChatChoicePlan, RpgChatTurnCandidate } from "@/lib/novel-ai/web/rpg-chat-turn";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
+import { isModernClosedAgentConversationReceipt, isModernRpgConversationReceiptContextBound } from "@/lib/novel-ai/conversation/rpg-receipt-context";
 import type {
   ParsedRpgChoices,
   RpgChoiceEnvelope,
@@ -173,6 +174,10 @@ export function rpgCandidateInvocation(
     && invocation.status === "completed"
     && invocation.executionReceipt?.providerRunId === candidate.taskId
     && invocation.executionReceipt.outputDigest === candidate.candidateDigest
+    && (
+      !isModernClosedAgentConversationReceipt(invocation.executionReceipt)
+      || isModernRpgConversationReceiptContextBound(candidate, invocation.executionReceipt)
+    )
   )) ?? null;
 }
 

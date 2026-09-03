@@ -20,6 +20,12 @@ import { sha256Hex, stableStringify } from "@/lib/novel-ai/closed-ai-cache";
 import type { ConversationRepositoryService } from "@/lib/novel-ai/conversation/repository";
 import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
 import {
+  inspectRpgCandidateReceiptContexts,
+  isModernClosedAgentConversationReceipt,
+  isModernRpgConversationReceiptContextBound,
+  isRepairableModernRpgReceiptContextProjection,
+} from "@/lib/novel-ai/conversation/rpg-receipt-context";
+import {
   isRpgLogicalTurnProviderTaskId,
   rpgLogicalTurnExternalGenerationTaskId,
   rpgLogicalTurnGenerationTaskId,
@@ -201,6 +207,8 @@ async function resolveRpgConversationClosedAgentProof(candidate: RpgChatTurnCand
   const { getStudioClosedAgentOS } = await import("@/lib/novel-ai/web/closed-agent-os-service");
   const os = getStudioClosedAgentOS();
   const authoritative = await os.state.get<ClosedAgentCandidate>(candidate.candidateId);
+  const authoritativeContextDigest = authoritative?.contextDigest;
+  const candidateContexts = inspectRpgCandidateReceiptContexts(candidate);
   if (
     !authoritative
     || !await os.verifyCandidateIntegrity(candidate.candidateId)
@@ -209,6 +217,12 @@ async function resolveRpgConversationClosedAgentProof(candidate: RpgChatTurnCand
     || authoritative.contentDigest !== candidate.candidateDigest
     || authoritative.modelId !== candidate.model
     || authoritative.modelDigest !== candidate.modelDigest
+    || typeof authoritativeContextDigest !== "string"
+    || !/^[a-f0-9]{64}$/u.test(authoritativeContextDigest)
+    || !candidateContexts.hasCausalContextBinding
+    || !candidateContexts.providerContextVerified
+    || !candidateContexts.rpgSnapshotContextVerified
+    || candidateContexts.providerContextDigest !== authoritativeContextDigest
   ) {
     throw Object.assign(new Error("RPG 候選缺少可驗證的閉端 AI 執行身分。"), {
       code: "RPG_CHAT_TURN_PROOF_MISSING",
@@ -220,6 +234,7 @@ async function resolveRpgConversationClosedAgentProof(candidate: RpgChatTurnCand
     normalizationReceiptId: authoritative.traditionalChineseNormalization.receiptId,
     traditionalChineseNormalizerVersion:
       authoritative.traditionalChineseNormalization.normalizerVersion,
+    contextDigest: authoritativeContextDigest,
     cacheOrigin: await buildConversationClosedAgentCacheOriginProof(authoritative),
   };
 }
@@ -1191,7 +1206,10 @@ export function useConversationRpgController({
             }),
           });
           setProgress(`${candidate.externalRequest ? "外來 AI" : "閉端 AI"} 已完成並通過小說品質檢查（${candidate.model}）；仍是候選，尚未寫入 Canon。`);
-          const currentAssistant = await repository.get<ConversationMessage>("conversationMessages", assistant.id);
+          const receiptContextDigest = closedAgentProof?.contextDigest
+            ?? candidate.contextDigest
+            ?? invocation.contextDigest;
+          let currentAssistant = await repository.get<ConversationMessage>("conversationMessages", assistant.id);
           if (!currentAssistant) throw new Error("CONVERSATION_MESSAGE_MISSING");
           if (invocationCompleted) {
             if (
@@ -1211,6 +1229,110 @@ export function useConversationRpgController({
               throw Object.assign(new Error("RPG 回合恢復候選與已完成收據不一致。"), {
                 code: "RPG_CHAT_RECOVERY_RECEIPT_MISMATCH",
               });
+            }
+            if (
+              closedAgentProof
+              && isModernClosedAgentConversationReceipt(invocation.executionReceipt)
+              && !isModernRpgConversationReceiptContextBound(
+                candidate,
+                invocation.executionReceipt,
+              )
+            ) {
+              const repairableProjection = isRepairableModernRpgReceiptContextProjection(
+                candidate,
+                invocation.executionReceipt,
+                closedAgentProof.contextDigest,
+              );
+              const proofMetadataMatches =
+                invocation.executionReceipt.closedAgentSchemaVersion === closedAgentProof.schemaVersion
+                && invocation.executionReceipt.closedAgentBackendId === closedAgentProof.backendId
+                && invocation.executionReceipt.normalizationReceiptId
+                  === closedAgentProof.normalizationReceiptId
+                && invocation.executionReceipt.traditionalChineseNormalizerVersion
+                  === closedAgentProof.traditionalChineseNormalizerVersion
+                && stableStringify(invocation.executionReceipt.closedAgentCacheOrigin ?? null)
+                  === stableStringify(closedAgentProof.cacheOrigin ?? null);
+              const historicalBuggyReceipt = toExecutionReceipt({
+                taskId: candidate.taskId,
+                modelId: candidate.model,
+                modelDigest: candidate.modelDigest,
+                contextDigest: candidate.contextDigest ?? "",
+                outputDigest: candidate.candidateDigest,
+                externalRequest: executionTruth.externalRequest,
+                dataLeftDevice: executionTruth.dataLeftDevice,
+                externalAttempt: executionTruth.externalAttempt,
+                receipt: candidate.executionReceipt as Parameters<typeof toExecutionReceipt>[0]["receipt"],
+                closedAgentProof,
+              });
+              const exactHistoricalProjection =
+                invocation.contextDigest === historicalBuggyReceipt.contextDigest
+                && stableStringify(invocation.executionReceipt)
+                  === stableStringify(historicalBuggyReceipt);
+              if (
+                !repairableProjection
+                || !proofMetadataMatches
+                || !exactHistoricalProjection
+              ) {
+                throw Object.assign(new Error("RPG 回合恢復候選與已完成收據不一致。"), {
+                  code: "RPG_CHAT_RECOVERY_RECEIPT_MISMATCH",
+                });
+              }
+              const repairIdentity = [
+                "conversation-rpg-evidence-repair",
+                input.sessionId,
+                assistant.id,
+                candidate.candidateDigest.slice(0, 16),
+              ].join(":");
+              invocation = await conversation.saveRpgEvidenceRepairInvocation({
+                projectId,
+                sessionId: input.sessionId,
+                messageId: assistant.id,
+                invocationId: repairIdentity,
+                // A repair projects the already-completed provider execution;
+                // reuse that immutable provider task identity so record
+                // security can verify the receipt without inventing a second
+                // model run.
+                taskId: candidate.taskId,
+                toolId: CONVERSATION_LOCAL_TOOL_IDS.rpgTurn,
+                taskType: "chapter.continue.evidence-repair",
+                inputDigest: invocation.inputDigest,
+                contextDigest: receiptContextDigest,
+                status: "completed",
+                actualExecutor: candidate.actualExecutor,
+                modelId: candidate.model,
+                modelDigest: candidate.modelDigest,
+                executionReceipt: toExecutionReceipt({
+                  taskId: candidate.taskId,
+                  modelId: candidate.model,
+                  modelDigest: candidate.modelDigest,
+                  contextDigest: receiptContextDigest,
+                  outputDigest: candidate.candidateDigest,
+                  externalRequest: executionTruth.externalRequest,
+                  dataLeftDevice: executionTruth.dataLeftDevice,
+                  externalAttempt: executionTruth.externalAttempt,
+                  receipt: candidate.executionReceipt as Parameters<typeof toExecutionReceipt>[0]["receipt"],
+                  closedAgentProof,
+                }),
+                externalRequest: executionTruth.externalRequest,
+                dataLeftDevice: executionTruth.dataLeftDevice,
+                canonicalMutationCount: 0,
+                safeProgress: {
+                  stage: "candidate-evidence-repair",
+                  percent: 100,
+                  message: "既有 RPG 候選的閉端執行收據已安全重新綁定",
+                },
+              });
+              currentAssistant = await repository.get<ConversationMessage>(
+                "conversationMessages",
+                assistant.id,
+              );
+              if (!currentAssistant?.toolInvocationIds.includes(invocation.id)) {
+                throw Object.assign(new Error("RPG 回合恢復訊息與候選證據不一致。"), {
+                  code: "RPG_CHAT_RECOVERY_MESSAGE_MISMATCH",
+                });
+              }
+              projectInvocationIntoActiveSession(input.sessionId, invocation);
+              projectMessageIntoActiveSession(input.sessionId, currentAssistant);
             }
           }
           const completedMessage = ["pending", "streaming"].includes(currentAssistant.status)
@@ -1254,7 +1376,7 @@ export function useConversationRpgController({
                 taskId: candidate.taskId,
                 modelId: candidate.model,
                 modelDigest: candidate.modelDigest,
-                contextDigest: candidate.contextDigest ?? invocation.contextDigest,
+                contextDigest: receiptContextDigest,
                 outputDigest: candidate.candidateDigest,
                 externalRequest: executionTruth.externalRequest,
                 dataLeftDevice: executionTruth.dataLeftDevice,

@@ -54,6 +54,10 @@ export async function assertConversationClosedAgentApprovalBinding(input: {
     && (artifact.artifactType === "rpg"
       ? invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
         && invocation.executionReceipt?.providerRunId === candidate?.taskId
+        && (
+          invocation.executionReceipt?.closedAgentSchemaVersion !== "closed-agent-os-v2"
+          || invocation.executionReceipt?.contextDigest === candidate?.contextDigest
+        )
       : invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.closedAgentPlan
         && invocation.taskId === candidate?.taskId)
   ));

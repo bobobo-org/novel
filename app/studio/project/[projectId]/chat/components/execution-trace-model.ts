@@ -84,6 +84,7 @@ const ERROR_COPY: Record<string, FriendlyConversationError> = {
 };
 
 const INTERNAL_CODE = /\b(?:RPG|CONVERSATION|CLOSED_AI|CLOSED_AGENT|STUDIO)_[A-Z0-9_]+\b/u;
+const SAFE_CONVERSATION_ERROR_CODE = /^(?:CONVERSATION|RPG|CLOSED_AGENT|CLOSED_AI|OLLAMA|EXTERNAL_RPG|STORY_ARC|STORY_STATE|CANDIDATE|ACCEPT_CHOICE)_[A-Z0-9_]{1,100}$/u;
 const SAFE_RPG_FAILURE_CODE = /^RPG_[A-Z0-9_]{1,100}$/u;
 const SAFE_RPG_CONTINUITY_PROGRESS = /^連貫性安全檢查缺項：([a-z_]{1,40}(?:、[a-z_]{1,40})*)$/u;
 const SAFE_RPG_CONTINUITY_FAILURES = new Set([
@@ -164,6 +165,11 @@ export function safeConversationRpgFailureDiagnostics(input: {
     leafCode,
     continuityFailures,
   };
+}
+
+export function safeConversationErrorCode(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return SAFE_CONVERSATION_ERROR_CODE.test(normalized) ? normalized : null;
 }
 
 function safeRpgFailure(invocation: ConversationToolInvocation) {

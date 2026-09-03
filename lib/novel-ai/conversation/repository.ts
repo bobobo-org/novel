@@ -608,6 +608,74 @@ export class ConversationRepositoryService {
     return this.persistToolInvocation(input, false);
   }
 
+  async saveRpgEvidenceRepairInvocation(input: SaveConversationToolInvocationInput) {
+    await this.requireSession(input.projectId, input.sessionId);
+    const invocationId = input.invocationId ?? "";
+    const expectedProgress = {
+      stage: "candidate-evidence-repair",
+      percent: 100,
+      message: "既有 RPG 候選的閉端執行收據已安全重新綁定",
+    };
+    if (
+      !invocationId.startsWith("conversation-rpg-evidence-repair:")
+      || !input.executionReceipt?.providerRunId
+      || input.taskId !== input.executionReceipt.providerRunId
+      || input.toolId !== CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+      || input.taskType !== "chapter.continue.evidence-repair"
+      || input.status !== "completed"
+      || !input.actualExecutor
+      || !["browser-ai", "local-ollama", "private-ai-hub", "not_executed"]
+        .includes(input.actualExecutor)
+      || input.executionReceipt?.closedAgentSchemaVersion !== "closed-agent-os-v2"
+      || input.externalRequest !== false
+      || input.dataLeftDevice !== false
+      || input.canonicalMutationCount !== 0
+      || stableStringify(input.safeProgress) !== stableStringify(expectedProgress)
+      || input.safeErrorCode != null
+    ) {
+      throw new RepositoryOperationError("CONVERSATION_RPG_EVIDENCE_REPAIR_CONTRACT_INVALID");
+    }
+    const replay = await this.repository.get<ConversationToolInvocation>(
+      "conversationToolInvocations",
+      invocationId,
+    );
+    if (replay) {
+      const replayMatches = replay.projectId === input.projectId
+        && replay.sessionId === input.sessionId
+        && replay.messageId === input.messageId
+        && replay.taskId === input.taskId
+        && replay.toolId === input.toolId
+        && replay.taskType === input.taskType
+        && replay.inputDigest === input.inputDigest
+        && replay.contextDigest === input.contextDigest
+        && replay.status === input.status
+        && replay.actualExecutor === input.actualExecutor
+        && replay.modelId === (input.modelId ?? null)
+        && replay.modelDigest === (input.modelDigest ?? null)
+        && stableStringify(replay.executionReceipt)
+          === stableStringify(input.executionReceipt)
+        && replay.externalRequest === input.externalRequest
+        && replay.dataLeftDevice === input.dataLeftDevice
+        && replay.canonicalMutationCount === input.canonicalMutationCount
+        && stableStringify(replay.safeProgress) === stableStringify(input.safeProgress)
+        && replay.safeErrorCode === (input.safeErrorCode ?? null);
+      if (!replayMatches) {
+        throw new RepositoryOperationError(
+          "CONVERSATION_RPG_EVIDENCE_REPAIR_IDEMPOTENCY_MISMATCH",
+        );
+      }
+      await this.linkMessageReference(
+        input.projectId,
+        input.sessionId,
+        input.messageId,
+        "toolInvocationIds",
+        replay.id,
+      );
+      return replay;
+    }
+    return this.persistToolInvocation(input, false);
+  }
+
   async saveRpgChoiceStaleEvidence(input: {
     projectId: string;
     sessionId: string;

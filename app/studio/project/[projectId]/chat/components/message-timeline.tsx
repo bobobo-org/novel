@@ -38,6 +38,7 @@ import { MessageRow } from "./message-row";
 import { ToolProgressCard } from "./tool-progress-card";
 import {
   friendlyConversationExecutionError,
+  safeConversationErrorCode,
   safeConversationRpgFailureDiagnostics,
 } from "./execution-trace-model";
 import styles from "../conversation.module.css";
@@ -670,6 +671,7 @@ export function MessageTimeline({
         {busy ? <ToolProgressCard progress={progress} canStop={canStop} onStop={actions.stopGeneration} label={stopLabel} /> : null}
         {safeError ? (() => {
           const friendly = friendlyConversationExecutionError(safeError.code, safeError.message);
+          const safeErrorCode = safeConversationErrorCode(safeError.code);
           const safeFailure = safeConversationRpgFailureDiagnostics({
             leafCode: safeError.leafCode,
             continuityFailures: safeError.continuityFailures,
@@ -677,9 +679,10 @@ export function MessageTimeline({
           return <section
             className={styles.resultCard}
             role="alert"
+            data-safe-error-code={safeErrorCode ?? undefined}
             data-safe-failure-leaf={safeFailure?.leafCode}
             data-safe-continuity-failures={safeFailure?.continuityFailures.join(",") || undefined}
-          ><strong>{friendly.title}</strong><p>{friendly.message}</p>{retryAvailable ? <button type="button" disabled={busy} onClick={onRetry}>{retryLabel}</button> : null}</section>;
+          ><strong>{friendly.title}</strong><p>{friendly.message}</p>{safeErrorCode ? <small>診斷碼：<code>{safeErrorCode}</code></small> : null}{retryAvailable ? <button type="button" disabled={busy} onClick={onRetry}>{retryLabel}</button> : null}</section>;
         })() : null}
         <div data-testid="conversation-timeline-end" />
       </div>
