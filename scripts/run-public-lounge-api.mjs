@@ -321,7 +321,7 @@ function fakeService(overrides = {}) {
       bucket: "novel-public-lounge-v1",
       trustedEligibilityVerifierConnected: true,
       authorDeviceEligibilityAccepted: false,
-      trustedAttestationProducer: "not-available-in-this-release",
+      trustedAttestationProducer: "private-ai-hub-v5-client-probe-required",
     }),
     list: async (query) => {
       calls.push(["list", query]);
@@ -380,7 +380,7 @@ const handlers = createPublicLoungeHttpHandlers(
     bucket: "novel-public-lounge-v1",
     trustedEligibilityVerifierConnected: true,
     authorDeviceEligibilityAccepted: false,
-    trustedAttestationProducer: "not-available-in-this-release",
+    trustedAttestationProducer: "private-ai-hub-v5-client-probe-required",
   });
 }
 

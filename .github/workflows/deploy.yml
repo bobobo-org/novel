@@ -9,17 +9,18 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Trusted Preview, read-only LKG audit, historical RC6.2 recovery HOLD, or Production rollback operation
+        description: Trusted Preview bootstrap/deploy, read-only LKG audit, historical RC6.2 recovery HOLD, or Production rollback operation
         required: true
         type: choice
         options:
+          - bootstrap-trusted-preview-env
           - deploy-preview
           - audit-last-known-good
           - audit-rc6-2-last-known-good
           - deploy-immutable-product-recovery
           - restore-known-stable
       preview_ref:
-        description: Exact 40-character commit SHA from this repository (deploy-preview or audit-last-known-good)
+        description: Exact 40-character commit SHA from this repository (trusted Preview bootstrap/deploy or audit-last-known-good)
         required: false
         type: string
 
@@ -29,8 +30,8 @@ permissions:
   attestations: read
 
 concurrency:
-  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'deploy-immutable-product-recovery'))) && 'vercel-production-main') || ((github.event_name == 'workflow_dispatch' && (inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good')) && format('vercel-lkg-audit-{0}', inputs.preview_ref || github.sha)) || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
-  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good' || inputs.operation == 'deploy-immutable-product-recovery'))) }}
+  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'deploy-immutable-product-recovery'))) && 'vercel-production-main') || ((github.event_name == 'workflow_dispatch' && (inputs.operation == 'bootstrap-trusted-preview-env' || inputs.operation == 'deploy-preview')) && 'vercel-trusted-attestation-preview') || ((github.event_name == 'workflow_dispatch' && (inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good')) && format('vercel-lkg-audit-{0}', inputs.preview_ref || github.sha)) || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
+  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'bootstrap-trusted-preview-env' || inputs.operation == 'deploy-preview' || inputs.operation == 'restore-known-stable' || inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good' || inputs.operation == 'deploy-immutable-product-recovery'))) }}
 
 env:
   RECOVERY_PRODUCT_COMMIT: 29fc6e742672bb07187765d34ea818afdadf56ae
@@ -303,6 +304,8 @@ jobs:
           node scripts/generate-rc6-4-static-asset-manifest.mjs self-test
           node scripts/generate-rc6-4-production-static-network-manifest.mjs self-test
           node scripts/verify-rc6-4-production-diagnostics-seam.mjs self-test
+          node scripts/bootstrap-trusted-preview-env.mjs --self-test
+          node scripts/verify-preview-supabase-isolation.mjs --self-test
           pnpm test:ai:browser:setup-state-machine-rc6.4
           pnpm test:ai:browser:setup-runtime-rc6.4
           pnpm test:ai:browser:setup-diagnostics-rc6.4
@@ -488,19 +491,124 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Control-plane prerequisite: create `trusted-preview`, restrict it to the
+  # exact feature branch, and add its seven PREVIEW_* secrets before dispatch.
+  # A missing/unapproved Environment intentionally keeps this job fail-closed.
+  bootstrap_trusted_preview_env:
+    name: bootstrap trusted Preview environment
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'bootstrap-trusted-preview-env' &&
+      github.ref_type == 'branch' &&
+      github.ref == 'refs/heads/trusted-attestation-producer' &&
+      github.sha == inputs.preview_ref &&
+      github.workflow_sha == github.sha
+    runs-on: ubuntu-latest
+    environment: trusted-preview
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact trusted Preview bootstrap head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.preview_ref }}
+          persist-credentials: false
+
+      - name: Enforce exact trusted Preview bootstrap authority
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_EVENT_SHA: ${{ github.sha }}
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_REF_TYPE: ${{ github.ref_type }}
+          EXPECTED_PREVIEW_REF: ${{ inputs.preview_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_PREVIEW_REF" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$EXPECTED_REF_TYPE" == "branch" ]]
+          [[ "$GITHUB_REF" == "refs/heads/trusted-attestation-producer" ]]
+          [[ "$GITHUB_SHA" == "$EXPECTED_PREVIEW_REF" ]]
+          [[ "$EXPECTED_EVENT_SHA" == "$EXPECTED_PREVIEW_REF" ]]
+          [[ "$EXPECTED_WORKFLOW_SHA" == "$GITHUB_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_PREVIEW_REF" ]]
+          remote="$(git remote get-url origin)"
+          [[ "$remote" == *"$EXPECTED_REPOSITORY"* ]]
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install locked Preview environment tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+          pnpm install --frozen-lockfile
+
+      - name: Verify trusted Preview bootstrap implementation
+        run: node scripts/bootstrap-trusted-preview-env.mjs --self-test
+
+      - name: Bootstrap exact branch-scoped trusted Preview environment
+        shell: bash
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          PREVIEW_SUPABASE_URL: ${{ secrets.PREVIEW_SUPABASE_URL }}
+          PREVIEW_SUPABASE_ANON_KEY: ${{ secrets.PREVIEW_SUPABASE_ANON_KEY }}
+          PREVIEW_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PREVIEW_SUPABASE_SERVICE_ROLE_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/bootstrap-trusted-preview-env.mjs --required
+
+      - name: Remove any local Vercel environment material
+        if: always()
+        shell: bash
+        run: rm -f .vercel/.env.preview.local .vercel/.env.production.local
+
+  bootstrap_trusted_preview_env_complete:
+    name: bootstrap trusted Preview environment complete
+    needs: bootstrap_trusted_preview_env
+    if: >-
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'bootstrap-trusted-preview-env'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require successful trusted Preview bootstrap
+        shell: bash
+        env:
+          BOOTSTRAP_RESULT: ${{ needs.bootstrap_trusted_preview_env.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$BOOTSTRAP_RESULT" != "success" ]]; then
+            echo "::error title=Trusted Preview bootstrap rejected::Exact feature-branch authority, configuration validation, write, or metadata verification failed."
+            exit 1
+          fi
+          echo "::notice title=Trusted Preview bootstrap complete::Branch-scoped Preview metadata was verified without exporting secret values."
+
   preview:
     name: preview
     needs: validate
     if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy-preview')
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'deploy-preview' &&
+      github.ref_type == 'branch' &&
+      github.ref == 'refs/heads/trusted-attestation-producer' &&
+      github.sha == inputs.preview_ref &&
+      github.workflow_sha == github.sha
     runs-on: ubuntu-latest
+    environment: trusted-preview
     timeout-minutes: 45
     env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_GIT_COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.preview_ref }}
+      VERCEL_GIT_COMMIT_SHA: ${{ inputs.preview_ref }}
+      VERCEL_GIT_COMMIT_REF: trusted-attestation-producer
       NEXT_PUBLIC_RC6_4_BROWSER_PROSE_DIAGNOSTICS: '1'
       EXPECTED_RELEASE_LINE: ${{ needs.validate.outputs.release_line }}
       EXPECTED_RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
@@ -519,9 +627,18 @@ jobs:
         shell: bash
         env:
           EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_EVENT_SHA: ${{ github.sha }}
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
           [[ "$VERCEL_GIT_COMMIT_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$EXPECTED_REF_TYPE" == "branch" ]]
+          [[ "$GITHUB_REF" == "refs/heads/trusted-attestation-producer" ]]
+          [[ "$GITHUB_REF_NAME" == "$VERCEL_GIT_COMMIT_REF" ]]
+          [[ "$GITHUB_SHA" == "$VERCEL_GIT_COMMIT_SHA" ]]
+          [[ "$EXPECTED_EVENT_SHA" == "$VERCEL_GIT_COMMIT_SHA" ]]
+          [[ "$EXPECTED_WORKFLOW_SHA" == "$GITHUB_SHA" ]]
           [[ "$(git rev-parse HEAD)" == "$VERCEL_GIT_COMMIT_SHA" ]]
           remote="$(git remote get-url origin)"
           [[ "$remote" == *"$EXPECTED_REPOSITORY"* ]]
@@ -539,15 +656,111 @@ jobs:
       - name: Install Preview deployment tooling
         run: pnpm install --frozen-lockfile
 
+      - name: Pull Vercel environment (Production isolation reference)
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: pnpm exec vercel pull --yes --environment=production --scope="$VERCEL_SCOPE"
+
       - name: Pull Vercel environment (Preview)
-        run: pnpm exec vercel pull --yes --environment=preview --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: pnpm exec vercel pull --yes --environment=preview --git-branch="$VERCEL_GIT_COMMIT_REF" --scope="$VERCEL_SCOPE"
+
+      - name: Verify exact branch-scoped Preview environment metadata
+        shell: bash
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          PREVIEW_SUPABASE_URL: ${{ secrets.PREVIEW_SUPABASE_URL }}
+          PREVIEW_SUPABASE_ANON_KEY: ${{ secrets.PREVIEW_SUPABASE_ANON_KEY }}
+          PREVIEW_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PREVIEW_SUPABASE_SERVICE_ROLE_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/bootstrap-trusted-preview-env.mjs --verify-only
+
+      - name: Verify isolated Preview Supabase and v5 verifier configuration
+        id: preview_isolation
+        shell: bash
+        env:
+          PREVIEW_SUPABASE_URL: ${{ secrets.PREVIEW_SUPABASE_URL }}
+          PREVIEW_SUPABASE_ANON_KEY: ${{ secrets.PREVIEW_SUPABASE_ANON_KEY }}
+          PREVIEW_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PREVIEW_SUPABASE_SERVICE_ROLE_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY }}
+          PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID: ${{ secrets.PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/verify-preview-supabase-isolation.mjs --github-preview-secrets-required
+
+      - name: Provision and verify isolated Preview Public Lounge storage
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.PREVIEW_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PREVIEW_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/provision-public-lounge-storage.mjs --required --env-file .vercel/.env.preview.local
+
+      - name: Apply and verify isolated Preview Public Lounge migrations
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ steps.preview_isolation.outputs.preview_project_ref }}
+        run: |
+          set -euo pipefail
+          apply_and_verify() {
+            local migration_script="$1"
+            local migration_name="${migration_script##*/}"
+            set +e
+            node "$migration_script" --check --required >/dev/null 2>&1
+            local precheck_status=$?
+            set -e
+            if [[ "$precheck_status" -ne 0 && "$precheck_status" -ne 3 ]]; then
+              echo "::error title=Preview migration precheck failed::$migration_name exited with status $precheck_status"
+              exit 1
+            fi
+            set +e
+            node "$migration_script" --required >/dev/null 2>&1
+            local apply_status=$?
+            set -e
+            if [[ "$apply_status" -ne 0 ]]; then
+              echo "::error title=Preview migration apply failed::$migration_name exited with status $apply_status"
+              exit 1
+            fi
+            set +e
+            node "$migration_script" --check --required >/dev/null 2>&1
+            local verify_status=$?
+            set -e
+            if [[ "$verify_status" -ne 0 ]]; then
+              echo "::error title=Preview migration verification failed::$migration_name exited with status $verify_status"
+              exit 1
+            fi
+            echo "::notice title=Preview migration verified::$migration_name"
+          }
+          apply_and_verify scripts/apply-public-lounge-interactions-migration.mjs
+          apply_and_verify scripts/apply-public-lounge-control-plane-migration.mjs
+          apply_and_verify scripts/apply-public-lounge-attestation-ledger-migration.mjs
 
       - name: Build Preview
         shell: bash
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
           test "$NEXT_PUBLIC_RC6_4_BROWSER_PROSE_DIAGNOSTICS" = 1
-          pnpm exec vercel build --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN"
+          pnpm exec vercel build --scope="$VERCEL_SCOPE"
 
       - name: Seal exact RC6.4 Preview static asset manifest
         shell: bash
@@ -579,9 +792,13 @@ jobs:
       - name: Deploy isolated Preview
         id: preview
         shell: bash
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          output="$(pnpm exec vercel deploy --prebuilt --yes --scope="$VERCEL_SCOPE" --token="$VERCEL_TOKEN" 2>&1)"
+          output="$(pnpm exec vercel deploy --prebuilt --yes --scope="$VERCEL_SCOPE" 2>&1)"
           deployment_url="$(grep -Eo 'https://[^[:space:]]+' <<<"$output" | tail -n 1)"
           test -n "$deployment_url"
           echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
@@ -617,8 +834,13 @@ jobs:
             fi
             sleep 2
           done
-          echo "Preview release identity did not match trusted PR head $EXPECTED_COMMIT." >&2
+          echo "Preview release identity did not match trusted branch head $EXPECTED_COMMIT." >&2
           exit 1
+
+      - name: Remove local Vercel environment material
+        if: always()
+        shell: bash
+        run: rm -f .vercel/.env.preview.local .vercel/.env.production.local
 
   historical_rc6_2_recovery_hold:
     name: historical RC6.2 immutable recovery HOLD

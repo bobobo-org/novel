@@ -4,6 +4,9 @@ import type {
 } from "./closed-agent-os";
 import type { Chapter, NovelProject } from "./domain";
 import type { AuthorToolSnapshot } from "./author-tools";
+import {
+  wholeNovelCompletionFingerprintPayload,
+} from "../../local-ai/shared/whole-novel-completion-fingerprint.mjs";
 import { PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS } from "./public-lounge/types";
 
 export const WHOLE_NOVEL_REVIEW_SCHEMA_VERSION = "whole-novel-review-v2" as const;
@@ -358,41 +361,10 @@ function digestHex(bytes: ArrayBuffer) {
 type WholeNovelCompletionFingerprintSnapshot = Pick<AuthorToolSnapshot, "project" | "chapters">
   & Partial<Omit<AuthorToolSnapshot, "project" | "chapters">>;
 
-function compareFingerprintText(left: string, right: string) {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function stableFingerprintValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableFingerprintValue);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => compareFingerprintText(left, right))
-    .map(([key, nested]) => [key, stableFingerprintValue(nested)]));
-}
-
-function stableFingerprintCollection(values: readonly unknown[] | undefined) {
-  return [...(values ?? [])]
-    .map(stableFingerprintValue)
-    .sort((left, right) => compareFingerprintText(JSON.stringify(left) ?? "", JSON.stringify(right) ?? ""));
-}
-
 export async function buildWholeNovelCompletionFingerprint(
   snapshot: WholeNovelCompletionFingerprintSnapshot,
 ) {
-  const chapters = substantiveChapters(snapshot.chapters);
-  const payload = JSON.stringify(stableFingerprintValue({
-    projectId: snapshot.project.id,
-    project: snapshot.project,
-    chapters,
-    storyBible: snapshot.storyBible ?? null,
-    storyState: snapshot.storyState ?? null,
-    characters: stableFingerprintCollection(snapshot.characters),
-    relationships: stableFingerprintCollection(snapshot.relationships),
-    worldRules: stableFingerprintCollection(snapshot.worldRules),
-    timeline: stableFingerprintCollection(snapshot.timeline),
-    worlds: stableFingerprintCollection(snapshot.worlds),
-    offstageCharacterNames: [...(snapshot.offstageCharacterNames ?? [])].sort(compareFingerprintText),
-  }));
+  const payload = wholeNovelCompletionFingerprintPayload(snapshot);
   return digestHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload)));
 }
 

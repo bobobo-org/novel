@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 $releaseRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $bridgeScript = Join-Path $releaseRoot 'bridge\novel-local-ai.ps1'
 $hubScript = Join-Path $releaseRoot 'private-hub\novel-private-hub.ps1'
+$expectedPrivateHubVersion = '1.5.0-public-lounge-attestation-v5'
 $runtimeRoot = Join-Path $env:LOCALAPPDATA 'NovelLocalAICompanion'
 $logDirectory = Join-Path $runtimeRoot 'logs'
 $logPath = Join-Path $logDirectory 'startup.log'
@@ -55,7 +56,7 @@ function Start-CompanionService([string]$ScriptPath) {
     -ArgumentList $arguments -WindowStyle Hidden -PassThru
 }
 
-function Test-CompanionService(
+function Get-CompanionServiceHealth(
   [string]$Uri,
   [string]$ProtocolHeader,
   [string]$ProtocolValue
@@ -65,12 +66,15 @@ function Test-CompanionService(
     $headers[$ProtocolHeader] = $ProtocolValue
     $response = Invoke-RestMethod -Uri $Uri -Method Get -Headers $headers `
       -TimeoutSec 2
-    # Pairing is established by the trusted browser origin after startup.
-    # A healthy loopback process is therefore the startup success condition;
-    # runtimeReady may legitimately remain false until that first page visit.
-    return [bool]($response.bridgeProcessAlive -or $response.hubProcessAlive)
+    return $response
   } catch {
-    return $false
+    return $null
+  }
+}
+
+function Stop-StarterProcess([System.Diagnostics.Process]$Starter) {
+  if ($Starter -and -not $Starter.HasExited) {
+    Stop-Process -Id $Starter.Id -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -79,27 +83,44 @@ function Wait-CompanionService(
   [string]$Uri,
   [string]$ProtocolHeader,
   [string]$ProtocolValue,
-  [System.Diagnostics.Process]$Starter
+  [System.Diagnostics.Process]$Starter,
+  [string]$ExpectedVersionProperty = '',
+  [string]$ExpectedVersion = ''
 ) {
   $deadline = (Get-Date).AddSeconds(20)
   while ((Get-Date) -lt $deadline) {
-    if (Test-CompanionService $Uri $ProtocolHeader $ProtocolValue) {
+    $health = Get-CompanionServiceHealth $Uri $ProtocolHeader $ProtocolValue
+    if ($health) {
+      if ($ExpectedVersionProperty) {
+        $actualVersion = [string]$health.$ExpectedVersionProperty
+        if ($actualVersion -ne $ExpectedVersion) {
+          Stop-StarterProcess $Starter
+          throw (
+            'COMPANION_HUB_VERSION_MISMATCH: expected {0}, received {1}' -f
+              $ExpectedVersion,
+              $(if ($actualVersion) { $actualVersion } else { '<missing>' })
+          )
+        }
+      }
+      # Pairing is established by the trusted browser origin after startup.
+      # A healthy loopback process is therefore the startup success condition;
+      # runtimeReady may legitimately remain false until that first page visit.
+      if (-not ($health.bridgeProcessAlive -or $health.hubProcessAlive)) {
+        Start-Sleep -Milliseconds 250
+        continue
+      }
       if ($Starter -and -not $Starter.HasExited) {
         [void]$Starter.WaitForExit(3000)
       }
-      if ($Starter -and -not $Starter.HasExited) {
-        Stop-Process -Id $Starter.Id -Force -ErrorAction SilentlyContinue
-      }
+      Stop-StarterProcess $Starter
       Write-CompanionLog "$Name is ready."
-      return $true
+      return $health
     }
     Start-Sleep -Milliseconds 250
   }
-  if ($Starter -and -not $Starter.HasExited) {
-    Stop-Process -Id $Starter.Id -Force -ErrorAction SilentlyContinue
-  }
+  Stop-StarterProcess $Starter
   Write-CompanionLog "$Name did not become ready within 20 seconds."
-  return $false
+  return $null
 }
 
 if (-not (Test-Path -LiteralPath $bridgeScript -PathType Leaf)) {
@@ -123,23 +144,25 @@ $bridgeStarter = Start-CompanionService $bridgeScript
 $hubStarter = Start-CompanionService $hubScript
 Write-CompanionLog "Starting Local Bridge (launcher PID $($bridgeStarter.Id)) and Private Hub (launcher PID $($hubStarter.Id))..."
 
-$bridgeReady = Wait-CompanionService `
+$bridgeHealth = Wait-CompanionService `
   'Local Bridge' `
   'http://127.0.0.1:3217/health' `
   'X-Bridge-Protocol' `
   'novel-local-bridge/v1' `
   $bridgeStarter
-$hubReady = Wait-CompanionService `
+$hubHealth = Wait-CompanionService `
   'Private Hub' `
   'http://127.0.0.1:3227/health' `
   'X-Private-Hub-Protocol' `
   'novel-private-hub/v1' `
-  $hubStarter
+  $hubStarter `
+  'hubVersion' `
+  $expectedPrivateHubVersion
 
-if (-not $bridgeReady -or -not $hubReady) {
+if (-not $bridgeHealth -or -not $hubHealth) {
   $failed = @()
-  if (-not $bridgeReady) { $failed += 'Local Bridge' }
-  if (-not $hubReady) { $failed += 'Private Hub' }
+  if (-not $bridgeHealth) { $failed += 'Local Bridge' }
+  if (-not $hubHealth) { $failed += 'Private Hub' }
   throw ('COMPANION_SERVICE_START_FAILED: ' + ($failed -join ', '))
 }
 
@@ -150,8 +173,9 @@ if (-not (Test-OllamaReady)) {
 [pscustomobject]@{
   ok = $true
   releaseRoot = $releaseRoot
-  bridgeStarted = $bridgeReady
-  privateHubStarted = $hubReady
+  bridgeStarted = [bool]$bridgeHealth.bridgeProcessAlive
+  privateHubStarted = [bool]$hubHealth.hubProcessAlive
+  hubVersion = [string]$hubHealth.hubVersion
   ollamaReady = Test-OllamaReady
   autostart = $true
 } | ConvertTo-Json -Depth 4

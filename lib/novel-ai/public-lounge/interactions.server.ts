@@ -30,12 +30,7 @@ type SupabaseErrorLike = {
 
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu;
 
-function configuration(): InteractionConfiguration {
-  if (process.env.PUBLIC_LOUNGE_INTERACTIONS_ENABLED !== "1"
-    || process.env.PUBLIC_LOUNGE_INTERACTIONS_MIGRATION_VERSION !== PUBLIC_LOUNGE_INTERACTIONS_MIGRATION_VERSION
-    || process.env.PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION !== PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION) {
-    throw new PublicLoungeInteractionError("PUBLIC_LOUNGE_INTERACTIONS_NOT_CONNECTED", 503, true);
-  }
+function supabaseConfiguration(): InteractionConfiguration {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "")
     .trim()
     .replace(/\/$/u, "");
@@ -55,8 +50,16 @@ function configuration(): InteractionConfiguration {
   return { url, anonKey, serviceRoleKey };
 }
 
+function assertInteractionsActivated() {
+  if (process.env.PUBLIC_LOUNGE_INTERACTIONS_ENABLED !== "1"
+    || process.env.PUBLIC_LOUNGE_INTERACTIONS_MIGRATION_VERSION !== PUBLIC_LOUNGE_INTERACTIONS_MIGRATION_VERSION
+    || process.env.PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION !== PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION) {
+    throw new PublicLoungeInteractionError("PUBLIC_LOUNGE_INTERACTIONS_NOT_CONNECTED", 503, true);
+  }
+}
+
 function client(key: string, authorization?: string) {
-  const config = configuration();
+  const config = supabaseConfiguration();
   const options = {
     auth: {
       autoRefreshToken: false,
@@ -73,12 +76,12 @@ function client(key: string, authorization?: string) {
 }
 
 function anonymousClient() {
-  const config = configuration();
+  const config = supabaseConfiguration();
   return client(config.anonKey);
 }
 
 function serviceRoleClient() {
-  const config = configuration();
+  const config = supabaseConfiguration();
   return client(config.serviceRoleKey);
 }
 
@@ -117,7 +120,7 @@ function bearerToken(request: Request, required: boolean) {
 
 export async function verifyPublicLoungeInteractionActor(request: Request) {
   const token = bearerToken(request, true) as string;
-  const config = configuration();
+  const config = supabaseConfiguration();
   const verifier = client(config.anonKey);
   const { data, error } = await verifier.auth.getUser(token);
   if (error || !data.user || !UUID_PATTERN.test(data.user.id)) {
@@ -133,7 +136,7 @@ export async function verifyPublicLoungeInteractionActor(request: Request) {
 async function optionalActor(request: Request) {
   const token = bearerToken(request, false);
   if (!token) return { user: null, client: anonymousClient() };
-  const config = configuration();
+  const config = supabaseConfiguration();
   const verifier = client(config.anonKey);
   const { data, error } = await verifier.auth.getUser(token);
   if (error || !data.user || !UUID_PATTERN.test(data.user.id)) {
@@ -218,6 +221,7 @@ export type PublicLoungeInteractionGateway = {
 
 export class SupabasePublicLoungeInteractionGateway implements PublicLoungeInteractionGateway {
   async health() {
+    assertInteractionsActivated();
     const row = oneRow(await rpc(serviceRoleClient(), "novel_public_lounge_interactions_status", {}));
     if (row.migration_version !== PUBLIC_LOUNGE_INTERACTIONS_MIGRATION_VERSION || row.ready !== true) {
       throw new PublicLoungeInteractionError("PUBLIC_LOUNGE_INTERACTIONS_NOT_CONNECTED", 503, true);

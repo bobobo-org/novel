@@ -107,7 +107,14 @@ assert.doesNotMatch(pnpmWorkspace, /set this to true or false/u);
 assert.match(workflow, /pull_request:\s*\r?\n\s+branches:\s*\[main\]/u);
 assert.match(workflow, /workflow_dispatch:\s*\r?\n\s+inputs:/u);
 assert.match(workflow, /preview_ref:/u);
-assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/u);
+assert.match(
+  workflow,
+  /repository:\s*\$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name \|\| github\.repository \}\}/u,
+);
+assert.match(
+  workflow,
+  /\n  preview:[\s\S]*?if:\s*>-\s*\n\s+github\.event_name == 'workflow_dispatch' &&\s*\n\s+inputs\.operation == 'deploy-preview' &&\s*\n\s+github\.ref_type == 'branch' &&\s*\n\s+github\.ref == 'refs\/heads\/trusted-attestation-producer' &&\s*\n\s+github\.sha == inputs\.preview_ref &&\s*\n\s+github\.workflow_sha == github\.sha/u,
+);
 assert.match(workflow, /VERCEL_GIT_COMMIT_SHA.*preview_ref/u);
 assert.doesNotMatch(workflow, /agent\/p24b-rc6-conversation-first/u);
 assert.doesNotMatch(workflow, /agent\/browser-sovereign-ai-fabric-rc5/u);
@@ -170,7 +177,7 @@ console.log(JSON.stringify({
   releaseTag: expected.releaseTag,
   packageManager: expected.packageManager,
   vercelVersion: expected.vercelVersion,
-  previewPolicy: "trusted_same_repository_exact_sha",
+  previewPolicy: "trusted_manual_dispatch_branch_head_self_control_exact_sha",
   nodeRuntime: 24,
   actionPins: {
     "actions/checkout@v7.0.1": expected.checkoutPin,

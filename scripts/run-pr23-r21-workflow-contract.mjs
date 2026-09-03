@@ -235,6 +235,8 @@ const [
   p21ThreeHigh,
   vercelConfigurationText,
   browserGateContract,
+  trustedPreviewBootstrap,
+  previewIsolationSource,
 ] = await Promise.all([
   readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
   readFile(new URL("./vercel-dual-alias-cutover.mjs", import.meta.url), "utf8"),
@@ -242,6 +244,8 @@ const [
   readFile(new URL("./run-p21-three-high-closure.mjs", import.meta.url), "utf8"),
   readFile(new URL("../vercel.json", import.meta.url), "utf8"),
   readFile(new URL("./run-rc6-2-production-browser-gate-contract.mjs", import.meta.url), "utf8"),
+  readFile(new URL("./bootstrap-trusted-preview-env.mjs", import.meta.url), "utf8"),
+  readFile(new URL("./verify-preview-supabase-isolation.mjs", import.meta.url), "utf8"),
 ]);
 const packageScripts = JSON.parse(packageText).scripts;
 const vercelConfiguration = JSON.parse(vercelConfigurationText);
@@ -253,6 +257,8 @@ assert.equal(
 
 const jobNames = [
   "validate",
+  "bootstrap_trusted_preview_env",
+  "bootstrap_trusted_preview_env_complete",
   "preview",
   "historical_rc6_2_recovery_hold",
   "audit_last_known_good",
@@ -308,6 +314,8 @@ function failedStepOutcomes(step) {
 
 const globalConfiguration = workflow.slice(0, workflow.indexOf("\njobs:"));
 const validateJob = section("validate");
+const trustedPreviewBootstrapJob = section("bootstrap_trusted_preview_env");
+const trustedPreviewBootstrapCompleteJob = section("bootstrap_trusted_preview_env_complete");
 const previewJob = section("preview");
 const historicalRecoveryHoldJob = section("historical_rc6_2_recovery_hold");
 const lastKnownGoodAuditJob = section("audit_last_known_good");
@@ -329,8 +337,16 @@ for (const secret of [
   "VERCEL_TOKEN",
   "VERCEL_ORG_ID",
   "VERCEL_PROJECT_ID",
+  "SUPABASE_ACCESS_TOKEN",
   "SUPABASE_SERVICE_ROLE_KEY",
   "XAI_API_KEY",
+  "PREVIEW_SUPABASE_URL",
+  "PREVIEW_SUPABASE_ANON_KEY",
+  "PREVIEW_SUPABASE_SERVICE_ROLE_KEY",
+  "PREVIEW_PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY",
+  "PREVIEW_PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY",
+  "PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY",
+  "PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID",
 ]) {
   assert.doesNotMatch(globalConfiguration, new RegExp(`\\b${secret}\\b`, "u"), `${secret} must not be global`);
   assert.doesNotMatch(validateJob, new RegExp(`\\b${secret}\\b`, "u"), `${secret} must not be available to validate`);
@@ -368,6 +384,7 @@ assert.match(validateJob, /p24b-rc6-validation-\$\{\{ env\.VERCEL_GIT_COMMIT_SHA
 assert.match(globalConfiguration, /push:[\s\S]*branches:[\s\S]*- main/u);
 assert.doesNotMatch(globalConfiguration, /agent\/p24b-rc6-conversation-first/u);
 assert.match(globalConfiguration, /preview_ref:/u);
+assert.match(globalConfiguration, /bootstrap-trusted-preview-env/u);
 assert.match(globalConfiguration, /deploy-preview/u);
 assert.match(globalConfiguration, /deploy-immutable-product-recovery/u);
 assert.match(globalConfiguration, /audit-rc6-2-last-known-good/u);
@@ -396,23 +413,169 @@ for (const [name, value] of [
 ]) assert.match(globalConfiguration, new RegExp(`^  ${name}: ${value}$`, "mu"));
 assert.match(globalConfiguration, /group:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*vercel-production-main/u);
 assert.match(globalConfiguration, /group:[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*vercel-lkg-audit/u);
+assert.match(globalConfiguration, /group:[^\r\n]*bootstrap-trusted-preview-env[^\r\n]*deploy-preview[^\r\n]*vercel-trusted-attestation-preview/u);
 assert.match(globalConfiguration, /cancel-in-progress:[^\r\n]*deploy-immutable-product-recovery/u);
+assert.match(globalConfiguration, /cancel-in-progress:[^\r\n]*bootstrap-trusted-preview-env[^\r\n]*deploy-preview/u);
+
+assert.match(trustedPreviewBootstrapJob, /github\.event_name == 'workflow_dispatch'/u);
+assert.match(trustedPreviewBootstrapJob, /inputs\.operation == 'bootstrap-trusted-preview-env'/u);
+assert.match(trustedPreviewBootstrapJob, /github\.ref_type == 'branch'/u);
+assert.match(trustedPreviewBootstrapJob, /github\.ref == 'refs\/heads\/trusted-attestation-producer'/u);
+assert.match(trustedPreviewBootstrapJob, /github\.sha == inputs\.preview_ref/u);
+assert.match(trustedPreviewBootstrapJob, /github\.workflow_sha == github\.sha/u);
+assert.doesNotMatch(trustedPreviewBootstrapJob, /needs:\s*validate/u);
+assert.match(trustedPreviewBootstrapJob, /ref:\s*\$\{\{ inputs\.preview_ref \}\}/u);
+assert.match(trustedPreviewBootstrapJob, /persist-credentials:\s*false/u);
+assert.match(trustedPreviewBootstrapJob, /\[\[ "\$GITHUB_REF" == "refs\/heads\/trusted-attestation-producer" \]\]/u);
+assert.match(trustedPreviewBootstrapJob, /\[\[ "\$EXPECTED_WORKFLOW_SHA" == "\$GITHUB_SHA" \]\]/u);
+assert.match(trustedPreviewBootstrapJob, /git rev-parse HEAD/u);
+assert.match(trustedPreviewBootstrapJob, /bootstrap-trusted-preview-env\.mjs --self-test/u);
+const trustedPreviewMutation = stepSection(
+  trustedPreviewBootstrapJob,
+  "Bootstrap exact branch-scoped trusted Preview environment",
+);
+const trustedPreviewCleanup = stepSection(
+  trustedPreviewBootstrapJob,
+  "Remove any local Vercel environment material",
+);
+const trustedPreviewSourceSecrets = [
+  "PREVIEW_SUPABASE_URL",
+  "PREVIEW_SUPABASE_ANON_KEY",
+  "PREVIEW_SUPABASE_SERVICE_ROLE_KEY",
+  "PREVIEW_PUBLIC_LOUNGE_IDEMPOTENCY_ENCRYPTION_KEY",
+  "PREVIEW_PUBLIC_LOUNGE_RATE_IDENTITY_HMAC_KEY",
+  "PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY",
+  "PREVIEW_PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID",
+];
+for (const secret of trustedPreviewSourceSecrets) {
+  assert.match(trustedPreviewMutation, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`, "u"));
+  assert.doesNotMatch(
+    trustedPreviewBootstrapJob.replace(trustedPreviewMutation, ""),
+    new RegExp(`\\b${secret}\\b`, "u"),
+    `${secret} must only be exposed to the one bootstrap mutation step`,
+  );
+}
+assert.match(trustedPreviewMutation, /bootstrap-trusted-preview-env\.mjs --required/u);
+assert.doesNotMatch(trustedPreviewMutation, /--prod(?:\s|["'])|--value|GITHUB_(?:OUTPUT|ENV|STEP_SUMMARY)|set -x/u);
+assert.match(trustedPreviewCleanup, /if:\s*always\(\)/u);
+assert.match(trustedPreviewCleanup, /\.env\.preview\.local[\s\S]*\.env\.production\.local/u);
+assert.match(trustedPreviewBootstrapJob, /environment:\s*trusted-preview/u);
+assert.match(workflow, /Control-plane prerequisite:[\s\S]*seven PREVIEW_\* secrets before dispatch/u);
+assert.match(trustedPreviewBootstrapCompleteJob, /needs:\s*bootstrap_trusted_preview_env/u);
+assert.match(trustedPreviewBootstrapCompleteJob, /always\(\)/u);
+assert.match(trustedPreviewBootstrapCompleteJob, /inputs\.operation == 'bootstrap-trusted-preview-env'/u);
+assert.match(trustedPreviewBootstrapCompleteJob, /BOOTSTRAP_RESULT[\s\S]*!= "success"[\s\S]*exit 1/u);
+
+assert.match(trustedPreviewBootstrap, /TRUSTED_PREVIEW_BRANCH = "trusted-attestation-producer"/u);
+assert.match(trustedPreviewBootstrap, /"env", "add", spec\.key, PREVIEW_TARGET, TRUSTED_PREVIEW_BRANCH/u);
+assert.match(trustedPreviewBootstrap, /input:\s*`\$\{value\}\\n`/u);
+assert.match(trustedPreviewBootstrap, /stdio:\s*\["pipe", "pipe", "pipe"\]/u);
+assert.match(trustedPreviewBootstrap, /spec\.type === "sensitive" \? "--sensitive" : "--no-sensitive"/u);
+assert.match(trustedPreviewBootstrap, /PUBLIC_LOUNGE_INTERACTIONS_ENABLED[\s\S]*value:\s*"0"/u);
+assert.match(trustedPreviewBootstrap, /readTrustedPreviewEnvironmentMetadata/u);
+assert.match(trustedPreviewBootstrap, /record\.targets\.length === 1[\s\S]*record\.targets\[0\] === PREVIEW_TARGET/u);
+assert.match(trustedPreviewBootstrap, /record\.gitBranch === TRUSTED_PREVIEW_BRANCH/u);
+assert.match(trustedPreviewBootstrap, /branchRecords\.length !== 1/u);
+assert.doesNotMatch(trustedPreviewBootstrap, /"env",\s*"rm"|--value|GITHUB_(?:OUTPUT|ENV|STEP_SUMMARY)/u);
+for (const sourceName of trustedPreviewSourceSecrets) {
+  assert.match(trustedPreviewBootstrap, new RegExp(`"${sourceName}"`, "u"));
+}
+const environmentSpecStart = trustedPreviewBootstrap.indexOf("TRUSTED_PREVIEW_ENVIRONMENT_SPEC");
+assert.ok(
+  environmentSpecStart >= 0
+    && trustedPreviewBootstrap.indexOf('key: "PUBLIC_LOUNGE_INTERACTIONS_ENABLED"', environmentSpecStart)
+      < trustedPreviewBootstrap.indexOf('key: "NEXT_PUBLIC_SUPABASE_URL"', environmentSpecStart),
+  "fail-closed interaction flag must be the first trusted Preview mutation",
+);
 
 assert.match(previewJob, /needs:\s*validate/u);
-assert.match(previewJob, /head\.repo\.full_name == github\.repository/u);
+assert.match(previewJob, /environment:\s*trusted-preview/u);
+assert.match(previewJob, /github\.event_name == 'workflow_dispatch'/u);
 assert.match(previewJob, /inputs\.operation == 'deploy-preview'/u);
-assert.doesNotMatch(previewJob, /github\.event_name == 'push'|audit-last-known-good|audit-rc6-2-last-known-good|deploy-immutable-product-recovery|restore-known-stable/u);
+assert.match(previewJob, /github\.ref_type == 'branch'/u);
+assert.match(previewJob, /github\.ref == 'refs\/heads\/trusted-attestation-producer'/u);
+assert.doesNotMatch(previewJob, /refs\/heads\/main/u);
+assert.match(previewJob, /github\.sha == inputs\.preview_ref/u);
+assert.match(previewJob, /github\.workflow_sha == github\.sha/u);
+assert.doesNotMatch(previewJob, /pull_request|github\.event_name == 'push'|audit-last-known-good|audit-rc6-2-last-known-good|deploy-immutable-product-recovery|restore-known-stable/u);
 assert.match(previewJob, /\^\[a-f0-9\]\{40\}\$/u);
+assert.match(previewJob, /\[\[ "\$GITHUB_SHA" == "\$VERCEL_GIT_COMMIT_SHA" \]\]/u);
+assert.match(previewJob, /\[\[ "\$EXPECTED_WORKFLOW_SHA" == "\$GITHUB_SHA" \]\]/u);
 assert.match(previewJob, /git rev-parse HEAD/u);
 assert.match(previewJob, /ref:\s*\$\{\{ env\.VERCEL_GIT_COMMIT_SHA \}\}/u);
+assert.match(previewJob, /VERCEL_GIT_COMMIT_SHA:\s*\$\{\{ inputs\.preview_ref \}\}/u);
+assert.match(previewJob, /VERCEL_GIT_COMMIT_REF:\s*trusted-attestation-producer/u);
 assert.match(previewJob, /environment=preview/u);
 assert.match(previewJob, /vercel deploy --prebuilt/u);
 assert.match(previewJob, /\/api\/release\/identity/u);
 assert.doesNotMatch(previewJob, /--prod/u);
 assert.doesNotMatch(previewJob, /PRIMARY_ALIAS|MIRROR_ALIAS/u);
-assert.doesNotMatch(previewJob, /SUPABASE_ACCESS_TOKEN/u);
 assert.doesNotMatch(previewJob, /production-last-known-good|production-environment-governance|vercel-dual-alias-cutover/u);
 assert.doesNotMatch(previewJob, /\n  audit_last_known_good:/u);
+const productionEnvironmentPull = stepSection(previewJob, "Pull Vercel environment (Production isolation reference)");
+const previewEnvironmentPull = stepSection(previewJob, "Pull Vercel environment (Preview)");
+const previewEnvironmentMetadata = stepSection(previewJob, "Verify exact branch-scoped Preview environment metadata");
+const previewIsolationGate = stepSection(previewJob, "Verify isolated Preview Supabase and v5 verifier configuration");
+const previewStorage = stepSection(previewJob, "Provision and verify isolated Preview Public Lounge storage");
+const previewMigrations = stepSection(previewJob, "Apply and verify isolated Preview Public Lounge migrations");
+const previewBuild = stepSection(previewJob, "Build Preview");
+const previewCleanup = stepSection(previewJob, "Remove local Vercel environment material");
+assert.match(productionEnvironmentPull, /vercel pull --yes --environment=production/u);
+assert.match(previewEnvironmentPull, /vercel pull --yes --environment=preview/u);
+assert.match(previewEnvironmentPull, /--git-branch="\$VERCEL_GIT_COMMIT_REF"/u);
+assert.match(previewEnvironmentMetadata, /bootstrap-trusted-preview-env\.mjs --verify-only/u);
+for (const secret of trustedPreviewSourceSecrets) {
+  assert.match(previewEnvironmentMetadata, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`, "u"));
+}
+assert.match(previewIsolationGate, /id:\s*preview_isolation/u);
+assert.match(previewIsolationGate, /node scripts\/verify-preview-supabase-isolation\.mjs --github-preview-secrets-required/u);
+for (const secret of trustedPreviewSourceSecrets) {
+  assert.match(previewIsolationGate, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`, "u"));
+}
+assert.match(
+  previewStorage,
+  /node scripts\/provision-public-lounge-storage\.mjs --required --env-file \.vercel\/\.env\.preview\.local/u,
+);
+assert.doesNotMatch(previewStorage, /--verify-only/u);
+assert.match(previewStorage, /NEXT_PUBLIC_SUPABASE_URL:\s*\$\{\{ secrets\.PREVIEW_SUPABASE_URL \}\}/u);
+assert.match(previewStorage, /SUPABASE_SERVICE_ROLE_KEY:\s*\$\{\{ secrets\.PREVIEW_SUPABASE_SERVICE_ROLE_KEY \}\}/u);
+assert.match(previewMigrations, /SUPABASE_ACCESS_TOKEN:\s*\$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/u);
+assert.match(previewMigrations, /SUPABASE_PROJECT_REF:\s*\$\{\{ steps\.preview_isolation\.outputs\.preview_project_ref \}\}/u);
+assert.match(previewMigrations, /precheck_status[^\n]*\n[\s\S]*-ne 0 && "\$precheck_status" -ne 3/u);
+assert.match(previewMigrations, /node "\$migration_script" --required/u);
+assert.match(previewMigrations, /node "\$migration_script" --check --required/u);
+const migrationScripts = [
+  "scripts/apply-public-lounge-interactions-migration.mjs",
+  "scripts/apply-public-lounge-control-plane-migration.mjs",
+  "scripts/apply-public-lounge-attestation-ledger-migration.mjs",
+];
+for (const migrationScript of migrationScripts) assert.match(previewMigrations, new RegExp(migrationScript.replaceAll(".", "\\."), "u"));
+assert.ok(
+  migrationScripts.every((migrationScript, index) => (
+    index === 0 || previewMigrations.indexOf(migrationScripts[index - 1]) < previewMigrations.indexOf(migrationScript)
+  )),
+  "Preview migrations must remain ordered 027 -> 028 -> 029",
+);
+assert.ok(
+  previewJob.indexOf(productionEnvironmentPull) < previewJob.indexOf(previewEnvironmentPull)
+    && previewJob.indexOf(previewEnvironmentPull) < previewJob.indexOf(previewEnvironmentMetadata)
+    && previewJob.indexOf(previewEnvironmentMetadata) < previewJob.indexOf(previewIsolationGate)
+    && previewJob.indexOf(previewIsolationGate) < previewJob.indexOf(previewStorage)
+    && previewJob.indexOf(previewStorage) < previewJob.indexOf(previewMigrations)
+    && previewJob.indexOf(previewMigrations) < previewJob.indexOf(previewBuild),
+  "Preview isolation, private storage, and migrations must finish before the Preview build",
+);
+assert.doesNotMatch(previewJob.replace(previewMigrations, ""), /SUPABASE_ACCESS_TOKEN/u);
+assert.doesNotMatch(previewJob, /bootstrap-trusted-preview-env\.mjs --required|"env",\s*"add"|vercel env add/u);
+assert.match(previewCleanup, /if:\s*always\(\)/u);
+assert.match(previewCleanup, /\.env\.preview\.local[\s\S]*\.env\.production\.local/u);
+assert.match(previewIsolationSource, /overlayGithubPreviewConfiguration/u);
+assert.match(previewIsolationSource, /VERCEL_SENSITIVE_PLACEHOLDER = "\[SENSITIVE\]"/u);
+assert.match(previewIsolationSource, /--github-preview-secrets-required/u);
+assert.doesNotMatch(
+  previewJob,
+  /PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION|PUBLIC_LOUNGE_INTERACTIONS_ENABLED|activate-public-lounge-interactions/u,
+);
 
 assert.match(historicalRecoveryHoldJob, /github\.event_name == 'workflow_dispatch'/u);
 assert.match(historicalRecoveryHoldJob, /github\.ref == 'refs\/heads\/main'/u);

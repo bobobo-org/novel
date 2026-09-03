@@ -1,10 +1,11 @@
 {
   "schemaVersion": "novel-local-ai-companion-manifest-v1",
-  "version": "1.4.7",
+  "version": "1.5.0",
   "minimumNodeMajor": 22,
   "bindAddress": "127.0.0.1",
   "bridgePort": 3217,
   "privateHubPort": 3227,
+  "privateHubVersion": "1.5.0-public-lounge-attestation-v5",
   "ollamaPort": 11434,
   "lanAccess": false,
   "telemetry": false,

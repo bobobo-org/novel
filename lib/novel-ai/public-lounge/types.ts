@@ -349,7 +349,7 @@ export interface PublicLoungeServiceApi {
     bucket: "novel-public-lounge-v1";
     trustedEligibilityVerifierConnected: boolean;
     authorDeviceEligibilityAccepted: false;
-    trustedAttestationProducer: "not-available-in-this-release";
+    trustedAttestationProducer: "private-ai-hub-v5-client-probe-required";
   }>;
   list(query?: PublicLoungeListQuery): Promise<PublicLoungeListPage>;
   get(publicId: string): Promise<PublicLoungePost>;

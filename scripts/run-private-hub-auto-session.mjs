@@ -41,7 +41,7 @@ try {
   const health = await read(await fetch(`${base}/health`, { headers: headers() }));
   assert.equal(health.status, 200);
   assert.equal(health.body.automaticSessionSupported, true);
-  assert.match(health.body.hubVersion, /^1\.4\.0/u);
+  assert.match(health.body.hubVersion, /^1\.5\.0/u);
   assert.equal(health.body.continuousLearning.backgroundActive, true);
 
   const connected = await read(await fetch(`${base}/session/auto`, {

@@ -258,7 +258,7 @@ const failClosedService = new PublicLoungeService({
 });
 const health = await failClosedService.health();
 assert.equal(health.authorDeviceEligibilityAccepted, false);
-assert.equal(health.trustedAttestationProducer, "not-available-in-this-release");
+assert.equal(health.trustedAttestationProducer, "private-ai-hub-v5-client-probe-required");
 
 const weakAuthorDeviceEligibilityRequest = {
   schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,

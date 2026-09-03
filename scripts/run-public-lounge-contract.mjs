@@ -1920,7 +1920,7 @@ test("missing trusted verifier is reported honestly and cannot issue eligibility
   );
   const health = await fixture.service.health();
   assert.equal(health.trustedEligibilityVerifierConnected, false);
-  assert.equal(health.trustedAttestationProducer, "not-available-in-this-release");
+  assert.equal(health.trustedAttestationProducer, "private-ai-hub-v5-client-probe-required");
   await expectAsyncCode(
     () => fixture.service.issueEligibility(signedEligibilityRequest()),
     "PUBLIC_LOUNGE_TRUSTED_REVIEW_NOT_CONNECTED",
@@ -1967,6 +1967,48 @@ test("publish response loss is resumable without a duplicate public work or toke
   assert.equal((await fixture.service.get(recovered.post.publicId)).publicId, recovered.post.publicId);
   assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/posts/")).length, 1);
   assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/publish/idempotency/")).length, 1);
+  assert.equal(fixture.gateway.catalog.size, 1);
+});
+
+test("publish response loss plus a fresh attestation ticket still converges on one public work", async () => {
+  class RejectCatalogAnchorOnceGateway extends MemoryLoungeGateway {
+    constructor() {
+      super();
+      this.failNextAnchor = true;
+    }
+    async upsertCatalogAnchor(candidate) {
+      if (this.failNextAnchor) {
+        this.failNextAnchor = false;
+        throw new Error("CATALOG_ANCHOR_RESPONSE_LOST_AFTER_STORAGE_COMMIT");
+      }
+      return super.upsertCatalogAnchor(candidate);
+    }
+  }
+  const fixture = serviceFixture(new RejectCatalogAnchorOnceGateway());
+  const firstPublication = await authorizedPublication(fixture);
+  const firstIdempotencyKey = "L".repeat(32);
+  await expectAsyncCode(
+    () => publish(fixture.service, firstPublication, firstIdempotencyKey),
+    "PUBLIC_LOUNGE_NOT_CONNECTED",
+  );
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/posts/")).length, 1);
+  assert.equal(fixture.gateway.catalog.size, 0);
+
+  const freshPublication = await authorizedPublication(fixture);
+  assert.notEqual(freshPublication.eligibilityTicket, firstPublication.eligibilityTicket);
+  const recovered = await publish(fixture.service, freshPublication, "N".repeat(32));
+  const originalRetry = await publish(fixture.service, firstPublication, firstIdempotencyKey);
+
+  assert.equal(originalRetry.post.publicId, recovered.post.publicId);
+  assert.equal(originalRetry.post.versionId, recovered.post.versionId);
+  assert.equal(originalRetry.managementToken, recovered.managementToken);
+  assert.equal((await fixture.service.list()).items.length, 1);
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/posts/")).length, 1);
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/versions/")).length, 1);
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/index/")).length, 1);
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/publish/idempotency/")).length, 1);
+  assert.equal([...fixture.gateway.objects.keys()].filter((path) => path.includes("/eligibility/consumed/")).length, 2);
+  assert.equal(fixture.gateway.attestationLedger.size, 2);
   assert.equal(fixture.gateway.catalog.size, 1);
 });
 

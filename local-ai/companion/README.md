@@ -1,4 +1,4 @@
-# Novel Local AI Companion 1.4.7
+# Novel Local AI Companion 1.5.0
 
 This package runs only on the user's Windows computer. It connects the Novel
 Studio web page to an existing Ollama installation through loopback:
@@ -23,7 +23,7 @@ Studio web page to an existing Ollama installation through loopback:
 
 ## Recommended installation
 
-Download and run `novel-local-ai-companion-setup-v1.4.7.cmd`. The one-click
+Download and run `novel-local-ai-companion-setup-v1.5.0.cmd`. The one-click
 installer downloads checksum-pinned release files from the official site and:
 
 1. verifies or installs Node.js LTS and Ollama through Windows `winget`;
@@ -60,6 +60,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hub start
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hub status
 ```
 
+Public Lounge v5 publishing uses a separate Ed25519 key for each trust domain.
+Provision only the environment you intend to use; the private key remains in
+the current user's local Private Hub runtime and is never printed or packaged:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hub provision-preview-key
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hub provision-production-key
+```
+
+Each command prints only the public key, key ID, audience, environment and
+fingerprint that must be configured in the matching Preview or Production
+verifier. Missing or mismatched key configuration keeps publishing disabled.
+
 Preview or custom origins are not trusted automatically. For those origins
 only, request pairing and read the one-time code locally:
 
@@ -83,15 +96,18 @@ published by the website and shows one of: current, update available, or
 incompatible. Run the newer installer. It stops the prior release, keeps
 releases in a versioned local directory, updates the logon shortcut, starts
 both local services, and lets Studio reconnect and re-verify the selected model
-automatically. The ZIP remains available for administrators who prefer source
-inspection and manual installation.
+automatically. An upgrade is not committed until both old loopback ports are
+released and the new Hub reports the exact release identity. If startup fails,
+the installer restores `current.txt` and the logon shortcut, then attempts to
+restart the prior release. The ZIP remains available for administrators who
+prefer source inspection and manual installation.
 
 ## Verify the download
 
 The setup page publishes the SHA-256 of the exact installer. In PowerShell:
 
 ```powershell
-Get-FileHash .\novel-local-ai-companion-setup-v1.4.7.cmd -Algorithm SHA256
+Get-FileHash .\novel-local-ai-companion-setup-v1.5.0.cmd -Algorithm SHA256
 ```
 
 Compare the full value before extracting. This release is checksum-verifiable

@@ -2007,13 +2007,24 @@ function testPreviewPolicy() {
   const preview = jobSection("preview");
   assert.doesNotMatch(top, /agent\/p24b-rc6-conversation-first/u);
   assert.match(top, /preview_ref:/u);
-  assert.match(preview, /head\.repo\.full_name == github\.repository/u);
+  assert.match(preview, /github\.event_name == 'workflow_dispatch'/u);
+  assert.match(preview, /inputs\.operation == 'deploy-preview'/u);
+  assert.match(preview, /github\.ref_type == 'branch'/u);
+  assert.match(preview, /github\.ref == 'refs\/heads\/trusted-attestation-producer'/u);
+  const previewAuthority = preview.slice(0, preview.indexOf("    runs-on:"));
+  assert.doesNotMatch(previewAuthority, /refs\/heads\/main/u);
+  assert.match(preview, /github\.sha == inputs\.preview_ref/u);
+  assert.match(preview, /github\.workflow_sha == github\.sha/u);
+  assert.doesNotMatch(preview, /pull_request/u);
   const validate = jobSection("validate");
   assert.match(validate, /pull_request\.head\.sha \|\| github\.event_name == 'workflow_dispatch' && inputs\.operation == 'deploy-preview' && inputs\.preview_ref \|\| github\.event_name == 'workflow_dispatch' && inputs\.operation == 'deploy-immutable-product-recovery' && '[a-f0-9]{40}' \|\| github\.sha/u);
   assert.match(validate, /ref:\s*\$\{\{ env\.VERCEL_GIT_COMMIT_SHA \}\}/u);
   assert.match(validate, /--arg headSha "\$VERCEL_GIT_COMMIT_SHA"/u);
   assert.match(validate, /p24b-rc6-validation-\$\{\{ env\.VERCEL_GIT_COMMIT_SHA \}\}/u);
   assert.match(preview, /\^\[a-f0-9\]\{40\}\$/u);
+  assert.match(preview, /\[\[ "\$GITHUB_SHA" == "\$VERCEL_GIT_COMMIT_SHA" \]\]/u);
+  assert.match(preview, /\[\[ "\$EXPECTED_WORKFLOW_SHA" == "\$GITHUB_SHA" \]\]/u);
+  assert.match(preview, /VERCEL_GIT_COMMIT_SHA:\s*\$\{\{ inputs\.preview_ref \}\}/u);
   assert.match(preview, /environment=preview/u);
   assert.doesNotMatch(preview, /--prod|PRIMARY_ALIAS|MIRROR_ALIAS|vercel-dual-alias/u);
 }

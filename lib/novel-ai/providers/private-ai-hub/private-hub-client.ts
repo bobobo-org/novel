@@ -43,11 +43,22 @@ import {
 import type {
   AutonomousPracticeExperience,
 } from "../../sovereign-learning/autonomous-practice";
+import { parsePublicLoungeServerReviewAttestationV5 } from "../../public-lounge/contract";
+import type {
+  PublicLoungePublicationInput,
+  PublicLoungeServerReviewAttestationV5,
+} from "../../public-lounge/types";
+import type { AuthorToolSnapshot } from "../../author-tools";
 
 export const PRIVATE_HUB_PROTOCOL = "novel-private-hub/v1";
 const PRIVATE_HUB_ENDPOINT = "http://127.0.0.1:3227";
 export const PRIVATE_HUB_CONTROL_TIMEOUT_MS = 5_000;
 export const PRIVATE_HUB_MODEL_VERIFICATION_TIMEOUT_MS = 60_000;
+export const PRIVATE_HUB_PUBLIC_LOUNGE_ATTESTATION_TIMEOUT_MS = 240_000;
+export const PRIVATE_HUB_PUBLIC_LOUNGE_ATTESTATION_REQUEST_SCHEMA_VERSION =
+  "private-hub-public-lounge-attestation-request-v2" as const;
+export const PRIVATE_HUB_PUBLIC_LOUNGE_ATTESTATION_RESPONSE_SCHEMA_VERSION =
+  "private-hub-public-lounge-attestation-response-v1" as const;
 const CONTROL_CACHE_TTL_MS = 1_500;
 
 export type PrivateHubSession = {
@@ -94,6 +105,46 @@ export type PrivateHubLearningExperienceReceipt = {
   rawContentStored: false;
   canonicalMutationCount: 0;
   modelWeightMutationCount: 0;
+};
+
+export type PrivateHubPublicLoungeAttestationPublication = Omit<
+  PublicLoungePublicationInput,
+  "qualityScore" | "qualityBreakdown" | "eligibilityTicket"
+>;
+
+type PrivateHubPublicLoungeAttestationRequestBase = {
+  schemaVersion: typeof PRIVATE_HUB_PUBLIC_LOUNGE_ATTESTATION_REQUEST_SCHEMA_VERSION;
+  workId: string;
+  revisionId: string;
+  completionFingerprint: string;
+  completionSnapshot: AuthorToolSnapshot;
+  publication: PrivateHubPublicLoungeAttestationPublication;
+};
+
+export type PrivateHubPublicLoungeAttestationRequest =
+  | (PrivateHubPublicLoungeAttestationRequestBase & {
+    intent: "publish";
+    targetPublicationId: null;
+    expectedTargetVersionId: null;
+    expectedTargetPublicationDigest: null;
+  })
+  | (PrivateHubPublicLoungeAttestationRequestBase & {
+    intent: "overwrite";
+    targetPublicationId: string;
+    expectedTargetVersionId: string;
+    expectedTargetPublicationDigest: string;
+  });
+
+export type PrivateHubPublicLoungeAttestationResponse = {
+  schemaVersion: typeof PRIVATE_HUB_PUBLIC_LOUNGE_ATTESTATION_RESPONSE_SCHEMA_VERSION;
+  ok: true;
+  attestation: PublicLoungeServerReviewAttestationV5;
+  producer: {
+    status: "ready";
+    keyId: string;
+    publicKeyFingerprint: string;
+    version: string;
+  };
 };
 
 export type OfflinePreferenceModelArtifact = {
@@ -194,6 +245,65 @@ type PrivateHubBody = Record<string, unknown> & {
     maxQueue?: number;
   };
 };
+
+function exactObjectKeys(value: unknown, expected: readonly string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const expectedKeys = [...expected].sort();
+  const keys = Object.keys(value).sort();
+  return keys.length === expectedKeys.length
+    && keys.every((key, index) => key === expectedKeys[index]);
+}
+
+function invalidPublicLoungeAttestationResponse(): AiProviderError {
+  return new AiProviderError(
+    "AI_PROVIDER_INVALID_RESPONSE",
+    "Private Hub returned an invalid public-lounge attestation envelope.",
+    { retryable: false, stage: "private-hub-public-lounge-attestation" },
+  );
+}
+
+function parsePrivateHubPublicLoungeAttestationResponse(
+  body: PrivateHubBody,
+): PrivateHubPublicLoungeAttestationResponse {
+  if (
+    !exactObjectKeys(body, ["attestation", "ok", "producer", "schemaVersion"])
+    || body.schemaVersion !== PRIVATE_HUB_PUBLIC_LOUNGE_ATTESTATION_RESPONSE_SCHEMA_VERSION
+    || body.ok !== true
+    || !exactObjectKeys(body.producer, ["keyId", "publicKeyFingerprint", "status", "version"])
+    || body.producer.status !== "ready"
+    || typeof body.producer.keyId !== "string"
+    || !/^[A-Za-z0-9._-]{1,120}$/u.test(body.producer.keyId)
+    || typeof body.producer.publicKeyFingerprint !== "string"
+    || !/^[a-f0-9]{64}$/u.test(body.producer.publicKeyFingerprint)
+    || typeof body.producer.version !== "string"
+    || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/u.test(body.producer.version)
+  ) {
+    throw invalidPublicLoungeAttestationResponse();
+  }
+  let attestation: PublicLoungeServerReviewAttestationV5;
+  try {
+    attestation = parsePublicLoungeServerReviewAttestationV5(body.attestation);
+  } catch {
+    throw invalidPublicLoungeAttestationResponse();
+  }
+  if (
+    attestation.keyId !== body.producer.keyId
+    || attestation.producerVersion !== body.producer.version
+  ) {
+    throw invalidPublicLoungeAttestationResponse();
+  }
+  return {
+    schemaVersion: PRIVATE_HUB_PUBLIC_LOUNGE_ATTESTATION_RESPONSE_SCHEMA_VERSION,
+    ok: true,
+    attestation,
+    producer: {
+      status: "ready",
+      keyId: body.producer.keyId,
+      publicKeyFingerprint: body.producer.publicKeyFingerprint,
+      version: body.producer.version,
+    },
+  };
+}
 
 function endpoint(value = PRIVATE_HUB_ENDPOINT) {
   const url = new URL(value);
@@ -1133,6 +1243,27 @@ export class PrivateHubClient {
       );
     }
     return body as PrivateHubBody & PrivateHubLearningExperienceReceipt;
+  }
+
+  async issuePublicLoungeAttestationV5(
+    input: PrivateHubPublicLoungeAttestationRequest,
+    signal?: AbortSignal,
+  ): Promise<PrivateHubPublicLoungeAttestationResponse> {
+    const response = await this.fetchHub(
+      "/public-lounge/attest/v5",
+      {
+        method: "POST",
+        headers: {
+          ...this.headers(true, true),
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+        body: JSON.stringify(input),
+      },
+      signal,
+      PRIVATE_HUB_PUBLIC_LOUNGE_ATTESTATION_TIMEOUT_MS,
+    );
+    return parsePrivateHubPublicLoungeAttestationResponse(await this.parse(response));
   }
 
   async *generate(input: {

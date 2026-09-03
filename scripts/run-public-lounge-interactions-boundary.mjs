@@ -36,6 +36,21 @@ assert.deepEqual(configuredButUnverified.capabilities, {
 assert(configuredButUnverified.blockers.includes("activation_verification_not_declared"));
 assert(configuredButUnverified.blockers.includes("production_owner_lifecycle_not_verified"));
 
+const disabledWithBaseSupabase = publicLoungeInteractionsAvailability({
+  PUBLIC_LOUNGE_INTERACTIONS_ENABLED: "0",
+  NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: "publishable-key",
+  SUPABASE_SERVICE_ROLE_KEY: "server-only-key",
+  PUBLIC_LOUNGE_INTERACTIONS_MIGRATION_VERSION,
+  PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION,
+});
+assert.equal(disabledWithBaseSupabase.ready, false);
+assert.equal(disabledWithBaseSupabase.status, "not_connected");
+assert.deepEqual(disabledWithBaseSupabase.blockers, [
+  "feature_flag_disabled",
+  "live_rpc_status_not_verified",
+]);
+
 const activatedButNotLive = publicLoungeInteractionsAvailability({
   PUBLIC_LOUNGE_INTERACTIONS_ENABLED: "1",
   NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
@@ -94,12 +109,13 @@ for (const serviceOnly of [
   ).test(migration));
 }
 
-const [authSource, serverSource, httpSource, clientSource, healthSource] = await Promise.all([
+const [authSource, serverSource, httpSource, clientSource, healthSource, eligibilityRouteSource] = await Promise.all([
   readFile(new URL("../lib/novel-ai/public-lounge/auth-browser.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/public-lounge/interactions.server.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/public-lounge/interactions-http.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/public-lounge/interactions-client.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/lounge/interactions/health/route.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/api/lounge/eligibility/route.ts", import.meta.url), "utf8"),
 ]);
 assert(authSource.includes('flowType: "pkce"'));
 assert(authSource.includes("signInWithOtp"));
@@ -107,15 +123,43 @@ assert(authSource.includes("exchangeCodeForSession"));
 assert.equal(authSource.includes("SERVICE_ROLE"), false);
 assert(serverSource.includes("auth.getUser(token)"));
 assert(serverSource.includes("PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION"));
+const baseConfigurationSource = serverSource.slice(
+  serverSource.indexOf("function supabaseConfiguration()"),
+  serverSource.indexOf("function assertInteractionsActivated()"),
+);
+const interactionActivationSource = serverSource.slice(
+  serverSource.indexOf("function assertInteractionsActivated()"),
+  serverSource.indexOf("function client("),
+);
+const interactionGatewaySource = serverSource.slice(
+  serverSource.indexOf("export class SupabasePublicLoungeInteractionGateway"),
+  serverSource.indexOf("export type PublicLoungeOwnerLifecycleGateway"),
+);
+const ownerGatewaySource = serverSource.slice(
+  serverSource.indexOf("export class SupabasePublicLoungeOwnerLifecycleGateway"),
+  serverSource.indexOf("let interactionGateway"),
+);
+assert(baseConfigurationSource.includes("NEXT_PUBLIC_SUPABASE_URL"));
+assert.equal(baseConfigurationSource.includes("PUBLIC_LOUNGE_INTERACTIONS_ENABLED"), false);
+assert(interactionActivationSource.includes("PUBLIC_LOUNGE_INTERACTIONS_ENABLED"));
+assert(interactionActivationSource.includes("PUBLIC_LOUNGE_INTERACTIONS_MIGRATION_VERSION"));
+assert(interactionActivationSource.includes("PUBLIC_LOUNGE_INTERACTIONS_ACTIVATION_VERSION"));
+assert.match(interactionGatewaySource, /async health\(\) \{\s+assertInteractionsActivated\(\);/u);
+assert.equal(ownerGatewaySource.includes("assertInteractionsActivated"), false);
 assert(httpSource.includes("assertAuthoritativePost"));
 assert(httpSource.includes("service.reserveRequest(identifyRequest(request), \"read\")"));
 assert(clientSource.includes("headers.Authorization = `Bearer ${token}`"));
 assert.equal(clientSource.includes("userId"), false);
 assert(healthSource.includes("getPublicLoungeInteractionGateway().health()"));
 assert(healthSource.includes("reserveRequest(identity, \"read\")"));
+assert(eligibilityRouteSource.includes("getPublicLoungeOwnerLifecycleGateway"));
+assert.match(
+  eligibilityRouteSource,
+  /createPublicLoungeHttpHandlers\([\s\S]*getPublicLoungeOwnerLifecycleGateway,[\s\S]*\);/u,
+);
 
 console.log(JSON.stringify({
   status: "passed",
-  assertions: 46,
-  boundary: "env_plus_live_rpc_fail_closed_with_pkce_and_owner_binding",
+  assertions: 61,
+  boundary: "base_supabase_owner_auth_decoupled_while_interactions_remain_fail_closed",
 }));

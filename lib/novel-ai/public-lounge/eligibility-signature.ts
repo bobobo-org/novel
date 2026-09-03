@@ -16,6 +16,12 @@ import {
   PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
   PUBLIC_LOUNGE_QUALITY_RUBRIC_VERSION,
 } from "./types";
+import {
+  publicLoungeAttestedPublication,
+  publicLoungeContentDigest,
+  publicLoungePublicationDigest,
+  publicLoungeServerReviewAttestationV5PayloadCanonical,
+} from "../../../local-ai/shared/public-lounge-attestation-v5-canonical.mjs";
 
 function sha256(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -84,58 +90,7 @@ export function publicLoungeServerReviewAttestationPayload(
 export function publicLoungeServerReviewAttestationV5Payload(
   attestation: PublicLoungeServerReviewAttestationV5,
 ) {
-  return JSON.stringify({
-    schemaVersion: attestation.schemaVersion,
-    issuer: attestation.issuer,
-    keyId: attestation.keyId,
-    attestationId: attestation.attestationId,
-    intent: attestation.intent,
-    workId: attestation.workId,
-    revisionId: attestation.revisionId,
-    targetPublicationId: attestation.targetPublicationId,
-    expectedTargetVersionId: attestation.expectedTargetVersionId,
-    expectedTargetPublicationDigest: attestation.expectedTargetPublicationDigest,
-    environment: attestation.environment,
-    audience: attestation.audience,
-    producerVersion: attestation.producerVersion,
-    rubricVersion: attestation.rubricVersion,
-    issuedAt: attestation.issuedAt,
-    expiresAt: attestation.expiresAt,
-    completionFingerprint: attestation.completionFingerprint,
-    contentDigest: attestation.contentDigest,
-    publicationDigest: attestation.publicationDigest,
-    qualityScore: attestation.qualityScore,
-    qualityBreakdown: canonicalQualityBreakdown(attestation.qualityBreakdown),
-    workCompleted: attestation.workCompleted,
-    fullCoverage: attestation.fullCoverage,
-    hardGatePassed: attestation.hardGatePassed,
-    compliancePassed: attestation.compliancePassed,
-    criticalDimensionsPassed: attestation.criticalDimensionsPassed,
-    hiddenDraftResidueDetected: attestation.hiddenDraftResidueDetected,
-    multiJudgeSummary: {
-      schemaVersion: attestation.multiJudgeSummary.schemaVersion,
-      primaryJudgeRoles: [...attestation.multiJudgeSummary.primaryJudgeRoles],
-      primaryJudgeCount: attestation.multiJudgeSummary.primaryJudgeCount,
-      judges: attestation.multiJudgeSummary.judges.map((judge) => ({
-        judgeRole: judge.judgeRole,
-        totalScore: judge.totalScore,
-        dimensionScores: canonicalQualityBreakdown(judge.dimensionScores),
-        fullCoverage: judge.fullCoverage,
-      })),
-      aggregationMethod: attestation.multiJudgeSummary.aggregationMethod,
-      primaryScoreSpread: attestation.multiJudgeSummary.primaryScoreSpread,
-      selectedJudgeRoles: [...attestation.multiJudgeSummary.selectedJudgeRoles],
-      arbitrationRequired: attestation.multiJudgeSummary.arbitrationRequired,
-      arbitrationPerformed: attestation.multiJudgeSummary.arbitrationPerformed,
-      fullCoverageJudgeRoles: [...attestation.multiJudgeSummary.fullCoverageJudgeRoles],
-      reviewedChapterCount: attestation.multiJudgeSummary.reviewedChapterCount,
-      reviewedChunkCount: attestation.multiJudgeSummary.reviewedChunkCount,
-    },
-    backendId: attestation.backendId,
-    modelId: attestation.modelId,
-    modelDigest: attestation.modelDigest,
-    rawContentStored: attestation.rawContentStored,
-  });
+  return publicLoungeServerReviewAttestationV5PayloadCanonical(attestation);
 }
 
 export function createEd25519PublicLoungeEligibilityReviewer(options: {
@@ -343,31 +298,16 @@ export function createEd25519PublicLoungeEligibilityReviewerV5(options: {
       ) {
         throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
       }
-      const publication = {
-        schemaVersion: PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
-        title: input.title,
-        authorByline: input.authorByline,
-        storyLibrarySchemaVersion: input.storyLibrarySchemaVersion,
-        shelfId: input.shelfId,
-        primaryTopicId: input.primaryTopicId,
-        topicIds: input.topicIds,
-        completionStatus: "completed" as const,
-        chapterCount: input.chapterCount,
-        wordCount: input.wordCount,
-        completedAt: input.completedAt,
-        qualityScore: attestation.qualityScore,
-        qualityBreakdown: attestation.qualityBreakdown,
-        fullSynopsis: input.fullSynopsis,
-        publicChapters: input.publicChapters,
-        explicitConsent: true as const,
-        authorRightsDeclaration: true as const,
-        workCompleted: true as const,
-      };
-      const expectedContentDigest = sha256(JSON.stringify(publication.publicChapters));
-      const expectedPublicationDigest = sha256(publicLoungeEligibilityBinding(
+      const publication = publicLoungeAttestedPublication(
+        input,
+        attestation.qualityScore,
+        attestation.qualityBreakdown,
+      );
+      const expectedContentDigest = publicLoungeContentDigest(publication.publicChapters);
+      const expectedPublicationDigest = publicLoungePublicationDigest(
         publication,
         input.completionFingerprint,
-      ));
+      );
       const payload = publicLoungeServerReviewAttestationV5Payload(attestation);
       const signature = Buffer.from(attestation.signature, "base64url");
       const criticalDimensionsPassed = [

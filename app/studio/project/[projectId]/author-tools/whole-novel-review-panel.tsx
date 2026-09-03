@@ -594,8 +594,9 @@ export default function WholeNovelReviewPanel({
           <PublicLoungePublicationPanel
             key={review.reviewId}
             projectId={projectId}
+            snapshot={snapshot}
             review={review}
-            reviewCurrent={reviewCurrent && review.eligibleForPublicLounge}
+            reviewCurrent={reviewCurrent}
             chapters={orderedChapters.map((chapter) => ({
               id: chapter.id,
               title: chapter.title,

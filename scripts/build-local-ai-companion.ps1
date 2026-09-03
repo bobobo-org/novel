@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "1.4.7"
+  [string]$Version = "1.5.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +40,8 @@ New-Item -ItemType Directory -Path (Join-Path $stageRoot "cache") -Force |
   Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stageRoot "private-hub") -Force |
   Out-Null
+New-Item -ItemType Directory -Path (Join-Path $stageRoot "shared") -Force |
+  Out-Null
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 
 $bridgeFiles = @(
@@ -68,6 +70,8 @@ foreach ($name in $cacheFiles) {
 $privateHubFiles = @(
   "launcher.mjs",
   "novel-private-hub.ps1",
+  "provision-public-lounge-attestation-key.mjs",
+  "public-lounge-attestation-producer.mjs",
   "preference-model.mjs",
   "learning-experience-ledger.mjs",
   "continuous-learning-coordinator.mjs",
@@ -77,6 +81,16 @@ $privateHubFiles = @(
 foreach ($name in $privateHubFiles) {
   Copy-Item -LiteralPath (Join-Path $repositoryRoot "local-ai\private-hub\$name") `
     -Destination (Join-Path $stageRoot "private-hub\$name")
+}
+
+$sharedFiles = @(
+  "public-lounge-attestation-v5-canonical.mjs",
+  "public-lounge-publication-canonical.mjs",
+  "whole-novel-completion-fingerprint.mjs"
+)
+foreach ($name in $sharedFiles) {
+  Copy-Item -LiteralPath (Join-Path $repositoryRoot "local-ai\shared\$name") `
+    -Destination (Join-Path $stageRoot "shared\$name")
 }
 
 Copy-Item -LiteralPath (

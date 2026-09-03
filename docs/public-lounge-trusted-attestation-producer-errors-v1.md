@@ -12,8 +12,9 @@
 
 ```json
 {
+  "schemaVersion": "private-hub-public-lounge-attestation-response-v1",
   "ok": true,
-  "attestation": "<public-lounge-server-review-attestation-v4 object>",
+  "attestation": "<public-lounge-server-review-attestation-v5 object>",
   "producer": {
     "status": "ready",
     "keyId": "<public key id>",
@@ -47,6 +48,7 @@
 | `PRODUCER_REVIEW_UNVERIFIED` | 422 | 否 | `全書評鑑無法由 Private AI Hub 驗證；本機顯示的分數不具公開資格。` | 不相信瀏覽器提供的分數或 flags |
 | `AUTHOR_DEVICE_NOT_ELIGIBLE` | 403 | 否 | `作者裝置資格尚未完成驗收；此狀態與可信簽章服務分開。` | 不得把 producer ready 改寫成 device accepted |
 | `PUBLIC_BUNDLE_FIELD_NOT_WHITELISTED` | 422 | 否 | `公開包包含未允許欄位；沒有發布，也沒有送出私人資料。` | 拒絕多餘欄位，不自動丟棄後繼續 |
+| `PUBLIC_LOUNGE_PRODUCER_COMPLETION_STATE_INVALID` | 403 | 否 | `Private AI Hub 重算的完稿狀態與目前正文或公開包不一致；沒有發布。` | 在模型覆核前拒絕；重新完成目前版本的全書審查 |
 | `SCORE_BELOW_80` | 422 | 否 | `可信評鑑總分未達 80 分；不能發布到小說交誼廳。` | 不簽發 |
 | `TAG_LIMIT_EXCEEDED` | 422 | 否 | `公開標籤最多三個；沒有發布。` | 不簽發 |
 | `SHELF_INVALID` | 422 | 否 | `請從八個正式書架中選擇一個；沒有發布。` | 不簽發 |
@@ -61,6 +63,7 @@
 | `ATTESTATION_REPLAY` | 409 | 否 | `這份一次性資格已使用；公開內容未重複寫入。` | v5 ledger unique conflict；不新增第二張 ticket |
 | `ATTESTATION_VERSION_UNSUPPORTED` | 403 | 否 | `這份可信簽章版本不能用於公開發布；請由目前的 Private AI Hub 重新簽發。` | v4 不得進入 publish/overwrite 換票，也不得 fallback |
 | `PRODUCER_TIMEOUT` | 504 | 是 | `Private AI Hub 評鑑或簽章逾時；沒有發布。` | 可明確重試，不得降級為假簽章 |
+| `PUBLIC_LOUNGE_PRODUCER_TIMEOUT` | 504 | 是 | `Private AI Hub 評鑑或簽章逾時；沒有發布。` | 每位 judge 有硬上限；四位 judge 加模型探索必須早於瀏覽器總期限結束 |
 | `PRODUCER_INTERNAL_ERROR` | 500 | 是 | `Private AI Hub 無法完成可信簽章；沒有發布。` | 對 UI 隱藏內部細節，伺服器 log 也不得含正文／私鑰 |
 
 ## 3. 對應既有 public-lounge API 錯誤碼

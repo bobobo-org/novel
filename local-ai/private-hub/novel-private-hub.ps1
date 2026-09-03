@@ -1,5 +1,5 @@
 param(
-  [ValidateSet('start','status','stop','restart','pair','revoke','diagnose')]
+  [ValidateSet('start','status','stop','restart','pair','revoke','diagnose','provision-preview-key','provision-production-key')]
   [string]$Command = 'status'
 )
 

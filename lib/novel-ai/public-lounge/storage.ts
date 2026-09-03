@@ -232,7 +232,8 @@ export type StoredPublicLoungePublishConsumption = {
 };
 
 export type StoredPublicLoungePublishClaim = {
-  schemaVersion: "public-lounge-publish-claim-v1";
+  schemaVersion: "public-lounge-publish-claim-v2";
+  operationIdentityHash: string;
   idempotencyKeyHash: string;
   publicationDigest: string;
   eligibilityTicketHash: string;
@@ -301,8 +302,8 @@ export function publicLoungeEligibilityConsumedPath(ticketHash: string) {
   return `${PUBLIC_LOUNGE_STORAGE_PREFIX}/eligibility/consumed/${ticketHash}.json`;
 }
 
-export function publicLoungePublishClaimPath(idempotencyKeyHash: string) {
-  return `${PUBLIC_LOUNGE_STORAGE_PREFIX}/publish/idempotency/${idempotencyKeyHash}.json`;
+export function publicLoungePublishClaimPath(claimIdentityHash: string) {
+  return `${PUBLIC_LOUNGE_STORAGE_PREFIX}/publish/idempotency/${claimIdentityHash}.json`;
 }
 
 export function publicLoungeEligibilityAttestationPath(attestationDigest: string) {

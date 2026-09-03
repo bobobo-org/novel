@@ -14,8 +14,15 @@ import {
   type PublicLoungePost,
   type PublicLoungePublicationInput,
   type PublicLoungeServerReviewAttestation,
+  type PublicLoungeServerEligibilityRequestV5,
+  type PublicLoungeServerReviewAttestationV5,
 } from "./types";
 import { normalizePublicLoungeTopicIds } from "./taxonomy";
+import type { PrivateHubPublicLoungeAttestationPublication } from "../providers/private-ai-hub/private-hub-client";
+import {
+  canonicalizePublicLoungeInlineText,
+  canonicalizePublicLoungeProseText,
+} from "../../../local-ai/shared/public-lounge-publication-canonical.mjs";
 
 const MANAGEMENT_TOKEN_STORAGE_PREFIX = "novel:public-lounge:management:v1:";
 const PUBLICATION_REFERENCE_STORAGE_PREFIX = "novel:public-lounge:publication:v1:";
@@ -40,7 +47,7 @@ export class PublicLoungeClientError extends Error {
 }
 
 function normalizePublicLoungeSynopsis(value: string | undefined) {
-  const synopsis = value?.trim() ?? "";
+  const synopsis = canonicalizePublicLoungeProseText(value ?? "");
   if (!synopsis || synopsis.length > PUBLIC_LOUNGE_MAX_SYNOPSIS_CHARACTERS) {
     throw new PublicLoungeClientError("PUBLIC_LOUNGE_PAYLOAD_INVALID", 422);
   }
@@ -312,8 +319,8 @@ export function createPublicLoungePublicationFromWholeNovelReview(input: {
   }
   return {
     schemaVersion: PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
-    title: input.review.publicMetadata.title,
-    authorByline: input.authorByline,
+    title: canonicalizePublicLoungeInlineText(input.review.publicMetadata.title),
+    authorByline: canonicalizePublicLoungeInlineText(input.authorByline),
     ...taxonomy,
     completionStatus: "completed",
     chapterCount: input.review.publicMetadata.chapterCount,
@@ -323,7 +330,9 @@ export function createPublicLoungePublicationFromWholeNovelReview(input: {
     qualityBreakdown: input.eligibilityProof.qualityBreakdown,
     fullSynopsis,
     publicChapters: input.selectedOfficialChapters.map((chapter) => ({
-      ...chapter,
+      chapterNumber: chapter.chapterNumber,
+      title: canonicalizePublicLoungeInlineText(chapter.title),
+      body: canonicalizePublicLoungeProseText(chapter.body),
       official: true,
     })),
     eligibilityTicket: input.eligibilityProof.eligibilityTicket,
@@ -375,6 +384,129 @@ export function createPublicLoungeEligibilityRequestFromWholeNovelReview(input: 
   };
 }
 
+export function createPublicLoungeAttestationPublicationFromWholeNovelReview(input: {
+  review: WholeNovelReviewContract;
+  authorByline: string;
+  topicIds: readonly string[];
+  fullSynopsis: string;
+  selectedOfficialChapters: Array<Omit<PublicLoungeOfficialChapterInput, "official">>;
+  explicitConsent: boolean;
+  authorRightsDeclaration: boolean;
+}): PrivateHubPublicLoungeAttestationPublication {
+  if (!input.explicitConsent) {
+    throw new PublicLoungeClientError("PUBLIC_LOUNGE_CONSENT_REQUIRED", 422);
+  }
+  if (!input.authorRightsDeclaration) {
+    throw new PublicLoungeClientError("PUBLIC_LOUNGE_RIGHTS_DECLARATION_REQUIRED", 422);
+  }
+  let taxonomy;
+  try {
+    taxonomy = normalizePublicLoungeTopicIds(input.topicIds);
+  } catch {
+    throw new PublicLoungeClientError("PUBLIC_LOUNGE_PAYLOAD_INVALID", 422);
+  }
+  const publicChapters = input.selectedOfficialChapters.map((chapter) => ({
+    chapterNumber: chapter.chapterNumber,
+    title: canonicalizePublicLoungeInlineText(chapter.title),
+    body: canonicalizePublicLoungeProseText(chapter.body),
+    official: true as const,
+  }));
+  const wordCount = publicChapters.reduce(
+    (total, chapter) => total + chapter.body.replace(/\s/gu, "").length,
+    0,
+  );
+  if (
+    publicChapters.length !== input.review.publicMetadata.chapterCount
+    || publicChapters.some((chapter, index) => (
+      chapter.chapterNumber !== index + 1 || !chapter.title || !chapter.body
+    ))
+    || wordCount !== input.review.publicMetadata.nonWhitespaceCharacters
+  ) {
+    throw new PublicLoungeClientError("PUBLIC_LOUNGE_WORK_NOT_COMPLETED", 422);
+  }
+  return {
+    schemaVersion: PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION,
+    title: canonicalizePublicLoungeInlineText(input.review.publicMetadata.title),
+    authorByline: canonicalizePublicLoungeInlineText(input.authorByline),
+    ...taxonomy,
+    completionStatus: "completed",
+    chapterCount: input.review.publicMetadata.chapterCount,
+    wordCount,
+    completedAt: input.review.publicMetadata.completedAt,
+    fullSynopsis: normalizePublicLoungeSynopsis(input.fullSynopsis),
+    publicChapters,
+    explicitConsent: true,
+    authorRightsDeclaration: true,
+    workCompleted: true,
+  };
+}
+
+type PublicLoungeEligibilityV5Operation =
+  | {
+    intent: "publish";
+    targetPublicationId: null;
+    expectedTargetVersionId: null;
+    expectedTargetPublicationDigest: null;
+    serverAttestation: Extract<PublicLoungeServerReviewAttestationV5, { intent: "publish" }>;
+  }
+  | {
+    intent: "overwrite";
+    targetPublicationId: string;
+    expectedTargetVersionId: string;
+    expectedTargetPublicationDigest: string;
+    serverAttestation: Extract<PublicLoungeServerReviewAttestationV5, { intent: "overwrite" }>;
+  };
+
+export function createPublicLoungeServerEligibilityRequestV5(input: {
+  projectId: string;
+  completionFingerprint: string;
+  publication: PrivateHubPublicLoungeAttestationPublication;
+} & PublicLoungeEligibilityV5Operation): PublicLoungeServerEligibilityRequestV5 {
+  const workId = input.projectId.trim();
+  const revisionId = input.completionFingerprint;
+  const attestation = input.serverAttestation;
+  const { schemaVersion: publicationSchemaVersion, ...publication } = input.publication;
+  if (
+    !workId
+    || !/^[a-f0-9]{64}$/u.test(revisionId)
+    || publicationSchemaVersion !== PUBLIC_LOUNGE_PUBLICATION_REQUEST_SCHEMA_VERSION
+    || attestation.workId !== workId
+    || attestation.revisionId !== revisionId
+    || attestation.completionFingerprint !== revisionId
+    || attestation.intent !== input.intent
+    || attestation.targetPublicationId !== input.targetPublicationId
+    || attestation.expectedTargetVersionId !== input.expectedTargetVersionId
+    || attestation.expectedTargetPublicationDigest !== input.expectedTargetPublicationDigest
+  ) {
+    throw new PublicLoungeClientError("PUBLIC_LOUNGE_ELIGIBILITY_INVALID", 403);
+  }
+  const common = {
+    schemaVersion: PUBLIC_LOUNGE_ELIGIBILITY_REQUEST_SCHEMA_VERSION,
+    completionFingerprint: revisionId,
+    workId,
+    revisionId,
+    ...publication,
+    trustedServerReviewConsent: true as const,
+  };
+  return input.intent === "publish"
+    ? {
+      ...common,
+      intent: "publish",
+      targetPublicationId: null,
+      expectedTargetVersionId: null,
+      expectedTargetPublicationDigest: null,
+      serverAttestation: input.serverAttestation,
+    }
+    : {
+      ...common,
+      intent: "overwrite",
+      targetPublicationId: input.targetPublicationId,
+      expectedTargetVersionId: input.expectedTargetVersionId,
+      expectedTargetPublicationDigest: input.expectedTargetPublicationDigest,
+      serverAttestation: input.serverAttestation,
+    };
+}
+
 export function createPublicLoungeAuthorDeviceEligibilityRequestFromWholeNovelReview(input: {
   review: WholeNovelReviewContract;
   authorByline: string;
@@ -423,6 +555,23 @@ export function createPublicLoungeAuthorDeviceEligibilityRequestFromWholeNovelRe
 
 export async function requestPublicLoungeEligibilityProof(
   input: PublicLoungeEligibilityRequest,
+  options: { accessToken?: string } = {},
+) {
+  const accessToken = await publicationAccessToken(options.accessToken);
+  const response = await fetch("/api/lounge/eligibility", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(input),
+  });
+  return (await responseJson<{ proof: PublicLoungeEligibilityProof }>(response)).proof;
+}
+
+export async function requestPublicLoungeEligibilityProofV5(
+  input: PublicLoungeServerEligibilityRequestV5,
   options: { accessToken?: string } = {},
 ) {
   const accessToken = await publicationAccessToken(options.accessToken);

@@ -869,7 +869,7 @@ function mockFetcher(options = {}) {
         bucket: "novel-public-lounge-v1",
         trustedEligibilityVerifierConnected: false,
         authorDeviceEligibilityAccepted: false,
-        trustedAttestationProducer: "not-available-in-this-release",
+        trustedAttestationProducer: "private-ai-hub-v5-client-probe-required",
       }, { status: options.healthStatus ?? 200, headers: commonHeaders });
     }
     if (url.pathname === "/api/lounge/interactions/health") {

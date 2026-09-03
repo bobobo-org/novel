@@ -35,6 +35,7 @@ import {
   PublicLoungeTaxonomyError,
 } from "./taxonomy";
 import type { AuthorDeviceReviewDeclaration } from "./author-device-review";
+import { canonicalizePublicLoungePublicationText } from "../../../local-ai/shared/public-lounge-publication-canonical.mjs";
 
 export const PUBLIC_LOUNGE_MAX_REQUEST_BYTES = 2_500_000;
 export const PUBLIC_LOUNGE_MAX_PUBLIC_CHAPTERS = 300;
@@ -227,8 +228,6 @@ const PUBLIC_ID_PATTERN = /^novel_[a-z0-9_-]{12,80}$/u;
 const PUBLIC_VERSION_ID_PATTERN = /^version_[a-z0-9_-]{12,96}$/u;
 const ELIGIBILITY_TICKET_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const FORBIDDEN_KEY_PATTERN = /(?:project[_-]?id|private|canon|prompt|trace|backup|completionfingerprint|reviewid|provenance|rawnovel|model)/iu;
-const CONTROL_CHARACTER_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
-const BIDI_OVERRIDE_PATTERN = /[\u202A-\u202E\u2066-\u2069]/gu;
 
 function fail(code: PublicLoungeErrorCode, status = 422): never {
   throw new PublicLoungeError(code, status);
@@ -255,14 +254,7 @@ function cleanText(value: unknown, options: {
   max: number;
 }) {
   if (typeof value !== "string") fail("PUBLIC_LOUNGE_PAYLOAD_INVALID");
-  let cleaned = value
-    .normalize("NFC")
-    .replace(/\r\n?/gu, "\n")
-    .replace(CONTROL_CHARACTER_PATTERN, "")
-    .replace(BIDI_OVERRIDE_PATTERN, "");
-  cleaned = options.field === "inline"
-    ? cleaned.replace(/\s+/gu, " ").trim()
-    : cleaned.replace(/[ \t]+\n/gu, "\n").trim();
+  const cleaned = canonicalizePublicLoungePublicationText(value, options.field);
   if (cleaned.length < options.min || cleaned.length > options.max) {
     fail("PUBLIC_LOUNGE_PAYLOAD_INVALID");
   }

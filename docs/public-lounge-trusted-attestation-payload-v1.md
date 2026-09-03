@@ -12,6 +12,7 @@
 - 私鑰由執行環境提供，缺失、格式錯誤、key ID 不符或無法讀取時，一律回傳 `PRODUCER_UNAVAILABLE`；不得臨時生成未受信任金鑰、使用固定字串或測試金鑰假裝成功。
 - Vercel verifier 的 `PUBLIC_LOUNGE_ELIGIBILITY_ED25519_PUBLIC_KEY` 與 `PUBLIC_LOUNGE_ELIGIBILITY_KEY_ID` 是信任根。Preview 與 Production 必須使用不同 key pair 與 key ID。
 - producer 必須重算輸入內容的 `completionFingerprint` 與 `publicationDigest`，不得直接相信瀏覽器傳入的 digest、總分或通過旗標。
+- loopback request 使用 `private-hub-public-lounge-attestation-request-v2`，必須包含完整 `completionSnapshot`。Hub 以與瀏覽器共用的 canonical helper 重算指紋，並確認所有實質章節均為 completed 且逐章對應公開正式正文；專案、Story Bible、狀態、人物、關係、世界規則、時間線或正文任一改動都必須在模型覆核前拒絕舊指紋。
 - producer 只簽發最長 30 分鐘的 Ed25519 attestation。任何錯誤皆 fail closed。
 - producer 與作者裝置資格是兩個獨立狀態。取得可信簽章不會把 `authorDeviceEligibilityAccepted` 改成 `true`；後者仍須另案驗收。
 - 發布流程不寫 Canon。撤回只改公開狀態並保留私人作品、revision、全書評鑑與 Canon。

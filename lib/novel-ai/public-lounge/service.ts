@@ -460,7 +460,8 @@ function publishClaimSealContext(
   claim: Omit<StoredPublicLoungePublishClaim, "sealedManagementToken">,
 ) {
   return stableStringify({
-    domain: "public-lounge-publish-token-v1",
+    domain: "public-lounge-publish-token-v2",
+    operationIdentityHash: claim.operationIdentityHash,
     idempotencyKeyHash: claim.idempotencyKeyHash,
     publicationDigest: claim.publicationDigest,
     eligibilityTicketHash: claim.eligibilityTicketHash,
@@ -475,13 +476,14 @@ function publishClaimSealContext(
 
 function storedPublishClaim(
   value: unknown,
-  expectedIdempotencyKeyHash: string,
+  expectedOperationIdentityHash: string,
 ): StoredPublicLoungePublishClaim {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw notConnected();
   const raw = value as Record<string, unknown>;
   if (
-    raw.schemaVersion !== "public-lounge-publish-claim-v1"
-    || raw.idempotencyKeyHash !== expectedIdempotencyKeyHash
+    raw.schemaVersion !== "public-lounge-publish-claim-v2"
+    || raw.operationIdentityHash !== expectedOperationIdentityHash
+    || !/^[a-f0-9]{64}$/u.test(String(raw.idempotencyKeyHash ?? ""))
     || !/^[a-f0-9]{64}$/u.test(String(raw.publicationDigest ?? ""))
     || !/^[a-f0-9]{64}$/u.test(String(raw.eligibilityTicketHash ?? ""))
     || !/^[a-f0-9]{64}$/u.test(String(raw.authorizedOwnerIdHash ?? ""))
@@ -649,7 +651,7 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
       bucket: PUBLIC_LOUNGE_STORAGE_BUCKET,
       trustedEligibilityVerifierConnected: this.eligibilityReviewer.configured,
       authorDeviceEligibilityAccepted: false as const,
-      trustedAttestationProducer: "not-available-in-this-release" as const,
+      trustedAttestationProducer: "private-ai-hub-v5-client-probe-required" as const,
     } as const;
   }
 
@@ -872,24 +874,37 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
   }
 
   private async getOrCreatePublishClaim(
-    publication: ReturnType<typeof validatePublicLoungePublicationInput>,
+    eligibility: StoredPublicLoungeEligibility,
+    eligibilityTicketHash: string,
     idempotencyKey: string,
     authorizedOwnerIdHash: string,
   ) {
     const idempotencyKeyHash = this.digest(assertPublishIdempotencyKey(idempotencyKey));
-    const publicationDigest = this.digest(stableStringify(publication));
-    const eligibilityTicketHash = this.digest(publication.eligibilityTicket);
-    const path = publicLoungePublishClaimPath(idempotencyKeyHash);
+    const publicationDigest = eligibility.publicationDigest;
+    // The browser key and eligibility ticket are delivery-attempt identities.
+    // This key is the durable publication operation: a response-lost retry with
+    // a freshly signed attestation must race on the same create-only object.
+    const operationIdentityHash = this.digest(stableStringify({
+      domain: "public-lounge-publication-operation-v1",
+      authorizedOwnerIdHash: eligibility.authorizedOwnerIdHash,
+      workId: eligibility.workId,
+      revisionId: eligibility.revisionId,
+      intent: eligibility.intent,
+      targetPublicationId: eligibility.targetPublicationId,
+      environment: eligibility.environment,
+      audience: eligibility.audience,
+    }));
+    if (!/^[a-f0-9]{64}$/u.test(operationIdentityHash)) throw notConnected();
+    const path = publicLoungePublishClaimPath(operationIdentityHash);
     const validateBinding = (value: unknown) => {
-      const claim = storedPublishClaim(value, idempotencyKeyHash);
+      const claim = storedPublishClaim(value, operationIdentityHash);
       if (
         claim.publicationDigest !== publicationDigest
-        || claim.eligibilityTicketHash !== eligibilityTicketHash
         || claim.authorizedOwnerIdHash !== authorizedOwnerIdHash
       ) {
         throw new PublicLoungeError("PUBLIC_LOUNGE_IDEMPOTENCY_CONFLICT", 409);
       }
-      return { claim, managementToken: this.publishClaimToken(claim) };
+      return { claim, managementToken: this.publishClaimToken(claim), idempotencyKeyHash };
     };
     const existing = await this.storageWrite(() => this.gateway.readJson<unknown>(path));
     if (existing) return validateBinding(existing);
@@ -897,11 +912,12 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
     const publishedAt = this.now();
     if (!isCanonicalIsoTime(publishedAt)) throw notConnected();
     const publicId = assertPublicLoungeId(this.createPublicId());
-    const versionId = this.versionId(publicId, 1, publishedAt, idempotencyKeyHash);
+    const versionId = this.versionId(publicId, 1, publishedAt, operationIdentityHash);
     const issued = this.tokenCodec.issue();
     if (!/^[a-f0-9]{64}$/u.test(issued.hash)) throw notConnected();
     const context = {
-      schemaVersion: "public-lounge-publish-claim-v1" as const,
+      schemaVersion: "public-lounge-publish-claim-v2" as const,
+      operationIdentityHash,
       idempotencyKeyHash,
       publicationDigest,
       eligibilityTicketHash,
@@ -927,7 +943,7 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
       if (!ambiguous) throw notConnected();
       return validateBinding(ambiguous);
     }
-    if (result === "stored") return { claim, managementToken: issued.token };
+    if (result === "stored") return { claim, managementToken: issued.token, idempotencyKeyHash };
     return validateBinding(await this.storageWrite(() => this.gateway.readJson<unknown>(path)));
   }
 
@@ -1518,36 +1534,47 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
     return stored;
   }
 
-  private async consumeEligibilityForPublish(
+  private async prepareEligibilityForPublish(
     publication: ReturnType<typeof validatePublicLoungePublicationInput>,
-    claim: StoredPublicLoungePublishClaim,
     actorId: string,
   ) {
-    const path = publicLoungeEligibilityConsumedPath(claim.eligibilityTicketHash);
+    const ticketHash = this.digest(publication.eligibilityTicket);
+    const path = publicLoungeEligibilityConsumedPath(ticketHash);
     const existing = await this.storageWrite(() => this.gateway.readJson<unknown>(path));
     let exactExisting: StoredPublicLoungePublishConsumption | null = null;
     if (existing) {
       try {
-        exactExisting = storedPublishConsumption(existing, claim.eligibilityTicketHash);
+        exactExisting = storedPublishConsumption(existing, ticketHash);
       } catch {
         throw new PublicLoungeError("PUBLIC_LOUNGE_ELIGIBILITY_REPLAYED", 409);
       }
     }
-    const { stored, ticketHash } = await this.validateEligibility(
+    const validated = await this.validateEligibility(
       publication,
       actorId,
       { intent: "publish" },
       exactExisting !== null,
     );
-    if (ticketHash !== claim.eligibilityTicketHash) {
-      throw new PublicLoungeError("PUBLIC_LOUNGE_IDEMPOTENCY_CONFLICT", 409);
-    }
+    return { ...validated, exactExisting };
+  }
+
+  private async consumeEligibilityForPublish(
+    prepared: {
+      stored: StoredPublicLoungeEligibility;
+      ticketHash: string;
+      exactExisting: StoredPublicLoungePublishConsumption | null;
+    },
+    claim: StoredPublicLoungePublishClaim,
+    idempotencyKeyHash: string,
+  ) {
+    const { stored, ticketHash, exactExisting } = prepared;
+    const path = publicLoungeEligibilityConsumedPath(ticketHash);
     const receipt: StoredPublicLoungePublishConsumption = {
       schemaVersion: "public-lounge-publish-consumption-v1",
       ticketHash,
-      idempotencyKeyHash: claim.idempotencyKeyHash,
+      idempotencyKeyHash,
       publicationDigest: claim.publicationDigest,
-      eligibilityTicketHash: claim.eligibilityTicketHash,
+      eligibilityTicketHash: ticketHash,
       authorizedOwnerIdHash: claim.authorizedOwnerIdHash,
       publicId: claim.publicId,
       versionId: claim.versionId,
@@ -1598,12 +1625,18 @@ export class PublicLoungeService implements PublicLoungeServiceApi {
     const publication = validatePublicLoungePublicationInput(input);
     const authorizedOwnerIdHash = this.digest(assertPublicLoungeActorId(actorId));
     await this.ensureConnected();
-    const { claim, managementToken } = await this.getOrCreatePublishClaim(
-      publication,
+    const prepared = await this.prepareEligibilityForPublish(publication, actorId);
+    const { claim, managementToken, idempotencyKeyHash } = await this.getOrCreatePublishClaim(
+      prepared.stored,
+      prepared.ticketHash,
       idempotencyKey,
       authorizedOwnerIdHash,
     );
-    const eligibility = await this.consumeEligibilityForPublish(publication, claim, actorId);
+    const eligibility = await this.consumeEligibilityForPublish(
+      prepared,
+      claim,
+      idempotencyKeyHash,
+    );
     const post = buildPublicLoungePost(publication, {
       publicId: claim.publicId,
       publishedAt: claim.publishedAt,

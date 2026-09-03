@@ -110,11 +110,16 @@ function companionZipGate() {
     [`${prefix}cache/sqlite-cache-store.mjs`, "local-ai/cache/sqlite-cache-store.mjs"],
     [`${prefix}private-hub/launcher.mjs`, "local-ai/private-hub/launcher.mjs"],
     [`${prefix}private-hub/novel-private-hub.ps1`, "local-ai/private-hub/novel-private-hub.ps1"],
+    [`${prefix}private-hub/provision-public-lounge-attestation-key.mjs`, "local-ai/private-hub/provision-public-lounge-attestation-key.mjs"],
+    [`${prefix}private-hub/public-lounge-attestation-producer.mjs`, "local-ai/private-hub/public-lounge-attestation-producer.mjs"],
     [`${prefix}private-hub/preference-model.mjs`, "local-ai/private-hub/preference-model.mjs"],
     [`${prefix}private-hub/learning-experience-ledger.mjs`, "local-ai/private-hub/learning-experience-ledger.mjs"],
     [`${prefix}private-hub/continuous-learning-coordinator.mjs`, "local-ai/private-hub/continuous-learning-coordinator.mjs"],
     [`${prefix}private-hub/README.md`, "local-ai/private-hub/README.md"],
     [`${prefix}private-hub/server.mjs`, "local-ai/private-hub/server.mjs"],
+    [`${prefix}shared/public-lounge-attestation-v5-canonical.mjs`, "local-ai/shared/public-lounge-attestation-v5-canonical.mjs"],
+    [`${prefix}shared/public-lounge-publication-canonical.mjs`, "local-ai/shared/public-lounge-publication-canonical.mjs"],
+    [`${prefix}shared/whole-novel-completion-fingerprint.mjs`, "local-ai/shared/whole-novel-completion-fingerprint.mjs"],
   ]);
   assert.deepEqual(
     entries.map((entry) => entry.name).sort(),
@@ -139,6 +144,22 @@ function companionZipGate() {
     }
   }
   assert.equal(credentialHits, 0, "Companion ZIP contains a credential pattern");
+  let resolvedRelativeImports = 0;
+  for (const entry of entries.filter((candidate) => candidate.name.endsWith(".mjs"))) {
+    const text = entry.content.toString("utf8");
+    const patterns = [
+      /(?:\bfrom\s+|\bimport\s*)["'](\.\.?\/[^"']+\.mjs)["']/gu,
+      /\bimport\s*\(\s*["'](\.\.?\/[^"']+\.mjs)["']\s*\)/gu,
+    ];
+    for (const pattern of patterns) {
+      for (const match of text.matchAll(pattern)) {
+        const target = path.posix.normalize(path.posix.join(path.posix.dirname(entry.name), match[1]));
+        assert.ok(sourceByEntry.has(target), `Companion relative import is missing: ${entry.name} -> ${match[1]}`);
+        resolvedRelativeImports += 1;
+      }
+    }
+  }
+  assert.ok(resolvedRelativeImports > 0, "Companion relative import graph was not inspected");
   const manifest = JSON.parse(
     entries.find((entry) => entry.name === `${prefix}manifest.json`).content
       .toString("utf8"),
@@ -185,6 +206,7 @@ function companionZipGate() {
     unexpectedEntries: 0,
     sourceMismatches: 0,
     credentialHits,
+    resolvedRelativeImports,
   };
 }
 

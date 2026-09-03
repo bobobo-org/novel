@@ -10,6 +10,7 @@ import {
   registeredOrigins,
 } from "../bridge/origin-registry.mjs";
 import { PRIVATE_HUB_PROTOCOL } from "./server.mjs";
+import { provisionPublicLoungeAttestationKey } from "./provision-public-lounge-attestation-key.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const serverPath = path.join(root, "server.mjs");
@@ -216,6 +217,7 @@ async function status() {
         modelRuntimeReachable: hub.modelRuntimeReachable,
         modelAvailable: hub.modelAvailable,
         deploymentKind: hub.deploymentKind,
+        publicLoungeAttestationProducer: hub.publicLoungeAttestationProducer ?? null,
       }
       : { alive: false },
     process: state
@@ -297,7 +299,11 @@ async function main() {
   else if (command === "restart") {
     result = { status: "restarted", stopped: await stop(), started: await start() };
   } else if (command === "pair") result = await pair();
-  else if (command === "revoke") {
+  else if (command === "provision-preview-key") {
+    result = await provisionPublicLoungeAttestationKey({ environment: "preview", runtimeDir });
+  } else if (command === "provision-production-key") {
+    result = await provisionPublicLoungeAttestationKey({ environment: "production", runtimeDir });
+  } else if (command === "revoke") {
     result = {
       status: "revoked",
       oldInstanceInvalidated: true,
@@ -309,7 +315,7 @@ async function main() {
     throw new LauncherError(
       "LAUNCHER_COMMAND_INVALID",
       `不支援的指令：${command}`,
-      "使用 start、status、stop、restart、pair、revoke 或 diagnose。",
+      "使用 start、status、stop、restart、pair、revoke、diagnose、provision-preview-key 或 provision-production-key。",
     );
   }
   output({ ok: true, command, ...result });
