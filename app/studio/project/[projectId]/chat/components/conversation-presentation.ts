@@ -4,6 +4,7 @@ import type {
   ConversationToolInvocation,
 } from "@/lib/novel-ai/domain";
 import type { RpgChatChoicePlan, RpgChatTurnCandidate } from "@/lib/novel-ai/web/rpg-chat-turn";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "@/lib/novel-ai/conversation/tool-registry";
 import type {
   ParsedRpgChoices,
   RpgChoiceEnvelope,
@@ -168,6 +169,7 @@ export function rpgCandidateInvocation(
   if (!candidate) return null;
   return invocations.find((invocation) => (
     invocation.messageId === artifact.sourceMessageId
+    && invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
     && invocation.status === "completed"
     && invocation.executionReceipt?.providerRunId === candidate.taskId
     && invocation.executionReceipt.outputDigest === candidate.candidateDigest
@@ -178,8 +180,20 @@ export function rpgCandidateRequiresClosedReview(
   artifact: ConversationArtifact,
   invocations: readonly ConversationToolInvocation[],
 ) {
-  return rpgCandidateInvocation(artifact, invocations)?.actualExecutor
-    === "deterministic-rule-fallback";
+  return rpgCandidateApprovalState(artifact, invocations)
+    === "closed_review_required";
+}
+
+export function rpgCandidateApprovalState(
+  artifact: ConversationArtifact,
+  invocations: readonly ConversationToolInvocation[],
+) {
+  if (!parseRpgCandidate(artifact)) return "ready" as const;
+  const invocation = rpgCandidateInvocation(artifact, invocations);
+  if (!invocation) return "settling" as const;
+  return invocation.actualExecutor === "deterministic-rule-fallback"
+    ? "closed_review_required" as const
+    : "ready" as const;
 }
 
 export function rpgChoiceSelectionDisabled(input: {

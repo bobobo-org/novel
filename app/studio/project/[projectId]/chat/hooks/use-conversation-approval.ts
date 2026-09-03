@@ -40,6 +40,7 @@ import {
   artifactStory,
   parseLearningImportCandidate,
   parseRpgCandidate,
+  rpgCandidateApprovalState,
 } from "../components/conversation-presentation";
 import type { DrawerPayload } from "../components/conversation-types";
 import { toExecutionReceipt } from "./use-conversation-operation";
@@ -201,6 +202,7 @@ export function useConversationApprovalController({
   acquireLease,
   currentCanonRevisionDigest,
   createRpgChoicesMessage,
+  settleRpgCandidateEvidence,
   recoverRpgChoices,
   loadWorkspace,
   refreshSession,
@@ -228,6 +230,7 @@ export function useConversationApprovalController({
     parentMessageId: string;
     signal: AbortSignal;
   }) => Promise<unknown>;
+  settleRpgCandidateEvidence: (artifact: ConversationArtifact) => Promise<unknown>;
   recoverRpgChoices: () => Promise<void>;
   loadWorkspace: (preferredSessionId?: string) => Promise<boolean>;
   refreshSession: (sessionId: string) => Promise<boolean>;
@@ -527,21 +530,28 @@ export function useConversationApprovalController({
           `整份學習匯入已採用：${finalized.sources?.length ?? 0} 個安全來源、${finalized.rules?.length ?? 0} 條抽象規則；原文未保存。`,
         );
       } else if (freshArtifact.artifactType === "rpg") {
-        const candidate = parseRpgCandidate(freshArtifact);
-        if (!candidate) throw new Error("RPG_CHAT_CANDIDATE_INVALID");
+        if (
+          sourceMessage.status !== "completed"
+          || rpgCandidateApprovalState(freshArtifact, sourceInvocations) === "settling"
+        ) {
+          setProgress("既有正文候選已保存；正在重驗並補完本機執行收據，不會重新執行模型。");
+          await settleRpgCandidateEvidence(freshArtifact);
+        }
         const rpgRuntime = await import("@/lib/novel-ai/web/rpg-chat-turn");
-        const snapshot = await rpgRuntime.loadRpgChatSnapshot(
-          repository,
-          projectId,
-          undefined,
-          learningRepository,
-        );
         const currentSession = await repository.get<ConversationSession>("conversationSessions", session.id);
         const currentMessage = await repository.get<ConversationMessage>("conversationMessages", sourceMessage.id);
         const currentArtifact = await repository.get<ConversationArtifact>("conversationArtifacts", freshArtifact.id);
         if (!currentSession || !currentMessage || !currentArtifact) {
           throw new Error("CONVERSATION_APPROVAL_SOURCE_MISSING");
         }
+        const candidate = parseRpgCandidate(currentArtifact);
+        if (!candidate) throw new Error("RPG_CHAT_CANDIDATE_INVALID");
+        const snapshot = await rpgRuntime.loadRpgChatSnapshot(
+          repository,
+          projectId,
+          undefined,
+          learningRepository,
+        );
         const closedAgentApprovalBinding = candidate.externalRequest
           || candidate.actualExecutor === "deterministic-rule-fallback"
           ? undefined
@@ -551,8 +561,8 @@ export function useConversationApprovalController({
                 sessionId: session.id,
                 repository,
                 candidateId: candidate.candidateId,
-                sourceMessageId: sourceMessage.id,
-                artifactId: freshArtifact.id,
+                sourceMessageId: currentMessage.id,
+                artifactId: currentArtifact.id,
               }),
             );
         await rpgRuntime.approveRpgChatTurn({
@@ -563,13 +573,13 @@ export function useConversationApprovalController({
             operationId: `conversation-rpg-approval:${freshArtifact.id}`,
             idempotencyKey: `conversation-rpg-approval:${freshArtifact.id}:${freshArtifact.candidateDigest}`,
             sessionId: session.id,
-            artifactId: freshArtifact.id,
-            sourceMessageId: sourceMessage.id,
-            candidateDigest: freshArtifact.candidateDigest,
+            artifactId: currentArtifact.id,
+            sourceMessageId: currentMessage.id,
+            candidateDigest: currentArtifact.candidateDigest,
             expectedSessionRevision: currentSession.revision,
             expectedArtifactRevision: currentArtifact.revision,
             expectedSourceMessageRevision: currentMessage.revision,
-            expectedSourceRevision: freshArtifact.sourceRevision,
+            expectedSourceRevision: currentArtifact.sourceRevision,
             closedAgentApprovalBinding,
           },
         });

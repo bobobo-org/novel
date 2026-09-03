@@ -40,6 +40,7 @@ import {
   rpgChoiceCardContextRevisionDigest,
   rpgChoiceStaleEvidenceId,
 } from "./rpg-choice-stale-evidence";
+import { isRpgLogicalTurnProviderTaskId } from "./rpg-logical-turn";
 import {
   CLOSED_AGENT_FAILURE_EVIDENCE_PROGRESS_STAGE,
   parseClosedAgentFailureEvidence,
@@ -155,6 +156,7 @@ function assertSafeToolMetadata(input: {
   safeErrorCode: string | null;
   status: ConversationToolInvocation["status"];
   actualExecutor: ConversationToolInvocation["actualExecutor"];
+  rpgProviderRunIdVerified?: boolean;
 }) {
   const percent = input.safeProgress?.percent;
   if (percent !== null && percent !== undefined && (!Number.isFinite(percent) || percent < 0 || percent > 100)) {
@@ -207,7 +209,10 @@ function assertSafeToolMetadata(input: {
     ))
     || (closedCacheProof === undefined && (
       input.actualExecutor === "not_executed"
-      || closedProof?.providerRunId !== input.taskId
+      || (
+        closedProof?.providerRunId !== input.taskId
+        && !input.rpgProviderRunIdVerified
+      )
     ))
   );
   if (input.executionReceipt && (
@@ -773,6 +778,12 @@ export class ConversationRepositoryService {
     if (!message || message.projectId !== input.projectId || message.sessionId !== input.sessionId) {
       throw new RepositoryOperationError("CONVERSATION_TOOL_MESSAGE_SCOPE_MISMATCH");
     }
+    const rpgProviderRunIdVerified = input.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+      && Boolean(message.parentMessageId)
+      && await isRpgLogicalTurnProviderTaskId(
+        message.parentMessageId ?? "",
+        input.executionReceipt?.providerRunId,
+      );
     const id = input.invocationId ?? crypto.randomUUID();
     const replay = await this.repository.get<ConversationToolInvocation>("conversationToolInvocations", id);
     if (replay) {
@@ -815,6 +826,7 @@ export class ConversationRepositoryService {
       safeErrorCode: input.safeErrorCode ?? null,
       status: input.status ?? "pending",
       actualExecutor: input.actualExecutor ?? null,
+      rpgProviderRunIdVerified,
     });
     const now = new Date().toISOString();
     const base = makeRecord(input.projectId, "system");
@@ -874,6 +886,13 @@ export class ConversationRepositoryService {
     if (!invocation || invocation.projectId !== input.projectId || invocation.sessionId !== input.sessionId) {
       throw new RepositoryOperationError("CONVERSATION_TOOL_SCOPE_MISMATCH");
     }
+    const message = await this.repository.get<ConversationMessage>(
+      "conversationMessages",
+      invocation.messageId,
+    );
+    if (!message || message.projectId !== input.projectId || message.sessionId !== input.sessionId) {
+      throw new RepositoryOperationError("CONVERSATION_TOOL_MESSAGE_SCOPE_MISMATCH");
+    }
     if (hasRpgChoiceStaleEvidenceIdentity(invocation)) {
       throw new RepositoryOperationError("CONVERSATION_RPG_CHOICE_STALE_EVIDENCE_IMMUTABLE");
     }
@@ -896,6 +915,12 @@ export class ConversationRepositoryService {
     if (!SHA256_DIGEST_PATTERN.test(contextDigest)) {
       throw new RepositoryOperationError("CONVERSATION_CONTEXT_DIGEST_INVALID");
     }
+    const rpgProviderRunIdVerified = invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+      && Boolean(message.parentMessageId)
+      && await isRpgLogicalTurnProviderTaskId(
+        message.parentMessageId ?? "",
+        executionReceipt?.providerRunId,
+      );
     assertExecutionTruth({
       actualExecutor: input.actualExecutor ?? invocation.actualExecutor,
       executionReceipt,
@@ -914,6 +939,7 @@ export class ConversationRepositoryService {
       safeErrorCode: input.safeErrorCode ?? invocation.safeErrorCode,
       status: input.status,
       actualExecutor: input.actualExecutor ?? invocation.actualExecutor,
+      rpgProviderRunIdVerified,
     });
     return this.repository.put("conversationToolInvocations", {
       ...invocation,

@@ -37,6 +37,15 @@ type WorkspaceLoadOptions = {
   expectedIntentToken?: number;
 };
 
+function durableRpgCandidateMessageIds(artifacts: readonly ConversationArtifact[]) {
+  return new Set(artifacts
+    .filter((artifact) => (
+      artifact.artifactType === "rpg"
+      && ["candidate", "approved"].includes(artifact.status)
+    ))
+    .map((artifact) => artifact.sourceMessageId));
+}
+
 function operationErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
     return String((error as { code?: unknown }).code ?? "CONVERSATION_OPERATION_FAILED");
@@ -150,8 +159,18 @@ export function useConversationSessionController({
       conversation.listToolInvocations(projectId, sessionId),
       conversation.listAttachments(projectId, sessionId),
     ]);
-    const interruptedInvocations = nextInvocations.filter((invocation) => ["pending", "running"].includes(invocation.status));
-    const interruptedMessages = nextMessages.filter((message) => ["pending", "streaming"].includes(message.status));
+    let preservedRpgCandidateMessageIds = durableRpgCandidateMessageIds(nextArtifacts);
+    const interruptedInvocations = nextInvocations.filter((invocation) => (
+      ["pending", "running"].includes(invocation.status)
+      && !(
+        invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+        && preservedRpgCandidateMessageIds.has(invocation.messageId)
+      )
+    ));
+    const interruptedMessages = nextMessages.filter((message) => (
+      ["pending", "streaming"].includes(message.status)
+      && !preservedRpgCandidateMessageIds.has(message.id)
+    ));
     if (
       (interruptedInvocations.length || interruptedMessages.length)
       && !operationLocked()
@@ -164,8 +183,15 @@ export function useConversationSessionController({
           conversation.listToolInvocations(projectId, sessionId),
           conversation.listAttachments(projectId, sessionId),
         ]);
+        preservedRpgCandidateMessageIds = durableRpgCandidateMessageIds(nextArtifacts);
         await Promise.all(nextInvocations
-          .filter((invocation) => ["pending", "running"].includes(invocation.status))
+          .filter((invocation) => (
+            ["pending", "running"].includes(invocation.status)
+            && !(
+              invocation.toolId === CONVERSATION_LOCAL_TOOL_IDS.rpgTurn
+              && preservedRpgCandidateMessageIds.has(invocation.messageId)
+            )
+          ))
           .map((invocation) => conversation.updateToolInvocationStatus({
             projectId,
             sessionId,
@@ -197,6 +223,7 @@ export function useConversationSessionController({
           .filter((message) => (
             ["pending", "streaming"].includes(message.status)
             && !completedRpgInvocationMessageIds.has(message.id)
+            && !preservedRpgCandidateMessageIds.has(message.id)
           ))
           .map((message) => conversation.updateMessageStatus({
             projectId,

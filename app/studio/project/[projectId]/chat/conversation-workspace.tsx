@@ -283,6 +283,7 @@ export default function ConversationWorkspace({
   const {
     createRpgChoicesMessage,
     executeRpgChoice,
+    settleRpgCandidateEvidence,
     chooseRpgOption,
     abandonStaleRpgChoiceCard,
     recoverRpgChoices,
@@ -331,6 +332,7 @@ export default function ConversationWorkspace({
     acquireLease: acquireConversationLease,
     currentCanonRevisionDigest,
     createRpgChoicesMessage,
+    settleRpgCandidateEvidence,
     recoverRpgChoices,
     loadWorkspace,
     refreshSession,

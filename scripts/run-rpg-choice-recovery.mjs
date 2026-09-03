@@ -10,6 +10,7 @@ import {
   rpgLogicalTurnGenerationTaskId,
 } from "../lib/novel-ai/conversation/rpg-logical-turn.ts";
 import { ConversationRepositoryService } from "../lib/novel-ai/conversation/repository.ts";
+import { CONVERSATION_LOCAL_TOOL_IDS } from "../lib/novel-ai/conversation/tool-registry.ts";
 import { makeRecord } from "../lib/novel-ai/domain/index.ts";
 import { MemoryNovelRepository } from "../lib/novel-ai/repository/memory/memory-repository.ts";
 import {
@@ -22,6 +23,7 @@ import {
   latestRpgChoicesFrom,
 } from "../app/studio/project/[projectId]/chat/conversation-workspace-support.ts";
 import {
+  rpgCandidateApprovalState,
   rpgCandidateRequiresClosedReview,
   rpgChoiceSelectionDisabled,
   serializeRpgChoices,
@@ -64,8 +66,8 @@ assert.deepEqual(
     generationContinuityFailures: ["generation_failure"],
     continuityFailures: ["direct_failure"],
   }),
-  ["generation_failure"],
-  "an empty review failure list must not hide generation failures",
+  [],
+  "an authoritative empty final-review result must not misreport an older generation failure",
 );
 assert.deepEqual(
   rpgSafeContinuityFailures({
@@ -73,8 +75,8 @@ assert.deepEqual(
     generationContinuityFailures: [],
     continuityFailures: ["direct_failure"],
   }),
-  ["direct_failure"],
-  "empty review and generation failure lists must not hide direct failures",
+  [],
+  "an authoritative empty final-review result must not misreport an older direct failure",
 );
 assert.deepEqual(
   rpgSafeContinuityFailures({
@@ -85,8 +87,8 @@ assert.deepEqual(
       generationContinuityFailures: ["nested_generation_failure"],
     },
   }),
-  ["nested_generation_failure"],
-  "empty failure lists must not stop safe cause traversal",
+  [],
+  "an authoritative empty final-review result must stop traversal into stale nested failures",
 );
 
 assert.equal(
@@ -768,6 +770,162 @@ const receipt = {
   dataLeftDevice: false,
   latencyMs: 1,
 };
+
+const repositoryRpgChoice = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-rpg-orchestration-choice",
+  role: "user",
+  content: "選擇 A｜測試同一 logical turn 的收據身分。",
+  status: "completed",
+  sourceMessageId: markerChoiceCard.id,
+});
+const repositoryRpgAssistant = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-rpg-orchestration-assistant",
+  role: "assistant",
+  content: "",
+  status: "streaming",
+  parentMessageId: repositoryRpgChoice.id,
+});
+const repositoryRpgOrchestrationTaskId = [
+  "conversation-rpg-turn-task",
+  sessionId,
+  repositoryRpgChoice.id,
+].join(":");
+const repositoryRpgProviderRunId = await rpgLogicalTurnGenerationTaskId(
+  repositoryRpgChoice.id,
+);
+assert.notEqual(
+  repositoryRpgOrchestrationTaskId,
+  repositoryRpgProviderRunId,
+  "the Conversation orchestration task and Closed Agent provider run are distinct identities",
+);
+const repositoryRpgInvocation = await markerConversation.saveToolInvocation({
+  projectId,
+  sessionId,
+  messageId: repositoryRpgAssistant.id,
+  invocationId: "repository-rpg-orchestration-invocation",
+  taskId: repositoryRpgOrchestrationTaskId,
+  toolId: CONVERSATION_LOCAL_TOOL_IDS.rpgTurn,
+  taskType: "chapter.continue",
+  inputDigest: "1".repeat(64),
+  contextDigest: "2".repeat(64),
+  status: "running",
+  canonicalMutationCount: 0,
+});
+const repositoryRpgReceipt = {
+  receiptId: "repository-rpg-logical-turn-receipt",
+  modelId: "repository-rpg-model",
+  modelDigest: "3".repeat(64),
+  providerRunId: repositoryRpgProviderRunId,
+  contextDigest: "2".repeat(64),
+  outputDigest: "4".repeat(64),
+  externalRequest: false,
+  dataLeftDevice: false,
+  latencyMs: 1,
+  closedAgentSchemaVersion: "closed-agent-os-v2",
+  closedAgentBackendId: "local-ollama",
+  normalizationReceiptId: `traditional-chinese-integrity:${"5".repeat(64)}`,
+  traditionalChineseNormalizerVersion: "opencc-js-1.4.1-cn-to-tw-single-pass-v1",
+};
+const completedRepositoryRpgInvocation = await markerConversation.updateToolInvocationStatus({
+  projectId,
+  sessionId,
+  invocationId: repositoryRpgInvocation.id,
+  expectedRevision: repositoryRpgInvocation.revision,
+  status: "completed",
+  actualExecutor: "local-ollama",
+  modelId: repositoryRpgReceipt.modelId,
+  modelDigest: repositoryRpgReceipt.modelDigest,
+  executionReceipt: repositoryRpgReceipt,
+  externalRequest: false,
+  dataLeftDevice: false,
+  canonicalMutationCount: 0,
+  safeProgress: { stage: "candidate", percent: 100, message: "RPG 候選證據已完成" },
+});
+assert.equal(completedRepositoryRpgInvocation.status, "completed");
+assert.ok(completedRepositoryRpgInvocation.completedAt);
+assert.equal(
+  completedRepositoryRpgInvocation.taskId,
+  repositoryRpgOrchestrationTaskId,
+  "completion must preserve the orchestration task identity",
+);
+assert.equal(
+  completedRepositoryRpgInvocation.executionReceipt?.providerRunId,
+  repositoryRpgProviderRunId,
+  "completion must preserve the exact provider identity for the same logical turn",
+);
+
+const wrongLogicalTurnChoice = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-rpg-wrong-logical-turn-choice",
+  role: "user",
+  content: "選擇 B｜測試錯誤 logical turn 的收據身分。",
+  status: "completed",
+  sourceMessageId: markerChoiceCard.id,
+});
+const wrongLogicalTurnAssistant = await markerConversation.appendMessage({
+  projectId,
+  sessionId,
+  messageId: "repository-rpg-wrong-logical-turn-assistant",
+  role: "assistant",
+  content: "",
+  status: "streaming",
+  parentMessageId: wrongLogicalTurnChoice.id,
+});
+const wrongLogicalTurnInvocation = await markerConversation.saveToolInvocation({
+  projectId,
+  sessionId,
+  messageId: wrongLogicalTurnAssistant.id,
+  invocationId: "repository-rpg-wrong-logical-turn-invocation",
+  taskId: [
+    "conversation-rpg-turn-task",
+    sessionId,
+    wrongLogicalTurnChoice.id,
+  ].join(":"),
+  toolId: CONVERSATION_LOCAL_TOOL_IDS.rpgTurn,
+  taskType: "chapter.continue",
+  inputDigest: "6".repeat(64),
+  contextDigest: "7".repeat(64),
+  status: "running",
+  canonicalMutationCount: 0,
+});
+await assert.rejects(
+  markerConversation.updateToolInvocationStatus({
+    projectId,
+    sessionId,
+    invocationId: wrongLogicalTurnInvocation.id,
+    expectedRevision: wrongLogicalTurnInvocation.revision,
+    status: "completed",
+    actualExecutor: "local-ollama",
+    modelId: repositoryRpgReceipt.modelId,
+    modelDigest: repositoryRpgReceipt.modelDigest,
+    executionReceipt: {
+      ...repositoryRpgReceipt,
+      receiptId: "repository-rpg-wrong-logical-turn-receipt",
+      providerRunId: repositoryRpgProviderRunId,
+      contextDigest: "7".repeat(64),
+      outputDigest: "8".repeat(64),
+    },
+    externalRequest: false,
+    dataLeftDevice: false,
+    canonicalMutationCount: 0,
+  }),
+  (error) => error?.code === "CONVERSATION_RECEIPT_IDENTITY_INVALID",
+  "an RPG receipt from a different logical turn must not complete the orchestration invocation",
+);
+assert.equal(
+  (await markerRepository.get(
+    "conversationToolInvocations",
+    wrongLogicalTurnInvocation.id,
+  )).status,
+  "running",
+  "rejecting the mismatched provider identity must leave the durable invocation unmodified",
+);
+
 const completedInvocation = invocation("choice-invocation-completed", orphanAssistant.id, {
   toolId: "closed-agent-os:rpg-turn",
   status: "completed",
@@ -885,6 +1043,7 @@ const fallbackInvocation = invocation(
   "choice-invocation-fallback-candidate",
   completedAssistantBeforeArtifact.id,
   {
+    toolId: CONVERSATION_LOCAL_TOOL_IDS.rpgTurn,
     status: "completed",
     actualExecutor: "deterministic-rule-fallback",
     executionReceipt: {
@@ -892,6 +1051,47 @@ const fallbackInvocation = invocation(
       outputDigest: fallbackCandidateDigest,
     },
   },
+);
+const runningCandidateInvocation = {
+  ...fallbackInvocation,
+  status: "running",
+  completedAt: null,
+  actualExecutor: null,
+  executionReceipt: null,
+};
+assert.equal(
+  rpgCandidateApprovalState(fallbackCandidateArtifact, []),
+  "settling",
+  "an RPG artifact without its durable completed invocation must not expose approval",
+);
+assert.equal(
+  rpgCandidateApprovalState(fallbackCandidateArtifact, [runningCandidateInvocation]),
+  "settling",
+  "a running RPG invocation must keep the candidate in the evidence-settling state",
+);
+assert.equal(
+  rpgCandidateApprovalState(fallbackCandidateArtifact, [{
+    ...fallbackInvocation,
+    executionReceipt: {
+      ...fallbackInvocation.executionReceipt,
+      outputDigest: "e".repeat(64),
+    },
+  }]),
+  "settling",
+  "a completed invocation with a mismatched candidate digest must not expose approval",
+);
+assert.equal(
+  rpgCandidateApprovalState(fallbackCandidateArtifact, [{
+    ...fallbackInvocation,
+    actualExecutor: "local-ollama",
+  }]),
+  "ready",
+  "an exact completed closed-AI invocation must expose approval",
+);
+assert.equal(
+  rpgCandidateApprovalState(fallbackCandidateArtifact, [fallbackInvocation]),
+  "closed_review_required",
+  "an exact deterministic fallback invocation must remain fail-closed",
 );
 assert.equal(
   rpgCandidateRequiresClosedReview(fallbackCandidateArtifact, [fallbackInvocation]),

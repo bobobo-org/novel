@@ -19,6 +19,7 @@ import {
   hasRpgChoiceStaleEvidenceIdentity,
   isRpgChoiceStaleEvidenceInvocation,
 } from "./rpg-choice-stale-evidence";
+import { isRpgLogicalTurnProviderTaskId } from "./rpg-logical-turn";
 
 const CONVERSATION_STORE_PREFIX = "conversation";
 const MAX_PERSISTED_CONVERSATION_TEXT = 262_144;
@@ -61,6 +62,14 @@ function containsForbiddenData(value: unknown): boolean {
 
 function digestPattern(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+
+function rpgInvocationLogicalTurnId(invocation: ConversationToolInvocation) {
+  if (invocation.toolId !== CONVERSATION_LOCAL_TOOL_IDS.rpgTurn) return null;
+  const prefix = `conversation-rpg-turn-task:${invocation.sessionId}:`;
+  if (!invocation.taskId.startsWith(prefix)) return null;
+  const encoded = invocation.taskId.slice(prefix.length);
+  return encoded.replace(/:resume:[1-9]\d{0,6}$/u, "") || null;
 }
 
 export async function assertConversationRecordSafe(store: string, record: DomainRecord) {
@@ -171,6 +180,14 @@ export async function assertConversationRecordSafe(store: string, record: Domain
       || receipt!.closedAgentCacheOrigin !== undefined
     );
     const closedCacheProof = receipt?.closedAgentCacheOrigin;
+    const rpgLogicalTurnId = rpgInvocationLogicalTurnId(invocation);
+    const rpgProviderRunIdVerified = Boolean(
+      rpgLogicalTurnId
+      && await isRpgLogicalTurnProviderTaskId(
+        rpgLogicalTurnId,
+        receipt?.providerRunId,
+      ),
+    );
     const closedProofInvalid = hasAnyClosedProof && (
       receipt?.closedAgentSchemaVersion !== "closed-agent-os-v2"
       || !["browser-ai", "local-ollama", "private-ai-hub"]
@@ -187,7 +204,10 @@ export async function assertConversationRecordSafe(store: string, record: Domain
       ))
       || (closedCacheProof === undefined && (
         invocation.actualExecutor === "not_executed"
-        || receipt?.providerRunId !== invocation.taskId
+        || (
+          receipt?.providerRunId !== invocation.taskId
+          && !rpgProviderRunIdVerified
+        )
       ))
     );
     if (

@@ -8,7 +8,11 @@ import type {
   ConversationToolInvocation,
 } from "@/lib/novel-ai/domain";
 import { isStoryWorkspaceForbiddenCanonicalTarget } from "@/lib/novel-ai/conversation/approval-transaction";
-import { artifactStory, rpgCandidateRequiresClosedReview } from "./conversation-presentation";
+import {
+  artifactStory,
+  rpgCandidateApprovalState,
+  rpgCandidateRequiresClosedReview,
+} from "./conversation-presentation";
 import type { ArtifactView, DrawerPayload } from "./conversation-types";
 import styles from "../conversation.module.css";
 
@@ -52,9 +56,13 @@ export default function ArtifactDrawer({
     ? invocations.filter((invocation) => invocation.messageId === selectedArtifact.sourceMessageId)
     : [];
   const canonMutationForbidden = isStoryWorkspaceForbiddenCanonicalTarget(selectedArtifact?.targetStore);
+  const rpgApprovalState = selectedArtifact?.status === "candidate"
+    ? rpgCandidateApprovalState(selectedArtifact, selectedArtifactInvocations)
+    : "ready";
+  const receiptSettling = rpgApprovalState === "settling";
   const closedReviewRequired = Boolean(
     selectedArtifact
-    && selectedArtifact.status === "candidate"
+    && rpgApprovalState === "closed_review_required"
     && rpgCandidateRequiresClosedReview(selectedArtifact, selectedArtifactInvocations),
   );
   const evidence = selectedArtifact ? {
@@ -121,6 +129,16 @@ export default function ArtifactDrawer({
                 <p>為保護正文與 Canon，這份候選不能核准。放棄後會回到原本的三選一；閉端 AI 就緒後才能重新選擇。</p>
               </section>
             ) : null}
+            {receiptSettling ? (
+              <section
+                className={styles.fallbackReviewNotice}
+                role="status"
+                data-testid="conversation-rpg-candidate-settling"
+              >
+                <strong>正文候選已安全保存，本機執行收據尚待補完</strong>
+                <p>補完並採用只會重驗既有候選、完成收據並執行一次 Canon 交易；不會重新執行模型。</p>
+              </section>
+            ) : null}
             {selectedArtifact.status === "candidate" ? (
               <div className={styles.candidateActions}>
                 {!canonMutationForbidden && !closedReviewRequired ? <button className={styles.approvalPrimary} type="button" disabled={busy} onClick={() => onApprove(
@@ -129,7 +147,9 @@ export default function ArtifactDrawer({
                       ? undefined
                       : artifactDraft || artifactStory(selectedArtifact),
                   )}>{selectedArtifact.artifactType === "rpg"
-                      ? "採用回合"
+                      ? receiptSettling
+                        ? "補完本機收據並採用回合"
+                        : "採用回合"
                       : selectedArtifact.artifactType === "learning_rule"
                         ? "採用整份學習規則"
                         : "修改後採用"}</button> : null}

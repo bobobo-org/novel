@@ -47,6 +47,7 @@ import type {
 import {
   parseRpgCandidate,
   parseRpgChoices,
+  rpgCandidateApprovalState,
   rpgCandidateRequiresClosedReview,
   serializeRpgChoices,
 } from "../components/conversation-presentation";
@@ -848,7 +849,13 @@ export function useConversationRpgController({
           input.choiceSourceMessageId,
           true,
         );
-        if (turnState.closed) {
+        let resumingUnsettledDurableCandidate = turnState.artifacts.some((artifact) => (
+          artifact.id === `conversation-rpg-artifact:${input.sessionId}:${input.userMessage.id}`
+          && artifact.artifactType === "rpg"
+          && artifact.status === "candidate"
+          && rpgCandidateApprovalState(artifact, turnState.invocations) === "settling"
+        ));
+        if (turnState.closed && !resumingUnsettledDurableCandidate) {
           throw Object.assign(new Error("這張故事選擇卡已經建立過回合。"), {
             code: "RPG_CHAT_TURN_ALREADY_CREATED",
           });
@@ -894,7 +901,13 @@ export function useConversationRpgController({
           input.choiceSourceMessageId,
           true,
         );
-        if (turnState.closed) {
+        resumingUnsettledDurableCandidate = turnState.artifacts.some((artifact) => (
+          artifact.id === `conversation-rpg-artifact:${input.sessionId}:${userMessage.id}`
+          && artifact.artifactType === "rpg"
+          && artifact.status === "candidate"
+          && rpgCandidateApprovalState(artifact, turnState.invocations) === "settling"
+        ));
+        if (turnState.closed && !resumingUnsettledDurableCandidate) {
           throw Object.assign(new Error("這張故事選擇卡已經建立過回合。"), {
             code: "RPG_CHAT_TURN_ALREADY_CREATED",
           });
@@ -1162,6 +1175,7 @@ export function useConversationRpgController({
           }
           await verifyRpgAdultRuntimePolicyReceipt({ candidate, snapshot });
           const executionTruth = await resolveRpgLogicalTurnExecutionTruth(candidate);
+          const closedAgentProof = await resolveRpgConversationClosedAgentProof(candidate);
           const artifact = durableArtifact ?? await conversation.saveArtifact({
             projectId,
             sessionId: input.sessionId,
@@ -1227,7 +1241,6 @@ export function useConversationRpgController({
             });
           }
           if (!invocationCompleted) {
-            const closedAgentProof = await resolveRpgConversationClosedAgentProof(candidate);
             invocation = await conversation.updateToolInvocationStatus({
               projectId,
               sessionId: input.sessionId,
@@ -1343,6 +1356,79 @@ export function useConversationRpgController({
         }
       },
     );
+  }
+
+  async function settleRpgCandidateEvidence(artifact: ConversationArtifact) {
+    if (!activeSession || artifact.sessionId !== activeSession.id) {
+      throw Object.assign(new Error("目前對話尚未準備完成，不能補完候選收據。"), {
+        code: "CONVERSATION_APPROVAL_SESSION_NOT_READY",
+      });
+    }
+    const currentArtifact = await repository.get<ConversationArtifact>(
+      "conversationArtifacts",
+      artifact.id,
+    );
+    const candidate = currentArtifact ? parseRpgCandidate(currentArtifact) : null;
+    if (
+      !currentArtifact
+      || currentArtifact.projectId !== projectId
+      || currentArtifact.sessionId !== activeSession.id
+      || currentArtifact.status !== "candidate"
+      || !candidate
+    ) {
+      throw Object.assign(new Error("已保存的 RPG 候選不存在或已不是待核准狀態。"), {
+        code: "RPG_EXTERNAL_DURABLE_ARTIFACT_INVALID",
+      });
+    }
+    const assistantMessage = await repository.get<ConversationMessage>(
+      "conversationMessages",
+      currentArtifact.sourceMessageId,
+    );
+    const userMessage = assistantMessage?.parentMessageId
+      ? await repository.get<ConversationMessage>(
+          "conversationMessages",
+          assistantMessage.parentMessageId,
+        )
+      : null;
+    const choiceSourceMessage = userMessage?.sourceMessageId
+      ? await repository.get<ConversationMessage>(
+          "conversationMessages",
+          userMessage.sourceMessageId,
+        )
+      : null;
+    const parsedChoices = choiceSourceMessage
+      ? parseRpgChoices(choiceSourceMessage.content)
+      : null;
+    const envelope = parsedChoices?.envelope ?? null;
+    if (
+      !assistantMessage
+      || !userMessage
+      || !choiceSourceMessage
+      || !envelope
+      || assistantMessage.projectId !== projectId
+      || assistantMessage.sessionId !== activeSession.id
+      || userMessage.projectId !== projectId
+      || userMessage.sessionId !== activeSession.id
+      || userMessage.sourceMessageId !== choiceSourceMessage.id
+      || !rpgUserMessageMatchesChoice(userMessage, candidate.choice)
+    ) {
+      throw Object.assign(new Error("已保存的 RPG 候選缺少可驗證的原始選擇。"), {
+        code: "RPG_EXTERNAL_DURABLE_ARTIFACT_INVALID",
+      });
+    }
+    const controller = new AbortController();
+    return executeRpgChoice({
+      sessionId: activeSession.id,
+      choice: candidate.choice,
+      choicePlanCandidateId: envelope.plan.candidateId,
+      choiceSourceMessageId: choiceSourceMessage.id,
+      expectedChapterId: envelope.chapterId,
+      expectedChapterRevision: envelope.chapterRevision,
+      expectedStoryStateRevision: envelope.storyStateRevision,
+      expectedContextRevisionDigest: envelope.contextRevisionDigest,
+      userMessage,
+      signal: controller.signal,
+    });
   }
 
   async function chooseRpgOption(
@@ -1685,6 +1771,7 @@ export function useConversationRpgController({
   return {
     createRpgChoicesMessage,
     executeRpgChoice,
+    settleRpgCandidateEvidence,
     chooseRpgOption,
     abandonStaleRpgChoiceCard,
     recoverRpgChoices,
