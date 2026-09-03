@@ -1766,6 +1766,165 @@ assert.equal(
   "the production regression fixture must exercise the exact duplicated-dialogue leaf",
 );
 
+const malformedDialogueQuoteStory = fullReviewedStory.replace(
+  "他低聲說：「先守住出口，別讓任何人碰那本航簿。」",
+  "他低聲說：「先守住「出口」，別讓任何人碰那本航簿。」",
+);
+const malformedDialogueQuoteFailure = (() => {
+  try {
+    validateRpgStoryTurnContract(malformedDialogueQuoteStory, "zh-TW");
+    return null;
+  } catch (error) {
+    return error;
+  }
+})();
+assert.equal(
+  malformedDialogueQuoteFailure?.message,
+  "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
+  "the production regression fixture must exercise balanced-count same-level nested quotes",
+);
+
+const malformedQuoteRepairLogicalTurnId = "logical-turn-malformed-quote-repair";
+const malformedQuoteRepairRequests = [];
+const malformedQuoteRepairCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: malformedQuoteRepairLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    malformedQuoteRepairRequests.push(request);
+    const content = malformedQuoteRepairRequests.length <= 2
+      ? malformedDialogueQuoteStory
+      : fullReviewedStory;
+    const result = closedReviewResult(
+      request,
+      `malformed-quote-repair-${malformedQuoteRepairRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected malformed dialogue quotes"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+});
+assert.deepEqual(
+  malformedQuoteRepairRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(malformedQuoteRepairLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      malformedQuoteRepairLogicalTurnId,
+      ["dialogue"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      malformedQuoteRepairLogicalTurnId,
+      ["dialogue"],
+      2,
+    ),
+  ],
+  "a malformed-quote repair rejected for the same strict leaf receives exactly one bounded retry",
+);
+for (const request of malformedQuoteRepairRequests.slice(1)) {
+  assert.match(request.input ?? "", /每個「都必須在同一段對應一個」/u);
+  assert.match(request.input ?? "", /不得巢狀使用「」/u);
+  assert.match(request.input ?? "", /對話內引用名稱改用『』/u);
+  assert.doesNotMatch(
+    request.input ?? "",
+    /先守住「出口」/u,
+    "rejected malformed prose must not enter either repair prompt",
+  );
+}
+assert.equal(malformedQuoteRepairCandidate.story, fullReviewedStory);
+assert.equal(malformedQuoteRepairCandidate.canonicalMutationCount, 0);
+assert.equal(
+  malformedQuoteRepairCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+  2,
+);
+assert.equal(
+  malformedQuoteRepairCandidate.executionReceipt.postFallbackClosedReview
+    ?.selectionRewriteEvidence?.taskId,
+  malformedQuoteRepairRequests.at(-1)?.taskId,
+  "the sealed receipt must bind malformed-quote repair attempt 2",
+);
+assert.equal(
+  malformedQuoteRepairCandidate.executionReceipt.postFallbackClosedReview
+    ?.selectionRewriteEvidence?.candidateContentDigest,
+  digestStory(fullReviewedStory),
+  "the sealed receipt must bind the valid replacement rather than rejected malformed prose",
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({ candidate: malformedQuoteRepairCandidate }),
+);
+
+const repeatedMalformedQuoteLogicalTurnId =
+  "logical-turn-malformed-quote-stops-after-two-repairs";
+const repeatedMalformedQuoteRequests = [];
+const repeatedMalformedQuoteFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: repeatedMalformedQuoteLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    repeatedMalformedQuoteRequests.push(request);
+    const result = closedReviewResult(
+      request,
+      `repeated-malformed-quote-${repeatedMalformedQuoteRequests.length}`,
+      malformedDialogueQuoteStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected malformed dialogue quotes"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    throw new Error("expected malformed dialogue quotes to remain rejected");
+  },
+}).then(() => null, (error) => error);
+assert.deepEqual(
+  repeatedMalformedQuoteRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(repeatedMalformedQuoteLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      repeatedMalformedQuoteLogicalTurnId,
+      ["dialogue"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      repeatedMalformedQuoteLogicalTurnId,
+      ["dialogue"],
+      2,
+    ),
+  ],
+  "malformed dialogue quotes may authorize one additional repair and never a third repair",
+);
+assert.equal(repeatedMalformedQuoteFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  repeatedMalformedQuoteFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
+  "the terminal wrapper must preserve the strict malformed-quote leaf",
+);
+
 const reportStyleThenVoiceLogicalTurnId = "logical-turn-report-style-then-voice-repair";
 const reportStyleThenVoiceRequests = [];
 const reportStyleThenVoiceCandidate = await generateRpgChatTurnCandidate({

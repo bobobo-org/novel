@@ -4057,7 +4057,7 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   const requirementLabels: Record<RpgContinuityRepairFailure, string> = {
     length: "不灌水、不重述，補足到契約規定的字數範圍",
     paragraphs: "依動作與反應的自然節奏寫足契約要求的完整段落",
-    dialogue: "加入能改變局勢的完整「」對話",
+    dialogue: "加入能改變局勢的完整「」對話；每個「都必須在同一段對應一個」，不得巢狀使用「」，對話內引用名稱改用『』",
     dialogue_attribution: "至少一處用具名人物的說道、問道或答道自然標明說話者",
     continuity_anchor: continuityAnchor
       ? `首段自然逐字承接「${continuityAnchor}」，隨即用新動作繼續`
@@ -4362,8 +4362,9 @@ export async function generateRpgChatTurnCandidate(input: {
     : logicalAttempt;
   // Each explicit author attempt owns two non-overlapping fallback slots: the
   // odd slot is the primary review/repair and the following even slot is the
-  // single bounded repetition-only retry. A later author retry therefore
-  // cannot reuse a failed internal repair task id.
+  // single bounded strict-content retry. It is used only for the explicit
+  // repetition/character-voice/dialogue-quote leaves below. A later author
+  // retry therefore cannot reuse a failed internal repair task id.
   const fallbackReviewStartAttempt = resumeClosedReview
     ? logicalAttempt
     : logicalAttempt * 2 - 1;
@@ -4675,10 +4676,20 @@ export async function generateRpgChatTurnCandidate(input: {
           const startedAsRepetitionRepair =
             initialReviewRepairFailures.length === 1
             && initialReviewRepairFailures[0] === "repetition";
+          const startedAsDialogueQuoteRepair =
+            initialReviewRepairFailures.length === 1
+            && initialReviewRepairFailures[0] === "dialogue";
+          const retryableStrictContentLeaf =
+            applicationRepair.failureCode
+              === "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED"
+            || (
+              startedAsDialogueQuoteRepair
+              && applicationRepair.failureCode
+                === "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES"
+            );
           if (
             !startedAsRepetitionRepair
-            && applicationRepair.failureCode
-              !== "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED"
+            && !retryableStrictContentLeaf
           ) return false;
           pendingReviewRepairFailures = mergeRpgContinuityRepairFailures(
             initialReviewRepairFailures,

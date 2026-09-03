@@ -11178,6 +11178,18 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     "洪棠竹說：「那枚『鎮脈符』不能再動。」眾人立刻退開。",
   );
   assert.equal(nestedDialogue.repaired, true);
+  const extraClosingDialogue = repairLocalChineseDialogueQuotes(
+    "洪棠竹說：「撤回石階。」」眾人立刻退開。",
+  );
+  assert.deepEqual(
+    extraClosingDialogue,
+    {
+      content: "洪棠竹說：「撤回石階。」」眾人立刻退開。",
+      repaired: false,
+      removedCharacters: 0,
+    },
+    "an ambiguous extra closing quote must remain unchanged for the strict application gate",
+  );
   const unclosedDialogue = repairLocalChineseDialogueQuotes(
     `${"洪棠竹封住退路，眾人退至石階。".repeat(4)}洪初霽忽然說：「這條路`,
   );
@@ -11327,6 +11339,31 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.ok(mergedMetrics.narrativeLength > continuationPlan.metrics.narrativeLength);
   assert.equal(mergedMetrics.paragraphCount, 8);
   assert.ok(mergedMetrics.narrativeLength <= 1_450);
+  const nearMaximumScene = `${"既".repeat(1_420)}。`;
+  const quoteCutAtMaximum = mergeSubstantiveSceneContinuation(
+    nearMaximumScene,
+    `守門人抬手示警。「${"別".repeat(19)}。」`,
+  );
+  assert.ok(
+    measureSubstantiveScene(quoteCutAtMaximum).narrativeLength
+      <= LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS,
+  );
+  assert.match(quoteCutAtMaximum, /守門人抬手示警。$/u);
+  assert.doesNotMatch(quoteCutAtMaximum, /「/u);
+  assert.equal(
+    quoteCutAtMaximum.match(/「/gu)?.length ?? 0,
+    quoteCutAtMaximum.match(/」/gu)?.length ?? 0,
+    "the hard scene cap must retreat to a balanced boundary instead of cutting before a closing quote",
+  );
+  const quoteOnlyAtMaximum = mergeSubstantiveSceneContinuation(
+    nearMaximumScene,
+    `「${"別".repeat(27)}。」`,
+  );
+  assert.equal(
+    quoteOnlyAtMaximum,
+    nearMaximumScene,
+    "a capped supplement with no safe balanced prefix must leave the existing scene unchanged",
+  );
   const replayedTail = "沈曜收緊濕透的繩結，聽見石門後第三次敲擊，才示意守塔人退到燈影之外。";
   const uniqueContinuation = "他沒有重述剛才的動作，而是沿排水槽找到一枚新鮮的青銅碎屑。";
   const existingWithTail = `${shortScene}\n\n${replayedTail}`;

@@ -245,6 +245,25 @@ function assertSafeLocalSelectedOutput(value: string) {
   });
 }
 
+function hasBalancedLocalDialogueQuotes(value: string) {
+  const stack: Array<"outer" | "inner"> = [];
+  for (const character of value) {
+    if (character === "「") {
+      if (stack.length) return false;
+      stack.push("outer");
+    } else if (character === "『") {
+      stack.push("inner");
+    } else if (character === "」") {
+      if (stack.at(-1) !== "outer") return false;
+      stack.pop();
+    } else if (character === "』") {
+      if (stack.at(-1) !== "inner") return false;
+      stack.pop();
+    }
+  }
+  return stack.length === 0;
+}
+
 function trimAtCompleteSentence(value: string, maximumCharacters: number) {
   let nonWhitespace = 0;
   let end = value.length;
@@ -258,10 +277,24 @@ function trimAtCompleteSentence(value: string, maximumCharacters: number) {
   const bounded = value.slice(0, end).trim();
   if (end === value.length) return bounded;
   const endings = [...bounded.matchAll(/[。！？!?][」』”"']?/gu)];
-  const last = endings.at(-1);
-  return last && (last.index ?? 0) >= Math.floor(bounded.length * 0.55)
-    ? bounded.slice(0, (last.index ?? 0) + last[0].length).trim()
-    : bounded;
+  const balancedEndings = endings.filter((ending) => {
+    const boundary = (ending.index ?? 0) + ending[0].length;
+    return hasBalancedLocalDialogueQuotes(bounded.slice(0, boundary));
+  });
+  const lateBalanced = balancedEndings.findLast(
+    (ending) => (ending.index ?? 0) >= Math.floor(bounded.length * 0.55),
+  );
+  if (lateBalanced) {
+    return bounded.slice(
+      0,
+      (lateBalanced.index ?? 0) + lateBalanced[0].length,
+    ).trim();
+  }
+  if (hasBalancedLocalDialogueQuotes(bounded)) return bounded;
+  const lastBalanced = balancedEndings.at(-1);
+  return lastBalanced
+    ? bounded.slice(0, (lastBalanced.index ?? 0) + lastBalanced[0].length).trim()
+    : "";
 }
 
 function splitSupplementParagraphs(value: string, desired: number) {
@@ -1098,10 +1131,14 @@ export async function runLocalOllama(
       doneReason: supplementDoneReason,
     });
     substantiveSupplementCharacters += supplementBoundary.content.length;
-    normalizedContent = mergeSubstantiveSceneContinuation(
+    const mergedContent = mergeSubstantiveSceneContinuation(
       normalizedContent,
       supplementBoundary.content,
     );
+    const mergedDialogueQuotes = repairLocalChineseDialogueQuotes(mergedContent);
+    substantiveDialogueQuotesRepaired = substantiveDialogueQuotesRepaired
+      || mergedDialogueQuotes.repaired;
+    normalizedContent = mergedDialogueQuotes.content;
     evaluatedTokens = null;
     doneReason = "stop";
   }
@@ -1113,7 +1150,16 @@ export async function runLocalOllama(
     evaluatedTokens,
     doneReason,
   });
-  const finalContent = completionBoundary.content;
+  let finalContent = completionBoundary.content;
+  if (request.generationOptions?.substantiveScene) {
+    // This is the final provider-side mutator before the application gate.
+    // Re-check the assembled scene after completion-boundary trimming so no
+    // character or token cap can leave an opening quote without its close.
+    const finalDialogueQuotes = repairLocalChineseDialogueQuotes(finalContent);
+    substantiveDialogueQuotesRepaired = substantiveDialogueQuotesRepaired
+      || finalDialogueQuotes.repaired;
+    finalContent = finalDialogueQuotes.content;
+  }
   return {
     requestId: request.requestId,
     providerId: "local-ollama",
