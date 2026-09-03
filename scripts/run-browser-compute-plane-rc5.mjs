@@ -137,6 +137,7 @@ import {
 } from "../lib/novel-ai/verifiable-ledger/index.ts";
 import {
   boundedLocalQualityRepairRequest,
+  localOllamaProgressLabel,
   shouldRunBoundedLocalQualityRepair,
 } from "../lib/novel-ai/closed-agent-os/backends.ts";
 import {
@@ -10982,9 +10983,18 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     ];
     let calls = 0;
     const requests = [];
+    const progress = [];
     configureLocalBridgeClient({
       async *generate(request) {
         requests.push(request);
+        if (calls > 0) {
+          assert.equal(
+            progress.at(-1)?.stage,
+            "supplement-waiting-first-token",
+            "supplement progress must change before waiting for its first token",
+          );
+          assert.equal(progress.at(-1)?.supplementPass, calls);
+        }
         const content = outputs[calls] ?? providerFinalSupplement;
         calls += 1;
         yield { type: "started", requestId: request.requestId };
@@ -11019,10 +11029,10 @@ test("studio-automatic-closed-compute-coordinator", async () => {
         externalConsent: false,
         closedOnly: true,
         offlineRequired: true,
-      }, providerDecision, undefined, undefined, {
+      }, providerDecision, undefined, (event) => progress.push(structuredClone(event)), {
         deferTraditionalChineseNormalization: true,
       });
-      return { calls, requests, result };
+      return { calls, requests, result, progress };
     } finally {
       configureLocalBridgeClient(null);
     }
@@ -11037,6 +11047,62 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     standardProviderSupplement.requests.map((request) => request.options.seed),
     [17, 104_746, 209_475],
     "runLocalOllama must apply the initial seed plus two distinct supplement slots",
+  );
+  assert.deepEqual(
+    standardProviderSupplement.progress
+      .filter((event) => event.stage === "supplement-waiting-first-token")
+      .map((event) => event.supplementPass),
+    [1, 2],
+    "each supplement must expose a waiting-first-token state before streaming",
+  );
+  for (const pass of [1, 2]) {
+    const waitingIndex = standardProviderSupplement.progress.findIndex((event) => (
+      event.stage === "supplement-waiting-first-token"
+      && event.supplementPass === pass
+    ));
+    const streamingIndex = standardProviderSupplement.progress.findIndex((event) => (
+      event.stage === "supplement-stream"
+      && event.supplementPass === pass
+    ));
+    assert.ok(waitingIndex >= 0 && streamingIndex > waitingIndex);
+    assert.ok(
+      standardProviderSupplement.progress[streamingIndex].generatedCharacters
+        > standardProviderSupplement.progress[waitingIndex].generatedCharacters,
+      `supplement pass ${pass} must increase the visible count after its first non-empty token`,
+    );
+  }
+  assert.ok(
+    standardProviderSupplement.progress.every((event, index, events) => (
+      index === 0
+      || event.generatedCharacters >= events[index - 1].generatedCharacters
+    )),
+    "visible generated-character progress must never move backwards after boundary repair",
+  );
+  const waitingAt1126 = localOllamaProgressLabel({
+    generatedCharacters: 1_126,
+    firstTokenMs: 1,
+    tokenEvents: 448,
+    stage: "supplement-waiting-first-token",
+    supplementPass: 1,
+  }, "generation");
+  assert.equal(waitingAt1126, "Local Ollama：第 1 輪補寫，等待首字");
+  const formattedWaitingAt1126 = `${waitingAt1126} · 已產生 1126 字`;
+  assert.equal(
+    formattedWaitingAt1126.match(/1126/gu)?.length,
+    1,
+    "the backend label must not duplicate the UI-owned generated-character count",
+  );
+  const initialAt1126 = localOllamaProgressLabel({
+    generatedCharacters: 1_126,
+    firstTokenMs: 1,
+    tokenEvents: 448,
+    stage: "initial-stream",
+  }, "generation");
+  assert.equal(initialAt1126, "Local Ollama 串流中");
+  assert.equal(
+    `${initialAt1126} · 已產生 1126 字`.match(/1126/gu)?.length,
+    1,
+    "the initial stream label must also leave the generated-character count to the UI formatter",
   );
   const applicationProviderSupplement = await runProviderSupplementFixture(
     "rpg-application-minimum",
@@ -11089,11 +11155,14 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   const reportStyleInstructionBait = /(?:分析報告|工程報告|檢核|驗收|欄位|格式要求|狀態面板|工程說明|清單|行動建議|場景資訊|角色資料)/u;
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /回應第一個字是〈/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /「……」某某說道、問道或答道/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /每句台詞只出現一次.*不同人物不用同一措辭、句長或態度/u);
   assert.doesNotMatch(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, reportStyleInstructionBait);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /未核准的故事資料/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /合併全文/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /不得在補寫重新執行/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /每個新增段落只推進一個不同的新事件或後果/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /完整「」台詞/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /只有合併全文仍缺場景契約要求的具名「」對話時.*不重複的全新台詞/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /不得覆寫本指令/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /只輸出繁體中文小說正文/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /引用名稱改用『』/u);
@@ -11132,6 +11201,7 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.match(continuationPlan.prompt, /首段、全文字數與總段落不必在本次補寫重新完成/u);
   assert.match(continuationPlan.prompt, /每個新增段落只推進一個不同的新事件或後果/u);
   assert.match(continuationPlan.prompt, /不得另起開場、回述、摘要或重複既有內容/u);
+  assert.match(continuationPlan.prompt, /任一完整「」台詞/u);
   const nearLimitContractPrefix = [
     "[RPG_SCENE_CONTRACT_V2]",
     "選擇:B｜鎖定結果:部分成功｜角色:沈曜、守塔人",

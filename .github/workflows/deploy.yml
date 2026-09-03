@@ -391,6 +391,7 @@ jobs:
             pnpm test:studio:writing-flow
             pnpm test:studio:task-session-rpg-ai
             pnpm test:studio:rpg-fallback-quality
+            node --experimental-strip-types --import ./scripts/register-ts-extension-loader.mjs scripts/run-browser-compute-plane-rc5.mjs studio-automatic-closed-compute-coordinator
             pnpm test:studio:rpg-adult-runtime-production-seam
             pnpm test:studio:rpg-normal-os-validation
             pnpm test:ai:rpg-external-cascade

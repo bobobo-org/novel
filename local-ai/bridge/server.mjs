@@ -813,18 +813,39 @@ export function createBridgeServer(options = {}) {
           const reader = upstream.body?.getReader();
           if (!reader) throw new BridgeError("OLLAMA_INVALID_RESPONSE", "Ollama response has no stream.", 502);
           const decoder = new TextDecoder();
-          let buffer = "", tokenCount = 0, metadata = {}, generatedContent = "";
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n"); buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              let item; try { item = JSON.parse(line); } catch { throw new BridgeError("OLLAMA_INVALID_RESPONSE", "Ollama returned invalid stream JSON.", 502); }
-              if (item.response) { tokenCount += 1; generatedContent += item.response; response.write(`${JSON.stringify({ type: "token", text: item.response })}\n`); }
-              if (item.done) metadata = { totalDuration: item.total_duration ?? null, loadDuration: item.load_duration ?? null, promptEvalCount: item.prompt_eval_count ?? null, evalCount: item.eval_count ?? null };
+          let buffer = "", tokenCount = 0, metadata = {}, generatedContent = "", sawDone = false;
+          const consumeLine = (rawLine) => {
+            const line = rawLine.trim();
+            if (!line) return;
+            let item; try { item = JSON.parse(line); } catch { throw new BridgeError("OLLAMA_INVALID_RESPONSE", "Ollama returned invalid stream JSON.", 502); }
+            if (item.response) { tokenCount += 1; generatedContent += item.response; response.write(`${JSON.stringify({ type: "token", text: item.response })}\n`); }
+            if (item.done === true) {
+              sawDone = true;
+              metadata = { totalDuration: item.total_duration ?? null, loadDuration: item.load_duration ?? null, promptEvalCount: item.prompt_eval_count ?? null, evalCount: item.eval_count ?? null };
             }
+          };
+          try {
+            while (!sawDone) {
+              const { value, done } = await reader.read();
+              if (done) {
+                buffer += decoder.decode();
+                if (buffer.trim()) consumeLine(buffer);
+                buffer = "";
+                break;
+              }
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n"); buffer = lines.pop() || "";
+              for (const line of lines) {
+                consumeLine(line);
+                if (sawDone) break;
+              }
+            }
+            if (!sawDone) {
+              throw new BridgeError("OLLAMA_STREAM_INTERRUPTED", "Ollama stream ended before completion.", 502, true);
+            }
+          } finally {
+            void reader.cancel(sawDone ? "ollama-completed" : "ollama-stream-aborted").catch(() => undefined);
+            reader.releaseLock();
           }
           if (cacheNamespace && generatedContent) {
             await cache.put({

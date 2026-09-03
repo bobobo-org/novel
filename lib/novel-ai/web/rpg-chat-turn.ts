@@ -4071,7 +4071,7 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
     causality: "用自然因果連接選定行動、阻力、代價與鎖定結果",
     foreshadowing: "以現場可觀察的異樣或未解事物留下伏筆",
     serial_hook: "最後以本次行動造成的新危機、聲音或迫近事件形成自然鉤子",
-    repetition: "每段只推進一個不同的新事件或後果，不回述前文，不重用段首、主要句式或對話意圖",
+    repetition: "每段只推進一個不同的新事件或後果，不回述前文，不重用段首、主要句式或對話意圖；每一句引號內台詞只出現一次，不同人物的措辭、句長與態度都不同",
   };
   const repairLine = `這次重新寫成完整場景時，要特別做到${uniqueFailures.map((failure) => (
     requirementLabels[failure]
@@ -4582,6 +4582,29 @@ export async function generateRpgChatTurnCandidate(input: {
             ?? [...RPG_CONTINUITY_REPAIR_FAILURE_ORDER]
           )
         : null;
+    const initialReviewRepairFailures = reviewStage === "fallback-repair"
+      ? mergeRpgContinuityRepairFailures(
+          repairFailures ?? [...RPG_CONTINUITY_REPAIR_FAILURE_ORDER],
+        )
+      : null;
+    const preparationTaskId = await providerTaskId(
+      reviewStage,
+      fallbackReviewStartAttempt,
+      initialReviewRepairFailures ?? undefined,
+    );
+    try {
+      input.onProgress?.({
+        taskId: preparationTaskId,
+        phase: "probing",
+        label: "隱藏複核準備中",
+        percent: 0,
+        occurredAt: new Date().toISOString(),
+        generatedCharacters: 0,
+        generatedTokenEvents: 0,
+      });
+    } catch {
+      // Readiness progress is observational and cannot alter the review transaction.
+    }
     const drafts: DeterministicRpgFallbackDraftCandidate[] = [];
     const seenDraftDigests = new Set<string>();
     const seenDraftStories: string[] = [];
@@ -4635,29 +4658,28 @@ export async function generateRpgChatTurnCandidate(input: {
           input.fallbackReviewDeadlineMs ?? RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
         ),
       );
-      const initialReviewRepairFailures = reviewStage === "fallback-repair"
-        ? mergeRpgContinuityRepairFailures(
-            repairFailures ?? [...RPG_CONTINUITY_REPAIR_FAILURE_ORDER],
-          )
-        : null;
       let pendingReviewRepairFailures: RpgContinuityRepairFailure[] | null = null;
       const reviewed = await runRpgClosedAIUntilDeadline({
         deadlineMs: reviewDeadlineMs,
         startAttempt: fallbackReviewStartAttempt,
         maximumDispatches:
           reviewStage === "fallback-repair"
-          && initialReviewRepairFailures?.length === 1
-          && initialReviewRepairFailures[0] === "repetition"
+          && initialReviewRepairFailures?.length
           && fallbackReviewStartAttempt % 2 === 1
             ? 2
             : 1,
         retryAfterDispatch: ({ error }) => {
-          if (
-            initialReviewRepairFailures?.length !== 1
-            || initialReviewRepairFailures[0] !== "repetition"
-          ) return false;
+          if (!initialReviewRepairFailures?.length) return false;
           const applicationRepair = rpgGenerationApplicationRepair(error);
           if (!applicationRepair) return false;
+          const startedAsRepetitionRepair =
+            initialReviewRepairFailures.length === 1
+            && initialReviewRepairFailures[0] === "repetition";
+          if (
+            !startedAsRepetitionRepair
+            && applicationRepair.failureCode
+              !== "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED"
+          ) return false;
           pendingReviewRepairFailures = mergeRpgContinuityRepairFailures(
             initialReviewRepairFailures,
             applicationRepair.failures,

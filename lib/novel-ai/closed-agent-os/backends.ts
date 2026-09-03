@@ -25,6 +25,7 @@ import { getConfiguredLocalBridgeClient } from "../providers/local-ollama/local-
 import { privateHubSnapshot } from "../providers/private-ai-hub/private-ai-hub";
 import { LoopbackPrivateHubTransport } from "../providers/private-ai-hub/private-hub-client";
 import { serializeClosedActorContextWithSourceIdentities } from "../providers/closed/continuity-anchors";
+import type { ClosedProviderGenerationProgress } from "../providers/closed/task-profile";
 import type {
   ClosedAICacheInvalidation,
   ClosedAINamespace,
@@ -182,6 +183,20 @@ function reportGenerationProgress(
   } catch {
     // UI callbacks are observational and must never alter the model transaction.
   }
+}
+
+export function localOllamaProgressLabel(
+  progress: ClosedProviderGenerationProgress,
+  mode: "generation" | "bounded-repair",
+) {
+  const base = mode === "bounded-repair" ? "Local Ollama 有界補修" : "Local Ollama";
+  if (progress.stage === "supplement-waiting-first-token") {
+    return `${base}：第 ${progress.supplementPass ?? 1} 輪補寫，等待首字`;
+  }
+  if (progress.stage === "supplement-stream") {
+    return `${base}：第 ${progress.supplementPass ?? 1} 輪補寫中`;
+  }
+  return mode === "bounded-repair" ? `${base}中` : `${base} 串流中`;
 }
 
 export function closedBackendPlatformRequest(
@@ -666,7 +681,7 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
       undefined,
       (progress) => reportGenerationProgress(
         input,
-        `Local Ollama 串流中 · ${progress.generatedCharacters} 字`,
+        localOllamaProgressLabel(progress, "generation"),
         progress.generatedCharacters,
         Math.min(80, 50 + Math.round(Math.sqrt(progress.generatedCharacters) * 1.8)),
       ),
@@ -692,7 +707,7 @@ export class LocalOllamaBackendAdapter implements ClosedAIBackendAdapter {
         undefined,
         (progress) => reportGenerationProgress(
           input,
-          `Local Ollama 有界補修中 · ${progress.generatedCharacters} 字`,
+          localOllamaProgressLabel(progress, "bounded-repair"),
           progress.generatedCharacters,
           Math.min(94, 78 + Math.round(Math.sqrt(progress.generatedCharacters) * 0.9)),
         ),

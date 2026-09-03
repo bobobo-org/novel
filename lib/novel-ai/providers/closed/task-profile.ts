@@ -43,6 +43,9 @@ export type ClosedProviderGenerationProgress = {
   generatedCharacters: number;
   firstTokenMs: number | null;
   tokenEvents: number;
+  /** Safe transport stage only; model text never crosses the progress boundary. */
+  stage?: "initial-stream" | "supplement-waiting-first-token" | "supplement-stream";
+  supplementPass?: number;
 };
 
 export const CLOSED_AI_CONTINUATION_SUFFIX_SAFETY_MARGIN_HAN_CHARACTERS = 16;

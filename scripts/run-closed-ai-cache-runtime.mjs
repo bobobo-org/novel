@@ -487,6 +487,146 @@ await test("Local Bridge live generate path reuses SQLite exact cache and invali
   }
 });
 
+await test("Local Bridge terminates on Ollama done and fails closed on truncated NDJSON", async () => {
+  const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "novel-bridge-stream-e2e-"));
+  const port = 36_000 + Math.floor(Math.random() * 1_000);
+  const origin = "http://127.0.0.1:3000";
+  const originalFetch = globalThis.fetch;
+  const encoder = new TextEncoder();
+  let upstreamCancelReason = null;
+  let malformedCancelReason = null;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url === "http://127.0.0.1:11434/api/tags") {
+      return new Response(JSON.stringify({
+        models: [{
+          name: "qwen2.5:3b",
+          model: "qwen2.5:3b",
+          digest: "sha256:model-a",
+          size: 1,
+          details: { family: "qwen2" },
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (url === "http://127.0.0.1:11434/api/generate") {
+      const requestBody = JSON.parse(String(init?.body ?? "{}"));
+      if (requestBody.prompt === "done-without-eof") {
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode([
+              JSON.stringify({ response: "完成即停止", done: false }),
+              JSON.stringify({ done: true, total_duration: 11, eval_count: 7 }),
+              "",
+            ].join("\n")));
+          },
+          cancel(reason) {
+            upstreamCancelReason = reason;
+          },
+        }), { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+      }
+      if (requestBody.prompt === "done-in-residual") {
+        return new Response([
+          JSON.stringify({ response: "保留尾端字元", done: false }),
+          JSON.stringify({ done: true, total_duration: 12, eval_count: 8 }),
+        ].join("\n"), { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+      }
+      if (requestBody.prompt === "truncated-before-done") {
+        return new Response(
+          JSON.stringify({ response: "不可冒充完成", done: false }),
+          { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+        );
+      }
+      if (requestBody.prompt === "malformed-without-eof") {
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode("{broken-json}\n"));
+          },
+          cancel(reason) {
+            malformedCancelReason = reason;
+          },
+        }), { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+      }
+    }
+    return originalFetch(input, init);
+  };
+  const bridge = createBridgeServer({
+    port,
+    testMode: true,
+    runtimeDir,
+    pairingFile: path.join(runtimeDir, "pairing.json"),
+  });
+  try {
+    await bridge.start();
+    const base = `http://127.0.0.1:${port}`;
+    const protocolHeaders = {
+      Origin: origin,
+      "X-Bridge-Protocol": BRIDGE_PROTOCOL,
+      "Content-Type": "application/json",
+    };
+    const pairingRequest = await (await originalFetch(`${base}/pair/request`, {
+      method: "POST",
+      headers: protocolHeaders,
+      body: "{}",
+    })).json();
+    const session = await (await originalFetch(`${base}/pair/confirm`, {
+      method: "POST",
+      headers: protocolHeaders,
+      body: JSON.stringify({
+        pairingId: pairingRequest.pairingId,
+        code: pairingRequest.testCode,
+      }),
+    })).json();
+    const headers = {
+      ...protocolHeaders,
+      Authorization: `Bearer ${session.token}`,
+      "X-Bridge-CSRF": session.csrf,
+    };
+    const generate = (prompt, timeoutMs = 2_000) => {
+      const requestId = `stream-${crypto.randomUUID()}`;
+      return originalFetch(`${base}/generate`, {
+        method: "POST",
+        headers: { ...headers, "Idempotency-Key": requestId },
+        body: JSON.stringify({
+          requestId,
+          model: "qwen2.5:3b",
+          prompt,
+          taskType: "story.summary",
+          timeoutMs,
+        }),
+      }).then((response) => response.text());
+    };
+
+    const startedAt = performance.now();
+    const doneWithoutEof = await generate("done-without-eof");
+    assert.ok(performance.now() - startedAt < 1_000, "done:true must not wait for transport EOF");
+    assert.equal(upstreamCancelReason, "ollama-completed");
+    assert.match(doneWithoutEof, /完成即停止/u);
+    assert.equal(doneWithoutEof.match(/"type":"completed"/gu)?.length, 1);
+
+    const residualDone = await generate("done-in-residual");
+    assert.match(residualDone, /保留尾端字元/u);
+    assert.match(residualDone, /"evalCount":8/u);
+    assert.equal(residualDone.match(/"type":"completed"/gu)?.length, 1);
+
+    const truncated = await generate("truncated-before-done");
+    assert.match(truncated, /"type":"failed"/u);
+    assert.match(truncated, /"errorCode":"OLLAMA_STREAM_INTERRUPTED"/u);
+    assert.doesNotMatch(truncated, /"type":"completed"/u);
+
+    const malformedStartedAt = performance.now();
+    const malformed = await generate("malformed-without-eof");
+    assert.ok(performance.now() - malformedStartedAt < 1_000, "malformed NDJSON must not wait for transport EOF");
+    assert.equal(malformedCancelReason, "ollama-stream-aborted");
+    assert.match(malformed, /"type":"failed"/u);
+    assert.match(malformed, /"errorCode":"OLLAMA_INVALID_RESPONSE"/u);
+    assert.doesNotMatch(malformed, /"type":"completed"/u);
+  } finally {
+    await bridge.stop().catch(() => undefined);
+    globalThis.fetch = originalFetch;
+    await rm(runtimeDir, { recursive: true, force: true });
+  }
+});
+
 await test("Private Hub live generate path reuses only encrypted scoped cache", async () => {
   const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "novel-hub-cache-e2e-"));
   const port = 35_000 + Math.floor(Math.random() * 1_000);

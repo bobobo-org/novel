@@ -722,6 +722,11 @@ assert.equal(
   false,
   "the protected contract must describe facts as prose instead of short label-colon examples",
 );
+assert.match(
+  nearCapRepairSceneContract,
+  /每一句引號內台詞只能出現一次.*不同人物的措辭、句長與態度必須不同/u,
+  "the compact scene contract must prevent duplicated character voice before validation",
+);
 assert.ok(
   nearCapRepairSceneContract.length >= 1_450,
   "the repair budget fixture must exercise a legitimately dense compact contract",
@@ -748,6 +753,10 @@ assert.match(
   nearCapRepairPrompt,
   /每段只推進一個不同的新事件或後果.*不回述前文.*不重用段首、主要句式或對話意圖/u,
 );
+assert.match(
+  nearCapRepairPrompt,
+  /每一句引號內台詞只出現一次.*不同人物的措辭、句長與態度都不同/u,
+);
 assert.match(nearCapRepairPrompt, /回應第一個字必須是〈/u);
 assert.match(nearCapRepairPrompt, /從人物正在進行的動作或當下感官開始/u);
 assert.doesNotMatch(
@@ -765,6 +774,7 @@ let fullReviewPayload = null;
 let fullReviewRequest = null;
 const fullGenerationTaskIds = [];
 const reviewedModelDigest = "a".repeat(64);
+const fullFallbackProgress = [];
 const closedReviewResult = (request, candidateId, content = fullReviewedStory) => {
   const contentDigest = digestStory(content);
   return {
@@ -812,6 +822,7 @@ const fullReviewedCandidate = await generateRpgChatTurnCandidate({
   logicalTurnId: "logical-turn-fallback-review",
   generationDeadlineMs: 200,
   fallbackReviewDeadlineMs: 200,
+  onProgress: (event) => fullFallbackProgress.push(structuredClone(event)),
   coordinationDependencies: {
     now: () => fullClock,
     wait: async (delayMs) => { fullClock += delayMs; },
@@ -873,6 +884,15 @@ assert.equal(fullReviewedCandidate.model, "qwen-review-test");
 assert.equal(fullReviewedCandidate.actualExecutor, "local-ollama");
 assert.equal(fullClock, 0, "an explicitly timed-out generation must enter fallback review without an extra empty deadline wait");
 assert.equal(fullInvokerCalls, 2, "the flow must contain exactly one generation dispatch and one fallback-review dispatch");
+assert.deepEqual(fullFallbackProgress, [{
+  taskId: await rpgLogicalTurnFallbackReviewTaskId("logical-turn-fallback-review", 1),
+  phase: "probing",
+  label: "隱藏複核準備中",
+  percent: 0,
+  occurredAt: fullFallbackProgress[0]?.occurredAt,
+  generatedCharacters: 0,
+  generatedTokenEvents: 0,
+}], "fallback-review must expose a truthful preparation state before provider dispatch");
 assert.deepEqual(
   fullGenerationTaskIds,
   [await rpgLogicalTurnGenerationTaskId("logical-turn-fallback-review", 1)],
@@ -1016,6 +1036,27 @@ const continuityCandidate = await generateRpgChatTurnCandidate({
     },
     probeAvailability: async () => {
       continuityProbes += 1;
+      if (continuityProbes === 2) {
+        assert.ok(continuityFailure);
+        assert.deepEqual(
+          continuityProgress.at(-1),
+          {
+            taskId: await rpgLogicalTurnFallbackRepairTaskId(
+              "logical-turn-continuity-fallback-review",
+              continuityFailure.continuityFailures,
+              1,
+            ),
+            phase: "probing",
+            label: "隱藏複核準備中",
+            percent: 0,
+            occurredAt: continuityProgress.at(-1)?.occurredAt,
+            generatedCharacters: 0,
+            generatedTokenEvents: 0,
+          },
+          "hidden-review readiness must replace the stale 1126-character generation label before waiting",
+        );
+        return "loading";
+      }
       return "ready";
     },
     retryBackoffMs: 1,
@@ -1100,9 +1141,9 @@ assert.ok(continuityFailure?.continuityFailures?.includes("causality"));
 assert.ok(continuityFailure?.qualityReasonCodes?.includes("QUALITY_CONTEXT_ANCHOR_MISSING"));
 assert.ok(continuityFailure?.qualityReasonCodes?.includes("QUALITY_CONTINUITY_LOW"));
 assert.equal(continuityAttempt, 2, "the flow must dispatch one continuity-rejected generation and one bounded hidden continuity repair");
-assert.equal(continuityClock, 0, "a continuity rejection must enter independent repair without an empty deadline wait");
-assert.equal(continuityWaits, 0, "neither dispatched stage may enter readiness polling after completion");
-assert.equal(continuityProbes, 2, "generation and fallback repair each perform one pre-dispatch readiness check");
+assert.equal(continuityClock, 1, "the delayed repair readiness fixture must consume one bounded retry wait");
+assert.equal(continuityWaits, 1, "the hidden repair must remain in its truthful readiness state for one poll");
+assert.equal(continuityProbes, 3, "generation and the delayed fallback repair must use independent readiness checks");
 assert.deepEqual(
   continuityProgress.map((event) => ({
     label: event.label,
@@ -1110,6 +1151,7 @@ assert.deepEqual(
   })),
   [
     { label: "直接正文生成", generatedCharacters: 1_126 },
+    { label: "隱藏複核準備中", generatedCharacters: 0 },
     { label: "隱藏複核修正", generatedCharacters: 0 },
     { label: "隱藏複核修正", generatedCharacters: 87 },
   ],
@@ -1704,6 +1746,189 @@ assert.equal(dialogueLabelStyleGate.metrics.labelLineCount, 3);
 assert.ok(
   dialogueLabelStyleGate.failures.includes("report_style"),
   "three name-colon dialogue rows must remain rejected after prompt-only remediation",
+);
+
+const duplicatedVoiceStory = fullReviewedStory.replace(
+  "她沒有聲張，只把東側窄巷交給可信的人盯住。",
+  "她低聲說：「先守住出口，別讓任何人碰那本航簿。」隨即把東側窄巷交給可信的人盯住。",
+);
+const duplicatedVoiceFailure = (() => {
+  try {
+    validateRpgStoryTurnContract(duplicatedVoiceStory, "zh-TW");
+    return null;
+  } catch (error) {
+    return error;
+  }
+})();
+assert.equal(
+  duplicatedVoiceFailure?.message,
+  "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED",
+  "the production regression fixture must exercise the exact duplicated-dialogue leaf",
+);
+
+const reportStyleThenVoiceLogicalTurnId = "logical-turn-report-style-then-voice-repair";
+const reportStyleThenVoiceRequests = [];
+const reportStyleThenVoiceCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: reportStyleThenVoiceLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    reportStyleThenVoiceRequests.push(request);
+    if (reportStyleThenVoiceRequests.length === 1) {
+      throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+        code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+        continuityFailures: ["report_style"],
+      });
+    }
+    const content = reportStyleThenVoiceRequests.length === 2
+      ? duplicatedVoiceStory
+      : fullReviewedStory;
+    const result = closedReviewResult(
+      request,
+      `report-style-then-voice-${reportStyleThenVoiceRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected duplicated character voice"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+});
+assert.deepEqual(
+  reportStyleThenVoiceRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(reportStyleThenVoiceLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      reportStyleThenVoiceLogicalTurnId,
+      ["report_style"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      reportStyleThenVoiceLogicalTurnId,
+      ["report_style", "repetition"],
+      2,
+    ),
+  ],
+  "a report-style repair rejected for duplicated dialogue receives exactly one bounded content retry",
+);
+assert.match(
+  reportStyleThenVoiceRequests[1]?.input ?? "",
+  /每一句引號內台詞只能出現一次/u,
+);
+assert.match(
+  reportStyleThenVoiceRequests[2]?.input ?? "",
+  /每一句引號內台詞只出現一次.*不同人物的措辭、句長與態度都不同/u,
+);
+assert.equal(reportStyleThenVoiceCandidate.story, fullReviewedStory);
+assert.equal(
+  reportStyleThenVoiceCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+  2,
+  "the sealed receipt must bind the successful second content repair",
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({ candidate: reportStyleThenVoiceCandidate }),
+);
+
+let reportStyleThenNonVoiceDispatches = 0;
+const reportStyleThenNonVoiceFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-report-style-then-non-voice-stops",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async () => {
+    reportStyleThenNonVoiceDispatches += 1;
+    if (reportStyleThenNonVoiceDispatches === 1) {
+      throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+        code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+        continuityFailures: ["report_style"],
+      });
+    }
+    const tooShort = Object.assign(new Error("RPG_AI_CONTINUATION_TOO_SHORT"), {
+      code: "RPG_AI_CONTINUATION_TOO_SHORT",
+    });
+    throw Object.assign(new Error("local provider rejected short repair prose"), {
+      code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+      cause: tooShort,
+    });
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  reportStyleThenNonVoiceDispatches,
+  2,
+  "a non-repetition repair may not retry for an application leaf other than duplicated voice",
+);
+assert.equal(reportStyleThenNonVoiceFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  reportStyleThenNonVoiceFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_TOO_SHORT",
+);
+
+let reportStyleRepeatedVoiceDispatches = 0;
+const reportStyleRepeatedVoiceFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-report-style-voice-retry-stops-after-two-repairs",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    reportStyleRepeatedVoiceDispatches += 1;
+    if (reportStyleRepeatedVoiceDispatches === 1) {
+      throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+        code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+        continuityFailures: ["report_style"],
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      `report-style-repeated-voice-${reportStyleRepeatedVoiceDispatches}`,
+      duplicatedVoiceStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected duplicated character voice"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    throw new Error("expected duplicated character voice to remain rejected");
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  reportStyleRepeatedVoiceDispatches,
+  3,
+  "duplicated voice may authorize exactly one additional repair and never a third repair",
+);
+assert.equal(reportStyleRepeatedVoiceFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  reportStyleRepeatedVoiceFailure?.reviewFailureLeafCode,
+  "RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED",
 );
 
 const adaptiveReportStyleLogicalTurnId = "logical-turn-adaptive-report-style-repair";
