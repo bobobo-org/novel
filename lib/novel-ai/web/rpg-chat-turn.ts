@@ -4079,6 +4079,15 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   const foreshadowingNarrativeInstruction = rpgForeshadowingNarrativeInstruction(
     input.language ?? "zh-TW",
   ).trim();
+  const quoteSensoryForeshadowingRegressionInstruction = (() => {
+    if (input.language === "en") {
+      return "in the first two paragraphs, a character saw a strange mark on an existing object and heard its sound; its cause stayed unresolved; use balanced, unnested dialogue";
+    }
+    if (input.language === "zh-CN") {
+      return "首两段让人物看见现场既有物件的异样，也听见相连的声音；原因仍未解开；用完整配对且不嵌套的「」对话推动局势";
+    }
+    return "首兩段讓人物看見現場既有物件的異樣，也聽見相連的聲音；原因仍未解開；用完整配對且不巢狀的「」對話推動局勢";
+  })();
   const requirementLabels: Record<RpgContinuityRepairFailure, string> = {
     length: "不灌水、不重述，補足到契約規定的字數範圍",
     paragraphs: "依動作與反應的自然節奏寫足契約要求的完整段落",
@@ -4098,9 +4107,16 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
     serial_hook: "最後以本次行動造成的新危機、聲音或迫近事件形成自然鉤子",
     repetition: "每段只推進一個不同的新事件或後果，不回述前文，不重用段首、主要句式或對話意圖；每一句引號內台詞只出現一次，不同人物的措辭、句長與態度都不同",
   };
-  const repairLine = `這次重新寫成完整場景時，要特別做到${uniqueFailures.map((failure) => (
-    requirementLabels[failure]
-  )).join("；")}`;
+  const isQuoteSensoryForeshadowingRegressionRepair =
+    uniqueFailures.length === 3
+    && uniqueFailures.includes("dialogue")
+    && uniqueFailures.includes("sensory_detail")
+    && uniqueFailures.includes("foreshadowing");
+  const repairLine = `這次重新寫成完整場景時，要特別做到${
+    isQuoteSensoryForeshadowingRegressionRepair
+      ? quoteSensoryForeshadowingRegressionInstruction
+      : uniqueFailures.map((failure) => requirementLabels[failure]).join("；")
+  }`;
   const contractLines = input.sceneContract.split("\n");
   const contractEndIndex = contractLines.lastIndexOf("[/RPG_SCENE_CONTRACT_V2]");
   if (contractEndIndex < 0) {
@@ -4109,6 +4125,24 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
     });
   }
   contractLines.splice(contractEndIndex, 0, repairLine);
+  if (isQuoteSensoryForeshadowingRegressionRepair) {
+    const recentContextIndex = contractLines.findIndex((line) => (
+      line.startsWith("開場必須緊接這段最近的正式正文【")
+    ));
+    const recentContextMatch = recentContextIndex >= 0
+      ? contractLines[recentContextIndex]?.match(
+          /^(開場必須緊接這段最近的正式正文【)(.*)(】。)$/u,
+        )
+      : null;
+    if (recentContextMatch) {
+      // The first protected line already carries the exact eight-character
+      // continuity anchor. Preserve a generous recent tail while reserving
+      // room for the one provenance-bound regression guard below 1,600 chars.
+      contractLines[recentContextIndex] = `${recentContextMatch[1]}${
+        Array.from(recentContextMatch[2]).slice(-96).join("")
+      }${recentContextMatch[3]}`;
+    }
+  }
   let repairSceneContract = contractLines.join("\n");
   for (const optionalPrefix of [
     "本回合可使用的既有資產",
@@ -4737,6 +4771,10 @@ export async function generateRpgChatTurnCandidate(input: {
               )
               || (uiLabelTriggeredRepair && startedAsReportStyleRepair)
             );
+          const needsQuoteRepairSensoryRegressionGuard =
+            retryableForeshadowingRepair
+            && malformedDialogueQuoteTriggeredRepair
+            && startedAsDialogueQuoteRepair;
           const retryableStrictContentLeaf = uiLabelTriggeredRepair
             ? (
               startedAsReportStyleRepair
@@ -4757,10 +4795,16 @@ export async function generateRpgChatTurnCandidate(input: {
             && !retryableStrictContentLeaf
             && !retryableForeshadowingRepair
           ) return false;
-          pendingReviewRepairFailures = mergeRpgContinuityRepairFailures(
+          const mergedReviewRepairFailures = mergeRpgContinuityRepairFailures(
             initialReviewRepairFailures,
             applicationRepair.failures,
           );
+          pendingReviewRepairFailures = needsQuoteRepairSensoryRegressionGuard
+            ? mergeRpgContinuityRepairFailures(
+                mergedReviewRepairFailures,
+                ["sensory_detail"],
+              )
+            : mergedReviewRepairFailures;
           // A fresh readiness phase has no application-validation result yet.
           // Clear the rejected attempt now, before the next execute callback,
           // so a probe timeout cannot surface stale content diagnostics.

@@ -962,22 +962,26 @@ const languageAwareForeshadowingCases = [
     language: "zh-TW",
     expectedInstruction: /既有細節顯出異樣，原因仍未解開/u,
     foreignInstruction: /既有细节显出异样|An existing detail remains strange/u,
+    expectedRegressionInstruction: /首兩段讓人物看見現場既有物件的異樣，也聽見相連的聲音；原因仍未解開；用完整配對且不巢狀的「」對話推動局勢/u,
   },
   {
     language: "zh-CN",
     expectedInstruction: /既有细节显出异样，原因仍未解开/u,
     foreignInstruction: /既有細節顯出異樣|An existing detail remains strange/u,
+    expectedRegressionInstruction: /首两段让人物看见现场既有物件的异样，也听见相连的声音；原因仍未解开；用完整配对且不嵌套的「」对话推动局势/u,
   },
   {
     language: "en",
     expectedInstruction: /An existing detail remains strange and unresolved\./u,
     foreignInstruction: /既有細節顯出異樣|既有细节显出异样/u,
+    expectedRegressionInstruction: /a character saw a strange mark on an existing object and heard its sound; its cause stayed unresolved; use balanced, unnested dialogue/u,
   },
 ];
 for (const {
   language,
   expectedInstruction,
   foreignInstruction,
+  expectedRegressionInstruction,
 } of languageAwareForeshadowingCases) {
   const sceneContract = buildCompactRpgResolutionDirectorPrompt({
     context: nearCapRepairContext,
@@ -1002,9 +1006,9 @@ for (const {
     activeCharacterNames: ["甲".repeat(11)],
     language,
   });
-  const dialogueForeshadowingRepairPrompt = buildRpgFallbackContinuityRepairPrompt({
+  const dialogueSensoryForeshadowingRepairPrompt = buildRpgFallbackContinuityRepairPrompt({
     sceneContract,
-    failures: ["dialogue", "foreshadowing"],
+    failures: ["dialogue", "sensory_detail", "foreshadowing"],
     continuityExcerpt: "尾".repeat(180),
     activeCharacterNames: ["甲".repeat(11)],
     language,
@@ -1012,7 +1016,7 @@ for (const {
   assert.ok(sceneContract.length <= 1_600);
   assert.ok(repairPrompt.length <= 1_950);
   assert.ok(combinedRepairPrompt.length <= 1_950);
-  assert.ok(dialogueForeshadowingRepairPrompt.length <= 1_950);
+  assert.ok(dialogueSensoryForeshadowingRepairPrompt.length <= 1_950);
   assert.match(sceneContract, expectedInstruction);
   const repairRequirementLine = repairPrompt
     .split("\n")
@@ -1046,7 +1050,7 @@ for (const {
     foreignInstruction,
     `${language} combined repair must not mix another locale into the targeted line`,
   );
-  const dialogueForeshadowingSceneContract = dialogueForeshadowingRepairPrompt.match(
+  const dialogueForeshadowingSceneContract = dialogueSensoryForeshadowingRepairPrompt.match(
     /\[RPG_SCENE_CONTRACT_V2\][\s\S]*?\[\/RPG_SCENE_CONTRACT_V2\]/u,
   )?.[0];
   assert.ok(
@@ -1057,21 +1061,14 @@ for (const {
     dialogueForeshadowingSceneContract.length <= 1_600,
     `${language} dialogue plus foreshadowing contract must stay within the protected budget`,
   );
-  const dialogueForeshadowingRequirementLine = dialogueForeshadowingRepairPrompt
+  const dialogueForeshadowingRequirementLine = dialogueSensoryForeshadowingRepairPrompt
     .split("\n")
     .find((line) => line.startsWith("這次重新寫成完整場景時，要特別做到"));
   assert.ok(
     dialogueForeshadowingRequirementLine,
     `${language} dialogue plus foreshadowing requirement line must exist`,
   );
-  assert.match(dialogueForeshadowingRequirementLine, expectedInstruction);
-  assert.equal(
-    dialogueForeshadowingRequirementLine.match(
-      new RegExp(expectedInstruction.source, "gu"),
-    )?.length,
-    1,
-    `${language} dialogue repair must state its localized foreshadowing cue exactly once`,
-  );
+  assert.match(dialogueForeshadowingRequirementLine, expectedRegressionInstruction);
   assert.doesNotMatch(
     dialogueForeshadowingRequirementLine,
     foreignInstruction,
@@ -1161,6 +1158,19 @@ const fullReviewedStoryWithExplicitForeshadowingCue =
     "方向卻朝向封死的牆",
     "方向卻朝向封死的牆；鞋印邊緣顯出異樣，來源仍未解開",
   );
+const fullReviewedStoryWithoutSensoryOrForeshadowingSignals =
+  fullReviewedStoryWithoutForeshadowingSignals
+    .replaceAll("燈影", "燈位")
+    .replaceAll("看見", "注意到")
+    .replaceAll("藥香", "藥草味")
+    .replaceAll("聲音", "動靜")
+    .replaceAll("目光", "視線")
+    .replaceAll("泛白", "轉亮");
+assert.deepEqual(
+  productionContinuityGate(fullReviewedStoryWithoutSensoryOrForeshadowingSignals).failures,
+  ["sensory_detail", "foreshadowing"],
+  "the live regression fixture must isolate the exact final Production failure",
+);
 let fullClock = 0;
 let fullInvokerCalls = 0;
 let fullReviewPayload = null;
@@ -3077,7 +3087,7 @@ assert.deepEqual(
     ),
     await rpgLogicalTurnFallbackRepairTaskId(
       malformedQuoteThenForeshadowingLogicalTurnId,
-      ["dialogue", "foreshadowing"],
+      ["dialogue", "sensory_detail", "foreshadowing"],
       2,
     ),
   ],
@@ -3090,15 +3100,20 @@ for (const [index, request] of malformedQuoteThenForeshadowingRequests.slice(1).
     ?.split("\n")
     .find((line) => line.startsWith("這次重新寫成完整場景時，要特別做到"));
   assert.ok(requirementLine, `production quote repair ${index + 1} must have a requirement line`);
-  assert.match(
-    requirementLine,
-    /加入能改變局勢的完整「」對話/u,
-    "both quote repair prompts must retain the original quote failure target",
-  );
   if (index === 0) {
+    assert.match(
+      requirementLine,
+      /加入能改變局勢的完整「」對話/u,
+      "the first quote repair must target balanced dialogue",
+    );
     assert.doesNotMatch(requirementLine, /既有細節顯出異樣，原因仍未解開/u);
+    assert.doesNotMatch(requirementLine, /首兩段讓人物看見現場既有物件的異樣/u);
   } else {
-    assert.match(requirementLine, /既有細節顯出異樣，原因仍未解開/u);
+    assert.match(
+      requirementLine,
+      /首兩段讓人物看見現場既有物件的異樣，也聽見相連的聲音；原因仍未解開；用完整配對且不巢狀的「」對話推動局勢/u,
+      "the final bounded quote repair must protect early sensory detail from full-rewrite regression",
+    );
   }
   assert.doesNotMatch(
     request.input ?? "",
@@ -3152,6 +3167,72 @@ assert.equal(
   false,
   "the accepted candidate and receipt must not retain the rejected no-foreshadowing draft",
 );
+
+const malformedQuoteRegressionGuardFailureRequests = [];
+const malformedQuoteRegressionGuardFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-malformed-quote-regression-guard-remains-bounded",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    malformedQuoteRegressionGuardFailureRequests.push(request);
+    const content = malformedQuoteRegressionGuardFailureRequests.length === 1
+      ? malformedDialogueQuoteStory
+      : malformedQuoteRegressionGuardFailureRequests.length === 2
+        ? fullReviewedStoryWithoutForeshadowingSignals
+        : fullReviewedStoryWithoutSensoryOrForeshadowingSignals;
+    const result = closedReviewResult(
+      request,
+      `malformed-quote-regression-guard-${malformedQuoteRegressionGuardFailureRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected the bounded regression-guard candidate"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  malformedQuoteRegressionGuardFailureRequests.length,
+  3,
+  "the regression guard must reuse the last bounded repair and never create a third hidden repair",
+);
+assert.equal(
+  malformedQuoteRegressionGuardFailureRequests.at(-1)?.taskId,
+  await rpgLogicalTurnFallbackRepairTaskId(
+    "logical-turn-malformed-quote-regression-guard-remains-bounded",
+    ["dialogue", "sensory_detail", "foreshadowing"],
+    2,
+  ),
+);
+assert.equal(malformedQuoteRegressionGuardFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  malformedQuoteRegressionGuardFailure?.generationFailureLeafCode,
+  "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
+);
+assert.equal(
+  malformedQuoteRegressionGuardFailure?.reviewFailureLeafCode,
+  "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+);
+assert.deepEqual(
+  malformedQuoteRegressionGuardFailure?.reviewContinuityFailures,
+  ["sensory_detail", "foreshadowing"],
+);
+for (const forbiddenKey of ["candidateId", "story", "draft", "draftDigests"]) {
+  assert.equal(Object.hasOwn(malformedQuoteRegressionGuardFailure ?? {}, forbiddenKey), false);
+}
 
 const genericDialogueThenForeshadowingRequests = [];
 const genericDialogueThenForeshadowingFailure = await generateRpgChatTurnCandidate({
