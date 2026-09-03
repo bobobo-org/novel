@@ -89,7 +89,7 @@ export async function generateRpgChatTurnCandidateWithExternalCascade(input: {
 }): Promise<RpgChatTurnCandidate> {
   const closedInvoker = input.closedInvoker ?? generateRpgChatTurnCandidate;
   const invokeClosed = async (lineage: Awaited<ReturnType<typeof sealExternalRpgFailureLineage>>) => {
-    input.onCascadeProgress?.("外來 AI 未完成；閉端 AI 現在取得完整正文時限，必要時再進入獨立 360 秒隱藏複核。");
+    input.onCascadeProgress?.("外來 AI 未完成；閉端 AI 現在取得最長 360 秒完整正文時限，必要時再進入獨立 360 秒隱藏複核；只有白名單內的嚴格內容門檻要求安全修正重試時，才會再加最多 360 秒，而且只重試一次。");
     const candidate = await closedInvoker({
       snapshot: input.snapshot,
       choice: input.choice,

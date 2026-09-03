@@ -346,21 +346,31 @@ const boundedRepairError = Object.assign(new Error("RPG_AI_CONTINUATION_REPETITI
 });
 const boundedRepairAttempts = [];
 let boundedRepairProbes = 0;
+let boundedRepairNow = 0;
+let boundedRepairRetryRemainingMs = null;
 const boundedRepair = await runRpgClosedAIUntilDeadline({
   deadlineMs: 3_000,
   startAttempt: 4,
   maximumDispatches: 2,
-  retryAfterDispatch: ({ error }) => error === boundedRepairError,
+  retryDispatchDeadlineMs: 3_000,
+  retryAfterDispatch: ({ error, remainingMs }) => {
+    boundedRepairRetryRemainingMs = remainingMs;
+    return error === boundedRepairError;
+  },
   execute: async (attempt) => {
     boundedRepairAttempts.push(attempt);
-    if (attempt === 4) throw boundedRepairError;
+    if (attempt === 4) {
+      boundedRepairNow += 2_500;
+      throw boundedRepairError;
+    }
     return "strict-repetition-repair";
   },
   dependencies: {
-    now: () => 0,
+    now: () => boundedRepairNow,
     wait: async () => undefined,
     probeAvailability: async () => {
       boundedRepairProbes += 1;
+      if (boundedRepairProbes === 2) boundedRepairNow += 900;
       return "ready";
     },
     retryBackoffMs: 1,
@@ -370,6 +380,75 @@ assert.equal(boundedRepair.value, "strict-repetition-repair");
 assert.equal(boundedRepair.attempts, 5, "the receipt must bind the repair attempt that succeeded");
 assert.deepEqual(boundedRepairAttempts, [4, 5], "the opt-in repair retry must use a new deterministic attempt");
 assert.equal(boundedRepairProbes, 2, "each authorized dispatch must receive a fresh readiness probe");
+assert.equal(boundedRepairRetryRemainingMs, 500, "retry authorization must see the first dispatch's true remaining budget");
+assert.equal(boundedRepairNow, 3_400, "the second dispatch must receive a fresh bounded slot after authorization");
+
+let sharedRepairNow = 0;
+let sharedRepairProbes = 0;
+const sharedRepairAttempts = [];
+await assert.rejects(
+  () => runRpgClosedAIUntilDeadline({
+    deadlineMs: 3_000,
+    maximumDispatches: 2,
+    retryAfterDispatch: ({ error }) => error === boundedRepairError,
+    execute: async (attempt) => {
+      sharedRepairAttempts.push(attempt);
+      if (attempt === 1) {
+        sharedRepairNow += 2_500;
+        throw boundedRepairError;
+      }
+      return "must-not-dispatch-outside-shared-deadline";
+    },
+    dependencies: {
+      now: () => sharedRepairNow,
+      wait: async () => undefined,
+      probeAvailability: async () => {
+        sharedRepairProbes += 1;
+        if (sharedRepairProbes === 2) sharedRepairNow += 900;
+        return "ready";
+      },
+      retryBackoffMs: 1,
+    },
+  }),
+  (error) => error?.code === "RPG_STORY_AI_TIMEOUT",
+  "omitting retryDispatchDeadlineMs must preserve the original shared-deadline contract",
+);
+assert.deepEqual(sharedRepairAttempts, [1], "a shared deadline must not leak a second provider dispatch after expiry");
+assert.equal(sharedRepairProbes, 2, "an authorized retry still owns a fresh readiness diagnosis inside the shared deadline");
+
+let cappedRepairNow = 0;
+let cappedRepairProbes = 0;
+let cappedRepairDispatches = 0;
+await assert.rejects(
+  () => runRpgClosedAIUntilDeadline({
+    deadlineMs: 3_000,
+    maximumDispatches: 2,
+    retryDispatchDeadlineMs: 9_000,
+    retryAfterDispatch: ({ error }) => error === boundedRepairError,
+    execute: async () => {
+      cappedRepairDispatches += 1;
+      if (cappedRepairDispatches === 1) {
+        cappedRepairNow += 2_500;
+        throw boundedRepairError;
+      }
+      return "must-not-dispatch-while-retry-readiness-is-unavailable";
+    },
+    dependencies: {
+      now: () => cappedRepairNow,
+      wait: async (delayMs) => { cappedRepairNow += delayMs; },
+      probeAvailability: async () => {
+        cappedRepairProbes += 1;
+        return cappedRepairProbes === 1 ? "ready" : "unavailable";
+      },
+      retryBackoffMs: 1_000,
+    },
+  }),
+  (error) => error?.code === "RPG_STORY_AI_TIMEOUT",
+  "the fresh second-repair slot must enforce its own hard deadline",
+);
+assert.equal(cappedRepairNow, 5_500, "retryDispatchDeadlineMs must be capped at the original 3,000ms dispatch limit");
+assert.equal(cappedRepairDispatches, 1, "retry readiness exhaustion must not leak a second provider dispatch");
+assert.ok(cappedRepairProbes >= 2, "the fresh retry slot must own its readiness polling");
 
 const exhaustedRepairErrors = [
   boundedRepairError,
@@ -382,6 +461,7 @@ await assert.rejects(
   () => runRpgClosedAIUntilDeadline({
     deadlineMs: 3_000,
     maximumDispatches: 2,
+    retryDispatchDeadlineMs: 3_000,
     retryAfterDispatch: ({ error }) => error?.code === "RPG_AI_CONTINUATION_REPETITIVE",
     execute: async () => {
       const error = exhaustedRepairErrors[exhaustedRepairDispatches];
@@ -399,6 +479,36 @@ await assert.rejects(
   "a second strict repetition failure must remain fail-closed",
 );
 assert.equal(exhaustedRepairDispatches, 2, "the repair retry must be capped at two dispatches");
+
+const repairAbortController = new AbortController();
+const repairAbortReason = Object.assign(new Error("user stopped second repair"), {
+  code: "RPG_USER_ABORTED",
+});
+let repairAbortDispatches = 0;
+await assert.rejects(
+  () => runRpgClosedAIUntilDeadline({
+    deadlineMs: 3_000,
+    maximumDispatches: 2,
+    retryDispatchDeadlineMs: 3_000,
+    retryAfterDispatch: ({ error }) => error === boundedRepairError,
+    signal: repairAbortController.signal,
+    execute: async () => {
+      repairAbortDispatches += 1;
+      if (repairAbortDispatches === 1) throw boundedRepairError;
+      repairAbortController.abort(repairAbortReason);
+      throw new Error("the caller abort reason must win");
+    },
+    dependencies: {
+      now: () => 0,
+      wait: async () => undefined,
+      probeAvailability: async () => "ready",
+      retryBackoffMs: 1,
+    },
+  }),
+  (error) => error === repairAbortReason,
+  "a user abort during the second repair must escape unchanged",
+);
+assert.equal(repairAbortDispatches, 2, "user abort must not create a third repair dispatch");
 
 let nonRepetitionRepairDispatches = 0;
 const nonRepetitionRepairError = Object.assign(new Error("RPG_CHAT_TURN_PROOF_MISSING"), {
@@ -1786,20 +1896,29 @@ assert.equal(
 
 const malformedQuoteRepairLogicalTurnId = "logical-turn-malformed-quote-repair";
 const malformedQuoteRepairRequests = [];
+let malformedQuoteRepairClock = 0;
+let malformedQuoteRepairProbes = 0;
 const malformedQuoteRepairCandidate = await generateRpgChatTurnCandidate({
   snapshot: fullSnapshot,
   choice: fullChoice,
   logicalTurnId: malformedQuoteRepairLogicalTurnId,
   generationDeadlineMs: 100,
-  fallbackReviewDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 360_000,
   coordinationDependencies: {
-    now: () => 0,
+    now: () => malformedQuoteRepairClock,
     wait: async () => undefined,
-    probeAvailability: async () => "ready",
+    probeAvailability: async () => {
+      malformedQuoteRepairProbes += 1;
+      if (malformedQuoteRepairProbes === 3) malformedQuoteRepairClock += 90_000;
+      return "ready";
+    },
     retryBackoffMs: 1,
   },
   closedAIInvoker: async (request) => {
     malformedQuoteRepairRequests.push(request);
+    if (malformedQuoteRepairRequests.length === 2) {
+      malformedQuoteRepairClock += 299_000;
+    }
     const content = malformedQuoteRepairRequests.length <= 2
       ? malformedDialogueQuoteStory
       : fullReviewedStory;
@@ -1848,6 +1967,8 @@ for (const request of malformedQuoteRepairRequests.slice(1)) {
 }
 assert.equal(malformedQuoteRepairCandidate.story, fullReviewedStory);
 assert.equal(malformedQuoteRepairCandidate.canonicalMutationCount, 0);
+assert.equal(malformedQuoteRepairClock, 389_000, "repair attempt 2 must run inside its own bounded slot");
+assert.equal(malformedQuoteRepairProbes, 3, "generation and both repair dispatches must each probe readiness");
 assert.equal(
   malformedQuoteRepairCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
   2,
@@ -1871,20 +1992,29 @@ assert.ok(
 const repeatedMalformedQuoteLogicalTurnId =
   "logical-turn-malformed-quote-stops-after-two-repairs";
 const repeatedMalformedQuoteRequests = [];
+let repeatedMalformedQuoteClock = 0;
+let repeatedMalformedQuoteProbes = 0;
 const repeatedMalformedQuoteFailure = await generateRpgChatTurnCandidate({
   snapshot: fullSnapshot,
   choice: fullChoice,
   logicalTurnId: repeatedMalformedQuoteLogicalTurnId,
   generationDeadlineMs: 100,
-  fallbackReviewDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 360_000,
   coordinationDependencies: {
-    now: () => 0,
+    now: () => repeatedMalformedQuoteClock,
     wait: async () => undefined,
-    probeAvailability: async () => "ready",
+    probeAvailability: async () => {
+      repeatedMalformedQuoteProbes += 1;
+      if (repeatedMalformedQuoteProbes === 3) repeatedMalformedQuoteClock += 90_000;
+      return "ready";
+    },
     retryBackoffMs: 1,
   },
   closedAIInvoker: async (request) => {
     repeatedMalformedQuoteRequests.push(request);
+    if (repeatedMalformedQuoteRequests.length === 2) {
+      repeatedMalformedQuoteClock += 299_000;
+    }
     const result = closedReviewResult(
       request,
       `repeated-malformed-quote-${repeatedMalformedQuoteRequests.length}`,
@@ -1924,6 +2054,116 @@ assert.equal(
   "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
   "the terminal wrapper must preserve the strict malformed-quote leaf",
 );
+assert.equal(repeatedMalformedQuoteClock, 389_000, "the terminal second repair must also use the fresh bounded slot");
+assert.equal(repeatedMalformedQuoteProbes, 3, "a rejected second repair must not trigger a fourth readiness probe");
+assert.equal(Object.hasOwn(repeatedMalformedQuoteFailure ?? {}, "draftDigests"), false);
+assert.doesNotMatch(
+  JSON.stringify(repeatedMalformedQuoteFailure),
+  /先守住「出口」|internalDraft|規則草稿/u,
+  "terminal repair failure must not expose rejected prose or hidden drafts",
+);
+
+const timedOutMalformedQuoteLogicalTurnId =
+  "logical-turn-malformed-quote-second-repair-timeout";
+const timedOutMalformedQuoteRequests = [];
+let timedOutMalformedQuoteClock = 0;
+let timedOutMalformedQuoteProbes = 0;
+const timedOutMalformedQuoteFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: timedOutMalformedQuoteLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 360_000,
+  coordinationDependencies: {
+    now: () => timedOutMalformedQuoteClock,
+    wait: async (delayMs) => { timedOutMalformedQuoteClock += delayMs; },
+    probeAvailability: async () => {
+      timedOutMalformedQuoteProbes += 1;
+      return timedOutMalformedQuoteProbes <= 2 ? "ready" : "unavailable";
+    },
+    retryBackoffMs: 1_000,
+  },
+  closedAIInvoker: async (request) => {
+    timedOutMalformedQuoteRequests.push(request);
+    if (timedOutMalformedQuoteRequests.length === 2) {
+      timedOutMalformedQuoteClock += 299_000;
+    }
+    const result = closedReviewResult(
+      request,
+      `timed-out-malformed-quote-${timedOutMalformedQuoteRequests.length}`,
+      malformedDialogueQuoteStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected malformed dialogue quotes"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    throw new Error("expected malformed dialogue quotes to remain rejected");
+  },
+}).then(() => null, (error) => error);
+assert.equal(timedOutMalformedQuoteFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(timedOutMalformedQuoteFailure?.reviewFailureCode, "RPG_STORY_AI_TIMEOUT");
+assert.equal(
+  timedOutMalformedQuoteFailure?.reviewFailureLeafCode,
+  "RPG_STORY_AI_NOT_READY",
+  "a deadline wrapper must preserve the terminal readiness cause without weakening fail-closed behavior",
+);
+assert.equal(timedOutMalformedQuoteRequests.length, 2, "second-slot readiness timeout must not dispatch repair attempt 2");
+assert.equal(timedOutMalformedQuoteClock, 659_000, "the fresh second-repair slot must stop after its capped 360 seconds");
+for (const forbiddenKey of ["candidateId", "story", "draft", "draftDigests"]) {
+  assert.equal(Object.hasOwn(timedOutMalformedQuoteFailure ?? {}, forbiddenKey), false);
+}
+assert.doesNotMatch(
+  JSON.stringify(timedOutMalformedQuoteFailure),
+  /先守住「出口」|internalDraft|規則草稿/u,
+  "second-slot timeout must stay fail-closed without exposing prose or hidden drafts",
+);
+
+const fullRepairAbortController = new AbortController();
+const fullRepairAbortReason = Object.assign(new Error("user stopped full-flow repair 2"), {
+  code: "RPG_USER_ABORTED",
+});
+let fullRepairAbortRequests = 0;
+const fullRepairAbortFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-malformed-quote-second-repair-user-abort",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 360_000,
+  signal: fullRepairAbortController.signal,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    fullRepairAbortRequests += 1;
+    if (fullRepairAbortRequests === 3) {
+      fullRepairAbortController.abort(fullRepairAbortReason);
+      throw new Error("the full-flow caller abort reason must win");
+    }
+    const result = closedReviewResult(
+      request,
+      `full-repair-abort-${fullRepairAbortRequests}`,
+      malformedDialogueQuoteStory,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected malformed dialogue quotes"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    throw new Error("expected malformed dialogue quotes to remain rejected");
+  },
+}).then(() => null, (error) => error);
+assert.equal(fullRepairAbortFailure, fullRepairAbortReason, "full-flow repair 2 abort must escape without a fallback wrapper");
+assert.equal(fullRepairAbortRequests, 3, "full-flow abort must stop after generation and exactly two repair dispatches");
 
 const reportStyleThenVoiceLogicalTurnId = "logical-turn-report-style-then-voice-repair";
 const reportStyleThenVoiceRequests = [];

@@ -19,6 +19,7 @@ import {
   buildDeterministicRpgChatTurnCandidate,
   buildRpgRuleChoicePlan,
   loadRpgChatSnapshot,
+  RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS,
   RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
   RPG_CHAT_STORY_AI_TIMEOUT_MS,
   rpgChoiceRuleFallbackReason,
@@ -32,10 +33,20 @@ import { runStudioClosedAI } from "../lib/novel-ai/web/studio-closed-ai.ts";
 
 assert.equal(RPG_CHAT_STORY_AI_TIMEOUT_MS, 360_000);
 assert.equal(RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS, 360_000);
-const [rpgTurnSource, conversationRpgSource, rpgWorkspaceSource, closedAgentOsSource] = await Promise.all([
+assert.equal(RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS, 360_000);
+const [
+  rpgTurnSource,
+  conversationRpgSource,
+  rpgWorkspaceSource,
+  messageComposerSource,
+  externalCascadeSource,
+  closedAgentOsSource,
+] = await Promise.all([
   readFile(new URL("../lib/novel-ai/web/rpg-chat-turn.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/chat/hooks/use-conversation-rpg.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/studio/project/[projectId]/rpg/rpg-workspace.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/studio/project/[projectId]/chat/components/message-composer.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../lib/novel-ai/web/rpg-external-cascade.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/novel-ai/closed-agent-os/closed-agent-os.ts", import.meta.url), "utf8"),
 ]);
 assert.match(rpgTurnSource, /qualityMode: "fast"[\s\S]{0,120}browserComputePolicy: "quality-first"/u);
@@ -58,8 +69,10 @@ assert.match(
   "fresh A/B/C proof must reject cache hits and mismatched receipt or chapter identity",
 );
 assert.match(rpgTurnSource, /RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 360_000/u);
+assert.match(rpgTurnSource, /RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS = 360_000/u);
 assert.match(rpgTurnSource, /const generationDeadlineMs = Math\.max\([\s\S]{0,160}input\.generationDeadlineMs \?\? RPG_CHAT_STORY_AI_TIMEOUT_MS/u);
 assert.match(rpgTurnSource, /const reviewDeadlineMs = Math\.min\([\s\S]{0,220}input\.fallbackReviewDeadlineMs \?\? RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS/u);
+assert.match(rpgTurnSource, /retryDispatchDeadlineMs: repairRetryDeadlineMs/u);
 assert.match(rpgTurnSource, /actualExecutor === "deterministic-rule-fallback"[\s\S]{0,500}RPG_FALLBACK_CLOSED_REVIEW_REQUIRED/u);
 assert.doesNotMatch(rpgTurnSource, /remainingTotalDeadlineMs|RPG_STORY_AI_TOTAL_TIMEOUT/u);
 const userAbortGuard = rpgTurnSource.indexOf("if (input.signal?.aborted) throw error;");
@@ -73,12 +86,14 @@ assert.match(rpgTurnSource, /generationFailureLeafCode: safeRpgFailureLeafCode\(
 assert.match(conversationRpgSource, /safeErrorCode: rpgLeafErrorCode\(error\)/u);
 assert.match(closedAgentOsSource, /RPG_\[A-Z0-9_\]\{1,100\}/u);
 assert.match(closedAgentOsSource, /const message = cause instanceof Error \? cause\.message\.trim\(\) : ""/u);
-assert.match(conversationRpgSource, /正文階段最長 360 秒[\s\S]{0,150}追加最多 360 秒閉端獨立合成複核/u);
-assert.match(rpgWorkspaceSource, /正文階段最長等待 360 秒[\s\S]{0,150}追加最多 360 秒閉端獨立合成複核/u);
+assert.match(conversationRpgSource, /正文階段最長 360 秒[\s\S]{0,180}追加最多 360 秒閉端獨立合成複核[\s\S]{0,120}白名單內[\s\S]{0,80}安全修正重試[\s\S]{0,60}只重試一次/u);
+assert.match(rpgWorkspaceSource, /正文階段最長等待 360 秒[\s\S]{0,180}追加最多 360 秒閉端獨立合成複核[\s\S]{0,120}白名單內[\s\S]{0,80}安全修正重試[\s\S]{0,60}只重試一次/u);
+assert.match(messageComposerSource, /閉端 AI 正文最長 360 秒[\s\S]{0,100}隱藏複核則最多另加 360 秒[\s\S]{0,100}白名單內[\s\S]{0,100}只重試一次/u);
+assert.match(externalCascadeSource, /最長 360 秒完整正文時限[\s\S]{0,100}獨立 360 秒隱藏複核[\s\S]{0,100}白名單內[\s\S]{0,100}只重試一次/u);
 assert.match(
   rpgWorkspaceSource,
-  /RPG_TURN_TIMEOUT_MS = \([\s\S]{0,120}RPG_CHAT_STORY_AI_TIMEOUT_MS[\s\S]{0,80}RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS[\s\S]{0,80}RPG_TURN_COMPLETION_GRACE_MS/u,
-  "the workspace safety guard must include the independent 360-second generation and review deadlines",
+  /RPG_TURN_TIMEOUT_MS = \([\s\S]{0,120}RPG_CHAT_STORY_AI_TIMEOUT_MS[\s\S]{0,80}RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS[\s\S]{0,80}RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS[\s\S]{0,80}RPG_TURN_COMPLETION_GRACE_MS/u,
+  "the workspace safety guard must include generation, review, and the one bounded repair-retry deadline",
 );
 assert.doesNotMatch(rpgWorkspaceSource, /300_000|超過 300 秒/u);
 

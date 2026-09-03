@@ -1121,7 +1121,7 @@ export function useConversationRpgController({
           if (!candidate) {
             onRpgGenerationStarted();
             if (executionSourceSnapshot.externalSelected) {
-              setProgress("已依本次單次同意優先交由指定外來 AI 產生完整小說正文；失敗後才啟動閉端 AI 的獨立 360 秒，必要時再追加最多 360 秒隱藏後備複核。");
+              setProgress("已依本次單次同意優先交由指定外來 AI 產生完整小說正文；失敗後才啟動閉端 AI 的獨立 360 秒，必要時再追加最多 360 秒隱藏後備複核；只有白名單內的嚴格內容門檻要求安全修正重試時，才會再加最多 360 秒，而且只重試一次。");
               const { generateRpgChatTurnCandidateWithExternalCascade } = await import("@/lib/novel-ai/web/rpg-external-cascade");
               assertRpgRuntimeLoadActive(input.signal);
               candidate = await generateRpgChatTurnCandidateWithExternalCascade({
@@ -1138,11 +1138,11 @@ export function useConversationRpgController({
                   ? invocation.executionReceipt?.providerRunId ?? undefined
                   : undefined),
                 signal: input.signal,
-                onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 閉端正文階段最長 360 秒；若進入隱藏後備複核，最多另加 360 秒`),
+                onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 閉端正文階段最長 360 秒；若進入隱藏後備複核，最多另加 360 秒；只有白名單內的嚴格內容門檻要求安全修正重試時，才會再加最多 360 秒，而且只重試一次`),
                 onCascadeProgress: setProgress,
               });
             } else {
-              setProgress("閉端 AI 正在依你選定的 A／B／C 分支產生完整小說正文；CPU 小模型會分段補完，正文階段最長 360 秒。若仍無有效正文，才會在背景建立三份不可見草稿，並追加最多 360 秒閉端獨立合成複核；複核通過才會顯示候選。");
+              setProgress("閉端 AI 正在依你選定的 A／B／C 分支產生完整小說正文；CPU 小模型會分段補完，正文階段最長 360 秒。若仍無有效正文，才會在背景建立三份不可見草稿，並追加最多 360 秒閉端獨立合成複核；只有白名單內的嚴格內容門檻要求安全修正重試時，才會再加最多 360 秒，而且只重試一次。複核通過才會顯示候選。");
               candidate = await rpgRuntime.generateRpgChatTurnCandidate({
                 snapshot,
                 choice: input.choice,
@@ -1151,7 +1151,7 @@ export function useConversationRpgController({
                   ? invocation.executionReceipt?.providerRunId ?? undefined
                   : undefined),
                 signal: input.signal,
-                onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 正文階段最長 360 秒；若進入隱藏後備複核，最多另加 360 秒`),
+                onProgress: (event) => setProgress(`${rpgProgressLabel(event)} · 正文階段最長 360 秒；若進入隱藏後備複核，最多另加 360 秒；只有白名單內的嚴格內容門檻要求安全修正重試時，才會再加最多 360 秒，而且只重試一次`),
               });
             }
           } else {

@@ -294,11 +294,11 @@ export function MessageComposer({
               </label>
               <p className={styles.externalBoundary} role="status">
                 {!externalExecutionEnabled
-                  ? "公開外來 AI 執行尚未開放，內容不會送出；RPG 會留下未外送紀錄後改由閉端 AI 最長 360 秒處理，一般要求則停止。"
+                  ? "公開外來 AI 執行尚未開放，內容不會送出；RPG 會留下未外送紀錄後改由閉端 AI 正文最長 360 秒處理；若需隱藏複核則最多另加 360 秒，只有白名單內的嚴格內容門檻要求安全修正重試時才會再加最多 360 秒，而且只重試一次。一般要求則停止。"
                   : externalProviderStatusError
                   ?? (externalProviderConfigured
-                    ? "接點已設定；RPG 會優先使用這個外來 AI。若呼叫失敗或正文無效，才交給閉端 AI 最長 360 秒，必要時再進入獨立 360 秒隱藏複核。"
-                    : "此供應商尚未在伺服器設定；RPG 會留下未外送的真實失敗紀錄，再交給閉端 AI 最長 360 秒。瀏覽器不會顯示或保存 API 金鑰。")}
+                    ? "接點已設定；RPG 會優先使用這個外來 AI。若呼叫失敗或正文無效，才交給閉端 AI 正文最長 360 秒；若需隱藏複核則最多另加 360 秒，只有白名單內的嚴格內容門檻要求安全修正重試時才會再加最多 360 秒，而且只重試一次。"
+                    : "此供應商尚未在伺服器設定；RPG 會留下未外送的真實失敗紀錄，再交給閉端 AI 正文最長 360 秒；若需隱藏複核則最多另加 360 秒，只有白名單內的嚴格內容門檻要求安全修正重試時才會再加最多 360 秒，而且只重試一次。瀏覽器不會顯示或保存 API 金鑰。")}
               </p>
               <label className={styles.externalConsent}>
                 <input

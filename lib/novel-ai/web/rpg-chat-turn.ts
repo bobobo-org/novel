@@ -140,6 +140,7 @@ export const RPG_CHAT_TURN_SCHEMA_VERSION = "rpg-chat-turn-v1" as const;
 export const RPG_CHAT_CHOICE_AI_TIMEOUT_MS = 180_000;
 export const RPG_CHAT_STORY_AI_TIMEOUT_MS = 360_000;
 export const RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS = 360_000;
+export const RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS = 360_000;
 export const RPG_CHAT_STORY_AI_RETRY_BACKOFF_MS = 750;
 export const RPG_SHARED_LEARNING_SYNC_WAIT_MS = 350;
 export const RPG_SUBSTANTIVE_SCENE_ATTEMPT_SEED_LANE_WIDTH = 3 * 104_729;
@@ -436,8 +437,10 @@ function waitForRpgClosedAIRetry(delayMs: number, signal?: AbortSignal) {
  * Keeps readiness polling and closed-model dispatch inside one caller-owned
  * deadline. Loading/unknown/unavailable states never create a provider task.
  * The default remains exactly one request. A caller may explicitly authorize
- * one additional dispatch for a narrowly classified application rejection;
- * both requests still share the original deadline and strict validators.
+ * one additional dispatch for a narrowly classified application rejection.
+ * Retries share the original deadline unless the caller explicitly grants a
+ * fresh, no-longer-than-original dispatch deadline. Strict validators remain
+ * unchanged either way.
  */
 export async function runRpgClosedAIUntilDeadline<T>(input: {
   execute: (attempt: number, signal: AbortSignal) => Promise<T>;
@@ -446,6 +449,11 @@ export async function runRpgClosedAIUntilDeadline<T>(input: {
   startAttempt?: number;
   /** Defaults to one. Only a reviewed repair path may explicitly authorize two. */
   maximumDispatches?: 1 | 2;
+  /**
+   * Optional fresh deadline for the one explicitly authorized second dispatch.
+   * It is capped at deadlineMs; omission preserves the shared-deadline default.
+   */
+  retryDispatchDeadlineMs?: number;
   retryAfterDispatch?: (event: {
     attempt: number;
     remainingMs: number;
@@ -471,7 +479,11 @@ export async function runRpgClosedAIUntilDeadline<T>(input: {
     input.dependencies?.retryBackoffMs ?? RPG_CHAT_STORY_AI_RETRY_BACKOFF_MS,
   );
   const deadlineMs = Math.max(1, input.deadlineMs ?? RPG_CHAT_STORY_AI_TIMEOUT_MS);
-  const startedAt = now();
+  const retryDispatchDeadlineMs = input.retryDispatchDeadlineMs === undefined
+    ? null
+    : Math.min(deadlineMs, Math.max(1, input.retryDispatchDeadlineMs));
+  let activeDeadlineMs = deadlineMs;
+  let activeDeadlineStartedAt = now();
   const startAttempt = input.startAttempt ?? 1;
   if (!Number.isSafeInteger(startAttempt) || startAttempt < 1 || startAttempt > 1_000_000) {
     throw Object.assign(new Error("Invalid RPG closed-AI retry attempt."), {
@@ -487,7 +499,7 @@ export async function runRpgClosedAIUntilDeadline<T>(input: {
   let attempt = startAttempt;
   let poll = 0;
   let lastError: unknown = null;
-  const remaining = () => deadlineMs - (now() - startedAt);
+  const remaining = () => activeDeadlineMs - (now() - activeDeadlineStartedAt);
   const waitForNextProbe = async (
     availability: PreCreationProviderAvailability,
     error: unknown,
@@ -568,6 +580,10 @@ export async function runRpgClosedAIUntilDeadline<T>(input: {
       lastError = null;
       attempt += 1;
       poll = 0;
+      if (retryDispatchDeadlineMs !== null) {
+        activeDeadlineMs = retryDispatchDeadlineMs;
+        activeDeadlineStartedAt = now();
+      }
     }
   }
 }
@@ -4232,7 +4248,7 @@ export async function generateRpgChatTurnCandidate(input: {
   coordinationDependencies?: RpgClosedAIDeadlineDependencies;
   /** Complete deadline reserved for closed-AI story generation. Defaults to 360 seconds. */
   generationDeadlineMs?: number;
-  /** Independent hidden fallback-review deadline. Defaults to 360 seconds. */
+  /** Deadline for the first hidden fallback-review dispatch. Defaults to 360 seconds. */
   fallbackReviewDeadlineMs?: number;
   /** Explicit, scope-bound adult structural request. Never inferred from adultMode alone. */
   adultNarrativeRuntime?: Omit<
@@ -4472,7 +4488,7 @@ export async function generateRpgChatTurnCandidate(input: {
           // supplement pass and then crosses the RPG application validator
           // before persistence. Running the generic balanced pipeline would
           // ask a CPU-bound local model for a second complete 900+ character
-          // scene and exceed this turn's explicit 360-second deadline.
+          // scene and exceed this generation dispatch's explicit 360-second deadline.
           qualityMode: "fast",
           browserComputePolicy: "quality-first",
           applicationValidationBindingDigest,
@@ -4659,6 +4675,10 @@ export async function generateRpgChatTurnCandidate(input: {
           input.fallbackReviewDeadlineMs ?? RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
         ),
       );
+      const repairRetryDeadlineMs = Math.min(
+        RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS,
+        reviewDeadlineMs,
+      );
       let pendingReviewRepairFailures: RpgContinuityRepairFailure[] | null = null;
       const reviewed = await runRpgClosedAIUntilDeadline({
         deadlineMs: reviewDeadlineMs,
@@ -4669,6 +4689,7 @@ export async function generateRpgChatTurnCandidate(input: {
           && fallbackReviewStartAttempt % 2 === 1
             ? 2
             : 1,
+        retryDispatchDeadlineMs: repairRetryDeadlineMs,
         retryAfterDispatch: ({ error }) => {
           if (!initialReviewRepairFailures?.length) return false;
           const applicationRepair = rpgGenerationApplicationRepair(error);
@@ -4771,9 +4792,10 @@ export async function generateRpgChatTurnCandidate(input: {
             sourceChapterId: input.snapshot.chapter.id,
             sourceRevision: input.snapshot.chapter.revision,
             // The hidden-draft path still requires a verified closed-model
-            // rewrite and the identical RPG application validator. Keep it to
-            // one bounded quality pipeline so the review deadline is
-            // truthful instead of starting an impossible second full rewrite.
+            // rewrite and the identical RPG application validator. Each
+            // authorized dispatch stays inside one bounded quality pipeline;
+            // the coordinator alone may grant the one separately capped
+            // strict-content repair dispatch.
             qualityMode: "fast",
             browserComputePolicy: "quality-first",
             ephemeralPrompt: true,

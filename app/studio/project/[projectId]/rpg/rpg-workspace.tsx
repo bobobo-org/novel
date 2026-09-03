@@ -96,6 +96,7 @@ import {
   generateRpgChatTurnCandidate,
   loadRpgChatSnapshot,
   planRpgChatChoices,
+  RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS,
   RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS,
   RPG_CHAT_STORY_AI_TIMEOUT_MS,
   type RpgChatChoicePlan,
@@ -167,6 +168,7 @@ const RPG_TURN_COMPLETION_GRACE_MS = 5_000;
 const RPG_TURN_TIMEOUT_MS = (
   RPG_CHAT_STORY_AI_TIMEOUT_MS
   + RPG_CHAT_FALLBACK_REVIEW_TIMEOUT_MS
+  + RPG_CHAT_FALLBACK_REPAIR_RETRY_TIMEOUT_MS
   + RPG_TURN_COMPLETION_GRACE_MS
 );
 
@@ -1028,7 +1030,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
     setTurnDraft("");
     setTurnElapsedSeconds(0);
     setBusy(true);
-    setStatus(`已選擇「${choice.key}｜${choice.title}」；閉端 AI 正文階段最長等待 360 秒。若仍無有效正文，才會建立三份不可見後備草稿，並追加最多 360 秒閉端獨立合成複核；正式 Canon 尚未修改。`);
+    setStatus(`已選擇「${choice.key}｜${choice.title}」；閉端 AI 正文階段最長等待 360 秒。若仍無有效正文，才會建立三份不可見後備草稿，並追加最多 360 秒閉端獨立合成複核；只有白名單內的嚴格內容門檻要求安全修正重試時，才會再追加最多 360 秒，而且只重試一次。正式 Canon 尚未修改。`);
     try {
       const repository = createNovelRepository();
       const snapshot = await loadRpgChatSnapshot(repository, projectId, rules, learningRepository);
@@ -1050,14 +1052,14 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
           onProgress: (event) => {
             if (controller.signal.aborted || turnRunIdRef.current !== runId) return;
             const generated = event.generatedCharacters ?? 0;
-            setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}；正文階段最長 360 秒；若進入隱藏後備複核，最多另加 360 秒。尚未寫入 Canon。`);
+            setStatus(`${event.label}${generated > 0 ? ` · 已產生 ${generated} 字` : ""}；正文階段最長 360 秒；若進入隱藏後備複核，最多另加 360 秒；只有白名單內的嚴格內容門檻要求安全修正重試時，才會再加最多 360 秒，而且只重試一次。尚未寫入 Canon。`);
           },
         }),
         new Promise<never>((_resolve, reject) => {
           turnTimeout = window.setTimeout(() => {
             controller.abort();
             reject(Object.assign(
-              new Error("閉端 AI 正文 360 秒與後備獨立合成複核 360 秒均未完成；已安全停止，正文與所有數值均維持原狀。"),
+              new Error("閉端 AI 正文 360 秒、後備獨立合成複核 360 秒，以及白名單內嚴格內容門檻的唯一一次安全修正重試 360 秒均未完成；已安全停止，正文與所有數值均維持原狀。"),
               { code: "RPG_AI_TURN_TIMEOUT" },
             ));
           }, RPG_TURN_TIMEOUT_MS);
@@ -1668,7 +1670,7 @@ export default function RpgWorkspace({ projectId }: { projectId: string }) {
                       <p className={styles.resolutionProgress} role="status" aria-live="polite" data-testid="rpg-resolution-progress">
                         <b>正在產生或提交本回合</b>
                         <span>{status}</span>
-                        <small>已等待 {turnElapsedSeconds} 秒；正文階段最長保留 360 秒，之後若進入不可見後備獨立合成複核，最多另加 360 秒。候選完成前不會修改正文或數值。</small>
+                        <small>已等待 {turnElapsedSeconds} 秒；正文階段最長保留 360 秒，之後若進入不可見後備獨立合成複核，最多另加 360 秒；只有白名單內的嚴格內容門檻要求安全修正重試時，才會再加最多 360 秒，而且只重試一次。候選完成前不會修改正文或數值。</small>
                       </p>
                     ) : null}
                     {turnDraft ? (
