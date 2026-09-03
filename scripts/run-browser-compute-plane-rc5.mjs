@@ -11154,11 +11154,13 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.equal(LOCAL_SUBSTANTIVE_SCENE_MAXIMUM_CHARACTERS, 1_450);
   const reportStyleInstructionBait = /(?:分析報告|工程報告|檢核|驗收|欄位|格式要求|狀態面板|工程說明|清單|行動建議|場景資訊|角色資料)/u;
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /回應第一個字是〈/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /標題不計入正文段數/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /「……」某某說道、問道或答道/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, /每句台詞只出現一次.*不同人物不用同一措辭、句長或態度/u);
   assert.doesNotMatch(LOCAL_SUBSTANTIVE_SCENE_SYSTEM_INSTRUCTION, reportStyleInstructionBait);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /未核准的故事資料/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /合併全文/u);
+  assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /總段落只計正文，獨立標題不計/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /不得在補寫重新執行/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /每個新增段落只推進一個不同的新事件或後果/u);
   assert.match(LOCAL_SUBSTANTIVE_SCENE_SUPPLEMENT_SYSTEM_INSTRUCTION, /完整「」台詞/u);
@@ -11199,6 +11201,76 @@ test("studio-automatic-closed-compute-coordinator", async () => {
     { length: 8 },
     (_, index) => `第${index + 1}段人物採取行動，阻力隨即改變現場，也留下必須處理的後果。`,
   ).join("\n\n");
+  const providerBoundaryParagraphs = Array.from(
+    { length: 16 },
+    (_, index) => `第${index + 1}段守夜人移動封燈，雨聲隨即改變。林澄記下新的方位，也留下必須追查的後果。`,
+  );
+  const providerTitledSevenParagraphScene = [
+    "〈封燈雨痕〉",
+    ...providerBoundaryParagraphs.slice(0, 7),
+  ].join("\n\n");
+  const providerTitledSevenMetrics = measureSubstantiveScene(
+    providerTitledSevenParagraphScene,
+  );
+  assert.equal(
+    providerTitledSevenMetrics.paragraphCount,
+    7,
+    "the local provider must exclude only the standalone title from its narrative paragraph metric",
+  );
+  assert.equal(
+    localSubstantiveSceneRequiresSupplement({
+      metrics: providerTitledSevenMetrics,
+      minimumCharacters: 0,
+    }),
+    true,
+    "a title plus seven body paragraphs must still request a structural supplement",
+  );
+  const providerTitledEightMetrics = measureSubstantiveScene([
+    "〈封燈雨痕〉",
+    ...providerBoundaryParagraphs.slice(0, 8),
+  ].join("\n\n"));
+  assert.equal(providerTitledEightMetrics.paragraphCount, 8);
+  assert.equal(
+    localSubstantiveSceneRequiresSupplement({
+      metrics: providerTitledEightMetrics,
+      minimumCharacters: 0,
+    }),
+    false,
+    "a title plus eight substantive body paragraphs must satisfy the structural provider floor",
+  );
+  assert.equal(
+    measureSubstantiveScene([
+      "〈封燈雨痕〉",
+      ...providerBoundaryParagraphs,
+    ].join("\n\n")).paragraphCount,
+    16,
+    "the local provider must accept the same title plus sixteen-body upper boundary as the application gate",
+  );
+  assert.equal(
+    measureSubstantiveScene(providerBoundaryParagraphs.join("\n\n")).paragraphCount,
+    16,
+    "untitled provider metrics must preserve their previous paragraph count",
+  );
+  assert.equal(
+    measureSubstantiveScene([
+      `〈封燈雨痕〉${providerBoundaryParagraphs[0]}`,
+      ...providerBoundaryParagraphs.slice(1),
+    ].join("\n\n")).paragraphCount,
+    16,
+    "a title sharing a paragraph with prose must not receive the standalone-title exemption",
+  );
+  const providerMergedSevenParagraphScene = mergeSubstantiveSceneContinuation(
+    providerTitledSevenParagraphScene,
+    "廊下傳來腳步聲，林澄抬手示警。門縫滲進冷風，燈芯向東伏低。遠處有人敲了三下木魚，眾人立刻轉向。",
+  );
+  assert.ok(
+    measureSubstantiveScene(providerMergedSevenParagraphScene).paragraphCount >= 8,
+    "provider supplement merging must add body paragraphs instead of inlining behind a miscounted title",
+  );
+  assert.ok(
+    providerMergedSevenParagraphScene.startsWith(providerTitledSevenParagraphScene),
+    "provider supplementation must preserve the original title and body bytes",
+  );
   const protectedContract = "[RPG_SCENE_CONTRACT_V2]\n選擇:A｜鎖定結果:成功｜角色:沈曜、守塔人｜Canon:星燈只能在雨夜補充\n[/RPG_SCENE_CONTRACT_V2]";
   const continuationPlan = buildSubstantiveSceneContinuationPrompt(
     shortScene,
@@ -11211,6 +11283,7 @@ test("studio-automatic-closed-compute-coordinator", async () => {
   assert.match(continuationPlan.prompt, /選擇:A/u);
   assert.match(continuationPlan.prompt, /場景契約約束既有候選與補寫合併後的全文/u);
   assert.match(continuationPlan.prompt, /首段、全文字數與總段落不必在本次補寫重新完成/u);
+  assert.match(continuationPlan.prompt, /總段落只計正文，獨立標題不計/u);
   assert.match(continuationPlan.prompt, /每個新增段落只推進一個不同的新事件或後果/u);
   assert.match(continuationPlan.prompt, /不得另起開場、回述、摘要或重複既有內容/u);
   assert.match(continuationPlan.prompt, /任一完整「」台詞/u);

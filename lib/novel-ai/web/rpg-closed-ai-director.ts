@@ -650,10 +650,15 @@ export function validateRpgStoryTurnContract(
     throw new Error("RPG_AI_CONTINUATION_CHARACTER_VOICE_DUPLICATED");
   }
   const narrativeLength = value.replace(/\s+/gu, "").length;
-  const paragraphCount = value
+  const paragraphs = value
     .split(/\n+/u)
     .map((paragraph) => paragraph.trim())
-    .filter(Boolean).length;
+    .filter(Boolean);
+  // The director contract asks for one standalone literary title followed by
+  // 8–16 narrative paragraphs. The title is presentation metadata, not a
+  // narrative paragraph, so it must not consume the sixteenth body slot.
+  const hasStandaloneTitle = /^〈[^〈〉\n]{1,80}〉$/u.test(paragraphs[0] ?? "");
+  const paragraphCount = paragraphs.length - (hasStandaloneTitle ? 1 : 0);
   const sentenceCount = language === "en"
     ? value.match(/[.!?](?:\s|$)/gu)?.length ?? 0
     : value.match(/[。！？!?]/gu)?.length ?? 0;
@@ -722,12 +727,12 @@ export function buildRpgResolutionDirectorPrompt(input: {
       "不同人物必須有不同措辭、句長、態度與談判方式；禁止兩人說出相同台詞，也禁止使用『我可以和你同行，但不是照單全收』之類可任意套人的模板句。",
       "語氣要像作者在寫一場獨特的戲：每段都應承接前一個動作或反應，讓至少一個具體物件、身體細節或說話停頓承載潛台詞。不要用抽象名詞替代事件，不要把資料改寫成完整句後逐欄朗讀，也不要以同一句型換名字重播。",
       "所有組織、資產與契約資料都要改寫成現場可見的行動或物件反應；禁止出現『企業集團某某持有』『拍攝時程：由……』『工作合約：由……』等資料表式句子。",
-      "小說標題後使用 8 到 16 個完整小說段落；不要另加分節標題、編號或小標，避免把同一段拆成只有一句的碎片。",
+      "小說標題另列一行且不計入正文段數；標題後使用 8 到 16 個完整小說段落。不要另加分節標題、編號或小標，避免把同一段拆成只有一句的碎片。",
       "結果必須符合 lockedResolution，不能改成功或失敗，也不能自創能力值、貨幣或物品數字。至少引入一個由本次選擇造成、下回合可處理的新局勢。",
       "故事要推進到需要玩家決定的自然停頓點，以門被推開、證據被交出、人物要求回答或迫近事件等具體畫面收尾；不要寫『下一回合』『下一輪』『等待下一步』等介面語句，不要替玩家列出 A／B／C，也不要把未選方案、數值結算或系統文字寫進正文。",
       input.language === "en"
-        ? "Write 1,100 to 2,200 characters. After the literary title, use 8 to 16 substantial story paragraphs with no extra headings; let paragraph length and rhythm follow the scene instead of a fixed template."
-        : "正文需有 900 至 1,600 個中文字。小說標題後寫 8 至 16 個完整小說段落，不加分節標題；段落長短要跟著動作、對話與情緒自然變化，不得用固定十段填格。",
+        ? "Write 1,100 to 2,200 characters. Put the literary title on its own line and do not count it as a story paragraph. After it, use 8 to 16 substantial story paragraphs with no extra headings; let paragraph length and rhythm follow the scene instead of a fixed template."
+        : "正文需有 900 至 1,600 個中文字。小說標題另列一行且不計入正文段數；標題後寫 8 至 16 個完整小說段落，不加分節標題；段落長短要跟著動作、對話與情緒自然變化，不得用固定十段填格。",
       input.language === "en"
         ? "Across the scene, make the chosen action land, meet concrete resistance, pay an irreversible cost, produce the locked result, change at least one relationship or condition, and reach a genuine decision point. Do not print this plan or force one beat into each paragraph."
         : "整場戲必須讓選定行動真正落地、遇到具體阻力、付出不可逆代價、產生鎖定結果，並改變至少一項人物關係或環境條件，最後抵達自然決策點；不可把每個節拍機械地各塞成一段。",
@@ -915,7 +920,7 @@ export function buildCompactRpgResolutionDirectorPrompt(input: {
     : "首段須承接「最近正式正文尾」的兩個具體錨點與緊接動作。";
   const protectedLines = [
     "[RPG_SCENE_CONTRACT_V2]",
-    `全文使用${outputLanguage}。回應第一字須為〈；只輸出〈具體標題〉與正文；1100–1500 字、8–16 段、至少 12 句。${openingContinuityInstruction}`,
+    `全文使用${outputLanguage}。回應第一字須為〈；只輸出〈具體標題〉與正文；標題另列且不計段數，正文 1100–1500 字、8–16 段、至少 12 句。${openingContinuityInstruction}`,
     `行動須落地、受阻、付代價並形成鎖定結果；須有三個動作、具名說話的「」對話、兩種感官與因果。${rpgForeshadowingNarrativeInstruction(input.language)}最後以新危機或聲音收尾。${supportingCharacterInstruction}`,
     "只能用下文已有的人物、能力、時代、物件、所有權與 Canon；不足時採普通行動、求助或失敗。對話寫「……」某某說道、問道或答道；引號閉合，內引『』。每句台詞只出現一次；不同人物的措辭、句長與態度不同。每段只寫故事內正在發生的事，無故事外文字。",
     `本回合綁定 ${compactRpgPromptField(choice.key, 8)}《${compactRpgPromptField(choice.title, 32)}》，只供行動；正文與人物台詞不得照抄或念出代號、標題或畫面文字。具體行動是${compactRpgPromptField(choice.description, 42)}；眼前阻力為${compactRpgPromptField(storySignals.complication, 28)}；必須付出的代價為${compactRpgPromptField(choice.consequenceTeaser, 28)}。`,

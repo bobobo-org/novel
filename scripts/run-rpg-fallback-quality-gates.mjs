@@ -26,6 +26,8 @@ import {
 } from "../lib/novel-ai/game/progression/rpg-progression.ts";
 import {
   buildCompactRpgResolutionDirectorPrompt,
+  buildRpgResolutionDirectorPrompt,
+  cleanRpgContinuation,
   validateRpgContinuationNovelty,
   validateRpgStoryTurnContract,
 } from "../lib/novel-ai/web/rpg-closed-ai-director.ts";
@@ -51,6 +53,133 @@ const paragraphs = [
   "天色泛白以前，眾人把三段彼此衝突的證詞排回同一條時間線。沒有人因此洗清嫌疑，但失竊、改簿與假封條終於不再是三件偶然。林澄把東巷的守衛撤回一半，帶著蘇錦魚沿新查出的搬運路追去。雨已經停了，屋簷下那串新鞋印仍清楚指向河岸，遠處第一艘渡船正要離岸。",
 ];
 const validStory = ["〈雨夜封條〉", ...paragraphs].join("\n\n");
+const splitFirstSentence = (paragraph) => {
+  const boundary = paragraph.search(/[。！？!?]/u);
+  assert.notEqual(boundary, -1, "paragraph fixture must contain a sentence boundary");
+  return [paragraph.slice(0, boundary + 1), paragraph.slice(boundary + 1).trim()];
+};
+const sixteenNarrativeParagraphs = paragraphs.flatMap((paragraph, index) => (
+  index < 6 ? splitFirstSentence(paragraph) : [paragraph]
+));
+assert.equal(sixteenNarrativeParagraphs.length, 16, "boundary fixture must contain sixteen narrative paragraphs");
+const titledSixteenParagraphStory = ["〈雨夜封條〉", ...sixteenNarrativeParagraphs].join("\n\n");
+const titledSixteenParagraphStoryBeforeValidation = `${titledSixteenParagraphStory}`;
+const titledSixteenParagraphContract = validateRpgStoryTurnContract(
+  titledSixteenParagraphStory,
+  "zh-TW",
+);
+assert.equal(
+  titledSixteenParagraphContract.paragraphCount,
+  16,
+  "a standalone literary title must not consume one of the sixteen narrative paragraph slots",
+);
+assert.equal(
+  titledSixteenParagraphStory,
+  titledSixteenParagraphStoryBeforeValidation,
+  "paragraph validation must not rewrite a title or any story byte",
+);
+assert.equal(
+  await cleanRpgContinuation(titledSixteenParagraphStory, [], "zh-TW"),
+  titledSixteenParagraphStory,
+  "the production cleaning path must preserve a valid title plus sixteen body paragraphs byte-for-byte",
+);
+assert.equal(
+  validateRpgStoryTurnContract(sixteenNarrativeParagraphs.join("\n\n"), "zh-TW").paragraphCount,
+  16,
+  "an untitled sixteen-paragraph story must retain the same narrative paragraph contract",
+);
+const eightNarrativeParagraphs = [
+  ...paragraphs.slice(0, 7),
+  paragraphs.slice(7).join(" "),
+];
+const sevenNarrativeParagraphs = [
+  ...paragraphs.slice(0, 6),
+  paragraphs.slice(6).join(" "),
+];
+assert.equal(
+  validateRpgStoryTurnContract(["〈雨夜封條〉", ...eightNarrativeParagraphs].join("\n\n"), "zh-TW").paragraphCount,
+  8,
+  "a standalone title plus eight narrative paragraphs must pass at the lower boundary",
+);
+assert.equal(
+  validateRpgStoryTurnContract(eightNarrativeParagraphs.join("\n\n"), "zh-TW").paragraphCount,
+  8,
+  "an untitled eight-paragraph story must retain the old lower-bound behavior",
+);
+const seventeenthNarrativeParagraph = "河堤另一端忽然亮起不屬於渡船的白燈，三短一長，像有人隔著晨霧回覆那張被換過的封條。";
+const titledSeventeenParagraphStory = [
+  "〈雨夜封條〉",
+  ...sixteenNarrativeParagraphs,
+  seventeenthNarrativeParagraph,
+].join("\n\n");
+let titledSeventeenParagraphFailure = null;
+try {
+  validateRpgStoryTurnContract(titledSeventeenParagraphStory, "zh-TW");
+} catch (error) {
+  titledSeventeenParagraphFailure = error;
+}
+assert.equal(titledSeventeenParagraphFailure?.code, "RPG_AI_CONTINUATION_TOO_LONG");
+assert.equal(titledSeventeenParagraphFailure?.paragraphCount, 17);
+assert.ok(
+  titledSeventeenParagraphFailure?.narrativeLength <= titledSeventeenParagraphFailure?.maximumLength,
+  "the seventeen-paragraph boundary fixture must fail on paragraph count rather than character length",
+);
+let titledSevenParagraphFailure = null;
+try {
+  validateRpgStoryTurnContract(["〈雨夜封條〉", ...sevenNarrativeParagraphs].join("\n\n"), "zh-TW");
+} catch (error) {
+  titledSevenParagraphFailure = error;
+}
+assert.equal(titledSevenParagraphFailure?.code, "RPG_AI_CONTINUATION_TOO_SHORT");
+assert.equal(titledSevenParagraphFailure?.paragraphCount, 7);
+let untitledSevenParagraphFailure = null;
+try {
+  validateRpgStoryTurnContract(sevenNarrativeParagraphs.join("\n\n"), "zh-TW");
+} catch (error) {
+  untitledSevenParagraphFailure = error;
+}
+assert.equal(untitledSevenParagraphFailure?.code, "RPG_AI_CONTINUATION_TOO_SHORT");
+assert.equal(untitledSevenParagraphFailure?.paragraphCount, 7);
+let untitledSeventeenParagraphFailure = null;
+try {
+  validateRpgStoryTurnContract([
+    ...sixteenNarrativeParagraphs,
+    seventeenthNarrativeParagraph,
+  ].join("\n\n"), "zh-TW");
+} catch (error) {
+  untitledSeventeenParagraphFailure = error;
+}
+assert.equal(untitledSeventeenParagraphFailure?.code, "RPG_AI_CONTINUATION_TOO_LONG");
+assert.equal(untitledSeventeenParagraphFailure?.paragraphCount, 17);
+const inlineTitleStory = [`〈雨夜封條〉${paragraphs[0]}`, ...paragraphs.slice(1)].join("\n\n");
+assert.equal(
+  validateRpgStoryTurnContract(inlineTitleStory, "zh-TW").paragraphCount,
+  10,
+  "a title sharing its paragraph with prose must remain part of the narrative count",
+);
+const incompleteTitleStory = ["〈雨夜封條", ...paragraphs].join("\n\n");
+assert.equal(
+  validateRpgStoryTurnContract(incompleteTitleStory, "zh-TW").paragraphCount,
+  11,
+  "an incomplete title must not receive the standalone-title exemption",
+);
+const secondParagraphTitleStory = [paragraphs[0], "〈雨夜封條〉", ...paragraphs.slice(1)].join("\n\n");
+assert.equal(
+  validateRpgStoryTurnContract(secondParagraphTitleStory, "zh-TW").paragraphCount,
+  11,
+  "only the first standalone paragraph may be recognized as the literary title",
+);
+assert.throws(
+  () => validateRpgStoryTurnContract(
+    titledSixteenParagraphStory.replace(
+      sixteenNarrativeParagraphs[13],
+      sixteenNarrativeParagraphs[12],
+    ),
+    "zh-TW",
+  ),
+  /RPG_AI_CONTINUATION_INTERNAL_PARAGRAPH_LOOP/u,
+  "title-aware counting must not bypass the paragraph repetition gate",
+);
 const digestStory = (story) => createHash("sha256").update(story.normalize("NFKC")).digest("hex");
 const FALLBACK_SYNTHESIS_MARKER = "[RPG_FALLBACK_INDEPENDENT_SYNTHESIS_V1]";
 const isFallbackSynthesisPrompt = (value) => (
@@ -888,7 +1017,28 @@ const nearCapRepairSceneContract = buildCompactRpgResolutionDirectorPrompt({
     settlement: ["結".repeat(30), "算".repeat(30), "果".repeat(30)],
   },
 });
+const fullParagraphContractPrompt = JSON.parse(buildRpgResolutionDirectorPrompt({
+  context: nearCapRepairContext,
+  choice: fullChoice,
+  language: "zh-TW",
+  resolution: {
+    outcomeLabel: "取得封條線索",
+    roll: 61,
+    successChance: 72,
+    settlement: ["保住證物", "暴露東巷退路"],
+  },
+}));
+assert.match(
+  fullParagraphContractPrompt.instruction,
+  /小說標題另列一行且不計入正文段數；標題後使用 8 到 16 個完整小說段落/u,
+  "the full director prompt must use the same title-excluded paragraph contract as validation",
+);
 assert.match(nearCapRepairSceneContract, /回應第一字須為〈/u);
+assert.match(
+  nearCapRepairSceneContract,
+  /標題另列且不計段數，正文 1100–1500 字、8–16 段/u,
+  "the compact director prompt must use the same title-excluded paragraph contract as validation",
+);
 assert.doesNotMatch(
   nearCapRepairSceneContract,
   /(?:分析報告|工程報告|檢核|驗收|欄位|格式要求|狀態面板|工程說明|清單|行動建議|場景資訊|角色資料)/u,
