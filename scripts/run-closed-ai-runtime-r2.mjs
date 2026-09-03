@@ -40,6 +40,7 @@ import {
   probeLocalOllama,
 } from "../lib/novel-ai/providers/local-ollama/local-ollama-provider.ts";
 import {
+  LOCAL_AI_COMPANION_RELEASE,
   evaluateLocalAIRuntimeVersion,
   PASSWORDLESS_LOCAL_AI_ORIGINS,
 } from "../lib/novel-ai/providers/local-ollama/companion-release.ts";
@@ -897,7 +898,7 @@ test("automatic-local-connection", "official origin connects without password or
     if (pathname === "/health") {
       return Response.json({
         bridgeProcessAlive: true,
-        bridgeVersion: "1.2.0-origin-auto-connect",
+        bridgeVersion: LOCAL_AI_COMPANION_RELEASE.recommendedBridgeVersion,
         protocolVersion: LOCAL_BRIDGE_PROTOCOL,
         instanceId: reportedInstanceId,
         automaticSessionSupported: true,
