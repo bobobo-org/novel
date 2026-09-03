@@ -95,6 +95,7 @@ import {
   cleanRpgContinuation,
   mergeRpgChoiceDirection,
   parseRpgChoiceDirectorOutput,
+  rpgForeshadowingNarrativeInstruction,
   rpgTextSimilarity,
   toRpgReaderSafePromptPayload,
   validateRpgContinuationNovelty,
@@ -4058,6 +4059,7 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   failures: readonly RpgContinuityRepairFailure[];
   continuityExcerpt: string;
   activeCharacterNames: readonly string[];
+  language?: StoryOutputLanguage;
 }) {
   const uniqueFailures = [...new Set(input.failures)];
   if (!uniqueFailures.length || uniqueFailures.some((failure) => (
@@ -4074,6 +4076,9 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
     ?? "主角";
   const activeCharacter = activeCharacterSource.replace(/[「」『』《》]/gu, "").trim()
     || "主角";
+  const foreshadowingNarrativeInstruction = rpgForeshadowingNarrativeInstruction(
+    input.language ?? "zh-TW",
+  ).trim();
   const requirementLabels: Record<RpgContinuityRepairFailure, string> = {
     length: "不灌水、不重述，補足到契約規定的字數範圍",
     paragraphs: "依動作與反應的自然節奏寫足契約要求的完整段落",
@@ -4087,9 +4092,9 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
     narrative_scene: "用至少兩個符合當下世界的具體環境細節建立場景",
     action_progression: "讓人物完成至少三個符合當下情境、真正改變局勢的具體動作",
     sensory_detail: "加入至少兩種與現場物件相連的具體感官",
-    report_style: "每一段都直接呈現人物動作、具名對話或現場感官；故事外不加前言、結語或寫作解釋；正文與人物台詞不得照抄或念出代號、標題或畫面文字；每個「都必須在同一段對應一個」，不得巢狀使用「」，對話內引用名稱改用『』",
+    report_style: "只寫動作、具名對話或感官；無前言解釋，不抄代號、標題或畫面字；「」同段配對、不巢狀，內引『』",
     causality: "用自然因果連接選定行動、阻力、代價與鎖定結果",
-    foreshadowing: "以現場可觀察的異樣或未解事物留下伏筆",
+    foreshadowing: foreshadowingNarrativeInstruction,
     serial_hook: "最後以本次行動造成的新危機、聲音或迫近事件形成自然鉤子",
     repetition: "每段只推進一個不同的新事件或後果，不回述前文，不重用段首、主要句式或對話意圖；每一句引號內台詞只出現一次，不同人物的措辭、句長與態度都不同",
   };
@@ -4126,7 +4131,7 @@ export function buildRpgFallbackContinuityRepairPrompt(input: {
   const prompt = [
     "[RPG_FALLBACK_CONTINUITY_REPAIR_V1]",
     "請依下方已有情節重新寫出一個完整場景。回應第一個字必須是〈，接著只寫一個具體標題與連續的小說段落。",
-    "從人物正在進行的動作或當下感官開始，讓所有約束只影響故事如何發生；成稿不提及這些內部文字，也不加故事外的前言或結語。",
+    "從動作或感官開場；只寫故事內發生的事，不提內部文字、前言或結語。",
     repairSceneContract,
     "[/RPG_FALLBACK_CONTINUITY_REPAIR_V1]",
   ].join("\n");
@@ -4383,7 +4388,9 @@ export async function generateRpgChatTurnCandidate(input: {
   // Each explicit author attempt owns two non-overlapping fallback slots: the
   // odd slot is the primary review/repair and the following even slot is the
   // single bounded strict-content retry. It is used only for the explicit
-  // repetition/character-voice/dialogue-quote leaves below. A later author
+  // repetition/character-voice/dialogue-quote leaves and the exact singleton
+  // foreshadowing continuity miss below, including one exposed by a quote
+  // repair. A later author
   // retry therefore cannot reuse a failed internal repair task id.
   const fallbackReviewStartAttempt = resumeClosedReview
     ? logicalAttempt
@@ -4707,12 +4714,29 @@ export async function generateRpgChatTurnCandidate(input: {
           const startedAsReportStyleRepair =
             initialReviewRepairFailures.length === 1
             && initialReviewRepairFailures[0] === "report_style";
+          const startedAsForeshadowingRepair =
+            initialReviewRepairFailures.length === 1
+            && initialReviewRepairFailures[0] === "foreshadowing";
           const retryableRepetitionRepair =
             startedAsRepetitionRepair
             && applicationRepair.failureCode
               !== "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE";
           const uiLabelTriggeredRepair =
             triggerReason === "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE";
+          const malformedDialogueQuoteTriggeredRepair =
+            triggerReason === "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES";
+          const retryableForeshadowingRepair =
+            applicationRepair.failureCode === "RPG_NOVEL_CONTINUITY_GATE_FAILED"
+            && applicationRepair.failures.length === 1
+            && applicationRepair.failures[0] === "foreshadowing"
+            && (
+              startedAsForeshadowingRepair
+              || (
+                malformedDialogueQuoteTriggeredRepair
+                && startedAsDialogueQuoteRepair
+              )
+              || (uiLabelTriggeredRepair && startedAsReportStyleRepair)
+            );
           const retryableStrictContentLeaf = uiLabelTriggeredRepair
             ? (
               startedAsReportStyleRepair
@@ -4731,6 +4755,7 @@ export async function generateRpgChatTurnCandidate(input: {
           if (
             !retryableRepetitionRepair
             && !retryableStrictContentLeaf
+            && !retryableForeshadowingRepair
           ) return false;
           pendingReviewRepairFailures = mergeRpgContinuityRepairFailures(
             initialReviewRepairFailures,
@@ -4756,6 +4781,7 @@ export async function generateRpgChatTurnCandidate(input: {
                 failures: effectiveRepairFailures,
                 continuityExcerpt: fallbackReviewContinuityTexts.at(-1) ?? "",
                 activeCharacterNames: rpgCandidateActiveCharacterNames(input.snapshot),
+                language: input.snapshot.language,
               })
             : buildRpgFallbackReviewPrompt({
                 sceneContract: baseDirectorPrompt,

@@ -95,6 +95,40 @@ const assertChineseDelimitersBalancedByLine = (text, label) => {
 };
 validateRpgStoryTurnContract(validStory, "zh-TW");
 
+const storyWithoutForeshadowingSignals = validStory
+  .replace("三次交貨的先後記號", "三次交貨的先後次序")
+  .replace("接應者卻比約定少了一人", "接應者卻比原先安排少了一人");
+const productionContinuityGate = (prose) => evaluateNovelContinuityGate({
+  prose,
+  language: "zh-TW",
+  minimumHanCharacters: 760,
+  minimumCharacters: 900,
+  minimumParagraphs: 8,
+  minimumDialogueCount: 1,
+  activeCharacterNames: ["林澄"],
+  requireForeshadowing: true,
+  requireSerialHook: true,
+});
+const missingForeshadowingGate = productionContinuityGate(
+  storyWithoutForeshadowingSignals,
+);
+assert.deepEqual(
+  missingForeshadowingGate.failures,
+  ["foreshadowing"],
+  "the application gate must remain fail-closed when every accepted foreshadowing cue is absent",
+);
+const explicitForeshadowingGate = productionContinuityGate(
+  storyWithoutForeshadowingSignals.replace(
+    "方向卻朝向封死的牆",
+    "方向卻朝向封死的牆；鞋印邊緣顯出異樣，來源仍未解開",
+  ),
+);
+assert.equal(
+  explicitForeshadowingGate.passed,
+  true,
+  `an explicit narrative foreshadowing cue must pass every unchanged application gate: ${explicitForeshadowingGate.failures.join(",")}`,
+);
+
 const nearRestatementStory = Array.from({ length: 18 }, (_, index) => (
   `林澄推開側門後握住冰冷封條，聽見門外腳步逼近，因此把第${String.fromCharCode(65 + index)}份證詞移到火光下，逐字核對墨痕並轉身警告守門人不要放走送件者。`
 )).join("\n\n");
@@ -870,8 +904,13 @@ assert.equal(
 );
 assert.match(
   nearCapRepairSceneContract,
-  /每一句引號內台詞只能出現一次.*不同人物的措辭、句長與態度必須不同/u,
+  /每句台詞只出現一次.*不同人物的措辭、句長與態度不同/u,
   "the compact scene contract must prevent duplicated character voice before validation",
+);
+assert.match(
+  nearCapRepairSceneContract,
+  /既有細節顯出異樣，原因仍未解開/u,
+  "the compact scene contract must teach the exact natural cue required by the unchanged foreshadowing gate",
 );
 assert.match(
   nearCapRepairSceneContract,
@@ -909,13 +948,140 @@ assert.match(
   /每一句引號內台詞只出現一次.*不同人物的措辭、句長與態度都不同/u,
 );
 assert.match(nearCapRepairPrompt, /回應第一個字必須是〈/u);
-assert.match(nearCapRepairPrompt, /從人物正在進行的動作或當下感官開始/u);
+assert.match(nearCapRepairPrompt, /從動作或感官開場/u);
+assert.match(nearCapRepairPrompt, /既有細節顯出異樣，原因仍未解開/u);
 assert.doesNotMatch(
   nearCapRepairPrompt,
   /(?:分析報告|工程報告|檢核|驗收|欄位|格式要求|狀態面板|工程說明|清單|行動建議|場景資訊|角色資料)/u,
 );
 assert.doesNotMatch(nearCapRepairPrompt, /正文須有10個空行分隔段落/u);
 assert.doesNotMatch(nearCapRepairPrompt, /門外突然傳來聲音/u);
+
+const languageAwareForeshadowingCases = [
+  {
+    language: "zh-TW",
+    expectedInstruction: /既有細節顯出異樣，原因仍未解開/u,
+    foreignInstruction: /既有细节显出异样|An existing detail remains strange/u,
+  },
+  {
+    language: "zh-CN",
+    expectedInstruction: /既有细节显出异样，原因仍未解开/u,
+    foreignInstruction: /既有細節顯出異樣|An existing detail remains strange/u,
+  },
+  {
+    language: "en",
+    expectedInstruction: /An existing detail remains strange and unresolved\./u,
+    foreignInstruction: /既有細節顯出異樣|既有细节显出异样/u,
+  },
+];
+for (const {
+  language,
+  expectedInstruction,
+  foreignInstruction,
+} of languageAwareForeshadowingCases) {
+  const sceneContract = buildCompactRpgResolutionDirectorPrompt({
+    context: nearCapRepairContext,
+    choice: fullChoice,
+    language,
+    resolution: {
+      outcomeLabel: "成".repeat(32),
+      settlement: ["結".repeat(30), "算".repeat(30), "果".repeat(30)],
+    },
+  });
+  const repairPrompt = buildRpgFallbackContinuityRepairPrompt({
+    sceneContract,
+    failures: ["foreshadowing"],
+    continuityExcerpt: "尾".repeat(180),
+    activeCharacterNames: ["甲".repeat(11)],
+    language,
+  });
+  const combinedRepairPrompt = buildRpgFallbackContinuityRepairPrompt({
+    sceneContract,
+    failures: ["report_style", "foreshadowing"],
+    continuityExcerpt: "尾".repeat(180),
+    activeCharacterNames: ["甲".repeat(11)],
+    language,
+  });
+  const dialogueForeshadowingRepairPrompt = buildRpgFallbackContinuityRepairPrompt({
+    sceneContract,
+    failures: ["dialogue", "foreshadowing"],
+    continuityExcerpt: "尾".repeat(180),
+    activeCharacterNames: ["甲".repeat(11)],
+    language,
+  });
+  assert.ok(sceneContract.length <= 1_600);
+  assert.ok(repairPrompt.length <= 1_950);
+  assert.ok(combinedRepairPrompt.length <= 1_950);
+  assert.ok(dialogueForeshadowingRepairPrompt.length <= 1_950);
+  assert.match(sceneContract, expectedInstruction);
+  const repairRequirementLine = repairPrompt
+    .split("\n")
+    .find((line) => line.startsWith("這次重新寫成完整場景時，要特別做到"));
+  assert.ok(repairRequirementLine, `${language} repair requirement line must exist`);
+  assert.match(
+    repairRequirementLine,
+    expectedInstruction,
+    `${language} targeted foreshadowing requirement must carry the natural cue`,
+  );
+  const combinedSceneContract = combinedRepairPrompt.match(
+    /\[RPG_SCENE_CONTRACT_V2\][\s\S]*?\[\/RPG_SCENE_CONTRACT_V2\]/u,
+  )?.[0];
+  assert.ok(combinedSceneContract, `${language} combined repair contract must exist`);
+  assert.ok(
+    combinedSceneContract.length <= 1_600,
+    `${language} report-style plus foreshadowing contract must stay within the protected budget`,
+  );
+  const combinedRequirementLine = combinedRepairPrompt
+    .split("\n")
+    .find((line) => line.startsWith("這次重新寫成完整場景時，要特別做到"));
+  assert.ok(combinedRequirementLine, `${language} combined repair requirement line must exist`);
+  assert.match(combinedRequirementLine, expectedInstruction);
+  assert.equal(
+    combinedRequirementLine.match(new RegExp(expectedInstruction.source, "gu"))?.length,
+    1,
+    `${language} combined repair must state its localized foreshadowing cue exactly once`,
+  );
+  assert.doesNotMatch(
+    combinedRequirementLine,
+    foreignInstruction,
+    `${language} combined repair must not mix another locale into the targeted line`,
+  );
+  const dialogueForeshadowingSceneContract = dialogueForeshadowingRepairPrompt.match(
+    /\[RPG_SCENE_CONTRACT_V2\][\s\S]*?\[\/RPG_SCENE_CONTRACT_V2\]/u,
+  )?.[0];
+  assert.ok(
+    dialogueForeshadowingSceneContract,
+    `${language} dialogue plus foreshadowing repair contract must exist`,
+  );
+  assert.ok(
+    dialogueForeshadowingSceneContract.length <= 1_600,
+    `${language} dialogue plus foreshadowing contract must stay within the protected budget`,
+  );
+  const dialogueForeshadowingRequirementLine = dialogueForeshadowingRepairPrompt
+    .split("\n")
+    .find((line) => line.startsWith("這次重新寫成完整場景時，要特別做到"));
+  assert.ok(
+    dialogueForeshadowingRequirementLine,
+    `${language} dialogue plus foreshadowing requirement line must exist`,
+  );
+  assert.match(dialogueForeshadowingRequirementLine, expectedInstruction);
+  assert.equal(
+    dialogueForeshadowingRequirementLine.match(
+      new RegExp(expectedInstruction.source, "gu"),
+    )?.length,
+    1,
+    `${language} dialogue repair must state its localized foreshadowing cue exactly once`,
+  );
+  assert.doesNotMatch(
+    dialogueForeshadowingRequirementLine,
+    foreignInstruction,
+    `${language} dialogue repair must not mix another locale into the targeted line`,
+  );
+  assertChineseDelimitersBalancedByLine(
+    repairPrompt,
+    `${language} foreshadowing repair prompt`,
+  );
+}
 
 const quoteTailAnchor = "最後錨點仍在石門旁";
 const quoteBoundaryRepairChoice = {
@@ -987,6 +1153,14 @@ assertChineseDelimitersBalancedByLine(
 const fullReviewedStory = validStory
   .replace("林澄沿泥痕", `林澄決定${fullChoice.title}，沿泥痕`)
   .replace("雨已經停了", "失敗的換封伎倆雖已拆穿，眾人仍付出代價。雨已經停了");
+const fullReviewedStoryWithoutForeshadowingSignals = fullReviewedStory
+  .replace("三次交貨的先後記號", "三次交貨的先後次序")
+  .replace("接應者卻比約定少了一人", "接應者卻比原先安排少了一人");
+const fullReviewedStoryWithExplicitForeshadowingCue =
+  fullReviewedStoryWithoutForeshadowingSignals.replace(
+    "方向卻朝向封死的牆",
+    "方向卻朝向封死的牆；鞋印邊緣顯出異樣，來源仍未解開",
+  );
 let fullClock = 0;
 let fullInvokerCalls = 0;
 let fullReviewPayload = null;
@@ -1035,6 +1209,175 @@ const closedReviewResult = (request, candidateId, content = fullReviewedStory) =
     cache: { candidateHit: false, planHit: false, bypassReason: null },
   };
 };
+
+const foreshadowingRepairLogicalTurnId = "logical-turn-foreshadowing-repair";
+const foreshadowingRepairRequests = [];
+const foreshadowingAcceptedContents = [];
+const foreshadowingRepairCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: foreshadowingRepairLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    foreshadowingRepairRequests.push(request);
+    const content = foreshadowingRepairRequests.length <= 2
+      ? fullReviewedStoryWithoutForeshadowingSignals
+      : fullReviewedStoryWithExplicitForeshadowingCue;
+    const result = closedReviewResult(
+      request,
+      `foreshadowing-repair-${foreshadowingRepairRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected prose without a detectable foreshadowing cue"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    foreshadowingAcceptedContents.push(content);
+    return result;
+  },
+});
+assert.deepEqual(
+  foreshadowingRepairRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(foreshadowingRepairLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      foreshadowingRepairLogicalTurnId,
+      ["foreshadowing"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      foreshadowingRepairLogicalTurnId,
+      ["foreshadowing"],
+      2,
+    ),
+  ],
+  "one exact repeated foreshadowing miss may use only the existing bounded repair slot",
+);
+for (const request of foreshadowingRepairRequests.slice(1)) {
+  assert.match(request.taskId, /fallback-repair:quality-1000:attempt-[12]$/u);
+  assert.match(request.input ?? "", /既有細節顯出異樣，原因仍未解開/u);
+  assert.ok((request.input?.length ?? Infinity) <= 1_950);
+  assert.doesNotMatch(
+    request.input ?? "",
+    /三次交貨的先後次序|比原先安排少了一人/u,
+    "rejected prose must not enter a foreshadowing repair prompt",
+  );
+}
+assert.deepEqual(
+  foreshadowingAcceptedContents,
+  [fullReviewedStoryWithExplicitForeshadowingCue],
+);
+assert.equal(
+  foreshadowingRepairCandidate.story,
+  fullReviewedStoryWithExplicitForeshadowingCue,
+);
+assert.equal(foreshadowingRepairCandidate.canonicalMutationCount, 0);
+assert.equal(
+  foreshadowingRepairCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+  2,
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({ candidate: foreshadowingRepairCandidate }),
+  "the accepted second foreshadowing repair must retain its sealed proof",
+);
+
+const repeatedForeshadowingRequests = [];
+const repeatedForeshadowingFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-foreshadowing-stops-after-bounded-repair",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    repeatedForeshadowingRequests.push(request);
+    const result = closedReviewResult(
+      request,
+      `repeated-foreshadowing-${repeatedForeshadowingRequests.length}`,
+      fullReviewedStoryWithoutForeshadowingSignals,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider still omitted the required narrative cue"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    throw new Error("expected foreshadowing validation to reject the candidate");
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  repeatedForeshadowingRequests.length,
+  3,
+  "repeated foreshadowing misses must stop after generation and exactly two hidden repairs",
+);
+assert.equal(repeatedForeshadowingFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.equal(
+  repeatedForeshadowingFailure?.reviewFailureLeafCode,
+  "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+);
+assert.deepEqual(
+  repeatedForeshadowingFailure?.reviewContinuityFailures,
+  ["foreshadowing"],
+);
+for (const forbiddenKey of ["candidateId", "story", "draft", "draftDigests"]) {
+  assert.equal(Object.hasOwn(repeatedForeshadowingFailure ?? {}, forbiddenKey), false);
+}
+assert.doesNotMatch(
+  JSON.stringify(repeatedForeshadowingFailure),
+  /三次交貨的先後次序|比原先安排少了一人|internalDraft/u,
+  "terminal foreshadowing failure must not expose rejected prose or hidden drafts",
+);
+
+const mixedForeshadowingRequests = [];
+const mixedForeshadowingFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-mixed-foreshadowing-does-not-retry",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    mixedForeshadowingRequests.push(request);
+    throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+      code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+      continuityFailures: ["foreshadowing", "serial_hook"],
+    });
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  mixedForeshadowingRequests.length,
+  2,
+  "a mixed continuity failure must not receive the singleton-foreshadowing retry",
+);
+assert.equal(mixedForeshadowingFailure?.code, "RPG_FALLBACK_CLOSED_REVIEW_REQUIRED");
+assert.deepEqual(
+  mixedForeshadowingFailure?.reviewContinuityFailures,
+  ["foreshadowing", "serial_hook"],
+);
+
 const fullReviewedCandidate = await generateRpgChatTurnCandidate({
   snapshot: fullSnapshot,
   choice: fullChoice,
@@ -2102,7 +2445,7 @@ for (const request of uiLabelRepairRequests.slice(1)) {
   );
   assert.match(
     request.input ?? "",
-    /故事外不加前言、結語或寫作解釋；正文與人物台詞不得照抄或念出代號、標題或畫面文字.*每個「都必須在同一段對應一個」.*不得巢狀使用「」.*對話內引用名稱改用『』/u,
+    /只寫動作、具名對話或感官.*無前言解釋.*不抄代號、標題或畫面字.*「」同段配對.*不巢狀.*內引『』/u,
   );
   assert.ok((request.input?.length ?? Infinity) <= 1_950);
   assert.doesNotMatch(
@@ -2148,6 +2491,138 @@ assert.equal(
 assert.ok(
   await verifyPostFallbackClosedReviewReceipt({ candidate: uiLabelRepairCandidate }),
   "the valid UI-label repair must retain a verified sealed receipt",
+);
+
+const uiLabelThenForeshadowingLogicalTurnId =
+  "logical-turn-ui-label-then-foreshadowing-repair";
+const uiLabelThenForeshadowingRequests = [];
+const uiLabelThenForeshadowingAcceptedContents = [];
+const uiLabelThenForeshadowingCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: uiLabelThenForeshadowingLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    uiLabelThenForeshadowingRequests.push(request);
+    const content = uiLabelThenForeshadowingRequests.length === 1
+      ? uiLabelVisibleStory
+      : uiLabelThenForeshadowingRequests.length === 2
+        ? fullReviewedStoryWithoutForeshadowingSignals
+        : fullReviewedStoryWithExplicitForeshadowingCue;
+    const result = closedReviewResult(
+      request,
+      `ui-label-then-foreshadowing-${uiLabelThenForeshadowingRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected the production-shaped repair candidate"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    uiLabelThenForeshadowingAcceptedContents.push(content);
+    return result;
+  },
+});
+assert.deepEqual(
+  uiLabelThenForeshadowingRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(uiLabelThenForeshadowingLogicalTurnId, 1),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      uiLabelThenForeshadowingLogicalTurnId,
+      ["report_style"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      uiLabelThenForeshadowingLogicalTurnId,
+      ["report_style", "foreshadowing"],
+      2,
+    ),
+  ],
+  "a UI-label repair that newly misses only foreshadowing must reuse the existing bounded repair slot",
+);
+for (const [index, request] of uiLabelThenForeshadowingRequests.slice(1).entries()) {
+  assert.equal(request.ephemeralPrompt, true);
+  assert.equal(
+    request.generationOptions?.substantiveSceneBudget,
+    "rpg-application-minimum",
+  );
+  assert.ok((request.input?.length ?? Infinity) <= 1_950);
+  const requirementLine = request.input
+    ?.split("\n")
+    .find((line) => line.startsWith("這次重新寫成完整場景時，要特別做到"));
+  assert.ok(requirementLine, `production-shaped repair ${index + 1} must have a requirement line`);
+  if (index === 0) {
+    assert.doesNotMatch(
+      requirementLine,
+      /既有細節顯出異樣，原因仍未解開/u,
+      "the first UI-label repair must retain report-style-only responsibility",
+    );
+  } else {
+    assert.match(
+      requirementLine,
+      /既有細節顯出異樣，原因仍未解開/u,
+      "the bounded second repair must explicitly target the newly exposed foreshadowing miss",
+    );
+  }
+  assert.doesNotMatch(
+    request.input ?? "",
+    /主角說出「|三次交貨的先後次序|比原先安排少了一人/u,
+    "rejected prose must never enter the next hidden repair prompt",
+  );
+}
+assert.deepEqual(
+  uiLabelThenForeshadowingAcceptedContents,
+  [fullReviewedStoryWithExplicitForeshadowingCue],
+  "only the final validator-approved production-shaped repair may cross the provider boundary",
+);
+assert.equal(
+  uiLabelThenForeshadowingCandidate.story,
+  fullReviewedStoryWithExplicitForeshadowingCue,
+);
+assert.equal(uiLabelThenForeshadowingCandidate.canonicalMutationCount, 0);
+assert.equal(
+  uiLabelThenForeshadowingCandidate.executionReceipt.postFallbackClosedReview?.triggerReason,
+  "RPG_AI_CONTINUATION_UI_LABEL_VISIBLE",
+);
+assert.equal(
+  uiLabelThenForeshadowingCandidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,
+  2,
+);
+assert.equal(
+  uiLabelThenForeshadowingCandidate.executionReceipt.postFallbackClosedReview
+    ?.selectionRewriteEvidence?.candidateContentDigest,
+  digestStory(fullReviewedStoryWithExplicitForeshadowingCue),
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({
+    candidate: uiLabelThenForeshadowingCandidate,
+  }),
+  "the production-shaped bounded repair must retain a verified sealed receipt",
+);
+const serializedUiLabelThenForeshadowingCandidate = JSON.stringify(
+  uiLabelThenForeshadowingCandidate,
+);
+assert.doesNotMatch(
+  serializedUiLabelThenForeshadowingCandidate,
+  /主角說出「/u,
+  "the accepted candidate and receipt must not expose the rejected UI-labelled draft",
+);
+assert.equal(
+  serializedUiLabelThenForeshadowingCandidate.includes(
+    fullReviewedStoryWithoutForeshadowingSignals,
+  ),
+  false,
+  "the accepted candidate and receipt must not retain the rejected no-foreshadowing draft",
 );
 
 const repeatedUiLabelLogicalTurnId =
@@ -2277,7 +2752,7 @@ assert.deepEqual(
 for (const request of uiLabelThenMalformedQuoteRequests.slice(1)) {
   assert.match(
     request.input ?? "",
-    /每個「都必須在同一段對應一個」.*不得巢狀使用「」.*對話內引用名稱改用『』/u,
+    /「」同段配對.*不巢狀.*內引『』/u,
   );
 }
 assert.equal(
@@ -2548,6 +3023,191 @@ assert.ok(
   await verifyPostFallbackClosedReviewReceipt({ candidate: malformedQuoteRepairCandidate }),
 );
 
+const malformedQuoteThenForeshadowingLogicalTurnId =
+  "logical-turn-malformed-quote-then-foreshadowing-repair";
+const malformedQuoteThenForeshadowingRequests = [];
+const malformedQuoteThenForeshadowingAcceptedContents = [];
+const malformedQuoteThenForeshadowingCandidate = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: malformedQuoteThenForeshadowingLogicalTurnId,
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    malformedQuoteThenForeshadowingRequests.push(request);
+    const content = malformedQuoteThenForeshadowingRequests.length === 1
+      ? malformedDialogueQuoteStory
+      : malformedQuoteThenForeshadowingRequests.length === 2
+        ? fullReviewedStoryWithoutForeshadowingSignals
+        : fullReviewedStoryWithExplicitForeshadowingCue;
+    const result = closedReviewResult(
+      request,
+      `malformed-quote-then-foreshadowing-${malformedQuoteThenForeshadowingRequests.length}`,
+      content,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("local provider rejected the production quote-repair candidate"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    malformedQuoteThenForeshadowingAcceptedContents.push(content);
+    return result;
+  },
+});
+assert.deepEqual(
+  malformedQuoteThenForeshadowingRequests.map((request) => request.taskId),
+  [
+    await rpgLogicalTurnGenerationTaskId(
+      malformedQuoteThenForeshadowingLogicalTurnId,
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      malformedQuoteThenForeshadowingLogicalTurnId,
+      ["dialogue"],
+      1,
+    ),
+    await rpgLogicalTurnFallbackRepairTaskId(
+      malformedQuoteThenForeshadowingLogicalTurnId,
+      ["dialogue", "foreshadowing"],
+      2,
+    ),
+  ],
+  "a quote repair that newly misses only foreshadowing must reuse the existing bounded repair slot",
+);
+for (const [index, request] of malformedQuoteThenForeshadowingRequests.slice(1).entries()) {
+  assert.equal(request.ephemeralPrompt, true);
+  assert.ok((request.input?.length ?? Infinity) <= 1_950);
+  const requirementLine = request.input
+    ?.split("\n")
+    .find((line) => line.startsWith("這次重新寫成完整場景時，要特別做到"));
+  assert.ok(requirementLine, `production quote repair ${index + 1} must have a requirement line`);
+  assert.match(
+    requirementLine,
+    /加入能改變局勢的完整「」對話/u,
+    "both quote repair prompts must retain the original quote failure target",
+  );
+  if (index === 0) {
+    assert.doesNotMatch(requirementLine, /既有細節顯出異樣，原因仍未解開/u);
+  } else {
+    assert.match(requirementLine, /既有細節顯出異樣，原因仍未解開/u);
+  }
+  assert.doesNotMatch(
+    request.input ?? "",
+    /先守住「出口」|三次交貨的先後次序|比原先安排少了一人/u,
+    "neither rejected quote-repair draft may enter a later hidden prompt",
+  );
+}
+assert.deepEqual(
+  malformedQuoteThenForeshadowingAcceptedContents,
+  [fullReviewedStoryWithExplicitForeshadowingCue],
+  "only the final validator-approved production quote repair may cross the provider boundary",
+);
+assert.equal(
+  malformedQuoteThenForeshadowingCandidate.story,
+  fullReviewedStoryWithExplicitForeshadowingCue,
+);
+assert.equal(malformedQuoteThenForeshadowingCandidate.canonicalMutationCount, 0);
+assert.equal(
+  malformedQuoteThenForeshadowingCandidate.executionReceipt.postFallbackClosedReview
+    ?.triggerReason,
+  "RPG_AI_CONTINUATION_MALFORMED_DIALOGUE_QUOTES",
+);
+assert.equal(
+  malformedQuoteThenForeshadowingCandidate.executionReceipt.postFallbackClosedReview
+    ?.reviewAttempts,
+  2,
+);
+assert.equal(
+  malformedQuoteThenForeshadowingCandidate.executionReceipt.postFallbackClosedReview
+    ?.selectionRewriteEvidence?.candidateContentDigest,
+  digestStory(fullReviewedStoryWithExplicitForeshadowingCue),
+);
+assert.ok(
+  await verifyPostFallbackClosedReviewReceipt({
+    candidate: malformedQuoteThenForeshadowingCandidate,
+  }),
+  "the production quote-to-foreshadowing repair must retain a verified sealed receipt",
+);
+const serializedMalformedQuoteThenForeshadowingCandidate = JSON.stringify(
+  malformedQuoteThenForeshadowingCandidate,
+);
+assert.doesNotMatch(
+  serializedMalformedQuoteThenForeshadowingCandidate,
+  /先守住「出口」/u,
+  "the accepted candidate and receipt must not expose the rejected malformed-quote draft",
+);
+assert.equal(
+  serializedMalformedQuoteThenForeshadowingCandidate.includes(
+    fullReviewedStoryWithoutForeshadowingSignals,
+  ),
+  false,
+  "the accepted candidate and receipt must not retain the rejected no-foreshadowing draft",
+);
+
+const genericDialogueThenForeshadowingRequests = [];
+const genericDialogueThenForeshadowingFailure = await generateRpgChatTurnCandidate({
+  snapshot: fullSnapshot,
+  choice: fullChoice,
+  logicalTurnId: "logical-turn-generic-dialogue-does-not-broaden-foreshadowing-retry",
+  generationDeadlineMs: 100,
+  fallbackReviewDeadlineMs: 100,
+  coordinationDependencies: {
+    now: () => 0,
+    wait: async () => undefined,
+    probeAvailability: async () => "ready",
+    retryBackoffMs: 1,
+  },
+  closedAIInvoker: async (request) => {
+    genericDialogueThenForeshadowingRequests.push(request);
+    if (genericDialogueThenForeshadowingRequests.length === 1) {
+      throw Object.assign(new Error("RPG_NOVEL_CONTINUITY_GATE_FAILED"), {
+        code: "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+        continuityFailures: ["dialogue"],
+      });
+    }
+    const result = closedReviewResult(
+      request,
+      "generic-dialogue-then-foreshadowing",
+      fullReviewedStoryWithoutForeshadowingSignals,
+    );
+    try {
+      await request.validateBeforePersistence?.(result);
+    } catch (error) {
+      throw Object.assign(new Error("generic dialogue repair omitted foreshadowing"), {
+        code: "LOCAL_PROVIDER_APPLICATION_VALIDATION_FAILED",
+        cause: error,
+      });
+    }
+    return result;
+  },
+}).then(() => null, (error) => error);
+assert.equal(
+  genericDialogueThenForeshadowingRequests.length,
+  2,
+  "a generic continuity-dialogue trigger must not inherit the malformed-quote-specific retry",
+);
+assert.equal(
+  genericDialogueThenForeshadowingFailure?.generationFailureLeafCode,
+  "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+);
+assert.equal(
+  genericDialogueThenForeshadowingFailure?.reviewFailureLeafCode,
+  "RPG_NOVEL_CONTINUITY_GATE_FAILED",
+);
+assert.deepEqual(
+  genericDialogueThenForeshadowingFailure?.reviewContinuityFailures,
+  ["foreshadowing"],
+);
+
 const repeatedMalformedQuoteLogicalTurnId =
   "logical-turn-malformed-quote-stops-after-two-repairs";
 const repeatedMalformedQuoteRequests = [];
@@ -2784,7 +3444,7 @@ assert.deepEqual(
 );
 assert.match(
   reportStyleThenVoiceRequests[1]?.input ?? "",
-  /每一句引號內台詞只能出現一次/u,
+  /每句台詞只出現一次/u,
 );
 assert.match(
   reportStyleThenVoiceRequests[2]?.input ?? "",
@@ -2960,7 +3620,7 @@ assert.match(
 );
 assert.match(
   adaptiveReportStyleRequests[2]?.input ?? "",
-  /每一段都直接呈現人物動作、具名對話或現場感官.*故事外不加前言、結語或寫作解釋/u,
+  /只寫動作、具名對話或感官.*無前言解釋/u,
   "the adapted prompt must explicitly demand reader-facing novel prose",
 );
 assert.match(
@@ -3184,7 +3844,7 @@ assert.equal(
 );
 assert.match(
   scrambledInitialRepair.requests[1]?.input ?? "",
-  /這次重新寫成完整場景時，要特別做到.*不灌水、不重述，補足到契約規定的字數範圍；每一段都直接呈現人物動作、具名對話或現場感官/u,
+  /這次重新寫成完整場景時，要特別做到.*不灌水、不重述，補足到契約規定的字數範圍；只寫動作、具名對話或感官/u,
 );
 assert.equal(
   scrambledInitialRepair.requests[1]?.applicationValidationBindingDigest,
@@ -3247,7 +3907,7 @@ for (const resumed of [firstEvenRepairResume, secondEvenRepairResume]) {
   assert.equal(resumed.requests[0]?.taskId, resumed.resumeProviderTaskId);
   assert.match(
     resumed.requests[0]?.input ?? "",
-    /這次重新寫成完整場景時，要特別做到.*每一段都直接呈現人物動作、具名對話或現場感官.*每段只推進一個不同的新事件或後果/u,
+    /這次重新寫成完整場景時，要特別做到.*只寫動作、具名對話或感官.*每段只推進一個不同的新事件或後果/u,
   );
   assert.equal(
     resumed.candidate.executionReceipt.postFallbackClosedReview?.reviewAttempts,

@@ -581,6 +581,10 @@ for (const scenario of scenarios) {
   assert.match(compactSceneContract, /1100–1500/u);
   assert.match(compactSceneContract, /首段須(?:自然且逐字放入|承接)/u);
   assert.match(compactSceneContract, /具名說話/u);
+  assert.match(
+    compactSceneContract,
+    /既有細節顯出異樣，原因仍未解開/u,
+  );
   const compactSupportingCharacters = snapshot.directorContext.supportingCharacters ?? [];
   assert.ok(compactSupportingCharacters.length >= 2);
   const supportingInstructionCases = [
@@ -676,6 +680,7 @@ for (const scenario of scenarios) {
     assert.match(saturatedContract, /配角2是「飽和配角乙」/u);
     assert.match(saturatedContract, /能力所屬時代為修真古代/u);
     assert.match(saturatedContract, /不可違反/u);
+    assert.match(saturatedContract, /既有細節顯出異樣，原因仍未解開/u);
     assert.equal(saturatedContract.match(/\[\/RPG_SCENE_CONTRACT_V2\]/gu)?.length, 1);
     assert.match(saturatedContract, /［\/RPG_SCENE_CONTRACT_V2］/u);
 
