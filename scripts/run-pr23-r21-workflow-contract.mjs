@@ -259,6 +259,7 @@ const jobNames = [
   "validate",
   "bootstrap_trusted_preview_env",
   "bootstrap_trusted_preview_env_complete",
+  "diagnose_trusted_preview_env",
   "preview",
   "historical_rc6_2_recovery_hold",
   "audit_last_known_good",
@@ -316,6 +317,7 @@ const globalConfiguration = workflow.slice(0, workflow.indexOf("\njobs:"));
 const validateJob = section("validate");
 const trustedPreviewBootstrapJob = section("bootstrap_trusted_preview_env");
 const trustedPreviewBootstrapCompleteJob = section("bootstrap_trusted_preview_env_complete");
+const trustedPreviewDiagnosisJob = section("diagnose_trusted_preview_env");
 const previewJob = section("preview");
 const historicalRecoveryHoldJob = section("historical_rc6_2_recovery_hold");
 const lastKnownGoodAuditJob = section("audit_last_known_good");
@@ -385,6 +387,7 @@ assert.match(globalConfiguration, /push:[\s\S]*branches:[\s\S]*- main/u);
 assert.doesNotMatch(globalConfiguration, /agent\/p24b-rc6-conversation-first/u);
 assert.match(globalConfiguration, /preview_ref:/u);
 assert.match(globalConfiguration, /bootstrap-trusted-preview-env/u);
+assert.match(globalConfiguration, /diagnose-trusted-preview-env/u);
 assert.match(globalConfiguration, /deploy-preview/u);
 assert.match(globalConfiguration, /deploy-immutable-product-recovery/u);
 assert.match(globalConfiguration, /audit-rc6-2-last-known-good/u);
@@ -414,8 +417,10 @@ for (const [name, value] of [
 assert.match(globalConfiguration, /group:[^\r\n]*deploy-immutable-product-recovery[^\r\n]*vercel-production-main/u);
 assert.match(globalConfiguration, /group:[^\r\n]*audit-rc6-2-last-known-good[^\r\n]*vercel-lkg-audit/u);
 assert.match(globalConfiguration, /group:[^\r\n]*bootstrap-trusted-preview-env[^\r\n]*deploy-preview[^\r\n]*vercel-trusted-attestation-preview/u);
+assert.match(globalConfiguration, /group:[^\r\n]*diagnose-trusted-preview-env[^\r\n]*vercel-trusted-attestation-preview/u);
 assert.match(globalConfiguration, /cancel-in-progress:[^\r\n]*deploy-immutable-product-recovery/u);
 assert.match(globalConfiguration, /cancel-in-progress:[^\r\n]*bootstrap-trusted-preview-env[^\r\n]*deploy-preview/u);
+assert.match(globalConfiguration, /cancel-in-progress:[^\r\n]*diagnose-trusted-preview-env/u);
 
 assert.match(trustedPreviewBootstrapJob, /github\.event_name == 'workflow_dispatch'/u);
 assert.match(trustedPreviewBootstrapJob, /inputs\.operation == 'bootstrap-trusted-preview-env'/u);
@@ -466,6 +471,84 @@ assert.match(trustedPreviewBootstrapCompleteJob, /always\(\)/u);
 assert.match(trustedPreviewBootstrapCompleteJob, /inputs\.operation == 'bootstrap-trusted-preview-env'/u);
 assert.match(trustedPreviewBootstrapCompleteJob, /BOOTSTRAP_RESULT[\s\S]*!= "success"[\s\S]*exit 1/u);
 
+assert.match(trustedPreviewDiagnosisJob, /github\.event_name == 'workflow_dispatch'/u);
+assert.match(trustedPreviewDiagnosisJob, /inputs\.operation == 'diagnose-trusted-preview-env'/u);
+assert.match(trustedPreviewDiagnosisJob, /github\.ref_type == 'branch'/u);
+assert.match(trustedPreviewDiagnosisJob, /github\.ref == 'refs\/heads\/trusted-attestation-producer'/u);
+assert.match(trustedPreviewDiagnosisJob, /github\.sha == inputs\.preview_ref/u);
+assert.match(trustedPreviewDiagnosisJob, /github\.workflow_sha == github\.sha/u);
+assert.match(trustedPreviewDiagnosisJob, /environment:\s*trusted-preview/u);
+assert.match(trustedPreviewDiagnosisJob, /timeout-minutes:\s*5/u);
+assert.match(trustedPreviewDiagnosisJob, /permissions:[\s\S]*contents:\s*read/u);
+assert.match(trustedPreviewDiagnosisJob, /ref:\s*\$\{\{ inputs\.preview_ref \}\}/u);
+assert.match(trustedPreviewDiagnosisJob, /persist-credentials:\s*false/u);
+assert.match(trustedPreviewDiagnosisJob, /\[\[ "\$GITHUB_REF" == "refs\/heads\/trusted-attestation-producer" \]\]/u);
+assert.match(trustedPreviewDiagnosisJob, /\[\[ "\$EXPECTED_WORKFLOW_SHA" == "\$GITHUB_SHA" \]\]/u);
+const trustedPreviewDiagnosisSelfTest = stepSection(
+  trustedPreviewDiagnosisJob,
+  "Verify read-only diagnosis and disclosure boundaries",
+);
+const trustedPreviewDiagnosisAuthority = stepSection(
+  trustedPreviewDiagnosisJob,
+  "Enforce exact read-only diagnosis authority",
+);
+const trustedPreviewDiagnosis = stepSection(
+  trustedPreviewDiagnosisJob,
+  "Diagnose trusted Preview metadata using Vercel GET only",
+);
+assert.deepEqual(
+  [...trustedPreviewDiagnosisJob.matchAll(/^      - name: (.+)$/gmu)].map((match) => match[1]),
+  [
+    "Checkout exact trusted Preview diagnosis head",
+    "Enforce exact read-only diagnosis authority",
+    "Set up Node.js",
+    "Verify read-only diagnosis and disclosure boundaries",
+    "Diagnose trusted Preview metadata using Vercel GET only",
+  ],
+  "read-only diagnosis job must keep its exact five-step allowlist",
+);
+assert.match(
+  trustedPreviewDiagnosisSelfTest,
+  /^        run: node scripts\/run-trusted-preview-environment-diagnostics-tests\.mjs$/mu,
+);
+assert.match(
+  trustedPreviewDiagnosis,
+  /^        run: node scripts\/bootstrap-trusted-preview-env\.mjs --diagnose-only$/mu,
+);
+assert.doesNotMatch(
+  trustedPreviewDiagnosisAuthority,
+  /\b(?:curl|wget|gh|vercel|supabase|npm|pnpm|npx)\b|https?:\/\//u,
+);
+const trustedPreviewDiagnosisSecretReferences = [...new Set(
+  [...trustedPreviewDiagnosisJob.matchAll(/secrets\.([A-Z0-9_]+)/gu)]
+    .map((match) => match[1]),
+)].sort();
+assert.deepEqual(
+  trustedPreviewDiagnosisSecretReferences,
+  ["VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "VERCEL_TOKEN"],
+  "read-only diagnosis job may reference exactly the three Vercel read credentials",
+);
+for (const secret of ["VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "VERCEL_TOKEN"]) {
+  assert.match(trustedPreviewDiagnosis, new RegExp(`${secret}: \\$\\{\\{ secrets\\.${secret} \\}\\}`, "u"));
+  assert.doesNotMatch(
+    trustedPreviewDiagnosisJob.replace(trustedPreviewDiagnosis, ""),
+    new RegExp(`\\b${secret}\\b`, "u"),
+    `${secret} must only be exposed to the one read-only diagnosis step`,
+  );
+}
+for (const forbidden of trustedPreviewSourceSecrets) {
+  assert.doesNotMatch(trustedPreviewDiagnosisJob, new RegExp(`\\b${forbidden}\\b`, "u"));
+}
+assert.doesNotMatch(
+  trustedPreviewDiagnosisJob,
+  /--required|vercel\s+(?:env|pull|deploy|link|project|alias)|supabase|migration|029|\b(?:POST|PUT|PATCH|DELETE)\b|set -x|upload-artifact|GITHUB_(?:OUTPUT|ENV|STEP_SUMMARY)/iu,
+);
+assert.ok(
+  trustedPreviewDiagnosisJob.indexOf(trustedPreviewDiagnosisSelfTest)
+    < trustedPreviewDiagnosisJob.indexOf(trustedPreviewDiagnosis),
+  "read-only diagnosis self-test must pass before remote GETs",
+);
+
 assert.match(trustedPreviewBootstrap, /TRUSTED_PREVIEW_BRANCH = "trusted-attestation-producer"/u);
 assert.match(trustedPreviewBootstrap, /"env", "add", spec\.key, PREVIEW_TARGET, TRUSTED_PREVIEW_BRANCH/u);
 assert.match(trustedPreviewBootstrap, /input:\s*`\$\{value\}\\n`/u);
@@ -477,6 +560,12 @@ assert.match(trustedPreviewBootstrap, /record\.targets\.length === 1[\s\S]*recor
 assert.match(trustedPreviewBootstrap, /record\.gitBranch === TRUSTED_PREVIEW_BRANCH/u);
 assert.match(trustedPreviewBootstrap, /branchRecords\.length !== 1/u);
 assert.doesNotMatch(trustedPreviewBootstrap, /"env",\s*"rm"|--value|GITHUB_(?:OUTPUT|ENV|STEP_SUMMARY)/u);
+assert.match(trustedPreviewBootstrap, /method:\s*"GET"/u);
+assert.match(trustedPreviewBootstrap, /url\.searchParams\.set\("decrypt", "false"\)/u);
+assert.match(trustedPreviewBootstrap, /mutationCount:\s*0/u);
+assert.match(trustedPreviewBootstrap, /previewSourceSecretsRead:\s*false/u);
+assert.match(trustedPreviewBootstrap, /supabaseAccessed:\s*false/u);
+assert.match(trustedPreviewBootstrap, /VERCEL_UNKNOWN_SAFE_FAILURE/u);
 for (const sourceName of trustedPreviewSourceSecrets) {
   assert.match(trustedPreviewBootstrap, new RegExp(`"${sourceName}"`, "u"));
 }
@@ -1104,7 +1193,7 @@ for (const [name, productionJob] of [
   assert.doesNotMatch(productionJob, /vars\.RC6_4_PRODUCT_COMMIT/u, `${name} must not retain a stale SHA gate`);
   assert.doesNotMatch(
     productionJob,
-    /inputs\.operation == '(?:deploy-preview|audit-last-known-good|audit-rc6-2-last-known-good|restore-known-stable)'/u,
+    /inputs\.operation == '(?:deploy-preview|diagnose-trusted-preview-env|audit-last-known-good|audit-rc6-2-last-known-good|restore-known-stable)'/u,
     `${name} must not be reachable from any non-recovery workflow_dispatch operation`,
   );
 }

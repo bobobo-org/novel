@@ -9,11 +9,12 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Trusted Preview bootstrap/deploy, read-only LKG audit, historical RC6.2 recovery HOLD, or Production rollback operation
+        description: Trusted Preview bootstrap/deploy/read-only diagnosis, read-only LKG audit, historical RC6.2 recovery HOLD, or Production rollback operation
         required: true
         type: choice
         options:
           - bootstrap-trusted-preview-env
+          - diagnose-trusted-preview-env
           - deploy-preview
           - audit-last-known-good
           - audit-rc6-2-last-known-good
@@ -30,8 +31,8 @@ permissions:
   attestations: read
 
 concurrency:
-  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'deploy-immutable-product-recovery'))) && 'vercel-production-main') || ((github.event_name == 'workflow_dispatch' && (inputs.operation == 'bootstrap-trusted-preview-env' || inputs.operation == 'deploy-preview')) && 'vercel-trusted-attestation-preview') || ((github.event_name == 'workflow_dispatch' && (inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good')) && format('vercel-lkg-audit-{0}', inputs.preview_ref || github.sha)) || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
-  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'bootstrap-trusted-preview-env' || inputs.operation == 'deploy-preview' || inputs.operation == 'restore-known-stable' || inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good' || inputs.operation == 'deploy-immutable-product-recovery'))) }}
+  group: ${{ (((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'restore-known-stable' || inputs.operation == 'deploy-immutable-product-recovery'))) && 'vercel-production-main') || ((github.event_name == 'workflow_dispatch' && (inputs.operation == 'bootstrap-trusted-preview-env' || inputs.operation == 'diagnose-trusted-preview-env' || inputs.operation == 'deploy-preview')) && 'vercel-trusted-attestation-preview') || ((github.event_name == 'workflow_dispatch' && (inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good')) && format('vercel-lkg-audit-{0}', inputs.preview_ref || github.sha)) || format('vercel-preview-{0}', github.event.pull_request.number || inputs.preview_ref || github.ref) }}
+  cancel-in-progress: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'bootstrap-trusted-preview-env' || inputs.operation == 'diagnose-trusted-preview-env' || inputs.operation == 'deploy-preview' || inputs.operation == 'restore-known-stable' || inputs.operation == 'audit-last-known-good' || inputs.operation == 'audit-rc6-2-last-known-good' || inputs.operation == 'deploy-immutable-product-recovery'))) }}
 
 env:
   RECOVERY_PRODUCT_COMMIT: 29fc6e742672bb07187765d34ea818afdadf56ae
@@ -592,6 +593,62 @@ jobs:
             exit 1
           fi
           echo "::notice title=Trusted Preview bootstrap complete::Branch-scoped Preview metadata was verified without exporting secret values."
+
+  diagnose_trusted_preview_env:
+    name: diagnose trusted Preview environment read-only
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.operation == 'diagnose-trusted-preview-env' &&
+      github.ref_type == 'branch' &&
+      github.ref == 'refs/heads/trusted-attestation-producer' &&
+      github.sha == inputs.preview_ref &&
+      github.workflow_sha == github.sha
+    runs-on: ubuntu-latest
+    environment: trusted-preview
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact trusted Preview diagnosis head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.preview_ref }}
+          persist-credentials: false
+
+      - name: Enforce exact read-only diagnosis authority
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_EVENT_SHA: ${{ github.sha }}
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_REF_TYPE: ${{ github.ref_type }}
+          EXPECTED_PREVIEW_REF: ${{ inputs.preview_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_PREVIEW_REF" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$EXPECTED_REF_TYPE" == "branch" ]]
+          [[ "$GITHUB_REF" == "refs/heads/trusted-attestation-producer" ]]
+          [[ "$GITHUB_SHA" == "$EXPECTED_PREVIEW_REF" ]]
+          [[ "$EXPECTED_EVENT_SHA" == "$EXPECTED_PREVIEW_REF" ]]
+          [[ "$EXPECTED_WORKFLOW_SHA" == "$GITHUB_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_PREVIEW_REF" ]]
+          remote="$(git remote get-url origin)"
+          [[ "$remote" == *"$EXPECTED_REPOSITORY"* ]]
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Verify read-only diagnosis and disclosure boundaries
+        run: node scripts/run-trusted-preview-environment-diagnostics-tests.mjs
+
+      - name: Diagnose trusted Preview metadata using Vercel GET only
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: node scripts/bootstrap-trusted-preview-env.mjs --diagnose-only
 
   preview:
     name: preview
